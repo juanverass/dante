@@ -2,7 +2,7 @@
 
 **Distributed Agent Network for Task Execution**
 
-Serviço local em .NET 10 com runners de agentes e transporte Telegram básico. Os comandos de execução e o controle de acesso serão adicionados nas próximas etapas do MVP.
+Serviço local em .NET 10 com runners de agentes, bot Telegram e gerenciamento básico de jobs em memória.
 
 ## Requisitos
 
@@ -44,4 +44,6 @@ Configure `Telegram__AllowedUserIds` com uma lista de IDs numéricos de usuário
 
 Com o Worker em execução, envie `/ping` de uma conta autorizada ao bot. Ele responde `pong` no mesmo chat. O bot usa long polling e não requer webhook nem porta de entrada. Falhas de comunicação são registradas sem o token e o polling tenta novamente; ao encerrar o Worker, a requisição em andamento é cancelada.
 
-Envie `/codex <prompt>` ou `/claude <prompt>` para executar o agente local. Configure `Telegram__AgentWorkingDirectory` com o caminho absoluto do repositório em que os agentes devem trabalhar; por padrão, usa o diretório atual do Worker. O bot confirma o início e informa conclusão ou falha, incluindo a saída produzida. Respostas longas são divididas em mensagens de até 4.000 caracteres. Um prompt vazio recebe uma instrução de uso. Somente usuários listados em `Telegram__AllowedUserIds` podem executar os comandos.
+Envie `/codex <prompt>` ou `/claude <prompt>` para executar o agente local. Configure `Telegram__AgentWorkingDirectory` com o caminho absoluto do repositório em que os agentes devem trabalhar; por padrão, usa o diretório atual do Worker. O bot confirma o início com um Job ID e informa conclusão, falha ou cancelamento, incluindo a saída produzida quando aplicável. Respostas longas são divididas em mensagens de até 4.000 caracteres. Um prompt vazio recebe uma instrução de uso. Somente usuários listados em `Telegram__AllowedUserIds` podem executar os comandos.
+
+Use `/status` para consultar os jobs ativos e os 20 mais recentes encerrados. Use `/cancel <jobId>` para solicitar o cancelamento de um job ativo. O resultado final também é enviado ao chat que iniciou a execução. Os estados são `Queued`, `Running`, `Succeeded`, `Failed` e `Cancelled`; o histórico fica somente na memória do Worker e é perdido ao reiniciar. O cancelamento encerra a árvore de processos do agente.

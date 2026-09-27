@@ -1,4 +1,5 @@
 using Dante.Worker.Agents;
+using Dante.Worker.Jobs;
 using Dante.Worker.Telegram;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -17,6 +18,7 @@ public sealed class TelegramPollingServiceTests
             new TelegramUserAuthorizer(Options.Create(new TelegramOptions { AllowedUserIds = "123" })),
             new UnusedRunner(),
             new UnusedRunner(),
+            new JobRegistry(),
             NullLogger<TelegramPollingService>.Instance);
 
         await service.StartAsync(CancellationToken.None);
@@ -43,6 +45,7 @@ public sealed class TelegramPollingServiceTests
             new TelegramUserAuthorizer(Options.Create(new TelegramOptions())),
             new UnusedRunner(),
             new UnusedRunner(),
+            new JobRegistry(),
             NullLogger<TelegramPollingService>.Instance);
 
         await service.StartAsync(CancellationToken.None);
@@ -70,6 +73,7 @@ public sealed class TelegramPollingServiceTests
             new TelegramUserAuthorizer(options),
             new UnusedRunner(),
             new UnusedRunner(),
+            new JobRegistry(),
             NullLogger<TelegramPollingService>.Instance);
 
         await service.StartAsync(CancellationToken.None);
