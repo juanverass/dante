@@ -20,6 +20,12 @@ O Worker permanece ativo até receber um sinal de encerramento (por exemplo, `Ct
 
 ## Execução de agentes
 
-`IAgentProcessExecutor` oferece `IsAvailable(AgentKind)` e `ExecuteAsync(AgentProcessRequest, CancellationToken)`. O pedido informa o agente, um diretório de trabalho absoluto e uma lista de argumentos. A implementação resolve apenas os executáveis `codex` e `claude` no `PATH`; no Windows, procura binários nativos `.exe` ou `.com`. Scripts `.cmd` e `.bat` não são iniciados, pois exigiriam um shell. A infraestrutura é registrada no contêiner de serviços do Worker; os runners específicos de cada agente serão adicionados nas próximas issues.
+`IAgentProcessExecutor` oferece `IsAvailable(AgentKind)` e `ExecuteAsync(AgentProcessRequest, CancellationToken)`. O pedido informa o agente, um diretório de trabalho absoluto e uma lista de argumentos. A implementação resolve apenas os executáveis `codex` e `claude` no `PATH`; no Windows, procura binários nativos `.exe` ou `.com`. Scripts `.cmd` e `.bat` não são iniciados, pois exigiriam um shell. A infraestrutura é registrada no contêiner de serviços do Worker; os runners de agentes usam essa infraestrutura.
 
 O resultado contém stdout, stderr, código de saída, horários de início e fim e estado (`Succeeded`, `Failed` ou `Cancelled`). Uma CLI ausente ou uma falha ao iniciar o processo retorna `Failed` com uma mensagem de erro. O cancelamento encerra a árvore de processos iniciada.
+
+## Runner do Codex
+
+`ICodexRunner.RunAsync(prompt, workingDirectory, cancellationToken)` executa `codex exec` no diretório informado e devolve o resultado completo da execução. O diretório deve existir, ser absoluto e pertencer a um repositório Git. O runner fixa `--approve-for-me`, que permite alterações no workspace e usa revisão automática quando uma ação exigir aprovação. O prompt é passado como um único argumento, sem interpretação por shell; comandos, opções e executável são fixos pelo runner. O runner é registrado no contêiner de serviços do Worker para uso pela futura integração com Telegram.
+
+O Codex CLI precisa estar instalado e autenticado localmente (`codex login`). No Windows, coloque o executável nativo `codex.exe` ou `codex.com` no `PATH`, conforme a política da infraestrutura de processos. A saída de erro da CLI, inclusive mensagens de autenticação emitidas por ela, fica em `StandardError`; `ErrorMessage` informa a falha da execução. Uma CLI ausente retorna `Failed` com mensagem explícita. Um `CancellationToken` cancela a execução e encerra o processo.
