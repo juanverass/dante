@@ -14,7 +14,7 @@ public sealed class CodexRunner(IAgentProcessExecutor processExecutor) : ICodexR
         var request = new AgentProcessRequest(
             AgentKind.Codex,
             workingDirectory,
-            ["exec", "--skip-git-repo-check", "--", prompt]);
+            ["exec", "--sandbox", "workspace-write", "--approve-for-me", "--", prompt]);
 
         return processExecutor.ExecuteAsync(request, cancellationToken);
     }
