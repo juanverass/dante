@@ -1,0 +1,19 @@
+# .NET build and tooling
+**/bin/
+**/obj/
+.vs/
+.vscode/
+*.user
+*.suo
+TestResults/
+*.trx
+coverage/
+coverage.*
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+**/appsettings.Local.json
+**/appsettings.*.Local.json
+**/appsettings.Development.json
