@@ -5,6 +5,7 @@ namespace Dante.Worker.Telegram;
 public sealed class TelegramPollingService(
     ITelegramBotApi botApi,
     IOptions<TelegramOptions> options,
+    TelegramUserAuthorizer authorizer,
     ILogger<TelegramPollingService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -23,9 +24,13 @@ public sealed class TelegramPollingService(
                 var updates = await botApi.GetUpdatesAsync(offset, stoppingToken);
                 foreach (var update in updates)
                 {
-                    if (update.Message is { Text: not null } message && IsPing(message.Text))
+                    if (update.Message is { Text: not null } message
+                        && authorizer.IsAuthorized(message.From))
                     {
-                        await botApi.SendMessageAsync(message.Chat.Id, "pong", stoppingToken);
+                        if (IsPing(message.Text))
+                        {
+                            await botApi.SendMessageAsync(message.Chat.Id, "pong", stoppingToken);
+                        }
                     }
 
                     offset = Math.Max(offset, update.UpdateId + 1);

@@ -17,7 +17,7 @@ public sealed class TelegramBotApiTests
                 JsonDocument.Parse(await request.Content!.ReadAsStringAsync()).RootElement.Clone()));
 
             var result = request.RequestUri.AbsolutePath.EndsWith("getUpdates", StringComparison.Ordinal)
-                ? """{"ok":true,"result":[{"update_id":42,"message":{"chat":{"id":-123},"text":"/ping"}}]}"""
+                ? """{"ok":true,"result":[{"update_id":42,"message":{"chat":{"id":-123},"from":{"id":123,"username":"someone_else"},"text":"/ping"}}]}"""
                 : """{"ok":true,"result":{"message_id":5}}""";
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(result) };
         }));
@@ -28,6 +28,7 @@ public sealed class TelegramBotApiTests
 
         Assert.Equal(42, updates[0].UpdateId);
         Assert.Equal("/ping", updates[0].Message!.Text);
+        Assert.Equal(123, updates[0].Message!.From!.Id);
         Assert.Equal("/bottest-token/getUpdates", requests[0].Path);
         Assert.Equal(41, requests[0].Body.GetProperty("offset").GetInt64());
         Assert.Equal(25, requests[0].Body.GetProperty("timeout").GetInt32());
