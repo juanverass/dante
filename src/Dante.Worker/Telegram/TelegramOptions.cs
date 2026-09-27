@@ -7,4 +7,6 @@ public sealed class TelegramOptions
     public string BotToken { get; set; } = string.Empty;
 
     public string AllowedUserIds { get; set; } = string.Empty;
+
+    public string AgentWorkingDirectory { get; set; } = Environment.CurrentDirectory;
 }
