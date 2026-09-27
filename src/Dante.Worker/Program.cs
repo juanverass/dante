@@ -8,6 +8,7 @@ builder.Services.AddSingleton<IAgentProcessExecutor, AgentProcessExecutor>();
 builder.Services.AddSingleton<ICodexRunner, CodexRunner>();
 builder.Services.AddSingleton<IClaudeRunner, ClaudeRunner>();
 builder.Services.Configure<TelegramOptions>(builder.Configuration.GetSection(TelegramOptions.SectionName));
+builder.Services.AddSingleton<TelegramUserAuthorizer>();
 builder.Services.AddSingleton<HttpClient>();
 builder.Services.AddSingleton<ITelegramBotApi, TelegramBotApi>();
 builder.Services.AddHostedService<Worker>();

@@ -12,7 +12,8 @@ public sealed class TelegramPollingServiceTests
         var api = new StubBotApi();
         using var service = new TelegramPollingService(
             api,
-            Options.Create(new TelegramOptions { BotToken = "test-token" }),
+            Options.Create(new TelegramOptions { BotToken = "test-token", AllowedUserIds = "123" }),
+            new TelegramUserAuthorizer(Options.Create(new TelegramOptions { AllowedUserIds = "123" })),
             NullLogger<TelegramPollingService>.Instance);
 
         await service.StartAsync(CancellationToken.None);
@@ -36,6 +37,7 @@ public sealed class TelegramPollingServiceTests
         using var service = new TelegramPollingService(
             api,
             Options.Create(new TelegramOptions()),
+            new TelegramUserAuthorizer(Options.Create(new TelegramOptions())),
             NullLogger<TelegramPollingService>.Instance);
 
         await service.StartAsync(CancellationToken.None);
@@ -44,7 +46,38 @@ public sealed class TelegramPollingServiceTests
         Assert.Equal(0, api.PollCount);
     }
 
-    private sealed class StubBotApi : ITelegramBotApi
+    [Theory]
+    [InlineData("", 123L)]
+    [InlineData("123", 999L)]
+    [InlineData("123", null)]
+    [InlineData("123,invalid", 123L)]
+    public async Task DoesNotReplyToUnauthorizedSender(string allowedUserIds, long? senderId)
+    {
+        var api = new StubBotApi(senderId);
+        var options = Options.Create(new TelegramOptions
+        {
+            BotToken = "test-token",
+            AllowedUserIds = allowedUserIds
+        });
+        using var service = new TelegramPollingService(
+            api,
+            options,
+            new TelegramUserAuthorizer(options),
+            NullLogger<TelegramPollingService>.Instance);
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            Assert.Equal(43, await api.NextOffset.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Empty(api.Messages);
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    private sealed class StubBotApi(long? senderId = 123) : ITelegramBotApi
     {
         public TaskCompletionSource Replied { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<long> NextOffset { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -63,7 +96,9 @@ public sealed class TelegramPollingServiceTests
             if (PollCount == 2)
             {
                 Assert.Equal(0, offset);
-                return [new TelegramUpdate(42, new TelegramMessage(new TelegramChat(-123), "/ping"))];
+                return [new TelegramUpdate(42, new TelegramMessage(
+                    new TelegramChat(-123), "/ping",
+                    senderId is long id ? new TelegramUser(id) : null))];
             }
 
             NextOffset.TrySetResult(offset);

@@ -8,7 +8,11 @@ public sealed record TelegramUpdate(
 
 public sealed record TelegramMessage(
     [property: JsonPropertyName("chat")] TelegramChat Chat,
-    [property: JsonPropertyName("text")] string? Text);
+    [property: JsonPropertyName("text")] string? Text,
+    [property: JsonPropertyName("from")] TelegramUser? From);
 
 public sealed record TelegramChat(
+    [property: JsonPropertyName("id")] long Id);
+
+public sealed record TelegramUser(
     [property: JsonPropertyName("id")] long Id);
