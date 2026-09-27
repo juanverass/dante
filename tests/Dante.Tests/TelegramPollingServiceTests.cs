@@ -1,3 +1,4 @@
+using Dante.Worker.Agents;
 using Dante.Worker.Telegram;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -14,6 +15,8 @@ public sealed class TelegramPollingServiceTests
             api,
             Options.Create(new TelegramOptions { BotToken = "test-token", AllowedUserIds = "123" }),
             new TelegramUserAuthorizer(Options.Create(new TelegramOptions { AllowedUserIds = "123" })),
+            new UnusedRunner(),
+            new UnusedRunner(),
             NullLogger<TelegramPollingService>.Instance);
 
         await service.StartAsync(CancellationToken.None);
@@ -38,6 +41,8 @@ public sealed class TelegramPollingServiceTests
             api,
             Options.Create(new TelegramOptions()),
             new TelegramUserAuthorizer(Options.Create(new TelegramOptions())),
+            new UnusedRunner(),
+            new UnusedRunner(),
             NullLogger<TelegramPollingService>.Instance);
 
         await service.StartAsync(CancellationToken.None);
@@ -63,6 +68,8 @@ public sealed class TelegramPollingServiceTests
             api,
             options,
             new TelegramUserAuthorizer(options),
+            new UnusedRunner(),
+            new UnusedRunner(),
             NullLogger<TelegramPollingService>.Instance);
 
         await service.StartAsync(CancellationToken.None);
@@ -112,5 +119,12 @@ public sealed class TelegramPollingServiceTests
             Replied.TrySetResult();
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class UnusedRunner : ICodexRunner, IClaudeRunner
+    {
+        public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Runner não deveria ser chamado.");
     }
 }
