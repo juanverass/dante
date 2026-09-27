@@ -14,7 +14,7 @@ public sealed class ClaudeRunner(IAgentProcessExecutor processExecutor) : IClaud
         var request = new AgentProcessRequest(
             AgentKind.Claude,
             workingDirectory,
-            ["--print", "--", prompt]);
+            ["--print", "--permission-mode", "auto", "--permission-prompts", "none", "--", prompt]);
 
         return processExecutor.ExecuteAsync(request, cancellationToken);
     }

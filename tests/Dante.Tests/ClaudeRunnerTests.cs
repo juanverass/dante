@@ -19,7 +19,9 @@ public sealed class ClaudeRunnerTests
         Assert.NotNull(executor.Request);
         Assert.Equal(AgentKind.Claude, executor.Request.Agent);
         Assert.Equal(AppContext.BaseDirectory, executor.Request.WorkingDirectory);
-        Assert.Equal(["--print", "--", prompt], executor.Request.Arguments);
+        Assert.Equal(
+            ["--print", "--permission-mode", "auto", "--permission-prompts", "none", "--", prompt],
+            executor.Request.Arguments);
         Assert.Equal(cancellation.Token, executor.CancellationToken);
     }
 
@@ -47,11 +49,23 @@ public sealed class ClaudeRunnerTests
         Assert.Null(executor.Request);
     }
 
-    [Theory]
-    [InlineData("Authentication required. Run claude auth login.")]
-    [InlineData("Claude executable is unavailable. Install it and add its native binary to PATH.")]
-    public async Task PreservesProcessFailureDiagnostics(string diagnostic)
+    [Fact]
+    public async Task PreservesAuthenticationFailureWrittenToStandardOutput()
     {
+        const string diagnostic = "Authentication required. Run claude auth login.";
+        var failure = Result(AgentProcessStatus.Failed, output: diagnostic);
+        var actual = await new ClaudeRunner(new RecordingExecutor(failure))
+            .RunAsync("Say hello", AppContext.BaseDirectory);
+
+        Assert.Same(failure, actual);
+        Assert.Equal(AgentProcessStatus.Failed, actual.Status);
+        Assert.Equal(diagnostic, actual.StandardOutput);
+    }
+
+    [Fact]
+    public async Task PreservesUnavailableCliError()
+    {
+        const string diagnostic = "Claude executable is unavailable. Install it and add its native binary to PATH.";
         var failure = Result(AgentProcessStatus.Failed, error: diagnostic);
         var actual = await new ClaudeRunner(new RecordingExecutor(failure))
             .RunAsync("Say hello", AppContext.BaseDirectory);
