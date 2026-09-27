@@ -19,9 +19,7 @@ public sealed class CodexRunnerTests
         Assert.NotNull(executor.Request);
         Assert.Equal(AgentKind.Codex, executor.Request.Agent);
         Assert.Equal(AppContext.BaseDirectory, executor.Request.WorkingDirectory);
-        Assert.Equal(
-            ["exec", "--sandbox", "workspace-write", "--approve-for-me", "--", prompt],
-            executor.Request.Arguments);
+        Assert.Equal(["exec", "--approve-for-me", "--", prompt], executor.Request.Arguments);
         Assert.Equal(cancellation.Token, executor.CancellationToken);
     }
 
