@@ -1,4 +1,5 @@
 using Dante.Worker.Agents;
+using Dante.Worker.Jobs;
 using Microsoft.Extensions.Options;
 
 namespace Dante.Worker.Telegram;
@@ -9,9 +10,24 @@ public sealed class TelegramPollingService(
     TelegramUserAuthorizer authorizer,
     ICodexRunner codexRunner,
     IClaudeRunner claudeRunner,
+    JobRegistry jobs,
     ILogger<TelegramPollingService> logger) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
+    private readonly object runningGate = new();
+    private readonly HashSet<Task> runningJobs = [];
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await base.StopAsync(cancellationToken);
+        Task[] pending;
+        lock (runningGate)
+        {
+            pending = runningJobs.ToArray();
+        }
+
+        await Task.WhenAll(pending).WaitAsync(cancellationToken);
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -72,6 +88,31 @@ public sealed class TelegramPollingService(
         var separator = text.IndexOfAny([' ', '\t', '\r', '\n']);
         var command = separator < 0 ? text : text[..separator];
         var prompt = separator < 0 ? string.Empty : text[(separator + 1)..].Trim();
+        if (string.Equals(command, "/status", StringComparison.OrdinalIgnoreCase))
+        {
+            var visible = jobs.GetVisible();
+            var response = visible.Count == 0
+                ? "Nenhum job registrado."
+                : string.Join('\n', visible.Select(FormatJob));
+            await SendLongMessageAsync(message.Chat.Id, response, cancellationToken);
+            return;
+        }
+
+        if (string.Equals(command, "/cancel", StringComparison.OrdinalIgnoreCase))
+        {
+            if (prompt.Length == 0 || prompt.IndexOfAny([' ', '\t', '\r', '\n']) >= 0)
+            {
+                await botApi.SendMessageAsync(message.Chat.Id, "Uso: /cancel <jobId>", cancellationToken);
+                return;
+            }
+
+            var response = jobs.TryCancel(prompt, out var cancelled)
+                ? $"Cancelamento solicitado para {cancelled!.Id}."
+                : $"Job {prompt} não encontrado ou já encerrado.";
+            await botApi.SendMessageAsync(message.Chat.Id, response, cancellationToken);
+            return;
+        }
+
         var isCodex = string.Equals(command, "/codex", StringComparison.OrdinalIgnoreCase);
         var isClaude = string.Equals(command, "/claude", StringComparison.OrdinalIgnoreCase);
         if (!isCodex && !isClaude)
@@ -87,35 +128,90 @@ public sealed class TelegramPollingService(
             return;
         }
 
-        await botApi.SendMessageAsync(message.Chat.Id, $"{agent} iniciado.", cancellationToken);
-        AgentProcessResult result;
+        var (job, jobToken) = jobs.Create(agent, cancellationToken);
         try
         {
-            result = isCodex
-                ? await codexRunner.RunAsync(prompt, options.Value.AgentWorkingDirectory, cancellationToken)
-                : await claudeRunner.RunAsync(prompt, options.Value.AgentWorkingDirectory, cancellationToken);
+            await botApi.SendMessageAsync(message.Chat.Id, $"{agent} iniciado. Job ID: {job.Id}.", cancellationToken);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch
         {
+            jobs.Complete(job.Id, AgentProcessStatus.Failed, errorMessage: "Falha ao confirmar o início.");
             throw;
+        }
+
+        var task = RunJobAsync(job.Id, agent, isCodex, prompt, message.Chat.Id, jobToken,
+            cancellationToken);
+        lock (runningGate)
+        {
+            runningJobs.Add(task);
+        }
+
+        _ = task.ContinueWith(completed =>
+        {
+            lock (runningGate)
+            {
+                runningJobs.Remove(completed);
+            }
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
+
+    private async Task RunJobAsync(string id, string agent, bool isCodex, string prompt, long chatId,
+        CancellationToken jobToken, CancellationToken stoppingToken)
+    {
+        AgentProcessResult? result = null;
+        var status = AgentProcessStatus.Cancelled;
+        string? errorMessage = null;
+        try
+        {
+            if (jobs.TryStart(id))
+            {
+                result = isCodex
+                    ? await codexRunner.RunAsync(prompt, options.Value.AgentWorkingDirectory, jobToken)
+                    : await claudeRunner.RunAsync(prompt, options.Value.AgentWorkingDirectory, jobToken);
+                status = result.Status;
+                errorMessage = result.ErrorMessage;
+            }
+        }
+        catch (OperationCanceledException) when (jobToken.IsCancellationRequested)
+        {
+            status = AgentProcessStatus.Cancelled;
         }
         catch (Exception exception)
         {
+            status = AgentProcessStatus.Failed;
+            errorMessage = "Erro interno de execução.";
             logger.LogError("Falha inesperada no runner {Agent} ({ErrorType}).", agent,
                 exception.GetType().Name);
-            await botApi.SendMessageAsync(message.Chat.Id, $"{agent} falhou: erro interno de execução.",
-                cancellationToken);
-            return;
         }
 
-        var response = result.Status switch
+        var completed = jobs.Complete(id, status, result?.ExitCode, errorMessage);
+        var response = completed.Status switch
         {
-            AgentProcessStatus.Succeeded => $"{agent} concluído.\n\n{OutputOrFallback(result.StandardOutput)}",
-            AgentProcessStatus.Cancelled => $"{agent} cancelado.",
-            _ => $"{agent} falhou.\n\n{FailureDetails(result)}"
+            JobStatus.Succeeded => $"{agent} concluído. Job {id}.\n\n{OutputOrFallback(result!.StandardOutput)}",
+            JobStatus.Cancelled => $"{agent} cancelado. Job {id}.",
+            _ => $"{agent} falhou. Job {id}.\n\n{(result is null ? errorMessage : FailureDetails(result))}"
         };
-        await SendLongMessageAsync(message.Chat.Id, response, cancellationToken);
+
+        try
+        {
+            await SendLongMessageAsync(chatId, response, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // The worker is shutting down; the job state is already final.
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning("Falha ao informar o resultado do job {JobId} ({ErrorType}).", id,
+                exception.GetType().Name);
+        }
     }
+
+    private static string FormatJob(JobSnapshot job) =>
+        $"{job.Id} {job.Agent}: {job.Status}" +
+        (job.CancellationRequested && job.Status is JobStatus.Queued or JobStatus.Running
+            ? " (cancelamento solicitado)" : string.Empty) +
+        $" | criado {job.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
 
     private async Task SendLongMessageAsync(long chatId, string text, CancellationToken cancellationToken)
     {

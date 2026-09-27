@@ -1,4 +1,5 @@
 using Dante.Worker.Agents;
+using Dante.Worker.Jobs;
 using Dante.Worker.Telegram;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -26,7 +27,7 @@ public sealed class TelegramAgentCommandTests
         Assert.Equal("/tmp/agent-work", selected.WorkingDirectory);
         Assert.Equal(0, other.Calls);
         Assert.Equal(2, api.Messages.Count);
-        Assert.EndsWith("iniciado.", api.Messages[0].Text);
+        Assert.Contains("iniciado. Job ID: J", api.Messages[0].Text);
         Assert.Contains("concluído.", api.Messages[1].Text);
         Assert.Contains("RESULT OK", api.Messages[1].Text);
     }
@@ -60,7 +61,8 @@ public sealed class TelegramAgentCommandTests
         Assert.True(api.Messages.Count > 2);
         Assert.All(api.Messages, message => Assert.InRange(message.Text.Length, 1, 4000));
         var combined = string.Concat(api.Messages.Skip(1).Select(message => message.Text));
-        Assert.Equal("Codex concluído.\n\n" + codex.Output, combined);
+        Assert.StartsWith("Codex concluído. Job J", combined);
+        Assert.EndsWith("\n\n" + codex.Output, combined);
         Assert.All(api.Messages.Skip(1), message =>
         {
             Assert.False(char.IsLowSurrogate(message.Text[0]));
@@ -124,6 +126,7 @@ public sealed class TelegramAgentCommandTests
             AgentWorkingDirectory = "/tmp/agent-work"
         });
         return new TelegramPollingService(api, options, new TelegramUserAuthorizer(options), codex, claude,
+            new JobRegistry(),
             NullLogger<TelegramPollingService>.Instance);
     }
 
