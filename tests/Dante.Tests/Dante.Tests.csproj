@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Dante.Worker/Dante.Worker.csproj" />
+    <ProjectReference Include="../Dante.ProcessProbe/Dante.ProcessProbe.csproj" />
   </ItemGroup>
 
 </Project>
