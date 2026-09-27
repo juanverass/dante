@@ -2,7 +2,7 @@
 
 **Distributed Agent Network for Task Execution**
 
-Base do serviço local em .NET 10. As integrações com agentes e Telegram serão adicionadas nas próximas etapas do MVP.
+Serviço local em .NET 10 com runners de agentes e transporte Telegram básico. Os comandos de execução e o controle de acesso serão adicionados nas próximas etapas do MVP.
 
 ## Requisitos
 
@@ -35,3 +35,9 @@ O Codex CLI precisa estar instalado e autenticado localmente (`codex login`). No
 `IClaudeRunner.RunAsync(prompt, workingDirectory, cancellationToken)` executa `claude --print --permission-mode auto --permission-prompts none` no diretório informado e devolve o resultado completo da execução. O modo `auto` permite que o Claude avalie ações sem aguardar aprovação humana; ações que ainda precisariam de intervenção são negadas. O prompt é passado como um único argumento após `--`, sem interpretação por shell ou alteração das opções fixadas pelo runner. O runner é registrado no contêiner de serviços do Worker para uso pela futura integração com Telegram.
 
 O Claude Code CLI precisa estar na versão 2.1.259 ou superior, instalado e autenticado localmente (`claude auth login`). No Windows, coloque o executável nativo `claude.exe` ou `claude.com` no `PATH`, conforme a política da infraestrutura de processos. A ausência da CLI, falhas de autenticação e outros erros de execução são retornados como `Failed`. Consulte `StandardOutput`, `StandardError` e `ErrorMessage` para obter os diagnósticos; falhas internas do Claude em modo `--print` podem ser emitidas em stdout. Um `CancellationToken` cancela a execução e encerra o processo.
+
+## Telegram
+
+Crie um bot com o BotFather e configure o token localmente pela variável de ambiente `Telegram__BotToken`. Por exemplo, no PowerShell: `$env:Telegram__BotToken = "<token>"`; no Bash: `export Telegram__BotToken="<token>"`. Não grave o token em arquivos versionados. Sem token, o Worker continua em execução com o polling desativado.
+
+Com o Worker em execução, envie `/ping` ao bot. Ele responde `pong` no mesmo chat. O bot usa long polling e não requer webhook nem porta de entrada. Falhas de comunicação são registradas sem o token e o polling tenta novamente; ao encerrar o Worker, a requisição em andamento é cancelada. Os comandos de execução de agentes e a restrição de acesso serão adicionados nas próximas issues do MVP.
