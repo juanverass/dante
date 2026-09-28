@@ -88,7 +88,8 @@ public sealed class TelegramAgentRoutingTests : IDisposable
     {
         public List<Run> Runs { get; } = [];
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
-            CancellationToken cancellationToken = default, bool generalMode = false)
+            CancellationToken cancellationToken = default, bool generalMode = false,
+            IReadOnlyDictionary<string, string>? environment = null)
         {
             Runs.Add(new Run(prompt, workingDirectory, generalMode));
             return Task.FromResult(new AgentProcessResult(AgentProcessStatus.Succeeded, "done", "", 0,
