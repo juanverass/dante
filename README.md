@@ -2,13 +2,75 @@
 
 **Distributed Agent Network for Task Execution**
 
-Serviço local em .NET 10 com runners de agentes, bot Telegram e gerenciamento básico de jobs em memória.
+D.A.N.T.E. é um orquestrador local em .NET 10 que permite controlar **Claude Code** e **Codex CLI** pelo Telegram.
+
+A proposta é simples: o Telegram funciona como interface remota, enquanto os agentes continuam executando localmente na sua máquina, usando as CLIs já instaladas e autenticadas.
+
+```text
+Telegram
+   ↓
+D.A.N.T.E.
+   ↓
+Command / Context Router
+   ↓
+General Workspace ou Repository Registry
+   ↓
+Claude Code / Codex CLI
+   ↓
+resultado
+   ↓
+Telegram
+```
+
+## Estado atual
+
+O projeto possui dois modos de execução.
+
+### General Mode
+
+Use o agente para perguntas, pesquisas, exemplos de código e outras tarefas que não precisam de um projeto específico.
+
+```text
+/claude explique a diferença entre JWT e cookie de sessão
+
+/codex escreva um exemplo simples de Strategy Pattern em C#
+```
+
+Essas execuções usam um workspace neutro do D.A.N.T.E. e não entram automaticamente em nenhum repositório cadastrado.
+
+### Repository Mode
+
+Use um alias iniciado por `@` para executar o agente dentro de um repositório específico.
+
+```text
+/claude @fitness_backend analise a autenticação atual
+
+/codex @dante revise a implementação do JobRegistry
+```
+
+O D.A.N.T.E. resolve o alias de forma determinística e inicia o agente diretamente no diretório cadastrado.
+
+---
 
 ## Requisitos
 
-- SDK .NET 10
+- .NET 10 SDK
+- Git
+- Telegram
+- Codex CLI e/ou Claude Code CLI disponíveis no `PATH`
+- pelo menos uma das CLIs autenticada localmente para usar o respectivo agente
 
-## Desenvolvimento
+O D.A.N.T.E. **não exige uma API key da OpenAI ou Anthropic**.
+
+Você pode utilizar a autenticação já existente da CLI, inclusive quando ela estiver associada à sua conta/assinatura. Se `OPENAI_API_KEY` ou `ANTHROPIC_API_KEY` existirem no ambiente, o D.A.N.T.E. preserva essas variáveis para a CLI, mas elas são opcionais.
+
+Antes de iniciar o Worker, confirme que as CLIs funcionam diretamente no mesmo usuário/ambiente em que o D.A.N.T.E. será executado.
+
+---
+
+## Executando o projeto
+
+Clone o repositório e execute:
 
 ```bash
 dotnet build Dante.sln
@@ -16,42 +78,492 @@ dotnet test Dante.sln
 dotnet run --project src/Dante.Worker
 ```
 
-O Worker permanece ativo até receber um sinal de encerramento (por exemplo, `Ctrl+C`). A configuração padrão de logging está em `src/Dante.Worker/appsettings.json`. Configurações locais e segredos devem ficar fora do repositório; use variáveis de ambiente quando necessário.
+O Worker permanece em execução até receber um sinal de encerramento, como `Ctrl+C`.
 
-## Execução de agentes
+---
 
-`IAgentProcessExecutor` oferece `IsAvailable(AgentKind)` e `ExecuteAsync(AgentProcessRequest, CancellationToken)`. O pedido informa o agente, um diretório de trabalho absoluto e uma lista de argumentos. A implementação resolve apenas os executáveis `codex` e `claude` no `PATH`; no Windows, procura binários nativos `.exe` ou `.com`. Scripts `.cmd` e `.bat` não são iniciados, pois exigiriam um shell. A infraestrutura é registrada no contêiner de serviços do Worker; os runners de agentes usam essa infraestrutura.
+## Configuração do Telegram
 
-O resultado contém stdout, stderr, código de saída, horários de início e fim e estado (`Succeeded`, `Failed` ou `Cancelled`). Uma CLI ausente ou uma falha ao iniciar o processo retorna `Failed` com uma mensagem de erro. O cancelamento encerra a árvore de processos iniciada.
+Crie um bot usando o **BotFather** e configure o token no ambiente.
 
-## Runner do Codex
+### Bash / WSL
 
-`ICodexRunner.RunAsync(prompt, workingDirectory, cancellationToken)` executa `codex exec` no diretório informado e devolve o resultado completo da execução. O diretório deve existir, ser absoluto e pertencer a um repositório Git. O runner fixa `--approve-for-me`, que permite alterações no workspace e usa revisão automática quando uma ação exigir aprovação. O prompt é passado como um único argumento, sem interpretação por shell; comandos, opções e executável são fixos pelo runner. O runner é registrado no contêiner de serviços do Worker para uso pela futura integração com Telegram.
+```bash
+export Telegram__BotToken="<token>"
+export Telegram__AllowedUserIds="123456789"
+```
 
-O Codex CLI precisa estar instalado e autenticado localmente (`codex login`). No Windows, coloque o executável nativo `codex.exe` ou `codex.com` no `PATH`, conforme a política da infraestrutura de processos. A saída de erro da CLI, inclusive mensagens de autenticação emitidas por ela, fica em `StandardError`; `ErrorMessage` informa a falha da execução. Uma CLI ausente retorna `Failed` com mensagem explícita. Um `CancellationToken` cancela a execução e encerra o processo.
+Para mais de um usuário:
 
-## Runner do Claude
+```bash
+export Telegram__AllowedUserIds="123456789,987654321"
+```
 
-`IClaudeRunner.RunAsync(prompt, workingDirectory, cancellationToken)` executa `claude --print --permission-mode auto --permission-prompts none` no diretório informado e devolve o resultado completo da execução. O modo `auto` permite que o Claude avalie ações sem aguardar aprovação humana; ações que ainda precisariam de intervenção são negadas. O prompt é passado como um único argumento após `--`, sem interpretação por shell ou alteração das opções fixadas pelo runner. O runner é registrado no contêiner de serviços do Worker para uso pela futura integração com Telegram.
+### PowerShell
 
-O Claude Code CLI precisa estar na versão 2.1.259 ou superior, instalado e autenticado localmente (`claude auth login`). No Windows, coloque o executável nativo `claude.exe` ou `claude.com` no `PATH`, conforme a política da infraestrutura de processos. A ausência da CLI, falhas de autenticação e outros erros de execução são retornados como `Failed`. Consulte `StandardOutput`, `StandardError` e `ErrorMessage` para obter os diagnósticos; falhas internas do Claude em modo `--print` podem ser emitidas em stdout. Um `CancellationToken` cancela a execução e encerra o processo.
+```powershell
+$env:Telegram__BotToken = "<token>"
+$env:Telegram__AllowedUserIds = "123456789"
+```
 
-## Telegram
+A autorização utiliza `message.from.id`, e não username ou ID do chat.
 
-Crie um bot com o BotFather e configure o token localmente pela variável de ambiente `Telegram__BotToken`. Por exemplo, no PowerShell: `$env:Telegram__BotToken = "<token>"`; no Bash: `export Telegram__BotToken="<token>"`. Não grave o token em arquivos versionados. Sem token, o Worker continua em execução com o polling desativado.
+Se `Telegram__AllowedUserIds` estiver ausente ou possuir uma entrada inválida, os comandos ficam bloqueados.
 
-Configure `Telegram__AllowedUserIds` com uma lista de IDs numéricos de usuários do Telegram separados por vírgula, por exemplo `123456789,987654321`. No PowerShell: `$env:Telegram__AllowedUserIds = "123456789,987654321"`; no Bash: `export Telegram__AllowedUserIds="123456789,987654321"`. A identidade usada é `message.from.id`, não o username nem o ID do chat. Consulte seu ID de usuário no Telegram antes de configurar a lista. Uma lista ausente ou com qualquer entrada inválida bloqueia todos os comandos; mensagens sem remetente também são ignoradas. O bot não responde a usuários não autorizados.
+O Telegram usa **long polling**. Não é necessário webhook, domínio público ou porta exposta.
 
-Com o Worker em execução, envie `/ping` de uma conta autorizada ao bot. Ele responde `pong` no mesmo chat. O bot usa long polling e não requer webhook nem porta de entrada. Falhas de comunicação são registradas sem o token e o polling tenta novamente; ao encerrar o Worker, a requisição em andamento é cancelada.
+---
 
-Envie `/codex <prompt>` ou `/claude <prompt>` para executar o agente local no workspace geral do D.A.N.T.E. O bot confirma o início com um Job ID e informa conclusão, falha ou cancelamento, incluindo a saída produzida quando aplicável. Respostas longas são divididas em mensagens de até 4.000 caracteres. Um prompt vazio recebe uma instrução de uso. Somente usuários listados em `Telegram__AllowedUserIds` podem executar os comandos.
+## Primeiro teste
 
-Use `/repos` para listar os repositórios cadastrados e `/repo add @alias <path> [owner/repo]`, `/repo show @alias` e `/repo remove @alias` para administrá-los. O catálogo fica em `~/.dante/repositories.json`. Para executar em um projeto, coloque o alias como primeiro argumento: `/codex @alias <prompt>` ou `/claude @alias <prompt>`. Um alias desconhecido gera erro; sem alias, a execução permanece no workspace geral. `Telegram__AgentWorkingDirectory` não determina mais o diretório dessas execuções.
+Com o Worker rodando:
 
-Use `/status` para consultar os jobs ativos e os 20 mais recentes encerrados. Use `/cancel <jobId>` para solicitar o cancelamento de um job ativo. O resultado final também é enviado ao chat que iniciou a execução. Os estados são `Queued`, `Running`, `Succeeded`, `Failed` e `Cancelled`; o histórico fica somente na memória do Worker e é perdido ao reiniciar. O cancelamento encerra a árvore de processos do agente.
+```text
+/ping
+```
 
-Cada job registra o contexto resolvido no início. O `/status` distingue, por exemplo, `J000123 Claude General: Running` e `J000124 Claude @fitness_backend: Running`. O alias e o path usados pelo job permanecem os mesmos mesmo que o catálogo seja alterado depois.
+Resposta esperada:
 
-O workspace para consultas gerais fica em `~/.dante/workspaces/general`, fora do checkout. É possível configurá-lo com `DANTE_GENERAL_WORKSPACE`. Nesse perfil, o Codex usa sandbox `workspace-write` sem exigir Git; o Claude usa modo restrito com ferramentas de arquivo limitadas ao diretório de trabalho. O processo filho recebe apenas variáveis básicas de sistema, rede e autenticação das CLIs, sem herdar variáveis específicas dos projetos. Valores de autenticação são mascarados nas respostas do Telegram.
+```text
+pong
+```
 
-Configure valores públicos por repositório com `/repo env set @alias KEY VALUE`. Nunca envie senhas, tokens ou outros segredos pelo Telegram. Para segredos, configure uma variável no host e use `/repo env bind @alias KEY HOST_ENV_NAME`; o valor é lido apenas na execução e não é gravado no catálogo. Use `/repo env list @alias` para ver nomes e origens, sem valores, e `/repo env remove @alias KEY` para remover. Se o host não tiver a variável referenciada, o agente não inicia. Jobs com bindings omitem a saída do agente nas mensagens do Telegram para evitar o retorno acidental de segredos.
+---
+
+# Uso
+
+## Consultas gerais
+
+Sem `@alias`, o comando utiliza o **General Mode**.
+
+```text
+/claude qual a diferença entre RabbitMQ e Kafka?
+```
+
+```text
+/codex mostre uma implementação simples de Result Pattern em C#
+```
+
+O workspace padrão é:
+
+```text
+~/.dante/workspaces/general
+```
+
+Você pode substituí-lo:
+
+```bash
+export DANTE_GENERAL_WORKSPACE="/caminho/absoluto/general"
+```
+
+O workspace geral não pode conter um repositório cadastrado nem ficar dentro dele. O D.A.N.T.E. bloqueia esse tipo de sobreposição para evitar que uma consulta geral modifique projetos reais.
+
+No General Mode:
+
+- nenhum repositório é escolhido por inferência;
+- variáveis específicas de projetos não são carregadas;
+- Codex executa com sandbox de workspace;
+- Claude executa em perfil restrito de ferramentas de arquivo.
+
+---
+
+## Cadastrando repositórios
+
+Os repositórios conhecidos pelo D.A.N.T.E. ficam em:
+
+```text
+~/.dante/repositories.json
+```
+
+### Adicionar
+
+```text
+/repo add @dante /mnt/c/Repos/dante juanverass/dante
+```
+
+Outro exemplo:
+
+```text
+/repo add @fitness_backend /mnt/c/Repos/fitnessapp_backend juanverass/fitnessapp_backend
+```
+
+O terceiro argumento, `owner/repo`, é opcional.
+
+Para paths contendo espaços, utilize aspas:
+
+```text
+/repo add @meu_projeto "/mnt/c/Meus Projetos/app" usuario/repositorio
+```
+
+O D.A.N.T.E. valida:
+
+- formato do alias;
+- path absoluto;
+- existência do diretório;
+- se o diretório é a raiz de um repositório Git;
+- compatibilidade do `origin` com `owner/repo`, quando informado.
+
+Aliases são case-insensitive.
+
+### Listar
+
+```text
+/repos
+```
+
+Exemplo:
+
+```text
+@dante: /mnt/c/Repos/dante (juanverass/dante)
+@fitness_backend: /mnt/c/Repos/fitnessapp_backend (juanverass/fitnessapp_backend)
+```
+
+### Consultar
+
+```text
+/repo show @fitness_backend
+```
+
+### Remover
+
+```text
+/repo remove @fitness_backend
+```
+
+---
+
+## Executando dentro de um repositório
+
+Depois do cadastro:
+
+```text
+/claude @fitness_backend analise as entidades atuais do domínio
+```
+
+```text
+/codex @dante implemente a próxima tarefa
+```
+
+O primeiro argumento após `/claude` ou `/codex` é tratado como alias somente quando começa com `@`.
+
+Por exemplo:
+
+```text
+/codex explique o uso de @Transactional
+```
+
+continua sendo uma consulta geral, pois `@Transactional` não é o primeiro argumento.
+
+Quando um alias é usado:
+
+1. o D.A.N.T.E. resolve o cadastro;
+2. fixa o working directory;
+3. remove o `@alias` do prompt;
+4. carrega o ambiente daquele repositório;
+5. cria o job;
+6. inicia a CLI no diretório resolvido.
+
+O agente não é responsável por procurar o projeto no disco.
+
+---
+
+# Variáveis de ambiente por repositório
+
+Cada repositório pode possuir seu próprio perfil de ambiente.
+
+## Valor literal
+
+Use apenas para valores não sensíveis:
+
+```text
+/repo env set @fitness_backend ASPNETCORE_ENVIRONMENT Development
+```
+
+Outro exemplo:
+
+```text
+/repo env set @fitness_backend API_BASE_URL https://localhost:5001
+```
+
+Não utilize `env set` para senhas, tokens, connection strings com credenciais ou outros segredos.
+
+## Referência a uma variável do host
+
+Para valores sensíveis, configure primeiro a variável no sistema operacional:
+
+```bash
+export FITNESS_DATABASE_PASSWORD="<valor>"
+```
+
+Depois faça apenas o vínculo:
+
+```text
+/repo env bind @fitness_backend DATABASE_PASSWORD FITNESS_DATABASE_PASSWORD
+```
+
+O valor real não é gravado no catálogo do D.A.N.T.E.
+
+Ele é resolvido somente quando o job inicia.
+
+Se a variável do host não existir, o agente não é iniciado.
+
+## Listar configuração
+
+```text
+/repo env list @fitness_backend
+```
+
+Exemplo:
+
+```text
+ASPNETCORE_ENVIRONMENT (literal)
+DATABASE_PASSWORD (host: FITNESS_DATABASE_PASSWORD)
+```
+
+Os valores não são exibidos.
+
+## Remover
+
+```text
+/repo env remove @fitness_backend DATABASE_PASSWORD
+```
+
+Jobs que utilizam bindings sensíveis não retornam a saída do agente pelo Telegram, reduzindo o risco de um segredo aparecer acidentalmente na resposta.
+
+---
+
+# Jobs
+
+Cada chamada a Claude ou Codex gera um job.
+
+Ao iniciar:
+
+```text
+Codex iniciado. Job ID: J000001 (General).
+```
+
+Ou:
+
+```text
+Claude iniciado. Job ID: J000002 (@fitness_backend).
+```
+
+## Consultar jobs
+
+```text
+/status
+```
+
+Exemplo:
+
+```text
+J000001 Codex General: Succeeded | criado 2026-09-28 12:00:00 UTC
+J000002 Claude @fitness_backend: Running | criado 2026-09-28 12:03:00 UTC
+```
+
+Os estados possíveis são:
+
+- `Queued`
+- `Running`
+- `Succeeded`
+- `Failed`
+- `Cancelled`
+
+O histórico mantém os 20 jobs concluídos mais recentes em memória.
+
+Ele é perdido quando o Worker reinicia.
+
+## Cancelar
+
+```text
+/cancel J000002
+```
+
+O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de processos iniciada pelo agente.
+
+---
+
+# Comandos disponíveis
+
+| Comando | Descrição |
+| --- | --- |
+| `/ping` | Verifica se o bot está respondendo |
+| `/claude <prompt>` | Executa Claude em General Mode |
+| `/codex <prompt>` | Executa Codex em General Mode |
+| `/claude @alias <prompt>` | Executa Claude em um repositório |
+| `/codex @alias <prompt>` | Executa Codex em um repositório |
+| `/repos` | Lista repositórios cadastrados |
+| `/repo add @alias <path> [owner/repo]` | Cadastra um repositório |
+| `/repo show @alias` | Exibe um repositório |
+| `/repo remove @alias` | Remove um repositório |
+| `/repo env set @alias KEY VALUE` | Define configuração literal não sensível |
+| `/repo env bind @alias KEY HOST_ENV` | Vincula uma variável a uma variável do host |
+| `/repo env list @alias` | Lista nomes e origens das variáveis |
+| `/repo env remove @alias KEY` | Remove uma configuração de ambiente |
+| `/status` | Exibe jobs ativos e recentes |
+| `/cancel <jobId>` | Solicita cancelamento de um job |
+
+---
+
+# Exemplo completo
+
+Cadastro inicial:
+
+```text
+/repo add @dante /mnt/c/Repos/dante juanverass/dante
+/repo add @fitness_backend /mnt/c/Repos/fitnessapp_backend juanverass/fitnessapp_backend
+```
+
+Confira:
+
+```text
+/repos
+```
+
+Pergunta geral:
+
+```text
+/claude explique arquitetura hexagonal de forma simples
+```
+
+Trabalho no D.A.N.T.E.:
+
+```text
+/codex @dante revise o RepositoryRegistry e identifique possíveis problemas
+```
+
+Trabalho no fitness backend:
+
+```text
+/claude @fitness_backend analise as issues abertas e me explique a próxima tarefa
+```
+
+Acompanhar:
+
+```text
+/status
+```
+
+Cancelar se necessário:
+
+```text
+/cancel J000004
+```
+
+---
+
+# Segurança
+
+O D.A.N.T.E. foi desenhado para controlar agentes, não para fornecer um shell remoto.
+
+Principais proteções atuais:
+
+- somente Telegram User IDs autorizados executam comandos;
+- prompts são tratados como dados;
+- argumentos são enviados usando `ProcessStartInfo.ArgumentList`;
+- `UseShellExecute=false`;
+- executáveis suportados são definidos pelo D.A.N.T.E.;
+- o usuário não escolhe arbitrariamente executáveis ou argumentos internos;
+- paths de repositório são validados;
+- General Mode é isolado dos repositórios cadastrados;
+- ambientes de repositórios são aplicados somente ao processo filho;
+- bindings de secrets não armazenam o valor no catálogo;
+- valores de `OPENAI_API_KEY` e `ANTHROPIC_API_KEY`, quando existentes, são mascarados nas respostas do Telegram;
+- cancelamento encerra a árvore do processo.
+
+Evite enviar qualquer segredo diretamente pelo Telegram.
+
+---
+
+# Persistência
+
+Atualmente:
+
+| Informação | Persistência |
+| --- | --- |
+| Repositórios cadastrados | `~/.dante/repositories.json` |
+| Perfis de ambiente | `~/.dante/repositories.json` |
+| Valores de bindings secretos | não são persistidos |
+| Workspace geral | `~/.dante/workspaces/general` |
+| Jobs | somente memória |
+| Histórico de jobs | somente memória |
+
+---
+
+# Arquitetura atual
+
+```text
+Telegram
+   ↓
+TelegramPollingService
+   ↓
+Command Parser
+   ├──────────────→ RepositoryRegistry
+   │                   ↓
+   │              Repository Mode
+   │
+   └──────────────→ GeneralWorkspace
+                       ↓
+                  General Mode
+
+Context resolvido
+   ↓
+JobRegistry
+   ↓
+ClaudeRunner / CodexRunner
+   ↓
+AgentProcessExecutor
+   ↓
+Claude Code / Codex CLI
+```
+
+Responsabilidades principais:
+
+- **TelegramPollingService** — recebe comandos e responde ao Telegram;
+- **TelegramUserAuthorizer** — controla usuários permitidos;
+- **RepositoryRegistry** — mantém aliases, paths e ambientes dos projetos;
+- **GeneralWorkspace** — fornece o workspace neutro;
+- **JobRegistry** — controla estado, contexto e cancelamento dos jobs;
+- **ClaudeRunner / CodexRunner** — definem como cada CLI é iniciada;
+- **AgentProcessExecutor** — executa processos sem shell e captura stdout/stderr.
+
+---
+
+# Limitações atuais
+
+Ainda não fazem parte do projeto:
+
+- worktrees automáticos por issue;
+- seleção automática de issues pelo D.A.N.T.E.;
+- fluxo automático issue → implementação → review → merge;
+- handoff automático entre Claude, Codex e Tech Lead;
+- fila persistente;
+- persistência de jobs em banco de dados;
+- execução concorrente isolada por worktree;
+- comando `/ask` com agente padrão.
+
+Esses pontos são candidatos naturais para os próximos MVPs.
+
+---
+
+# Desenvolvimento
+
+Build:
+
+```bash
+dotnet build Dante.sln
+```
+
+Testes:
+
+```bash
+dotnet test Dante.sln
+```
+
+Executar Worker:
+
+```bash
+dotnet run --project src/Dante.Worker
+```
+
+Configurações locais e segredos não devem ser versionados.
