@@ -18,6 +18,9 @@ internal static class Program
             case "cwd":
                 Console.WriteLine(Environment.CurrentDirectory);
                 return 0;
+            case "env":
+                Console.WriteLine(Environment.GetEnvironmentVariable(args[1]) ?? "<unset>");
+                return 0;
             case "wait":
                 Console.WriteLine("ready");
                 await Task.Delay(Timeout.InfiniteTimeSpan);
