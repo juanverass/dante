@@ -8,6 +8,9 @@ public sealed class RepositoryRegistry
 {
     private static readonly Regex AliasPattern = new("^@[a-zA-Z][a-zA-Z0-9_]*$", RegexOptions.Compiled);
     private static readonly Regex GitHubPattern = new("^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$", RegexOptions.Compiled);
+    private static readonly Regex EnvironmentNamePattern = new("^[a-zA-Z_][a-zA-Z0-9_]*$", RegexOptions.Compiled);
+    private static readonly Regex SensitiveNamePattern = new("SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE|CREDENTIAL|API_KEY|ACCESS_KEY",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private readonly object gate = new();
     private readonly string filePath;
     private readonly Dictionary<string, RepositoryDefinition> repositories = new(StringComparer.OrdinalIgnoreCase);
@@ -91,6 +94,87 @@ public sealed class RepositoryRegistry
             catch { repositories.Add(alias, removed); throw; }
             return true;
         }
+    }
+
+    public RepositoryDefinition SetLiteral(string alias, string key, string value)
+    {
+        ValidateEnvironmentName(key);
+        if (SensitiveNamePattern.IsMatch(key))
+            throw new ArgumentException("Use /repo env bind para variáveis sensíveis.", nameof(key));
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException("O valor não pode ser vazio.", nameof(value));
+        return SetEnvironment(alias, new RepositoryEnvironmentEntry(key, value, null));
+    }
+
+    public RepositoryDefinition Bind(string alias, string key, string hostVariable)
+    {
+        ValidateEnvironmentName(key);
+        ValidateEnvironmentName(hostVariable);
+        return SetEnvironment(alias, new RepositoryEnvironmentEntry(key, null, hostVariable));
+    }
+
+    public bool RemoveEnvironment(string alias, string key)
+    {
+        ValidateEnvironmentName(key);
+        alias = NormalizeAlias(alias);
+        lock (gate)
+        {
+            var repository = RequireRepository(alias);
+            var remaining = (repository.Environment ?? []).Where(entry =>
+                !string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (remaining.Length == (repository.Environment?.Count ?? 0)) return false;
+            repositories[alias] = repository with { Environment = remaining };
+            try { Save(); }
+            catch { repositories[alias] = repository; throw; }
+            return true;
+        }
+    }
+
+    public ResolvedRepositoryEnvironment ResolveEnvironment(string alias)
+    {
+        var repository = Get(alias) ?? throw new ArgumentException("Repositório não cadastrado.", nameof(alias));
+        var entries = repository.Environment ?? [];
+        var values = new Dictionary<string, string>(OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        var hasSecrets = false;
+        foreach (var entry in entries)
+        {
+            if (entry.HostVariable is not null)
+            {
+                var value = System.Environment.GetEnvironmentVariable(entry.HostVariable);
+                if (value is null)
+                    throw new InvalidOperationException($"Variável do host {entry.HostVariable} não está configurada.");
+                values[entry.Key] = value;
+                hasSecrets = true;
+            }
+            else values[entry.Key] = entry.LiteralValue ?? string.Empty;
+        }
+        return new ResolvedRepositoryEnvironment(values, hasSecrets);
+    }
+
+    private RepositoryDefinition SetEnvironment(string alias, RepositoryEnvironmentEntry entry)
+    {
+        alias = NormalizeAlias(alias);
+        lock (gate)
+        {
+            var repository = RequireRepository(alias);
+            var entries = (repository.Environment ?? []).Where(existing =>
+                !string.Equals(existing.Key, entry.Key, StringComparison.OrdinalIgnoreCase)).Append(entry).ToArray();
+            var updated = repository with { Environment = entries };
+            repositories[alias] = updated;
+            try { Save(); }
+            catch { repositories[alias] = repository; throw; }
+            return updated;
+        }
+    }
+
+    private RepositoryDefinition RequireRepository(string alias) => repositories.TryGetValue(alias, out var repository)
+        ? repository : throw new ArgumentException("Repositório não cadastrado.", nameof(alias));
+
+    private static void ValidateEnvironmentName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || !EnvironmentNamePattern.IsMatch(name))
+            throw new ArgumentException("Nome de variável de ambiente inválido.", nameof(name));
     }
 
     private void Save()
