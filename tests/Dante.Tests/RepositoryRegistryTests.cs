@@ -51,6 +51,40 @@ public sealed class RepositoryRegistryTests : IDisposable
         Assert.Equal(repository, added.Path);
     }
 
+    [Fact]
+    public void EnvironmentBindingsResolveAtExecutionAndSurviveRestart()
+    {
+        var repository = CreateRepository("project");
+        var file = Path.Combine(root, "repositories.json");
+        var registry = new RepositoryRegistry(file);
+        registry.Add("@project", repository);
+        registry.SetLiteral("@project", "API_BASE_URL", "https://example.test");
+        registry.Bind("@project", "DATABASE_PASSWORD", "DANTE_TEST_HOST_SECRET");
+        Assert.Throws<ArgumentException>(() => registry.SetLiteral("@project", "API_KEY", "unsafe"));
+
+        var reopened = new RepositoryRegistry(file);
+        Assert.Equal(2, reopened.Get("@project")!.Environment!.Count);
+        var previous = Environment.GetEnvironmentVariable("DANTE_TEST_HOST_SECRET");
+        try
+        {
+            Environment.SetEnvironmentVariable("DANTE_TEST_HOST_SECRET", null);
+            Assert.Throws<InvalidOperationException>(() => reopened.ResolveEnvironment("@project"));
+            Environment.SetEnvironmentVariable("DANTE_TEST_HOST_SECRET", "first");
+            Assert.Equal("first", reopened.ResolveEnvironment("@project").Values["DATABASE_PASSWORD"]);
+            Environment.SetEnvironmentVariable("DANTE_TEST_HOST_SECRET", "second");
+            var resolved = reopened.ResolveEnvironment("@project");
+            Assert.Equal("second", resolved.Values["DATABASE_PASSWORD"]);
+            Assert.Equal("https://example.test", resolved.Values["API_BASE_URL"]);
+            Assert.True(resolved.HasSecrets);
+        }
+        finally { Environment.SetEnvironmentVariable("DANTE_TEST_HOST_SECRET", previous); }
+
+        Assert.True(reopened.RemoveEnvironment("@project", "DATABASE_PASSWORD"));
+        Assert.False(reopened.RemoveEnvironment("@project", "DATABASE_PASSWORD"));
+        Assert.DoesNotContain(new RepositoryRegistry(file).Get("@project")!.Environment!,
+            entry => entry.Key == "DATABASE_PASSWORD");
+    }
+
     private string CreateRepository(string name)
     {
         var path = Path.Combine(root, name);
