@@ -6,5 +6,6 @@ public interface ICodexRunner
         string prompt,
         string workingDirectory,
         CancellationToken cancellationToken = default,
-        bool generalMode = false);
+        bool generalMode = false,
+        IReadOnlyDictionary<string, string>? environment = null);
 }

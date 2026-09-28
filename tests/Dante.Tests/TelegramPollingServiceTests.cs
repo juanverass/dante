@@ -128,7 +128,8 @@ public sealed class TelegramPollingServiceTests
     private sealed class UnusedRunner : ICodexRunner, IClaudeRunner
     {
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
-            CancellationToken cancellationToken = default, bool generalMode = false) =>
+            CancellationToken cancellationToken = default, bool generalMode = false,
+            IReadOnlyDictionary<string, string>? environment = null) =>
             throw new InvalidOperationException("Runner não deveria ser chamado.");
     }
 }

@@ -85,13 +85,62 @@ public sealed class TelegramRepositoryCommandTests : IDisposable
         finally { await service.StopAsync(CancellationToken.None); }
     }
 
-    private TelegramPollingService CreateService(BotApi api)
+    [Fact]
+    public async Task EnvironmentCommandsMaskBindingsAndDoNotReturnAgentSecrets()
+    {
+        var repository = CreateRepository();
+        var registry = new RepositoryRegistry(Path.Combine(root, "catalog", "repositories.json"));
+        registry.Add("@demo", repository);
+        var api = new BotApi();
+        var runner = new UnusedRunner();
+        using var service = CreateService(api, registry, runner);
+        var previous = Environment.GetEnvironmentVariable("DANTE_TEST_TELEGRAM_SECRET");
+        Environment.SetEnvironmentVariable("DANTE_TEST_TELEGRAM_SECRET", "secret-value-123");
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            api.Enqueue("/repo env set @demo API_BASE_URL https://example.test");
+            Assert.DoesNotContain("https://example.test", await api.NextMessageAsync());
+            api.Enqueue("/repo env bind @demo DATABASE_PASSWORD DANTE_TEST_TELEGRAM_SECRET");
+            Assert.Contains("vinculada", await api.NextMessageAsync());
+            api.Enqueue("/repo env list @demo");
+            var list = await api.NextMessageAsync();
+            Assert.Contains("DATABASE_PASSWORD (host: DANTE_TEST_TELEGRAM_SECRET)", list);
+            Assert.DoesNotContain("secret-value-123", list);
+            Assert.DoesNotContain("https://example.test", list);
+
+            Environment.SetEnvironmentVariable("DANTE_TEST_TELEGRAM_SECRET", null);
+            api.Enqueue("/codex @demo run");
+            Assert.Contains("não está configurada", await api.NextMessageAsync());
+            Assert.Null(runner.Environment);
+            Environment.SetEnvironmentVariable("DANTE_TEST_TELEGRAM_SECRET", "secret-value-123");
+
+            api.Enqueue("/codex @demo run");
+            Assert.Contains("iniciado", await api.NextMessageAsync());
+            var finished = await api.NextMessageAsync();
+            Assert.Contains("Saída omitida", finished);
+            Assert.DoesNotContain("secret-value-123", finished);
+            Assert.Equal("secret-value-123", runner.Environment!["DATABASE_PASSWORD"]);
+
+            api.Enqueue("/repo env remove @demo DATABASE_PASSWORD");
+            Assert.Contains("removida", await api.NextMessageAsync());
+            api.Enqueue("/repo env list @demo");
+            Assert.DoesNotContain("DATABASE_PASSWORD", await api.NextMessageAsync());
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+            Environment.SetEnvironmentVariable("DANTE_TEST_TELEGRAM_SECRET", previous);
+        }
+    }
+
+    private TelegramPollingService CreateService(BotApi api, RepositoryRegistry? registry = null, UnusedRunner? runner = null)
     {
         var options = Options.Create(new TelegramOptions { BotToken = "test", AllowedUserIds = "123" });
-        var runner = new UnusedRunner();
+        runner ??= new UnusedRunner();
         return new TelegramPollingService(api, options, new TelegramUserAuthorizer(options), runner, runner,
             new JobRegistry(), NullLogger<TelegramPollingService>.Instance,
-            new RepositoryRegistry(Path.Combine(root, "catalog", "repositories.json")));
+            registry ?? new RepositoryRegistry(Path.Combine(root, "catalog", "repositories.json")));
     }
 
     private string CreateRepository(string name = "project")
@@ -141,7 +190,14 @@ public sealed class TelegramRepositoryCommandTests : IDisposable
 
     private sealed class UnusedRunner : ICodexRunner, IClaudeRunner
     {
+        public IReadOnlyDictionary<string, string>? Environment { get; private set; }
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
-            CancellationToken cancellationToken = default, bool generalMode = false) => throw new InvalidOperationException();
+            CancellationToken cancellationToken = default, bool generalMode = false,
+            IReadOnlyDictionary<string, string>? environment = null)
+        {
+            Environment = environment;
+            return Task.FromResult(new AgentProcessResult(AgentProcessStatus.Succeeded, "secret-value-123", "", 0,
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        }
     }
 }

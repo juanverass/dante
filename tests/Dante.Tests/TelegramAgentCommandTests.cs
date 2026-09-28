@@ -120,6 +120,24 @@ public sealed class TelegramAgentCommandTests
         Assert.Empty(api.Messages);
     }
 
+    [Fact]
+    public async Task DoesNotReturnInheritedAuthenticationSecretThroughTelegram()
+    {
+        const string name = "ANTHROPIC_API_KEY";
+        var previous = Environment.GetEnvironmentVariable(name);
+        Environment.SetEnvironmentVariable(name, "dante-test-auth-secret");
+        try
+        {
+            var api = new CommandBotApi("/claude question");
+            var claude = new FakeRunner { Output = "dante-test-auth-secret" };
+            using var service = CreateService(api, new FakeRunner(), claude);
+            await RunUntilNextPollAsync(service, api);
+            Assert.Contains("[segredo omitido]", api.Messages[1].Text);
+            Assert.DoesNotContain("dante-test-auth-secret", api.Messages[1].Text);
+        }
+        finally { Environment.SetEnvironmentVariable(name, previous); }
+    }
+
     [Theory]
     [InlineData(true, "/codex")]
     [InlineData(false, "/codex")]
@@ -234,7 +252,8 @@ public sealed class TelegramAgentCommandTests
         public bool Throw { get; set; }
 
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
-            CancellationToken cancellationToken = default, bool generalMode = false)
+            CancellationToken cancellationToken = default, bool generalMode = false,
+            IReadOnlyDictionary<string, string>? environment = null)
         {
             Calls++;
             Prompt = prompt;

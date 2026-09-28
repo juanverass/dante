@@ -6,7 +6,8 @@ public sealed class ClaudeRunner(IAgentProcessExecutor processExecutor) : IClaud
         string prompt,
         string workingDirectory,
         CancellationToken cancellationToken = default,
-        bool generalMode = false)
+        bool generalMode = false,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
@@ -19,7 +20,8 @@ public sealed class ClaudeRunner(IAgentProcessExecutor processExecutor) : IClaud
                 ? ["--print", "--restricted", "--strict-mcp-config", "--tools", "Read,Write,Edit",
                     "--permission-mode", "auto", "--permission-prompts", "none", "--", prompt]
                 : ["--print", "--permission-mode", "auto", "--permission-prompts", "none", "--", prompt],
-            generalMode);
+            generalMode,
+            environment);
 
         return processExecutor.ExecuteAsync(request, cancellationToken);
     }
