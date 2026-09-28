@@ -127,7 +127,7 @@ public sealed class TelegramPollingService(
             }
 
             var response = jobs.TryCancel(prompt, out var cancelled)
-                ? $"Cancelamento solicitado para {cancelled!.Id}."
+                ? $"Cancelamento solicitado para {cancelled!.Id} ({cancelled.Context.Label})."
                 : $"Job {prompt} não encontrado ou já encerrado.";
             await botApi.SendMessageAsync(message.Chat.Id, response, cancellationToken);
             return;
@@ -150,6 +150,7 @@ public sealed class TelegramPollingService(
 
         var workingDirectory = generalWorkspace.Path;
         var generalMode = true;
+        string? repositoryAlias = null;
         ResolvedRepositoryEnvironment? repositoryEnvironment = null;
         var firstSpace = prompt.IndexOfAny([' ', '\t', '\r', '\n']);
         var firstArgument = firstSpace < 0 ? prompt : prompt[..firstSpace];
@@ -178,6 +179,7 @@ public sealed class TelegramPollingService(
             }
             workingDirectory = repository.Path;
             generalMode = false;
+            repositoryAlias = repository.Alias;
             try { repositoryEnvironment = repositories!.ResolveEnvironment(repository.Alias); }
             catch (InvalidOperationException exception)
             {
@@ -196,10 +198,13 @@ public sealed class TelegramPollingService(
             return;
         }
 
-        var (job, jobToken) = jobs.Create(agent, cancellationToken);
+        var context = generalMode ? JobExecutionContext.General(workingDirectory) :
+            JobExecutionContext.Repository(repositoryAlias!, workingDirectory);
+        var (job, jobToken) = jobs.Create(agent, context, cancellationToken);
         try
         {
-            await botApi.SendMessageAsync(message.Chat.Id, $"{agent} iniciado. Job ID: {job.Id}.", cancellationToken);
+            await botApi.SendMessageAsync(message.Chat.Id,
+                $"{agent} iniciado. Job ID: {job.Id} ({context.Label}).", cancellationToken);
         }
         catch
         {
@@ -207,7 +212,7 @@ public sealed class TelegramPollingService(
             throw;
         }
 
-        var task = RunJobAsync(job.Id, agent, isCodex, prompt, workingDirectory, generalMode,
+        var task = RunJobAsync(job.Id, agent, isCodex, prompt, context,
             repositoryEnvironment, message.Chat.Id, jobToken,
             cancellationToken);
         lock (runningGate)
@@ -349,7 +354,7 @@ public sealed class TelegramPollingService(
     }
 
     private async Task RunJobAsync(string id, string agent, bool isCodex, string prompt,
-        string workingDirectory, bool generalMode, ResolvedRepositoryEnvironment? repositoryEnvironment, long chatId,
+        JobExecutionContext context, ResolvedRepositoryEnvironment? repositoryEnvironment, long chatId,
         CancellationToken jobToken, CancellationToken stoppingToken)
     {
         AgentProcessResult? result = null;
@@ -360,9 +365,11 @@ public sealed class TelegramPollingService(
             if (jobs.TryStart(id))
             {
                 result = isCodex
-                    ? await codexRunner.RunAsync(prompt, workingDirectory, jobToken, generalMode,
+                    ? await codexRunner.RunAsync(prompt, context.WorkingDirectory, jobToken,
+                        context.Mode == JobExecutionMode.General,
                         repositoryEnvironment?.Values)
-                    : await claudeRunner.RunAsync(prompt, workingDirectory, jobToken, generalMode,
+                    : await claudeRunner.RunAsync(prompt, context.WorkingDirectory, jobToken,
+                        context.Mode == JobExecutionMode.General,
                         repositoryEnvironment?.Values);
                 status = result.Status;
                 errorMessage = result.ErrorMessage;
@@ -381,13 +388,14 @@ public sealed class TelegramPollingService(
         }
 
         var completed = jobs.Complete(id, status, result?.ExitCode, errorMessage);
+        var label = completed.Context.Label;
         var response = completed.Status switch
         {
             _ when repositoryEnvironment?.HasSecrets == true =>
-                $"{agent} {completed.Status}. Job {id}. Saída omitida para proteger segredos do ambiente.",
-            JobStatus.Succeeded => $"{agent} concluído. Job {id}.\n\n{OutputOrFallback(result!.StandardOutput)}",
-            JobStatus.Cancelled => $"{agent} cancelado. Job {id}.",
-            _ => $"{agent} falhou. Job {id}.\n\n{(result is null ? errorMessage : FailureDetails(result))}"
+                $"{agent} {completed.Status}. Job {id} ({label}). Saída omitida para proteger segredos do ambiente.",
+            JobStatus.Succeeded => $"{agent} concluído. Job {id} ({label}).\n\n{OutputOrFallback(result!.StandardOutput)}",
+            JobStatus.Cancelled => $"{agent} cancelado. Job {id} ({label}).",
+            _ => $"{agent} falhou. Job {id} ({label}).\n\n{(result is null ? errorMessage : FailureDetails(result))}"
         };
 
         try
@@ -406,7 +414,7 @@ public sealed class TelegramPollingService(
     }
 
     private static string FormatJob(JobSnapshot job) =>
-        $"{job.Id} {job.Agent}: {job.Status}" +
+        $"{job.Id} {job.Agent} {job.Context.Label}: {job.Status}" +
         (job.CancellationRequested && job.Status is JobStatus.Queued or JobStatus.Running
             ? " (cancelamento solicitado)" : string.Empty) +
         $" | criado {job.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
