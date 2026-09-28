@@ -42,6 +42,15 @@ public sealed class RepositoryRegistryTests : IDisposable
         Assert.Empty(registry.List());
     }
 
+    [Fact]
+    public void AcceptsEquivalentPathWithTrailingDirectorySeparator()
+    {
+        var repository = CreateRepository("project");
+        var registry = new RepositoryRegistry(Path.Combine(root, "repositories.json"));
+        var added = registry.Add("@project", repository + Path.DirectorySeparatorChar);
+        Assert.Equal(repository, added.Path);
+    }
+
     private string CreateRepository(string name)
     {
         var path = Path.Combine(root, name);

@@ -41,11 +41,12 @@ public sealed class RepositoryRegistry
         alias = NormalizeAlias(alias);
         if (string.IsNullOrWhiteSpace(path) || !System.IO.Path.IsPathFullyQualified(path))
             throw new ArgumentException("O path do repositório deve ser absoluto.", nameof(path));
-        path = System.IO.Path.GetFullPath(path);
+        path = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(path));
         if (!Directory.Exists(path))
             throw new ArgumentException("O diretório do repositório não existe.", nameof(path));
         var gitRoot = RunGit(path, "rev-parse", "--show-toplevel");
-        if (gitRoot is null || !string.Equals(System.IO.Path.GetFullPath(gitRoot), path,
+        if (gitRoot is null || !string.Equals(
+                System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(gitRoot)), path,
                 OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             throw new ArgumentException("O diretório não é a raiz de um repositório Git.", nameof(path));
         if (gitHub is not null)
