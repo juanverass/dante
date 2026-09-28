@@ -5,6 +5,18 @@ namespace Dante.Tests;
 public sealed class ClaudeRunnerTests
 {
     [Fact]
+    public async Task GeneralModeRestrictsToolsToWorkspaceFiles()
+    {
+        var executor = new RecordingExecutor(Result(AgentProcessStatus.Succeeded));
+        await new ClaudeRunner(executor).RunAsync("question", AppContext.BaseDirectory,
+            generalMode: true);
+        Assert.True(executor.Request!.IsGeneral);
+        Assert.Equal(["--print", "--restricted", "--strict-mcp-config", "--tools", "Read,Write,Edit",
+            "--permission-mode", "auto", "--permission-prompts", "none", "--", "question"],
+            executor.Request.Arguments);
+    }
+
+    [Fact]
     public async Task UsesPrintModeAndPassesPromptAsOneArgument()
     {
         const string prompt = "--permission-mode bypassPermissions; $(echo unsafe)";
