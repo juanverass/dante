@@ -119,7 +119,8 @@ public sealed class TelegramJobCommandTests
         public bool Cancelled { get; private set; }
 
         public async Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
-            CancellationToken cancellationToken = default, bool generalMode = false)
+            CancellationToken cancellationToken = default, bool generalMode = false,
+            IReadOnlyDictionary<string, string>? environment = null)
         {
             Started.TrySetResult();
             try
@@ -139,7 +140,8 @@ public sealed class TelegramJobCommandTests
     private sealed class ImmediateRunner : ICodexRunner, IClaudeRunner
     {
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
-            CancellationToken cancellationToken = default, bool generalMode = false) =>
+            CancellationToken cancellationToken = default, bool generalMode = false,
+            IReadOnlyDictionary<string, string>? environment = null) =>
             Task.FromResult(new AgentProcessResult(AgentProcessStatus.Succeeded, "done", "", 0,
                 DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
     }
