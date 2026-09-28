@@ -143,14 +143,45 @@ public sealed class TelegramPollingService(
         var agent = isCodex ? "Codex" : "Claude";
         if (prompt.Length == 0)
         {
-            await botApi.SendMessageAsync(message.Chat.Id, $"Uso: /{agent.ToLowerInvariant()} <prompt>",
+            await botApi.SendMessageAsync(message.Chat.Id, $"Uso: /{agent.ToLowerInvariant()} [@alias] <prompt>",
                 cancellationToken);
             return;
         }
 
-        if (repositories?.List().Any(repository =>
-                IsWithin(generalWorkspace.Path, repository.Path) ||
-                IsWithin(repository.Path, generalWorkspace.Path)) == true)
+        var workingDirectory = generalWorkspace.Path;
+        var generalMode = true;
+        var firstSpace = prompt.IndexOfAny([' ', '\t', '\r', '\n']);
+        var firstArgument = firstSpace < 0 ? prompt : prompt[..firstSpace];
+        if (firstArgument.StartsWith('@'))
+        {
+            RepositoryDefinition? repository;
+            try { repository = repositories?.Get(firstArgument); }
+            catch (ArgumentException)
+            {
+                await botApi.SendMessageAsync(message.Chat.Id, "Alias inválido.", cancellationToken);
+                return;
+            }
+
+            if (repository is null)
+            {
+                await botApi.SendMessageAsync(message.Chat.Id, $"Repositório {firstArgument} não cadastrado.",
+                    cancellationToken);
+                return;
+            }
+            prompt = firstSpace < 0 ? string.Empty : prompt[(firstSpace + 1)..].Trim();
+            if (prompt.Length == 0)
+            {
+                await botApi.SendMessageAsync(message.Chat.Id, $"Uso: /{agent.ToLowerInvariant()} @alias <prompt>",
+                    cancellationToken);
+                return;
+            }
+            workingDirectory = repository.Path;
+            generalMode = false;
+        }
+
+        if (generalMode && repositories?.List().Any(repository =>
+                IsWithin(workingDirectory, repository.Path) ||
+                IsWithin(repository.Path, workingDirectory)) == true)
         {
             await botApi.SendMessageAsync(message.Chat.Id,
                 "O workspace geral coincide com um repositório cadastrado; configure DANTE_GENERAL_WORKSPACE fora dos projetos.",
@@ -169,7 +200,7 @@ public sealed class TelegramPollingService(
             throw;
         }
 
-        var task = RunJobAsync(job.Id, agent, isCodex, prompt, message.Chat.Id, jobToken,
+        var task = RunJobAsync(job.Id, agent, isCodex, prompt, workingDirectory, generalMode, message.Chat.Id, jobToken,
             cancellationToken);
         lock (runningGate)
         {
@@ -266,7 +297,8 @@ public sealed class TelegramPollingService(
         return arguments.ToArray();
     }
 
-    private async Task RunJobAsync(string id, string agent, bool isCodex, string prompt, long chatId,
+    private async Task RunJobAsync(string id, string agent, bool isCodex, string prompt,
+        string workingDirectory, bool generalMode, long chatId,
         CancellationToken jobToken, CancellationToken stoppingToken)
     {
         AgentProcessResult? result = null;
@@ -277,8 +309,8 @@ public sealed class TelegramPollingService(
             if (jobs.TryStart(id))
             {
                 result = isCodex
-                    ? await codexRunner.RunAsync(prompt, generalWorkspace.Path, jobToken, generalMode: true)
-                    : await claudeRunner.RunAsync(prompt, generalWorkspace.Path, jobToken, generalMode: true);
+                    ? await codexRunner.RunAsync(prompt, workingDirectory, jobToken, generalMode)
+                    : await claudeRunner.RunAsync(prompt, workingDirectory, jobToken, generalMode);
                 status = result.Status;
                 errorMessage = result.ErrorMessage;
             }
