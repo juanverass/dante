@@ -64,6 +64,55 @@ public sealed class AgentProcessExecutorTests
     }
 
     [Fact]
+    public async Task RepositoryEnvironmentIsAppliedPerChildProcess()
+    {
+        const string name = "DANTE_TEST_REPO_VALUE";
+        var previous = Environment.GetEnvironmentVariable(name);
+        Environment.SetEnvironmentVariable(name, "host-value");
+        try
+        {
+            var executor = CreateExecutor();
+            var first = await executor.ExecuteAsync(Request("env", name) with
+            {
+                EnvironmentVariables = new Dictionary<string, string> { [name] = "first" }
+            });
+            var second = await executor.ExecuteAsync(Request("env", name) with
+            {
+                EnvironmentVariables = new Dictionary<string, string> { [name] = "second" }
+            });
+            var empty = await executor.ExecuteAsync(Request("env", name) with
+            {
+                EnvironmentVariables = new Dictionary<string, string>()
+            });
+            Assert.Equal("first", first.StandardOutput.Trim());
+            Assert.Equal("second", second.StandardOutput.Trim());
+            Assert.Equal("<unset>", empty.StandardOutput.Trim());
+            Assert.Equal("host-value", Environment.GetEnvironmentVariable(name));
+        }
+        finally { Environment.SetEnvironmentVariable(name, previous); }
+    }
+
+    [Fact]
+    public async Task AuthenticationVariableSurvivesGeneralAndRepositoryEnvironmentFiltering()
+    {
+        const string name = "OPENAI_API_KEY";
+        var previous = Environment.GetEnvironmentVariable(name);
+        Environment.SetEnvironmentVariable(name, "dante-test-auth-value");
+        try
+        {
+            var executor = CreateExecutor();
+            var general = await executor.ExecuteAsync(Request("env", name) with { IsGeneral = true });
+            var repository = await executor.ExecuteAsync(Request("env", name) with
+            {
+                EnvironmentVariables = new Dictionary<string, string> { ["PROJECT_SETTING"] = "enabled" }
+            });
+            Assert.Equal("dante-test-auth-value", general.StandardOutput.Trim());
+            Assert.Equal("dante-test-auth-value", repository.StandardOutput.Trim());
+        }
+        finally { Environment.SetEnvironmentVariable(name, previous); }
+    }
+
+    [Fact]
     public async Task CancellationStopsRunningProcess()
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
