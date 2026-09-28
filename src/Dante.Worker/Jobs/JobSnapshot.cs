@@ -9,4 +9,5 @@ public sealed record JobSnapshot(
     DateTimeOffset? FinishedAtUtc,
     bool CancellationRequested,
     int? ExitCode,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    JobExecutionContext Context);
