@@ -9,12 +9,12 @@ public sealed class JobRegistryTests
     public void RetainsActiveJobsAndOnlyTwentyRecentCompletedJobs()
     {
         var jobs = new JobRegistry();
-        var active = jobs.Create("Codex", CancellationToken.None);
+        var active = jobs.Create("Codex", JobExecutionContext.General("/general"), CancellationToken.None);
         Assert.True(jobs.TryStart(active.Snapshot.Id));
 
         for (var index = 0; index < 25; index++)
         {
-            var created = jobs.Create("Claude", CancellationToken.None);
+            var created = jobs.Create("Claude", JobExecutionContext.General("/general"), CancellationToken.None);
             Assert.True(jobs.TryStart(created.Snapshot.Id));
             jobs.Complete(created.Snapshot.Id, AgentProcessStatus.Failed, 1, "agent failed");
         }
@@ -30,5 +30,23 @@ public sealed class JobRegistryTests
         Assert.True(jobs.TryCancel(active.Snapshot.Id, out _));
         var cancelled = jobs.Complete(active.Snapshot.Id, AgentProcessStatus.Succeeded);
         Assert.Equal(JobStatus.Cancelled, cancelled.Status);
+    }
+
+    [Fact]
+    public void PreservesContextOfSimultaneousJobs()
+    {
+        var jobs = new JobRegistry();
+        var general = jobs.Create("Claude", JobExecutionContext.General("/general"), CancellationToken.None);
+        var repository = jobs.Create("Codex", JobExecutionContext.Repository("@fitness_backend", "/repos/fitness"),
+            CancellationToken.None);
+        Assert.True(jobs.TryStart(general.Snapshot.Id));
+        Assert.True(jobs.TryStart(repository.Snapshot.Id));
+        var visible = jobs.GetVisible();
+        Assert.Equal(JobExecutionMode.General, visible.Single(x => x.Id == general.Snapshot.Id).Context.Mode);
+        var repositoryContext = visible.Single(x => x.Id == repository.Snapshot.Id).Context;
+        Assert.Equal("@fitness_backend", repositoryContext.RepositoryAlias);
+        Assert.Equal("/repos/fitness", repositoryContext.WorkingDirectory);
+        jobs.Complete(general.Snapshot.Id, AgentProcessStatus.Succeeded);
+        jobs.Complete(repository.Snapshot.Id, AgentProcessStatus.Succeeded);
     }
 }

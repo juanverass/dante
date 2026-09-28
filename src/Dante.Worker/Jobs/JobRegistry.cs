@@ -9,9 +9,10 @@ public sealed class JobRegistry
     private readonly Dictionary<string, Job> jobs = new(StringComparer.OrdinalIgnoreCase);
     private long nextId;
 
-    public (JobSnapshot Snapshot, CancellationToken Token) Create(string agent, CancellationToken stoppingToken)
+    public (JobSnapshot Snapshot, CancellationToken Token) Create(string agent, JobExecutionContext context,
+        CancellationToken stoppingToken)
     {
-        var job = new Job($"J{Interlocked.Increment(ref nextId):D6}", agent,
+        var job = new Job($"J{Interlocked.Increment(ref nextId):D6}", agent, context,
             CancellationTokenSource.CreateLinkedTokenSource(stoppingToken));
         lock (gate)
         {
@@ -102,12 +103,14 @@ public sealed class JobRegistry
 
     private static JobSnapshot Snapshot(Job job) => new(job.Id, job.Agent, job.Status,
         job.CreatedAtUtc, job.StartedAtUtc, job.FinishedAtUtc,
-        job.CancellationRequested, job.ExitCode, job.ErrorMessage);
+        job.CancellationRequested, job.ExitCode, job.ErrorMessage, job.Context);
 
-    private sealed class Job(string id, string agent, CancellationTokenSource cancellation)
+    private sealed class Job(string id, string agent, JobExecutionContext context,
+        CancellationTokenSource cancellation)
     {
         public string Id { get; } = id;
         public string Agent { get; } = agent;
+        public JobExecutionContext Context { get; } = context;
         public CancellationTokenSource Cancellation { get; } = cancellation;
         public DateTimeOffset CreatedAtUtc { get; } = DateTimeOffset.UtcNow;
         public DateTimeOffset? StartedAtUtc { get; set; }
