@@ -1,5 +1,7 @@
 using Dante.Worker.Agents;
 using Dante.Worker.Jobs;
+using Dante.Worker.Repositories;
+using System.Text;
 using Microsoft.Extensions.Options;
 
 namespace Dante.Worker.Telegram;
@@ -11,7 +13,8 @@ public sealed class TelegramPollingService(
     ICodexRunner codexRunner,
     IClaudeRunner claudeRunner,
     JobRegistry jobs,
-    ILogger<TelegramPollingService> logger) : BackgroundService
+    ILogger<TelegramPollingService> logger,
+    RepositoryRegistry? repositories = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private readonly object runningGate = new();
@@ -88,6 +91,21 @@ public sealed class TelegramPollingService(
         var separator = text.IndexOfAny([' ', '\t', '\r', '\n']);
         var command = separator < 0 ? text : text[..separator];
         var prompt = separator < 0 ? string.Empty : text[(separator + 1)..].Trim();
+        if (string.Equals(command, "/repos", StringComparison.OrdinalIgnoreCase))
+        {
+            var registered = repositories?.List() ?? [];
+            await SendLongMessageAsync(message.Chat.Id,
+                registered.Count == 0 ? "Nenhum repositório cadastrado." :
+                    string.Join('\n', registered.Select(FormatRepository)), cancellationToken);
+            return;
+        }
+
+        if (string.Equals(command, "/repo", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleRepositoryCommandAsync(message.Chat.Id, prompt, cancellationToken);
+            return;
+        }
+
         if (string.Equals(command, "/status", StringComparison.OrdinalIgnoreCase))
         {
             var visible = jobs.GetVisible();
@@ -153,6 +171,87 @@ public sealed class TelegramPollingService(
                 runningJobs.Remove(completed);
             }
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
+
+    private async Task HandleRepositoryCommandAsync(long chatId, string prompt, CancellationToken cancellationToken)
+    {
+        const string usage = "Uso: /repo add @alias <path> [owner/repo] | show @alias | remove @alias";
+        var parts = SplitCommandArguments(prompt);
+        if (parts is null)
+        {
+            await botApi.SendMessageAsync(chatId, "Aspas não fechadas no comando /repo.", cancellationToken);
+            return;
+        }
+        if (repositories is null || parts.Length < 2)
+        {
+            await botApi.SendMessageAsync(chatId, usage, cancellationToken);
+            return;
+        }
+
+        string response;
+        try
+        {
+            if (parts[0].Equals("add", StringComparison.OrdinalIgnoreCase) && parts.Length is 3 or 4)
+            {
+                response = "Repositório cadastrado: " + FormatRepository(
+                    repositories.Add(parts[1], parts[2], parts.Length == 4 ? parts[3] : null));
+            }
+            else if (parts[0].Equals("show", StringComparison.OrdinalIgnoreCase) && parts.Length == 2)
+            {
+                var found = repositories.Get(parts[1]);
+                response = found is null ? "Repositório não cadastrado." : FormatRepository(found);
+            }
+            else if (parts[0].Equals("remove", StringComparison.OrdinalIgnoreCase) && parts.Length == 2)
+            {
+                response = repositories.Remove(parts[1]) ? "Repositório removido." : "Repositório não cadastrado.";
+            }
+            else response = usage;
+        }
+        catch (ArgumentException exception)
+        {
+            response = exception.Message;
+        }
+        catch (IOException)
+        {
+            response = "Não foi possível salvar o catálogo de repositórios.";
+        }
+
+        await botApi.SendMessageAsync(chatId, response, cancellationToken);
+    }
+
+    private static string FormatRepository(RepositoryDefinition repository) =>
+        $"{repository.Alias}: {repository.Path}" +
+        (repository.GitHub is null ? string.Empty : $" ({repository.GitHub})");
+
+    private static string[]? SplitCommandArguments(string input)
+    {
+        var arguments = new List<string>();
+        var current = new StringBuilder();
+        var quoted = false;
+        var started = false;
+        foreach (var character in input)
+        {
+            if (character == '"')
+            {
+                quoted = !quoted;
+                started = true;
+            }
+            else if (char.IsWhiteSpace(character) && !quoted)
+            {
+                if (!started) continue;
+                arguments.Add(current.ToString());
+                current.Clear();
+                started = false;
+            }
+            else
+            {
+                current.Append(character);
+                started = true;
+            }
+        }
+        if (quoted) return null;
+        if (started) arguments.Add(current.ToString());
+        return arguments.ToArray();
     }
 
     private async Task RunJobAsync(string id, string agent, bool isCodex, string prompt, long chatId,
