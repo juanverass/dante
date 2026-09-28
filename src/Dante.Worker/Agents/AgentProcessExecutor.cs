@@ -42,6 +42,21 @@ public sealed class AgentProcessExecutor(IAgentExecutableResolver executableReso
             CreateNoWindow = true
         };
 
+        if (request.IsGeneral)
+        {
+            // Keep only the host settings needed to launch/authenticate local CLIs.
+            var inherited = new Dictionary<string, string?>(startInfo.Environment,
+                OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+            startInfo.Environment.Clear();
+            foreach (var name in new[] { "PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TMP", "TEMP",
+                         "TMPDIR", "SYSTEMROOT", "WINDIR", "COMSPEC", "LANG", "LC_ALL", "TERM", "OPENAI_API_KEY",
+                         "ANTHROPIC_API_KEY", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY" })
+            {
+                if (inherited.TryGetValue(name, out var value) && value is not null)
+                    startInfo.Environment[name] = value;
+            }
+        }
+
         foreach (var argument in request.Arguments)
         {
             startInfo.ArgumentList.Add(argument);
