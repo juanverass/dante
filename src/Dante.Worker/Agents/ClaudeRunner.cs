@@ -5,7 +5,8 @@ public sealed class ClaudeRunner(IAgentProcessExecutor processExecutor) : IClaud
     public Task<AgentProcessResult> RunAsync(
         string prompt,
         string workingDirectory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool generalMode = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
@@ -14,7 +15,11 @@ public sealed class ClaudeRunner(IAgentProcessExecutor processExecutor) : IClaud
         var request = new AgentProcessRequest(
             AgentKind.Claude,
             workingDirectory,
-            ["--print", "--permission-mode", "auto", "--permission-prompts", "none", "--", prompt]);
+            generalMode
+                ? ["--print", "--restricted", "--strict-mcp-config", "--tools", "Read,Write,Edit",
+                    "--permission-mode", "auto", "--permission-prompts", "none", "--", prompt]
+                : ["--print", "--permission-mode", "auto", "--permission-prompts", "none", "--", prompt],
+            generalMode);
 
         return processExecutor.ExecuteAsync(request, cancellationToken);
     }

@@ -5,7 +5,8 @@ public sealed class CodexRunner(IAgentProcessExecutor processExecutor) : ICodexR
     public Task<AgentProcessResult> RunAsync(
         string prompt,
         string workingDirectory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool generalMode = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
@@ -14,7 +15,11 @@ public sealed class CodexRunner(IAgentProcessExecutor processExecutor) : ICodexR
         var request = new AgentProcessRequest(
             AgentKind.Codex,
             workingDirectory,
-            ["exec", "--approve-for-me", "--", prompt]);
+            generalMode
+                ? ["exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "--ignore-user-config",
+                    "--", prompt]
+                : ["exec", "--approve-for-me", "--", prompt],
+            generalMode);
 
         return processExecutor.ExecuteAsync(request, cancellationToken);
     }

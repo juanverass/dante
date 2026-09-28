@@ -47,6 +47,23 @@ public sealed class AgentProcessExecutorTests
     }
 
     [Fact]
+    public async Task GeneralExecutionDoesNotInheritProjectEnvironment()
+    {
+        const string name = "DANTE_REPO_SECRET_TEST";
+        var previous = Environment.GetEnvironmentVariable(name);
+        Environment.SetEnvironmentVariable(name, "project-value");
+        try
+        {
+            var executor = CreateExecutor();
+            var ordinary = await executor.ExecuteAsync(Request("env", name));
+            var general = await executor.ExecuteAsync(Request("env", name) with { IsGeneral = true });
+            Assert.Equal("project-value", ordinary.StandardOutput.Trim());
+            Assert.Equal("<unset>", general.StandardOutput.Trim());
+        }
+        finally { Environment.SetEnvironmentVariable(name, previous); }
+    }
+
+    [Fact]
     public async Task CancellationStopsRunningProcess()
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));

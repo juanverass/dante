@@ -5,5 +5,6 @@ public interface ICodexRunner
     Task<AgentProcessResult> RunAsync(
         string prompt,
         string workingDirectory,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        bool generalMode = false);
 }

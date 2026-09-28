@@ -5,6 +5,17 @@ namespace Dante.Tests;
 public sealed class CodexRunnerTests
 {
     [Fact]
+    public async Task GeneralModeUsesWorkspaceSandboxWithoutGitRequirement()
+    {
+        var executor = new RecordingExecutor(Result(AgentProcessStatus.Succeeded));
+        await new CodexRunner(executor).RunAsync("question", AppContext.BaseDirectory,
+            generalMode: true);
+        Assert.True(executor.Request!.IsGeneral);
+        Assert.Equal(["exec", "--sandbox", "workspace-write", "--skip-git-repo-check",
+            "--ignore-user-config", "--", "question"], executor.Request.Arguments);
+    }
+
+    [Fact]
     public async Task UsesFixedCommandAndPassesPromptAsOneArgument()
     {
         const string prompt = "--dangerously-bypass-approvals-and-sandbox; $(echo unsafe)";
