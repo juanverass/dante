@@ -150,6 +150,7 @@ public sealed class TelegramPollingService(
 
         var workingDirectory = generalWorkspace.Path;
         var generalMode = true;
+        ResolvedRepositoryEnvironment? repositoryEnvironment = null;
         var firstSpace = prompt.IndexOfAny([' ', '\t', '\r', '\n']);
         var firstArgument = firstSpace < 0 ? prompt : prompt[..firstSpace];
         if (firstArgument.StartsWith('@'))
@@ -177,6 +178,12 @@ public sealed class TelegramPollingService(
             }
             workingDirectory = repository.Path;
             generalMode = false;
+            try { repositoryEnvironment = repositories!.ResolveEnvironment(repository.Alias); }
+            catch (InvalidOperationException exception)
+            {
+                await botApi.SendMessageAsync(message.Chat.Id, exception.Message, cancellationToken);
+                return;
+            }
         }
 
         if (generalMode && repositories?.List().Any(repository =>
@@ -200,7 +207,8 @@ public sealed class TelegramPollingService(
             throw;
         }
 
-        var task = RunJobAsync(job.Id, agent, isCodex, prompt, workingDirectory, generalMode, message.Chat.Id, jobToken,
+        var task = RunJobAsync(job.Id, agent, isCodex, prompt, workingDirectory, generalMode,
+            repositoryEnvironment, message.Chat.Id, jobToken,
             cancellationToken);
         lock (runningGate)
         {
@@ -228,6 +236,12 @@ public sealed class TelegramPollingService(
         if (repositories is null || parts.Length < 2)
         {
             await botApi.SendMessageAsync(chatId, usage, cancellationToken);
+            return;
+        }
+
+        if (parts[0].Equals("env", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleRepositoryEnvironmentCommandAsync(chatId, parts, cancellationToken);
             return;
         }
 
@@ -297,8 +311,45 @@ public sealed class TelegramPollingService(
         return arguments.ToArray();
     }
 
+    private async Task HandleRepositoryEnvironmentCommandAsync(long chatId, string[] parts,
+        CancellationToken cancellationToken)
+    {
+        const string usage = "Uso: /repo env list @alias | set @alias KEY VALUE | bind @alias KEY HOST_ENV | remove @alias KEY";
+        string response;
+        try
+        {
+            if (parts.Length == 3 && parts[1].Equals("list", StringComparison.OrdinalIgnoreCase))
+            {
+                var repository = repositories!.Get(parts[2]);
+                response = repository is null ? "Repositório não cadastrado." :
+                    repository.Environment is not { Count: > 0 } ? "Nenhuma variável configurada." :
+                    string.Join('\n', repository.Environment.Select(entry => entry.HostVariable is null
+                        ? $"{entry.Key} (literal)" : $"{entry.Key} (host: {entry.HostVariable})"));
+            }
+            else if (parts.Length >= 5 && parts[1].Equals("set", StringComparison.OrdinalIgnoreCase))
+            {
+                repositories!.SetLiteral(parts[2], parts[3], string.Join(' ', parts.Skip(4)));
+                response = $"Variável {parts[3]} configurada como literal. Não use env set para segredos.";
+            }
+            else if (parts.Length == 5 && parts[1].Equals("bind", StringComparison.OrdinalIgnoreCase))
+            {
+                repositories!.Bind(parts[2], parts[3], parts[4]);
+                response = $"Variável {parts[3]} vinculada à variável do host {parts[4]}.";
+            }
+            else if (parts.Length == 4 && parts[1].Equals("remove", StringComparison.OrdinalIgnoreCase))
+            {
+                response = repositories!.RemoveEnvironment(parts[2], parts[3])
+                    ? $"Variável {parts[3]} removida." : "Variável não configurada.";
+            }
+            else response = usage;
+        }
+        catch (ArgumentException exception) { response = exception.Message; }
+        catch (IOException) { response = "Não foi possível salvar o catálogo de repositórios."; }
+        await botApi.SendMessageAsync(chatId, response, cancellationToken);
+    }
+
     private async Task RunJobAsync(string id, string agent, bool isCodex, string prompt,
-        string workingDirectory, bool generalMode, long chatId,
+        string workingDirectory, bool generalMode, ResolvedRepositoryEnvironment? repositoryEnvironment, long chatId,
         CancellationToken jobToken, CancellationToken stoppingToken)
     {
         AgentProcessResult? result = null;
@@ -309,8 +360,10 @@ public sealed class TelegramPollingService(
             if (jobs.TryStart(id))
             {
                 result = isCodex
-                    ? await codexRunner.RunAsync(prompt, workingDirectory, jobToken, generalMode)
-                    : await claudeRunner.RunAsync(prompt, workingDirectory, jobToken, generalMode);
+                    ? await codexRunner.RunAsync(prompt, workingDirectory, jobToken, generalMode,
+                        repositoryEnvironment?.Values)
+                    : await claudeRunner.RunAsync(prompt, workingDirectory, jobToken, generalMode,
+                        repositoryEnvironment?.Values);
                 status = result.Status;
                 errorMessage = result.ErrorMessage;
             }
@@ -330,6 +383,8 @@ public sealed class TelegramPollingService(
         var completed = jobs.Complete(id, status, result?.ExitCode, errorMessage);
         var response = completed.Status switch
         {
+            _ when repositoryEnvironment?.HasSecrets == true =>
+                $"{agent} {completed.Status}. Job {id}. Saída omitida para proteger segredos do ambiente.",
             JobStatus.Succeeded => $"{agent} concluído. Job {id}.\n\n{OutputOrFallback(result!.StandardOutput)}",
             JobStatus.Cancelled => $"{agent} cancelado. Job {id}.",
             _ => $"{agent} falhou. Job {id}.\n\n{(result is null ? errorMessage : FailureDetails(result))}"
@@ -337,7 +392,7 @@ public sealed class TelegramPollingService(
 
         try
         {
-            await SendLongMessageAsync(chatId, response, stoppingToken);
+            await SendLongMessageAsync(chatId, RedactHostAuthSecrets(response), stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -380,6 +435,17 @@ public sealed class TelegramPollingService(
 
     private static string OutputOrFallback(string output) =>
         string.IsNullOrWhiteSpace(output) ? "(sem saída)" : output;
+
+    private static string RedactHostAuthSecrets(string message)
+    {
+        foreach (var name in new[] { "OPENAI_API_KEY", "ANTHROPIC_API_KEY" })
+        {
+            var value = Environment.GetEnvironmentVariable(name);
+            if (!string.IsNullOrEmpty(value))
+                message = message.Replace(value, "[segredo omitido]", StringComparison.Ordinal);
+        }
+        return message;
+    }
 
     private static string FailureDetails(AgentProcessResult result)
     {
