@@ -1,6 +1,8 @@
 using Dante.Worker.Agents;
 using Dante.Worker.Jobs;
+using Dante.Worker.Repositories;
 using Dante.Worker.Telegram;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -24,7 +26,8 @@ public sealed class TelegramAgentCommandTests
         var other = useCodex ? claude : codex;
         Assert.Equal(1, selected.Calls);
         Assert.Equal("Responda " + (useCodex ? "CODEX OK" : "CLAUDE OK"), selected.Prompt);
-        Assert.Equal("/tmp/agent-work", selected.WorkingDirectory);
+        Assert.Equal(new GeneralWorkspace().Path, selected.WorkingDirectory);
+        Assert.True(selected.GeneralMode);
         Assert.Equal(0, other.Calls);
         Assert.Equal(2, api.Messages.Count);
         Assert.Contains("iniciado. Job ID: J", api.Messages[0].Text);
@@ -117,6 +120,53 @@ public sealed class TelegramAgentCommandTests
         Assert.Empty(api.Messages);
     }
 
+    [Theory]
+    [InlineData(true, "/codex")]
+    [InlineData(false, "/codex")]
+    [InlineData(true, "/claude")]
+    [InlineData(false, "/claude")]
+    public async Task GeneralModeRejectsWorkspaceOverlapInBothDirections(bool generalInsideRepository,
+        string command)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dante-overlap-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var repositoryPath = generalInsideRepository
+                ? Path.Combine(root, "repository") : Path.Combine(root, "general", "repository");
+            var generalPath = generalInsideRepository
+                ? Path.Combine(repositoryPath, "general") : Path.Combine(root, "general");
+            Directory.CreateDirectory(repositoryPath);
+            using (var process = Process.Start(new ProcessStartInfo("git")
+            {
+                WorkingDirectory = repositoryPath, UseShellExecute = false,
+                RedirectStandardOutput = true, RedirectStandardError = true, ArgumentList = { "init" }
+            })!)
+            {
+                process.StandardOutput.ReadToEnd();
+                process.StandardError.ReadToEnd();
+                process.WaitForExit();
+                Assert.Equal(0, process.ExitCode);
+            }
+
+            var registry = new RepositoryRegistry(Path.Combine(root, "repositories.json"));
+            registry.Add("@project", repositoryPath);
+            var general = new GeneralWorkspace(generalPath);
+            var api = new CommandBotApi(command + " question");
+            var codex = new FakeRunner();
+            var claude = new FakeRunner();
+            var options = Options.Create(new TelegramOptions { BotToken = "test", AllowedUserIds = "123" });
+            using var service = new TelegramPollingService(api, options, new TelegramUserAuthorizer(options),
+                codex, claude, new JobRegistry(), NullLogger<TelegramPollingService>.Instance, registry, general);
+
+            await RunUntilNextPollAsync(service, api);
+
+            Assert.Equal(0, codex.Calls + claude.Calls);
+            Assert.Single(api.Messages);
+            Assert.Contains("coincide com um repositório", api.Messages[0].Text);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     private static TelegramPollingService CreateService(CommandBotApi api, FakeRunner codex, FakeRunner claude)
     {
         var options = Options.Create(new TelegramOptions
@@ -176,6 +226,7 @@ public sealed class TelegramAgentCommandTests
         public int Calls { get; private set; }
         public string? Prompt { get; private set; }
         public string? WorkingDirectory { get; private set; }
+        public bool GeneralMode { get; private set; }
         public string Output { get; set; } = "RESULT OK";
         public string StandardError { get; set; } = "";
         public string? Error { get; set; }
@@ -183,11 +234,12 @@ public sealed class TelegramAgentCommandTests
         public bool Throw { get; set; }
 
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default, bool generalMode = false)
         {
             Calls++;
             Prompt = prompt;
             WorkingDirectory = workingDirectory;
+            GeneralMode = generalMode;
             if (Throw) throw new InvalidOperationException("sensitive detail");
             return Task.FromResult(new AgentProcessResult(ResultStatus, Output, StandardError, null,
                 DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Error));
