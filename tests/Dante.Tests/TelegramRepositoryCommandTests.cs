@@ -142,6 +142,6 @@ public sealed class TelegramRepositoryCommandTests : IDisposable
     private sealed class UnusedRunner : ICodexRunner, IClaudeRunner
     {
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
-            CancellationToken cancellationToken = default) => throw new InvalidOperationException();
+            CancellationToken cancellationToken = default, bool generalMode = false) => throw new InvalidOperationException();
     }
 }
