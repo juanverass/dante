@@ -14,11 +14,13 @@ public sealed class TelegramPollingService(
     IClaudeRunner claudeRunner,
     JobRegistry jobs,
     ILogger<TelegramPollingService> logger,
-    RepositoryRegistry? repositories = null) : BackgroundService
+    RepositoryRegistry? repositories = null,
+    GeneralWorkspace? generalWorkspace = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private readonly object runningGate = new();
     private readonly HashSet<Task> runningJobs = [];
+    private readonly GeneralWorkspace generalWorkspace = generalWorkspace ?? new GeneralWorkspace();
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -146,6 +148,16 @@ public sealed class TelegramPollingService(
             return;
         }
 
+        if (repositories?.List().Any(repository =>
+                IsWithin(generalWorkspace.Path, repository.Path) ||
+                IsWithin(repository.Path, generalWorkspace.Path)) == true)
+        {
+            await botApi.SendMessageAsync(message.Chat.Id,
+                "O workspace geral coincide com um repositório cadastrado; configure DANTE_GENERAL_WORKSPACE fora dos projetos.",
+                cancellationToken);
+            return;
+        }
+
         var (job, jobToken) = jobs.Create(agent, cancellationToken);
         try
         {
@@ -265,8 +277,8 @@ public sealed class TelegramPollingService(
             if (jobs.TryStart(id))
             {
                 result = isCodex
-                    ? await codexRunner.RunAsync(prompt, options.Value.AgentWorkingDirectory, jobToken)
-                    : await claudeRunner.RunAsync(prompt, options.Value.AgentWorkingDirectory, jobToken);
+                    ? await codexRunner.RunAsync(prompt, generalWorkspace.Path, jobToken, generalMode: true)
+                    : await claudeRunner.RunAsync(prompt, generalWorkspace.Path, jobToken, generalMode: true);
                 status = result.Status;
                 errorMessage = result.ErrorMessage;
             }
@@ -311,6 +323,13 @@ public sealed class TelegramPollingService(
         (job.CancellationRequested && job.Status is JobStatus.Queued or JobStatus.Running
             ? " (cancelamento solicitado)" : string.Empty) +
         $" | criado {job.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
+
+    private static bool IsWithin(string path, string root)
+    {
+        var relative = Path.GetRelativePath(root, path);
+        return relative == "." || (relative != ".." && !relative.StartsWith(".." + Path.DirectorySeparatorChar,
+            StringComparison.Ordinal) && !Path.IsPathFullyQualified(relative));
+    }
 
     private async Task SendLongMessageAsync(long chatId, string text, CancellationToken cancellationToken)
     {
