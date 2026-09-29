@@ -11,12 +11,18 @@ vence. Não redefina arquitetura, escopo ou backlog a partir de uma conversa.
 2. Leia [PROJECT_CONTEXT](docs/context/PROJECT_CONTEXT.md) e
    [CURRENT_STATE](docs/context/CURRENT_STATE.md). Se a tarefa tocar arquitetura,
    leia também [ARCHITECTURE_DECISIONS](docs/context/ARCHITECTURE_DECISIONS.md).
-3. Leia a Issue/PR da tarefa.
+3. Leia a Issue/PR da tarefa e o registro de turno vigente na Issue. Confirme o
+   ownership antes de assumir; siga o [protocolo de turnos](docs/development/handoff.md).
 4. Verifique Git, código e testes atuais: memória de sessão não substitui o estado real.
-5. Crie a branch da tarefa antes da primeira alteração; em continuação, use a mesma
-   branch e o mesmo PR.
+5. Em tarefa nova, crie a branch; em continuação ou correção de review, confirme a
+   mesma branch e o mesmo PR. Com a branch estabelecida, publique `## TURNO ASSUMIDO` na
+   Issue antes da primeira alteração de arquivo.
 
 ## Durante e ao final
 
 Siga o contrato: workflow Git, disciplina de escopo, staging seletivo, validação e
 Pull Request.
+
+Ao encerrar: implementação concluída → PR e `## TURNO FINALIZADO`; trabalho inacabado →
+checkpoint e `## HANDOFF`. Os dois vivem como comentários na Issue, nunca em arquivo do
+repositório.
