@@ -145,6 +145,9 @@ Claude e Codex desenvolvem o D.A.N.T.E. sob o mesmo
 [contrato](../development/agent-contract.md). A fonte de verdade é repositório + Git +
 Issues/PRs; memória de conversa não é fonte de verdade.
 
+Papéis padrão: **Claude implementa, Codex revisa**, com override humano explícito por
+Issue/PR. Ver [protocolo de review](../development/review.md#papéis-padrão).
+
 ---
 
 ## MVP 3

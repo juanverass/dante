@@ -51,5 +51,13 @@ arquitetura e limitações.
 
 Epic #40 · em andamento desde 2026-09-28
 
-Contrato neutro de agentes com adaptadores `CLAUDE.md`/`AGENTS.md` (#41, PR #48) e
-contexto persistente do projeto (#42). Demais Issues da Epic em andamento.
+| Issue | Entrega | PR |
+| --- | --- | --- |
+| #41 | Contrato neutro e adaptadores `CLAUDE.md`/`AGENTS.md` | #48 |
+| #42 | Contexto persistente (`docs/context/`) | #49 |
+| #43 | Protocolo de turno, handoff, Decision Locks e RECOVERY MODE | #50 |
+| #45 | Backlog, labels `status:*` e templates | #51 |
+| #44 | Skills `continuar-turno`/`encerrar-turno` para Claude e Codex | #52 |
+| #46 | Protocolo implementador → revisor → correção | #53 |
+
+PRs empilhados na ordem acima. Pendente: validação zero-chat em cenário real (#47).

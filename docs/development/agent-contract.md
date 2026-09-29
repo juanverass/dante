@@ -24,6 +24,7 @@ Documentos normativos que complementam este contrato:
 | --- | --- |
 | [`handoff.md`](handoff.md) | turnos, ownership, handoff, Decision Locks, RECOVERY MODE |
 | [`backlog.md`](backlog.md) | fila de Issues, labels `status:*`, dependências, seleção de trabalho |
+| [`review.md`](review.md) | ciclo implementador → revisor → correção no mesmo PR |
 
 ## Vocabulário
 
@@ -275,6 +276,11 @@ comandos executados e resultado real (build, testes)
 
 Quando uma Issue depende de outra ainda não mesclada, o PR pode ser **empilhado** sobre
 a branch da dependência; o corpo diz sobre qual PR ele está empilhado.
+
+A revisão segue o [protocolo de review](review.md): feedback no PR, veredito explícito,
+correção como turno novo na mesma branch e no mesmo PR. Papéis padrão: Claude implementa
+e Codex revisa, salvo override humano explícito (ver
+[Papéis padrão](review.md#papéis-padrão)).
 
 **Squash merge** é o padrão de integração. O merge é **sempre decisão humana**: nenhum
 agente faz merge do próprio PR sem instrução explícita.
