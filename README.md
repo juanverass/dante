@@ -572,4 +572,5 @@ Configurações locais e segredos não devem ser versionados.
 
 Claude Code, Codex e desenvolvedores humanos seguem o mesmo
 [contrato de desenvolvimento](docs/development/agent-contract.md). `CLAUDE.md` e
-`AGENTS.md` são adaptadores finos que apontam para ele.
+`AGENTS.md` são adaptadores finos que apontam para ele. O contexto persistente do
+projeto (visão, estado atual, decisões e histórico) está em [`docs/context/`](docs/context/).

@@ -8,7 +8,9 @@ vence. Não redefina arquitetura, escopo ou backlog a partir de uma conversa.
 ## Antes de começar qualquer tarefa
 
 1. Leia o [contrato de desenvolvimento](docs/development/agent-contract.md).
-2. Leia o [README](README.md) para uso, configuração e comandos.
+2. Leia [PROJECT_CONTEXT](docs/context/PROJECT_CONTEXT.md) e
+   [CURRENT_STATE](docs/context/CURRENT_STATE.md). Se a tarefa tocar arquitetura,
+   leia também [ARCHITECTURE_DECISIONS](docs/context/ARCHITECTURE_DECISIONS.md).
 3. Leia a Issue/PR da tarefa.
 4. Verifique Git, código e testes atuais: memória de sessão não substitui o estado real.
 5. Crie a branch da tarefa antes da primeira alteração; em continuação, use a mesma

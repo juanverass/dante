@@ -72,6 +72,27 @@ em um workspace geral isolado ou em repositórios cadastrados.
 
 Não altere versão de pacote ou target framework sem pedido explícito.
 
+### Contexto persistente
+
+O conhecimento global do projeto vive em `docs/context/`, cada arquivo com uma
+responsabilidade:
+
+| Arquivo | Conteúdo | Como muda |
+| --- | --- | --- |
+| [`PROJECT_CONTEXT.md`](../context/PROJECT_CONTEXT.md) | visão, arquitetura, componentes, stack, segurança, limites | quando a arquitetura ou o propósito mudam |
+| [`CURRENT_STATE.md`](../context/CURRENT_STATE.md) | retrato do HEAD: marcos, features, limitações, próximos marcos | **reescrito** na parte afetada quando o estado do projeto muda |
+| [`ARCHITECTURE_DECISIONS.md`](../context/ARCHITECTURE_DECISIONS.md) | decisões vigentes com justificativa | decisão nova ganha `AD-NN`; decisão superada é marcada como substituída, não apagada |
+| [`DEVELOPMENT_HISTORY.md`](../context/DEVELOPMENT_HISTORY.md) | marcos consolidados e PRs relevantes | acrescentado ao concluir um marco |
+
+Regras:
+
+* uma Issue que muda o estado do projeto atualiza `CURRENT_STATE.md` no mesmo PR;
+* uma Issue que toma decisão estrutural registra-a em `ARCHITECTURE_DECISIONS.md`;
+* nada disso é diário de sessão: estado transitório de Issue (worker, checkpoint,
+  handoff) vive na Issue/PR, nunca em arquivo do repositório;
+* quando um documento de contexto divergir do código ou dos testes, o código vence e o
+  documento é corrigido.
+
 ## Convenções de código
 
 * identificadores de código (tipos, membros, arquivos) em **inglês**, como o código
