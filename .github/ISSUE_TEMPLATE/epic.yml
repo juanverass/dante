@@ -1,0 +1,29 @@
+name: Epic
+description: Iniciativa que agrupa Issues executáveis; não é implementada diretamente
+title: "[Epic] "
+labels: ["type:epic"]
+body:
+  - type: textarea
+    id: objetivo
+    attributes:
+      label: Objetivo
+    validations:
+      required: true
+  - type: textarea
+    id: escopo
+    attributes:
+      label: Escopo e fora do escopo
+    validations:
+      required: true
+  - type: textarea
+    id: conclusao
+    attributes:
+      label: Critério de conclusão
+    validations:
+      required: true
+  - type: textarea
+    id: issues
+    attributes:
+      label: Issues
+      description: Checklist das Issues filhas e ordem sugerida.
+      value: "- [ ] #"

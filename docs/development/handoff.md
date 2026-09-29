@@ -74,7 +74,7 @@ Todo caminho que tira um worker da Issue publica um registro. Não existe Issue
 
 O estado da Issue no backlog (labels `status:*`) e o ownership de turno são conceitos
 diferentes: a label diz em que fase a Issue está; o registro de turno diz **quem** está
-nela agora.
+nela agora. Ver [backlog](backlog.md#estado-da-issue--ownership-de-turno).
 
 ### O claim de turno é obrigatório
 

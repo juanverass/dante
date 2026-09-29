@@ -14,9 +14,11 @@ vence. Não redefina arquitetura, escopo ou backlog a partir de uma conversa.
 3. Leia a Issue/PR da tarefa e o registro de turno vigente na Issue. Confirme o
    ownership antes de assumir; siga o [protocolo de turnos](docs/development/handoff.md).
 4. Verifique Git, código e testes atuais: memória de sessão não substitui o estado real.
-5. Em tarefa nova, crie a branch; em continuação ou correção de review, confirme a
-   mesma branch e o mesmo PR. Com a branch estabelecida, publique `## TURNO ASSUMIDO` na
-   Issue antes da primeira alteração de arquivo.
+5. Descubra o modo pelo status da Issue ([backlog](docs/development/backlog.md)): trabalho
+   novo só de `status:ready`, nunca Epic. Em tarefa nova, faça o claim
+   `ready → in-progress` e crie a branch; em continuação ou correção de review, confirme
+   a mesma branch e o mesmo PR. Com a branch estabelecida, publique `## TURNO ASSUMIDO`
+   na Issue antes da primeira alteração de arquivo.
 
 ## Durante e ao final
 
