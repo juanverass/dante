@@ -42,8 +42,8 @@ Detalhes de uso: [README](../../README.md).
 ## Em andamento
 
 - **Epic #40 — Agent Harness v1**: contrato de agentes, contexto persistente,
-  protocolo de turno/handoff, backlog, skills e protocolo de review. PRs empilhados a
-  partir de #48.
+  protocolo de turno/handoff, backlog, skills e protocolo de review implementados em PRs
+  empilhados (#48–#53), aguardando revisão. Falta a validação zero-chat (#47).
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.

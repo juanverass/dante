@@ -28,6 +28,9 @@ Pull Request.
 Skills: `/continuar-turno` e `/encerrar-turno` (em [`.claude/skills/`](.claude/skills/)) executam os
 procedimentos de continuar e encerrar turno do protocolo.
 
+Ao revisar um PR, siga o [protocolo de review](docs/development/review.md): reconstrua o
+contexto pela Issue, PR e diff, e publique `## REVIEW` no PR com veredito explícito.
+
 Ao encerrar: implementação concluída → PR e `## TURNO FINALIZADO`; trabalho inacabado →
 checkpoint e `## HANDOFF`. Os dois vivem como comentários na Issue, nunca em arquivo do
 repositório.
