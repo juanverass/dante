@@ -25,6 +25,9 @@ vence. Não redefina arquitetura, escopo ou backlog a partir de uma conversa.
 Siga o contrato: workflow Git, disciplina de escopo, staging seletivo, validação e
 Pull Request.
 
+Skills: `/continuar-turno` e `/encerrar-turno` (em [`.claude/skills/`](.claude/skills/)) executam os
+procedimentos de continuar e encerrar turno do protocolo.
+
 Ao encerrar: implementação concluída → PR e `## TURNO FINALIZADO`; trabalho inacabado →
 checkpoint e `## HANDOFF`. Os dois vivem como comentários na Issue, nunca em arquivo do
 repositório.

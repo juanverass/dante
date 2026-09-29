@@ -17,6 +17,25 @@ e por isso vale em qualquer direção e quantas vezes forem necessárias:
 Claude → Codex → Claude → ... → PR
 ```
 
+## Os adaptadores
+
+Os procedimentos [continuar turno](#continuar-turno) e [encerrar turno](#encerrar-turno)
+são executados por skills espelhadas, uma por ferramenta:
+
+```text
+                      ESTE PROTOCOLO
+                          │
+             ┌────────────┴────────────┐
+        Claude Code                  Codex
+     .claude/skills/              .agents/skills/
+       continuar-turno/             continuar-turno/
+       encerrar-turno/              encerrar-turno/
+```
+
+As skills são adaptadores, não fontes de verdade: diferem apenas no nome do worker e no
+adaptador que leem. Divergência entre uma skill e este documento é bug da skill. Um
+handoff produzido por qualquer uma é consumível pela outra.
+
 ## Onde vivem os registros
 
 Os registros de turno são **comentários na GitHub Issue**:
@@ -413,7 +432,8 @@ Quando o turno acaba **sem** concluir a Issue:
 ```text
  1. revisar git status e diff
  2. separar o que pertence à Issue do que não pertence
- 3. checkpoint com staging seletivo
+ 3. checkpoint com staging seletivo, se houver alterações da Issue; senão o HEAD
+    atual já é o checkpoint
  4. executar as validações possíveis
  5. push da branch
  6. publicar ## HANDOFF no formato canônico — isso libera o turno
