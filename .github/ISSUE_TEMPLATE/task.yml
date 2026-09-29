@@ -1,0 +1,37 @@
+name: Tarefa
+description: Issue executável (1 Issue → 1 branch → 1 PR)
+labels: ["status:backlog"]
+body:
+  - type: textarea
+    id: objetivo
+    attributes:
+      label: Objetivo
+      description: O que precisa existir ao final e por quê.
+    validations:
+      required: true
+  - type: textarea
+    id: escopo
+    attributes:
+      label: Escopo
+      description: O que entra. O que não estiver aqui está fora do escopo.
+    validations:
+      required: true
+  - type: textarea
+    id: criterios
+    attributes:
+      label: Critérios de aceite
+    validations:
+      required: true
+  - type: textarea
+    id: dependencias
+    attributes:
+      label: Dependências
+      description: "Depende de: #N — ou Nenhuma."
+      value: Nenhuma.
+    validations:
+      required: true
+  - type: input
+    id: epic
+    attributes:
+      label: Epic
+      description: "Ex.: #40 (opcional)"

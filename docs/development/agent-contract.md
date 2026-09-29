@@ -23,6 +23,7 @@ Documentos normativos que complementam este contrato:
 | Documento | Define |
 | --- | --- |
 | [`handoff.md`](handoff.md) | turnos, ownership, handoff, Decision Locks, RECOVERY MODE |
+| [`backlog.md`](backlog.md) | fila de Issues, labels `status:*`, dependências, seleção de trabalho |
 
 ## Vocabulário
 
@@ -155,6 +156,28 @@ Isso vale com força redobrada sobre trabalho recebido de outro worker: trabalho
 existente é presumido válido e não é descartado nem refatorado por gosto. Ver
 [Respeitar a implementação recebida](handoff.md#respeitar-a-implementação-recebida).
 
+## Backlog e modos de execução
+
+As GitHub Issues são a fila oficial de trabalho; o processo completo está em
+[`backlog.md`](backlog.md). Toda execução está em **exatamente um** modo, decidido pelo
+status da Issue:
+
+```text
+status:ready                                 → NOVA TAREFA
+status:in-progress                           → CONTINUAÇÃO DE TURNO
+status:review + correção solicitada no PR    → CONTINUAÇÃO DE TURNO (correção de review)
+status:backlog | status:blocked | type:epic  → não executar
+status:review sem correção solicitada        → não executar (está com o revisor)
+```
+
+* **NOVA TAREFA**: `ready → in-progress`, branch nova, `## TURNO ASSUMIDO`, workflow Git
+  completo.
+* **CONTINUAÇÃO DE TURNO**: sem novo claim de Issue e sem branch nova; entra pelo
+  procedimento de [continuar turno](handoff.md#continuar-turno).
+
+Uma tarefa pedida diretamente pelo humano, sem Issue, segue o workflow Git a partir da
+branch, sem claims.
+
 ## Turnos e continuidade
 
 Uma Issue pode atravessar várias sessões e vários agentes. O estado transitório de uma
@@ -173,7 +196,7 @@ comentários na própria Issue, conforme o [protocolo de turnos](handoff.md):
 ## Workflow Git
 
 ```text
- 1. Issue antes da implementação, quando o trabalho vem do backlog
+ 1. Issue antes da implementação; claim ready → in-progress quando vem do backlog
  2. criar a branch da tarefa antes da primeira alteração
  3. confirmar a branch e verificar git status
  4. publicar ## TURNO ASSUMIDO na Issue, antes de qualquer mudança de conteúdo
@@ -184,7 +207,7 @@ comentários na própria Issue, conforme o [protocolo de turnos](handoff.md):
  9. revisar o diff completo
 10. commit com staging seletivo
 11. push
-12. abrir Pull Request para main
+12. abrir Pull Request para main e mover a Issue de in-progress para review
 13. publicar ## TURNO FINALIZADO na Issue
 14. deixar a working tree limpa
 ```
