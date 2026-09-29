@@ -18,6 +18,12 @@ executando. Cada agente tem um adaptador fino que aponta para cá:
 
 Os adaptadores dizem **onde ler**; as regras permanentes existem uma única vez, aqui.
 
+Documentos normativos que complementam este contrato:
+
+| Documento | Define |
+| --- | --- |
+| [`handoff.md`](handoff.md) | turnos, ownership, handoff, Decision Locks, RECOVERY MODE |
+
 ## Vocabulário
 
 | Termo | Significado |
@@ -146,7 +152,23 @@ CRLF; confirme com `git diff` antes de concluir qualquer coisa.
 * PRs pequenos, revisáveis e focados.
 
 Isso vale com força redobrada sobre trabalho recebido de outro worker: trabalho
-existente é presumido válido e não é descartado nem refatorado por gosto.
+existente é presumido válido e não é descartado nem refatorado por gosto. Ver
+[Respeitar a implementação recebida](handoff.md#respeitar-a-implementação-recebida).
+
+## Turnos e continuidade
+
+Uma Issue pode atravessar várias sessões e vários agentes. O estado transitório de uma
+Issue — worker atual, branch, checkpoint, próximos passos, Decision Locks — vive como
+comentários na própria Issue, conforme o [protocolo de turnos](handoff.md):
+
+* todo turno começa com `## TURNO ASSUMIDO` na Issue, publicado com a branch já
+  criada/confirmada e antes da primeira alteração de arquivo;
+* turno encerrado sem concluir publica `## HANDOFF`;
+* implementação concluída publica `## TURNO FINALIZADO` depois de abrir o PR — nunca
+  `## HANDOFF`;
+* continuação e correção de review usam a **mesma branch e o mesmo PR**;
+* sem handoff confiável, o próximo worker entra em RECOVERY MODE;
+* a working tree recebida nunca é destruída para "começar limpo".
 
 ## Workflow Git
 
@@ -154,16 +176,21 @@ existente é presumido válido e não é descartado nem refatorado por gosto.
  1. Issue antes da implementação, quando o trabalho vem do backlog
  2. criar a branch da tarefa antes da primeira alteração
  3. confirmar a branch e verificar git status
- 4. registrar o baseline (build + testes)
- 5. implementar somente o escopo
- 6. adicionar/ajustar testes
- 7. validar (build + testes)
- 8. revisar o diff completo
- 9. commit com staging seletivo
-10. push
-11. abrir Pull Request para main
-12. deixar a working tree limpa
+ 4. publicar ## TURNO ASSUMIDO na Issue, antes de qualquer mudança de conteúdo
+ 5. registrar o baseline (build + testes)
+ 6. implementar somente o escopo
+ 7. adicionar/ajustar testes
+ 8. validar (build + testes)
+ 9. revisar o diff completo
+10. commit com staging seletivo
+11. push
+12. abrir Pull Request para main
+13. publicar ## TURNO FINALIZADO na Issue
+14. deixar a working tree limpa
 ```
+
+Em continuação de turno ou correção de review, a branch já existe: o worker entra pelo
+procedimento de [continuar turno](handoff.md#continuar-turno) em vez dos passos 1 a 4.
 
 ### Branch
 
@@ -189,7 +216,8 @@ PR**.
 
 Depois de criar ou retomar a branch, rode `git status`. Havendo alterações que você não
 fez: não descarte, não sobrescreva, não faça reset. Entenda a origem antes de
-prosseguir — elas podem ser trabalho legítimo de outro worker.
+prosseguir — elas podem ser trabalho legítimo de outro worker. Ver
+[Segurança da working tree](handoff.md#segurança-da-working-tree).
 
 ### Commit
 
