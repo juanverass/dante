@@ -567,3 +567,9 @@ dotnet run --project src/Dante.Worker
 ```
 
 Configurações locais e segredos não devem ser versionados.
+
+## Desenvolvimento com agentes
+
+Claude Code, Codex e desenvolvedores humanos seguem o mesmo
+[contrato de desenvolvimento](docs/development/agent-contract.md). `CLAUDE.md` e
+`AGENTS.md` são adaptadores finos que apontam para ele.
