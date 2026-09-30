@@ -335,6 +335,57 @@ Código: `Agents/InteractiveAgentProcess.cs`, `Agents/InteractiveAgentProcessLau
 `Agents/AgentProcessStartInfo.cs`, `Agents/ProcessTree.cs`; testes em
 `InteractiveAgentProcessTests`.
 
+## AD-18 — Driver Claude: stream-json com `--session-id` fixo e perfis mapeados para `--permission-mode`
+
+Status: vigente (Epic #60, #63)
+
+`ClaudeSessionDriver` implementa `IAgentSessionDriver` sobre um único `claude --print`
+por sessão, iniciado pelo `InteractiveAgentProcessLauncher` (AD-17):
+
+```text
+claude --print --input-format stream-json --output-format stream-json --verbose
+       --include-partial-messages --session-id <uuid> --permission-mode <modo>
+       --permission-prompt-tool stdio
+       [General Mode: --restricted --strict-mcp-config --tools Read,Write,Edit,AskUserQuestion]
+```
+
+- **início**: o driver gera o `session_id` e o fixa com `--session-id`, porque o Claude só
+  o anuncia no `system/init` do primeiro turno; `StartAsync` só retorna depois do
+  `control_request` `initialize` confirmado, e falha com `AgentProtocolException` se o
+  Claude o recusar ou morrer antes;
+- **turnos**: cada turno é uma mensagem `user` no stdin; o driver emite `TurnStartedEvent`
+  antes de escrevê-la e `TurnCompletedEvent` no `result` (`Interrupted` quando houve
+  interrupt, `Failed` com a mensagem de erro nos demais erros). Deltas vêm de
+  `--include-partial-messages` (`text_delta`, `ItemId` = id da mensagem);
+- **ferramentas**: `tool_use`/`tool_result` viram `ToolStarted`/`ToolCompleted`; `Bash` é
+  `Command`, `Write`/`Edit`/`MultiEdit`/`NotebookEdit` são `FileChange` e emitem
+  `FileChangeEvent` quando concluem com sucesso;
+- **approval e input**: `can_use_tool` vira `ApprovalRequestedEvent`, exceto
+  `AskUserQuestion`, que vira `UserInputRequestedEvent` com perguntas `q1`, `q2`…; o
+  `request_id` do Claude é o id upstream. "Aprovar na sessão" devolve as
+  `permission_suggestions` em `updatedPermissions` (validado contra o Claude Code 2.1.284:
+  com `setMode acceptEdits`/`session`, o segundo `Write` do turno não pediu aprovação);
+  respostas de `AskUserQuestion` vão em `updatedInput.answers`, chaveadas pelo texto da
+  pergunta. Outros `control_request` recebem erro para o Claude não esperar para sempre;
+- **steer**: não há (AD-15); `SteerAsync` lança `NotSupportedException` e a sessão usa
+  interrupt + nova mensagem;
+- **falhas**: linha fora do protocolo ou processo que sai sem `CloseAsync` terminam
+  `ReadEventsAsync` com `AgentProtocolException` e matam o processo; `CloseAsync` fecha o
+  stdin (`StopAsync`, AD-17) e termina o fluxo normalmente.
+
+Perfis (`AgentPermissionProfile`, padrão `Manual`) mapeiam para `--permission-mode`:
+`Manual → manual`, `Auto → auto`, `Plan → plan`. Nenhum perfil de acesso irrestrito existe
+no driver; a escolha de perfil pelo usuário e um eventual `full` são da #67. O one-shot
+(`ClaudeRunner`, `--permission-mode auto`) continua inalterado.
+
+Por quê: `--session-id` torna o id upstream conhecido no início, como o contrato da AD-16
+exige; os formatos de resposta foram confirmados contra a CLI instalada em vez de
+inferidos.
+
+Código: `Sessions/ClaudeSessionDriver.cs`, `Sessions/AgentPermissionProfile.cs`,
+`Sessions/AgentProtocolException.cs`; testes em `ClaudeSessionDriverTests`, contra o
+Claude simulado de `tests/Dante.ProcessProbe/FakeClaude.cs`.
+
 ## AD-19 — Driver Codex: `app-server` com thread efêmera e perfis mapeados para approval/sandbox
 
 Status: vigente (Epic #60, #64)
