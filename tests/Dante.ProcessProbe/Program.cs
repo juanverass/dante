@@ -83,6 +83,8 @@ internal static class Program
                 }
 
                 return 0;
+            case "fake-codex":
+                return FakeCodex.Run(args);
             default:
                 return 2;
         }

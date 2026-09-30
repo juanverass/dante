@@ -3,7 +3,8 @@ namespace Dante.Worker.Sessions;
 public sealed record AgentSessionStartOptions(
     string WorkingDirectory,
     bool IsGeneral = false,
-    IReadOnlyDictionary<string, string>? EnvironmentVariables = null);
+    IReadOnlyDictionary<string, string>? EnvironmentVariables = null,
+    AgentPermissionProfile Profile = AgentPermissionProfile.Manual);
 
 // Upstream session id (Claude session_id, Codex thread.id) and the OS id of the process that serves it.
 public sealed record AgentSessionStarted(string UpstreamSessionId, int ProcessId);
