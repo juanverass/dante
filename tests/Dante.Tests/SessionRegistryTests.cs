@@ -218,6 +218,107 @@ public sealed class SessionRegistryTests
     }
 
     [Fact]
+    public async Task ResponsesRequireMatchingSessionTurnAndQuestionSet()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        await registry.SubmitAsync(Owner, null, "tarefa");
+        var driver = Assert.Single(drivers.Created);
+        driver.Emit(new UserInputRequestedEvent("upstream-input", [
+            new AgentQuestion("q1", "Primeira?", []),
+            new AgentQuestion("q2", "Segunda?", [])]));
+        await Eventually(() => registry.GetActive(Owner)!.PendingRequestIds.Count == 1);
+        var requestId = registry.GetActive(Owner)!.PendingRequestIds.Single();
+        var pending = registry.GetPendingRequest(Owner, requestId)!;
+
+        Assert.Equal(("S000001", "T000001", false),
+            (pending.SessionId, pending.TurnId, pending.IsApproval));
+        Assert.Null(registry.GetPendingRequest(Intruder, requestId));
+        var answers = new AgentInputResponse(new Dictionary<string, string>
+        {
+            ["q1"] = "sim", ["q2"] = "não"
+        });
+        Assert.False((await registry.RespondAsync(Owner, "S000002", pending.TurnId,
+            requestId, answers)).Accepted);
+        Assert.False((await registry.RespondAsync(Owner, pending.SessionId, "T000002",
+            requestId, answers)).Accepted);
+        Assert.False((await registry.RespondAsync(Owner, pending.SessionId, pending.TurnId,
+            requestId, new AgentInputResponse(new Dictionary<string, string> { ["q1"] = "sim" }))).Accepted);
+        Assert.False((await registry.RespondAsync(Intruder, pending.SessionId, pending.TurnId,
+            requestId, answers)).Accepted);
+        Assert.Empty(driver.Responses);
+
+        Assert.True((await registry.RespondAsync(Owner, pending.SessionId, pending.TurnId,
+            requestId, answers)).Accepted);
+        var delivered = Assert.IsType<AgentInputResponse>(Assert.Single(driver.Responses).Response);
+        Assert.Equal("não", delivered.Answers["q2"]);
+        Assert.False((await registry.RespondAsync(Owner, pending.SessionId, pending.TurnId,
+            requestId, answers)).Accepted);
+    }
+
+    [Fact]
+    public async Task ExpiredApprovalIsDeniedUpstreamAndCannotBeAnsweredLate()
+    {
+        await using var registry = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance,
+            sink, requestTimeout: TimeSpan.FromMilliseconds(100));
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        await registry.SubmitAsync(Owner, null, "tarefa");
+        var driver = Assert.Single(drivers.Created);
+        driver.Emit(new ApprovalRequestedEvent("upstream-approval", AgentToolKind.Command, "git push")
+        { CanApproveForSession = true });
+        await Eventually(() => registry.GetActive(Owner)!.PendingRequestIds.Count == 1);
+        var requestId = registry.GetActive(Owner)!.PendingRequestIds.Single();
+        await Eventually(() => driver.Responses.Count == 1);
+
+        Assert.Empty(registry.GetActive(Owner)!.PendingRequestIds);
+        Assert.Equal(AgentSessionState.Running, registry.GetActive(Owner)!.State);
+        var denied = Assert.IsType<AgentApprovalResponse>(driver.Responses.Single().Response);
+        Assert.Equal(AgentApprovalDecision.Deny, denied.Decision);
+        Assert.False((await registry.RespondAsync(Owner, requestId,
+            new AgentApprovalResponse(AgentApprovalDecision.ApproveOnce))).Accepted);
+        Assert.Contains(sink.Published, item => item.Event is RequestExpiredEvent expired &&
+            expired.RequestId == requestId && expired.TurnId == "T000001");
+    }
+
+    [Fact]
+    public async Task SessionApprovalRequiresDriverSuggestion()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+        await registry.SubmitAsync(Owner, null, "tarefa");
+        var driver = Assert.Single(drivers.Created);
+        driver.Emit(new ApprovalRequestedEvent("claude-request", AgentToolKind.FileChange, "alterar arquivo"));
+        await Eventually(() => registry.GetActive(Owner)!.PendingRequestIds.Count == 1);
+        var requestId = registry.GetActive(Owner)!.PendingRequestIds.Single();
+
+        Assert.False(registry.GetPendingRequest(Owner, requestId)!.CanApproveForSession);
+        Assert.False((await registry.RespondAsync(Owner, requestId,
+            new AgentApprovalResponse(AgentApprovalDecision.ApproveForSession))).Accepted);
+        Assert.Empty(driver.Responses);
+        Assert.True((await registry.RespondAsync(Owner, requestId,
+            new AgentApprovalResponse(AgentApprovalDecision.ApproveOnce))).Accepted);
+    }
+
+    [Fact]
+    public async Task ExpiredInputSendsEmptyAnswerAndRejectsLateText()
+    {
+        await using var registry = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance,
+            sink, requestTimeout: TimeSpan.FromMilliseconds(100));
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+        await registry.SubmitAsync(Owner, null, "tarefa");
+        var driver = Assert.Single(drivers.Created);
+        driver.Emit(new UserInputRequestedEvent("upstream-input", [new AgentQuestion("q1", "Nome?", [])]));
+        await Eventually(() => registry.GetActive(Owner)!.PendingRequestIds.Count == 1);
+        var requestId = registry.GetActive(Owner)!.PendingRequestIds.Single();
+        await Eventually(() => driver.Responses.Count == 1);
+
+        Assert.Equal("upstream-input", driver.Responses.Single().RequestId);
+        Assert.Empty(Assert.IsType<AgentInputResponse>(driver.Responses.Single().Response).Answers);
+        Assert.False((await registry.RespondAsync(Owner, requestId,
+            new AgentInputResponse(new Dictionary<string, string> { ["q1"] = "Maria" }))).Accepted);
+    }
+
+    [Fact]
     public async Task ClosedSessionDoesNotReceiveMessages()
     {
         await using var registry = CreateRegistry();
@@ -254,7 +355,7 @@ public sealed class SessionRegistryTests
         driver.Crash(new AgentProtocolException("O Codex encerrou inesperadamente."));
         await Eventually(() => registry.GetActive(Owner)!.State == AgentSessionState.Failed);
 
-        Assert.True(driver.Disposed);
+        await Eventually(() => driver.Disposed);
         var error = sink.Published.Select(published => published.Event).OfType<ErrorEvent>().Single();
         Assert.Equal(("S000001", "O Codex encerrou inesperadamente."), (error.SessionId, error.Message));
         // The failed session stays selected, so the next message is refused instead of going elsewhere.

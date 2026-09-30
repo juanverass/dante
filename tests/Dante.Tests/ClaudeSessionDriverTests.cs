@@ -93,6 +93,7 @@ public sealed class ClaudeSessionDriverTests
 
         Assert.Equal(("toolu_write", AgentToolKind.FileChange, "Write notes.txt"), (tool.ItemId, tool.Kind, tool.Description));
         Assert.Equal((AgentToolKind.FileChange, "Write notes.txt"), (approval.Kind, approval.Action));
+        Assert.True(approval.CanApproveForSession);
         Assert.Equal(turn.TurnId, approval.TurnId);
         Assert.Equal(AgentSessionState.WaitingForUser, session.State);
 

@@ -92,6 +92,7 @@ public sealed class CodexSessionDriverTests
         Assert.Equal(("cmd-1", AgentToolKind.Command, "dotnet test"), (tool.ItemId, tool.Kind, tool.Description));
         Assert.Equal((AgentToolKind.Command, "dotnet test", "rodar os testes"),
             (approval.Kind, approval.Action, approval.Reason));
+        Assert.True(approval.CanApproveForSession);
         // JSON-RPC ids from the server are numbers; their text form is the upstream id.
         Assert.Equal("101", approval.UpstreamRequestId);
         Assert.Equal(turn.TurnId, approval.TurnId);

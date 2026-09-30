@@ -10,6 +10,7 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
 {
     private readonly Channel<AgentEvent> events = Channel.CreateUnbounded<AgentEvent>();
     private readonly ConcurrentQueue<string> calls = new();
+    private readonly ConcurrentQueue<(string RequestId, AgentUserResponse Response)> responses = new();
 
     public AgentDriverCapabilities Capabilities { get; } = capabilities;
     public AgentSessionStartOptions? StartOptions { get; private set; }
@@ -20,6 +21,7 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
     public Exception? ResponseFailure { get; set; }
     public bool Disposed { get; private set; }
     public IReadOnlyList<string> Calls => calls.ToArray();
+    public IReadOnlyList<(string RequestId, AgentUserResponse Response)> Responses => responses.ToArray();
 
     public void Emit(AgentEvent agentEvent) => events.Writer.TryWrite(agentEvent);
 
@@ -57,6 +59,7 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
         CancellationToken cancellationToken = default)
     {
         calls.Enqueue("respond:" + upstreamRequestId);
+        responses.Enqueue((upstreamRequestId, response));
         return ResponseFailure is null ? Task.CompletedTask : Task.FromException(ResponseFailure);
     }
 

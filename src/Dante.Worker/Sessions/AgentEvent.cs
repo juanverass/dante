@@ -33,6 +33,8 @@ public sealed record WarningEvent(string Message) : AgentEvent;
 
 public sealed record ErrorEvent(string Message) : AgentEvent;
 
+public sealed record RequestExpiredEvent(string RequestId) : AgentEvent;
+
 public sealed record ApprovalRequestedEvent(
     string UpstreamRequestId,
     AgentToolKind Kind,
@@ -40,6 +42,7 @@ public sealed record ApprovalRequestedEvent(
     string? Reason = null) : AgentEvent
 {
     public string RequestId { get; init; } = "";
+    public bool CanApproveForSession { get; init; }
 }
 
 public sealed record AgentQuestion(string Id, string Text, IReadOnlyList<string> Options);

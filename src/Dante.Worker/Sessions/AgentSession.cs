@@ -3,10 +3,15 @@ using Dante.Worker.Jobs;
 
 namespace Dante.Worker.Sessions;
 
-public sealed record RequestResolution(bool Accepted, string? UpstreamRequestId = null, string? Error = null)
+public sealed record RequestResolution(bool Accepted, string? UpstreamRequestId = null, string? Error = null,
+    string? TurnId = null)
 {
     public static RequestResolution Reject(string error) => new(false, Error: error);
 }
+
+public sealed record AgentPendingRequest(string SessionId, string TurnId, string RequestId,
+    bool IsApproval, IReadOnlyList<AgentQuestion> Questions, bool CanApproveForSession,
+    DateTimeOffset ExpiresAtUtc);
 
 // Neutral state machine of one interactive session. It never talks to a process: the caller applies
 // driver events here and performs the driver call that each accepted operation asks for.
@@ -20,13 +25,17 @@ public sealed class AgentSession(
     long ownerUserId,
     JobExecutionContext context,
     AgentDriverCapabilities capabilities,
-    SessionIdGenerator ids)
+    SessionIdGenerator ids,
+    TimeSpan? requestTimeout = null,
+    TimeProvider? timeProvider = null)
 {
     private readonly object gate = new();
     private readonly LinkedList<string> queue = new();
     private readonly Dictionary<string, PendingRequest> pending = new(StringComparer.OrdinalIgnoreCase);
     private AgentSessionState state = AgentSessionState.Starting;
     private Turn? activeTurn;
+    private readonly TimeSpan requestTimeout = requestTimeout ?? TimeSpan.FromMinutes(5);
+    private readonly TimeProvider timeProvider = timeProvider ?? TimeProvider.System;
 
     public string Id { get; } = id;
     public AgentKind Agent { get; } = agent;
@@ -55,6 +64,17 @@ public sealed class AgentSession(
     public IReadOnlyList<string> PendingRequestIds
     {
         get { lock (gate) { return pending.Keys.ToArray(); } }
+    }
+
+    public AgentPendingRequest? GetPendingRequest(string requestId)
+    {
+        lock (gate)
+        {
+            return pending.TryGetValue(requestId, out var request)
+                ? new AgentPendingRequest(Id, request.TurnId, requestId, request.IsApproval,
+                    request.Questions, request.CanApproveForSession, request.ExpiresAtUtc)
+                : null;
+        }
     }
 
     public void MarkStarted(AgentSessionStarted started)
@@ -162,9 +182,11 @@ public sealed class AgentSession(
             switch (stamped)
             {
                 case ApprovalRequestedEvent approval:
-                    return approval with { RequestId = OpenRequest(turn, approval.UpstreamRequestId, isApproval: true) };
+                    return approval with { RequestId = OpenRequest(turn, approval.UpstreamRequestId, true,
+                        [], approval.CanApproveForSession) };
                 case UserInputRequestedEvent input:
-                    return input with { RequestId = OpenRequest(turn, input.UpstreamRequestId, isApproval: false) };
+                    return input with { RequestId = OpenRequest(turn, input.UpstreamRequestId, false,
+                        input.Questions, false) };
                 case TurnCompletedEvent:
                     ExpirePending();
                     activeTurn = null;
@@ -196,11 +218,29 @@ public sealed class AgentSession(
                 return RequestResolution.Reject($"A solicitação {requestId} não está pendente nesta sessão.");
             }
 
+            if (timeProvider.GetUtcNow() >= request.ExpiresAtUtc)
+            {
+                return RequestResolution.Reject($"A solicitação {requestId} expirou.");
+            }
+
             if (request.IsApproval != response is AgentApprovalResponse)
             {
                 return RequestResolution.Reject(request.IsApproval
                     ? $"A solicitação {requestId} espera aprovar ou negar."
                     : $"A solicitação {requestId} espera uma resposta em texto.");
+            }
+
+            if (response is AgentApprovalResponse { Decision: AgentApprovalDecision.ApproveForSession } &&
+                !request.CanApproveForSession)
+            {
+                return RequestResolution.Reject("Aprovação para a sessão indisponível nesta solicitação.");
+            }
+            if (response is AgentInputResponse input &&
+                (input.Answers.Count != request.Questions.Count ||
+                 request.Questions.Any(question => !input.Answers.TryGetValue(question.Id, out var answer) ||
+                    string.IsNullOrWhiteSpace(answer))))
+            {
+                return RequestResolution.Reject("Responda todas as perguntas desta solicitação.");
             }
 
             pending.Remove(requestId);
@@ -209,7 +249,21 @@ public sealed class AgentSession(
                 state = AgentSessionState.Running;
             }
 
-            return new RequestResolution(true, request.UpstreamRequestId);
+            return new RequestResolution(true, request.UpstreamRequestId, TurnId: request.TurnId);
+        }
+    }
+
+    public RequestResolution TryExpire(string requestId)
+    {
+        lock (gate)
+        {
+            if (!pending.TryGetValue(requestId, out var request) ||
+                timeProvider.GetUtcNow() < request.ExpiresAtUtc)
+                return RequestResolution.Reject($"A solicitação {requestId} não expirou ou já foi respondida.");
+            pending.Remove(requestId);
+            if (pending.Count == 0 && state == AgentSessionState.WaitingForUser)
+                state = AgentSessionState.Running;
+            return new RequestResolution(true, request.UpstreamRequestId, TurnId: request.TurnId);
         }
     }
 
@@ -285,7 +339,8 @@ public sealed class AgentSession(
         return activeTurn.Id;
     }
 
-    private string OpenRequest(Turn turn, string upstreamRequestId, bool isApproval)
+    private string OpenRequest(Turn turn, string upstreamRequestId, bool isApproval,
+        IReadOnlyList<AgentQuestion> questions, bool canApproveForSession)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(upstreamRequestId);
         var requestId = ids.NextRequestId();
@@ -295,7 +350,8 @@ public sealed class AgentSession(
             return requestId;
         }
 
-        pending.Add(requestId, new PendingRequest(turn.Id, upstreamRequestId, isApproval));
+        pending.Add(requestId, new PendingRequest(turn.Id, upstreamRequestId, isApproval,
+            questions, canApproveForSession, timeProvider.GetUtcNow() + requestTimeout));
         state = AgentSessionState.WaitingForUser;
         return requestId;
     }
@@ -317,7 +373,8 @@ public sealed class AgentSession(
         }
     }
 
-    private sealed record PendingRequest(string TurnId, string UpstreamRequestId, bool IsApproval);
+    private sealed record PendingRequest(string TurnId, string UpstreamRequestId, bool IsApproval,
+        IReadOnlyList<AgentQuestion> Questions, bool CanApproveForSession, DateTimeOffset ExpiresAtUtc);
 
     private sealed class Turn(string id)
     {

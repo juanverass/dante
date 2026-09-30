@@ -375,7 +375,7 @@ claude --print --input-format stream-json --output-format stream-json --verbose
 
 Perfis (`AgentPermissionProfile`, padrão `Manual`) mapeiam para `--permission-mode`:
 `Manual → manual`, `Auto → auto`, `Plan → plan`. Nenhum perfil de acesso irrestrito existe
-no driver; a escolha de perfil pelo usuário e um eventual `full` são da #67. O one-shot
+no driver; a escolha de perfil pelo usuário é descrita na AD-22. O one-shot
 (`ClaudeRunner`, `--permission-mode auto`) continua inalterado.
 
 Por quê: `--session-id` torna o id upstream conhecido no início, como o contrato da AD-16
@@ -434,8 +434,8 @@ Perfis (`AgentPermissionProfile`, padrão `Manual`) mapeiam para `thread/start`:
 | `Auto` | `never` | `workspace-write` | — |
 | `Plan` | `on-request` | `read-only` | `collaborationMode` `plan` com o modelo da thread |
 
-Nenhum perfil chega a `danger-full-access`; a escolha pelo usuário e um eventual `full`
-são da #67. Input humano do Codex continua **experimental** e, na 0.157.1, só aparece no
+Nenhum perfil chega a `danger-full-access`; a escolha pelo usuário é descrita na AD-22.
+Input humano do Codex continua **experimental** e, na 0.157.1, só aparece no
 perfil `Plan` (AD-15). `app-server` não tem `--ignore-user-config`: em General Mode o
 isolamento vem do ambiente filtrado, do diretório neutro e do `sandbox` da thread. O
 one-shot (`CodexRunner`, `codex exec`) continua inalterado.
@@ -513,3 +513,35 @@ os estados permite recuperação sem repetir efeitos no repositório ou no GitHu
 
 Código: `Telegram/TelegramDeliveryService.cs`, `Telegram/TelegramPollingService.cs`,
 `Telegram/TelegramBotApi.cs`; testes em `TelegramDeliveryServiceTests` e `TelegramBotApiTests`.
+
+## AD-22 — Approvals e input por IDs correlacionados, perfis escolhidos para sessões novas
+
+Status: vigente (Epic #60, #67)
+
+O Telegram apresenta pedidos de aprovação e input com IDs `S…`, `T…` e `R…`. Os comandos
+`/approve`, `/approve-session`, `/deny` e `/input` exigem os três IDs; o registry confirma
+o dono e o turno antes de encaminhar a resposta ao driver. Um request é consumido uma vez.
+Respostas parciais de input, duplicadas, tardias ou destinadas a outro turno são recusadas.
+`/approve-session` só é oferecido quando o driver indica suporte no próprio request:
+`acceptForSession` no Codex e `permission_suggestions` não vazias no Claude.
+
+Cada request expira após cinco minutos em memória. Ao expirar, o registry remove o estado
+pendente e envia negação de approval ou input vazio ao driver para liberar o turno. O
+Telegram recebe um aviso de expiração. `/status` mostra os IDs ainda pendentes. Pedidos
+continuam chegando mesmo com segredos vinculados ao ambiente, mas os detalhes são omitidos
+nessa situação conforme a política de saída da AD-21.
+
+`/permissions` consulta ou escolhe `manual`, `auto` e `plan` para sessões novas do usuário;
+a escolha dura até o reinício do Worker. `/session start` aceita um perfil explícito que
+vale só para aquela sessão. O padrão é `manual`. Os mapeamentos Claude e Codex seguem as
+AD-18 e AD-19, sem alteração dos comandos one-shot. `full` não é exposto: as CLIs têm
+capacidades diferentes para acesso ampliado, e não há nesta Issue um mapeamento comum
+validado que justifique oferecê-lo.
+
+Por quê: a decisão deve alcançar exatamente a ação bloqueada no turno do dono; o prazo
+evita que um agente permaneça esperando indefinidamente. Perfis ficam fixos durante a
+sessão (AD-20), de modo que uma mudança de preferência não altera permissões em execução.
+
+Código: `Sessions/AgentSession.cs`, `Sessions/SessionRegistry.cs`,
+`Telegram/TelegramPollingService.cs`, `Telegram/TelegramDeliveryService.cs`; testes em
+`SessionRegistryTests` e `TelegramDeliveryServiceTests`.

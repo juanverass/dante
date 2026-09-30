@@ -489,11 +489,17 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/use general` | Volta ao General Mode |
 | `/status` | Exibe jobs, sessões próprias e estado da entrega recente ao Telegram |
 | `/cancel <jobId>` | Solicita cancelamento de um job |
-| `/session start [claude\|codex] [@alias]` | Inicia e seleciona uma sessão interativa; usa agente e contexto ativos se omitidos |
+| `/session start [claude\|codex] [@alias] [manual\|auto\|plan]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e perfil selecionados se omitidos |
 | `/session list` | Lista as suas sessões |
 | `/session select <id\|none>` | Seleciona uma sessão ou volta a mensagens avulsas |
 | `/session stop [id]` | Interrompe o turno e descarta a fila, mantendo a sessão |
 | `/session close [id]` | Encerra a sessão e seu processo |
+| `/permissions` | Consulta o perfil para novas sessões (`manual` por padrão) |
+| `/permissions manual\|auto\|plan` | Escolhe o perfil para novas sessões do usuário |
+| `/approve <sessionId> <turnId> <requestId>` | Aprova a ação solicitada uma vez |
+| `/approve-session <sessionId> <turnId> <requestId>` | Aprova para a sessão quando o agente oferece essa opção |
+| `/deny <sessionId> <turnId> <requestId> [motivo]` | Nega a ação solicitada |
+| `/input <sessionId> <turnId> <requestId> <resposta1> [ \| <resposta2> ...]` | Responde às perguntas na ordem exibida |
 | `/steer <orientação>` | Orienta imediatamente o turno da sessão ativa; no Claude, interrompe o turno e prioriza a orientação |
 | `/resend <jobId\|sessionId[/turnId]>` | Reenvia as partes pendentes da saída recente, sem executar o agente novamente |
 
@@ -502,6 +508,19 @@ repositório até ser encerrada, mesmo que `/agent set` ou `/use` mudem depois. 
 agrupados antes do envio e cada parte identifica a sessão e o turno. Uma falha de entrega
 aparece em `/status` separadamente do resultado da execução; `/resend` tenta novamente as
 partes ainda não entregues. Resultados recentes ficam em memória enquanto o Worker está vivo.
+
+O perfil `manual` é o padrão recomendado. `auto` opera dentro dos limites da CLI com menos
+interrupções; `plan` restringe alterações. O perfil escolhido por `/permissions` fica em memória
+até o reinício do Worker e vale apenas para sessões novas; um perfil informado em `/session start`
+vale somente para aquela sessão. O acesso `full` não é oferecido. Os drivers mantêm os mapeamentos
+específicos de Claude e Codex; o fluxo one-shot continua independente dessas escolhas.
+
+Pedidos de aprovação e input mostram os IDs da sessão, turno e solicitação, com comandos prontos
+para responder. Uma solicitação pendente aparece em `/status` e expira após cinco minutos; a
+aprovação é negada ao expirar e uma resposta de input vazia é enviada ao agente. Respostas de
+outro usuário, duplicadas, tardias ou para outro turno são rejeitadas. Com segredos vinculados ao
+ambiente do repositório, o bot omite detalhes da ação e das perguntas, mas mantém os IDs e os
+comandos para permitir a decisão humana.
 
 ---
 

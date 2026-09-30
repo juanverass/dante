@@ -27,6 +27,7 @@ public sealed class TelegramPollingService(
     private const int MaxMessageLength = 4000;
     private readonly object runningGate = new();
     private readonly HashSet<Task> runningJobs = [];
+    private readonly Dictionary<long, AgentPermissionProfile> selectedProfiles = [];
     private readonly GeneralWorkspace generalWorkspace = generalWorkspace ?? new GeneralWorkspace();
     private readonly TelegramDeliveryService delivery = delivery ??
         new TelegramDeliveryService(botApi, NullLogger<TelegramDeliveryService>.Instance);
@@ -155,6 +156,22 @@ public sealed class TelegramPollingService(
         if (string.Equals(command, "/session", StringComparison.OrdinalIgnoreCase))
         {
             await HandleSessionCommandAsync(message, prompt, cancellationToken);
+            return;
+        }
+
+        if (string.Equals(command, "/permissions", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendReplyAsync(message.Chat.Id, HandlePermissionsCommand(message.From!.Id, prompt),
+                cancellationToken);
+            return;
+        }
+
+        if (command.Equals("/approve", StringComparison.OrdinalIgnoreCase) ||
+            command.Equals("/approve-session", StringComparison.OrdinalIgnoreCase) ||
+            command.Equals("/deny", StringComparison.OrdinalIgnoreCase) ||
+            command.Equals("/input", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleRequestCommandAsync(message, command, prompt, cancellationToken);
             return;
         }
 
@@ -377,7 +394,7 @@ public sealed class TelegramPollingService(
     private async Task HandleSessionCommandAsync(TelegramMessage message, string prompt,
         CancellationToken cancellationToken)
     {
-        const string usage = "Uso: /session start [claude|codex] [@alias] | list | select <id|none> | stop [id] | close [id]";
+        const string usage = "Uso: /session start [claude|codex] [@alias] [manual|auto|plan] | list | select <id|none> | stop [id] | close [id]";
         if (sessions is null)
         {
             await SendReplyAsync(message.Chat.Id, "Sessões indisponíveis.", cancellationToken);
@@ -396,12 +413,19 @@ public sealed class TelegramPollingService(
         if (parts[0].Equals("start", StringComparison.OrdinalIgnoreCase))
         {
             var agent = (settings?.Current ?? AssistantSettings.Default).DefaultAgent;
+            var profile = selectedProfiles.GetValueOrDefault(userId, AgentPermissionProfile.Manual);
             string? alias = null;
+            var profileSpecified = false;
             for (var index = 1; index < parts.Length; index++)
             {
                 if (parts[index].Equals("claude", StringComparison.OrdinalIgnoreCase)) agent = AgentKind.Claude;
                 else if (parts[index].Equals("codex", StringComparison.OrdinalIgnoreCase)) agent = AgentKind.Codex;
                 else if (parts[index].StartsWith('@') && alias is null) alias = parts[index];
+                else if (TryParseProfile(parts[index], out var requested) && !profileSpecified)
+                {
+                    profile = requested;
+                    profileSpecified = true;
+                }
                 else
                 {
                     await SendReplyAsync(message.Chat.Id, usage, cancellationToken);
@@ -412,13 +436,13 @@ public sealed class TelegramPollingService(
             if (resolved is null) return;
             var (context, environment) = resolved.Value;
             var started = await sessions.StartAsync(new SessionStartRequest(userId, agent, context,
-                environment?.Values), cancellationToken);
+                environment?.Values, profile), cancellationToken);
             if (started.Accepted)
             {
                 delivery.RegisterSession(started.Session!.Id, userId, message.Chat.Id,
                     environment?.HasSecrets == true);
                 await SendReplyAsync(message.Chat.Id,
-                    $"Sessão {started.Session.Id} iniciada com {agent} ({context.Label}). Envie uma mensagem para iniciar o turno.",
+                    $"Sessão {started.Session.Id} iniciada com {agent} ({context.Label}), perfil {profile.ToString().ToLowerInvariant()}. Envie uma mensagem para iniciar o turno.",
                     cancellationToken);
             }
             else await SendReplyAsync(message.Chat.Id,
@@ -455,6 +479,111 @@ public sealed class TelegramPollingService(
         }
 
         await SendReplyAsync(message.Chat.Id, usage, cancellationToken);
+    }
+
+    private string HandlePermissionsCommand(long userId, string prompt)
+    {
+        if (prompt.Length == 0)
+        {
+            var profile = selectedProfiles.GetValueOrDefault(userId, AgentPermissionProfile.Manual);
+            return $"Perfil para novas sessões: {profile.ToString().ToLowerInvariant()}. Opções: manual (recomendado), auto, plan. Use /permissions <perfil>.";
+        }
+        if (!TryParseProfile(prompt, out var selected))
+            return "Perfil indisponível. Use /permissions manual|auto|plan. Acesso full não é oferecido.";
+        selectedProfiles[userId] = selected;
+        return $"Perfil para novas sessões: {selected.ToString().ToLowerInvariant()}. Sessões existentes mantêm o perfil original.";
+    }
+
+    private static bool TryParseProfile(string text, out AgentPermissionProfile profile)
+    {
+        profile = AgentPermissionProfile.Manual;
+        if (text.Equals("manual", StringComparison.OrdinalIgnoreCase)) return true;
+        if (text.Equals("auto", StringComparison.OrdinalIgnoreCase))
+        {
+            profile = AgentPermissionProfile.Auto;
+            return true;
+        }
+        if (text.Equals("plan", StringComparison.OrdinalIgnoreCase))
+        {
+            profile = AgentPermissionProfile.Plan;
+            return true;
+        }
+        return false;
+    }
+
+    private async Task HandleRequestCommandAsync(TelegramMessage message, string command, string prompt,
+        CancellationToken cancellationToken)
+    {
+        var parts = prompt.Split([' ', '\t', '\r', '\n'], 4, StringSplitOptions.RemoveEmptyEntries);
+        var usage = $"Uso: {command} <sessionId> <turnId> <requestId>" +
+            (command.Equals("/input", StringComparison.OrdinalIgnoreCase) ? " <resposta1> [ | <resposta2> ...]" :
+             command.Equals("/deny", StringComparison.OrdinalIgnoreCase) ? " [motivo]" : "");
+        if (sessions is null || parts.Length < 3 ||
+            (command.Equals("/input", StringComparison.OrdinalIgnoreCase) && parts.Length < 4) ||
+            ((command.Equals("/approve", StringComparison.OrdinalIgnoreCase) ||
+              command.Equals("/approve-session", StringComparison.OrdinalIgnoreCase)) && parts.Length != 3))
+        {
+            await SendReplyAsync(message.Chat.Id, sessions is null ? "Sessões indisponíveis." : usage,
+                cancellationToken);
+            return;
+        }
+
+        var request = sessions.GetPendingRequest(message.From!.Id, parts[2]);
+        if (request is null || !request.SessionId.Equals(parts[0], StringComparison.OrdinalIgnoreCase) ||
+            !request.TurnId.Equals(parts[1], StringComparison.OrdinalIgnoreCase))
+        {
+            await SendReplyAsync(message.Chat.Id, "Solicitação não encontrada neste turno da sessão.",
+                cancellationToken);
+            return;
+        }
+
+        AgentUserResponse response;
+        if (command.Equals("/input", StringComparison.OrdinalIgnoreCase))
+        {
+            if (request.IsApproval)
+            {
+                await SendReplyAsync(message.Chat.Id, "Esta solicitação espera aprovação ou negação.", cancellationToken);
+                return;
+            }
+            string[] answers = request.Questions.Count == 1 ? [parts[3]] :
+                parts[3].Split('|', StringSplitOptions.TrimEntries);
+            if (answers.Length != request.Questions.Count || answers.Any(string.IsNullOrWhiteSpace))
+            {
+                await SendReplyAsync(message.Chat.Id,
+                    $"Informe {request.Questions.Count} resposta(s) na ordem das perguntas, separadas por |.",
+                    cancellationToken);
+                return;
+            }
+            response = new AgentInputResponse(request.Questions.Select((question, index) =>
+                (question.Id, Answer: answers[index])).ToDictionary(item => item.Id, item => item.Answer));
+        }
+        else
+        {
+            if (!request.IsApproval)
+            {
+                await SendReplyAsync(message.Chat.Id, "Esta solicitação espera uma resposta em texto.", cancellationToken);
+                return;
+            }
+            if (command.Equals("/approve-session", StringComparison.OrdinalIgnoreCase) &&
+                !request.CanApproveForSession)
+            {
+                await SendReplyAsync(message.Chat.Id,
+                    "Aprovação para a sessão indisponível nesta solicitação.", cancellationToken);
+                return;
+            }
+            var decision = command.Equals("/deny", StringComparison.OrdinalIgnoreCase)
+                ? AgentApprovalDecision.Deny
+                : command.Equals("/approve-session", StringComparison.OrdinalIgnoreCase)
+                    ? AgentApprovalDecision.ApproveForSession : AgentApprovalDecision.ApproveOnce;
+            response = new AgentApprovalResponse(decision, decision == AgentApprovalDecision.Deny
+                ? parts.ElementAtOrDefault(3) : null);
+        }
+
+        var result = await sessions.RespondAsync(message.From.Id, parts[0], parts[1], parts[2],
+            response, cancellationToken);
+        await SendReplyAsync(message.Chat.Id, result.Accepted
+            ? $"Resposta entregue à solicitação {parts[2]} da sessão {parts[0]}."
+            : result.Error!, cancellationToken);
     }
 
     private async Task<(JobExecutionContext Context, ResolvedRepositoryEnvironment? Environment)?>

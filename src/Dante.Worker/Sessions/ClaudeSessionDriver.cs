@@ -408,7 +408,8 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
         {
             pending = new PendingControl(input, request["permission_suggestions"] as JsonArray, null);
             requested = new ApprovalRequestedEvent(
-                requestId, ToolKind(toolName), Describe(toolName, input), GetString(input, "description"));
+                requestId, ToolKind(toolName), Describe(toolName, input), GetString(input, "description"))
+            { CanApproveForSession = pending.Suggestions is { Count: > 0 } };
         }
 
         // Registered before the event leaves, so an immediate answer finds it.

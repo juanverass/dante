@@ -132,6 +132,82 @@ public sealed class TelegramDeliveryServiceTests
     }
 
     [Fact]
+    public async Task TelegramRoutesPermissionProfileApprovalDenialAndInputToTheMatchingTurn()
+    {
+        var api = new InteractiveApi { FailResult = false };
+        var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance);
+        var drivers = new FakeSessionDriverFactory();
+        await using var sessions = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance, delivery);
+        var options = Options.Create(new TelegramOptions { BotToken = "test", AllowedUserIds = "123" });
+        var runner = new ImmediateRunner();
+        using var service = new TelegramPollingService(api, options, new TelegramUserAuthorizer(options),
+            runner, runner, new JobRegistry(), NullLogger<TelegramPollingService>.Instance,
+            sessions: sessions, delivery: delivery);
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            api.Enqueue("/permissions");
+            Assert.Contains("manual (recomendado)", await api.NextMessageAsync());
+            api.Enqueue("/permissions auto");
+            Assert.Contains("Perfil para novas sessões: auto", await api.NextMessageAsync());
+            api.Enqueue("/session start codex");
+            Assert.Contains("perfil auto", await api.NextMessageAsync());
+            var driver = Assert.Single(drivers.Created);
+            Assert.Equal(AgentPermissionProfile.Auto, driver.StartOptions!.Profile);
+            api.Enqueue("tarefa");
+            Assert.Contains("Turno T000001 iniciado", await api.NextMessageAsync());
+            driver.Emit(new ApprovalRequestedEvent("upstream-approval", AgentToolKind.Command, "git push")
+            { CanApproveForSession = true });
+            await Eventually(() => sessions.GetActive(123)!.PendingRequestIds.Count == 1);
+            var requestId = sessions.GetActive(123)!.PendingRequestIds.Single();
+            var ids = $"S000001 T000001 {requestId}";
+            var requestMessage = await api.NextMessageContainingAsync("Aprovação pendente");
+            Assert.Contains("/approve-session " + ids, requestMessage);
+
+            api.Enqueue("/approve S000001 T000002 " + requestId);
+            Assert.Contains("não encontrada", await api.NextMessageContainingAsync("Solicitação não encontrada"));
+            Assert.Empty(driver.Responses);
+            api.Enqueue("/status");
+            Assert.Contains("aguardando " + requestId, await api.NextMessageContainingAsync("Sessões:"));
+            api.Enqueue("/approve-session " + ids);
+            Assert.Contains("Resposta entregue", await api.NextMessageContainingAsync("Resposta entregue"));
+            Assert.Equal(AgentApprovalDecision.ApproveForSession,
+                Assert.IsType<AgentApprovalResponse>(driver.Responses.Single().Response).Decision);
+            api.Enqueue("/approve " + ids);
+            Assert.Contains("não encontrada", await api.NextMessageContainingAsync("Solicitação não encontrada"));
+
+            driver.Emit(new UserInputRequestedEvent("upstream-input", [
+                new AgentQuestion("q1", "Primeira?", ["sim", "não"]),
+                new AgentQuestion("q2", "Segunda?", [])]));
+            await Eventually(() => sessions.GetActive(123)!.PendingRequestIds.Count == 1);
+            var inputId = sessions.GetActive(123)!.PendingRequestIds.Single();
+            var inputIds = $"S000001 T000001 {inputId}";
+            api.Enqueue("/input " + inputIds + " sim");
+            Assert.Contains("2 resposta(s)", await api.NextMessageContainingAsync("2 resposta(s)"));
+            api.Enqueue("/input " + inputIds + " sim | não");
+            Assert.Contains("Resposta entregue", await api.NextMessageContainingAsync("Resposta entregue"));
+            var input = Assert.IsType<AgentInputResponse>(driver.Responses.Last().Response);
+            Assert.Equal("não", input.Answers["q2"]);
+
+            driver.Emit(new ApprovalRequestedEvent("upstream-deny", AgentToolKind.FileChange, "alterar"));
+            await Eventually(() => sessions.GetActive(123)!.PendingRequestIds.Count == 1);
+            var denyId = sessions.GetActive(123)!.PendingRequestIds.Single();
+            api.Enqueue($"/deny S000001 T000001 {denyId} não permitido");
+            Assert.Contains("Resposta entregue", await api.NextMessageContainingAsync("Resposta entregue"));
+            var denial = Assert.IsType<AgentApprovalResponse>(driver.Responses.Last().Response);
+            Assert.Equal((AgentApprovalDecision.Deny, "não permitido"), (denial.Decision, denial.Reason));
+
+            api.Enqueue("/session start claude plan");
+            Assert.Contains("perfil plan", await api.NextMessageContainingAsync("perfil plan"));
+            Assert.Equal(AgentPermissionProfile.Plan, drivers.Created.Last().StartOptions!.Profile);
+            api.Enqueue("/permissions full");
+            Assert.Contains("Acesso full não é oferecido", await api.NextMessageContainingAsync("Acesso full"));
+            Assert.Equal(0, runner.Calls);
+        }
+        finally { await service.StopAsync(CancellationToken.None); }
+    }
+
+    [Fact]
     public async Task TransientFailureRetriesOnlyTelegramDelivery()
     {
         var api = new RecordingApi { Failures = 1, FailureStatus = HttpStatusCode.ServiceUnavailable };
@@ -269,6 +345,30 @@ public sealed class TelegramDeliveryServiceTests
         finally { Environment.SetEnvironmentVariable(name, previous); }
     }
 
+    [Fact]
+    public async Task RequestsWithBoundSecretsShowCommandsButNotAgentDetails()
+    {
+        var api = new RecordingApi();
+        var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance);
+        delivery.RegisterSession("S1", 123, -123, hideOutput: true);
+        var session = Snapshot("S1");
+        await delivery.PublishAsync(session, new ApprovalRequestedEvent("upstream", AgentToolKind.Command,
+            "comando com segredo") { SessionId = "S1", TurnId = "T1", RequestId = "R1" }, default);
+        await delivery.PublishAsync(session, new UserInputRequestedEvent("upstream-2",
+            [new AgentQuestion("q1", "pergunta com segredo", [])])
+        { SessionId = "S1", TurnId = "T1", RequestId = "R2" }, default);
+        await delivery.PublishAsync(session, new RequestExpiredEvent("R1")
+        { SessionId = "S1", TurnId = "T1" }, default);
+
+        await Eventually(() => api.Messages.Any(message => message.Text.Contains("A solicitação R1 expirou")));
+        var output = string.Concat(api.Messages.Select(message => message.Text));
+        Assert.Contains("/deny S1 T1 R1", output);
+        Assert.Contains("/input S1 T1 R2", output);
+        Assert.Contains("A solicitação R1 expirou", output);
+        Assert.DoesNotContain("comando com segredo", output);
+        Assert.DoesNotContain("pergunta com segredo", output);
+    }
+
     private static AgentSessionSnapshot Snapshot(string id) => new(id, AgentKind.Codex, 123,
         JobExecutionContext.General("/tmp/general"), AgentPermissionProfile.Manual,
         AgentSessionState.Running, "T1", 0, [], true, DateTimeOffset.UtcNow, null, null);
@@ -314,6 +414,15 @@ public sealed class TelegramDeliveryServiceTests
                 new TelegramUser(123))));
         public async Task<string> NextMessageAsync() =>
             await messages.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+        public async Task<string> NextMessageContainingAsync(string expected)
+        {
+            for (var index = 0; index < 20; index++)
+            {
+                var message = await NextMessageAsync();
+                if (message.Contains(expected, StringComparison.Ordinal)) return message;
+            }
+            throw new Xunit.Sdk.XunitException($"Mensagem esperada não recebida: {expected}");
+        }
         public async Task<IReadOnlyList<TelegramUpdate>> GetUpdatesAsync(long offset,
             CancellationToken cancellationToken) => [await updates.Reader.ReadAsync(cancellationToken)];
         public Task SendMessageAsync(long chatId, string text, CancellationToken cancellationToken)
