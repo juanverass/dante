@@ -45,6 +45,11 @@ public sealed class TelegramAgentRoutingTests : IDisposable
             Assert.Equal(2, codex.Runs.Count);
             await RunCommand(api, "/claude @second", false);
             Assert.Single(claude.Runs);
+
+            await RunCommand(api, "@first plain message", true);
+            Assert.Equal(new Run("plain message", first, false), claude.Runs[1]);
+            await RunCommand(api, "@unknown plain message", false);
+            Assert.Equal(2, claude.Runs.Count);
         }
         finally { await service.StopAsync(CancellationToken.None); }
     }

@@ -360,6 +360,25 @@ Agente padrão alterado para Codex.
 `/agent` não inicia job. `/claude` e `/codex` valem somente para a execução em que são
 usados e não alteram o agente padrão.
 
+## Mensagens sem slash command
+
+Mensagens de texto que não começam com `/` são enviadas ao agente padrão:
+
+```text
+Explique o padrão Strategy.
+```
+
+Com Claude como padrão, isso equivale a `/claude Explique o padrão Strategy.`. O alias
+`@alias` no início da mensagem continua selecionando o repositório daquela execução:
+
+```text
+@dante revise o README
+```
+
+Sem alias, a mensagem roda em General Mode. `/claude` e `/codex` seguem disponíveis como
+override pontual. Mensagens iniciadas por `/` com comando desconhecido nunca são enviadas
+ao agente: o D.A.N.T.E. responde `Comando desconhecido`.
+
 ---
 
 # Jobs
@@ -432,6 +451,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/repo env remove @alias KEY` | Remove uma configuração de ambiente |
 | `/agent` | Exibe o agente padrão |
 | `/agent set claude\|codex` | Altera o agente padrão |
+| `<mensagem>` | Executa o agente padrão (General Mode ou `@alias <prompt>`) |
 | `/status` | Exibe jobs ativos e recentes |
 | `/cancel <jobId>` | Solicita cancelamento de um job |
 
