@@ -2,6 +2,7 @@ using Dante.Worker;
 using Dante.Worker.Agents;
 using Dante.Worker.Jobs;
 using Dante.Worker.Repositories;
+using Dante.Worker.Sessions;
 using Dante.Worker.Settings;
 using Dante.Worker.Telegram;
 
@@ -13,6 +14,8 @@ builder.Services.AddSingleton<GeneralWorkspace>();
 builder.Services.AddSingleton<ICodexRunner, CodexRunner>();
 builder.Services.AddSingleton<IClaudeRunner, ClaudeRunner>();
 builder.Services.AddSingleton<JobRegistry>();
+builder.Services.AddSingleton<IAgentSessionDriverFactory, AgentSessionDriverFactory>();
+builder.Services.AddSingleton<SessionRegistry>();
 builder.Services.AddSingleton<RepositoryRegistry>();
 builder.Services.AddSingleton<AssistantSettingsStore>();
 builder.Services.Configure<TelegramOptions>(builder.Configuration.GetSection(TelegramOptions.SectionName));

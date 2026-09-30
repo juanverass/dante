@@ -260,7 +260,7 @@ Correlação:
   `JobRegistry`, e um turno interativo não tem job id: é identificado por sessão + turno.
   Jobs continuam sendo só as execuções one-shot (`codex exec`, `claude --print`).
   `JobExecutionContext` é reaproveitado apenas para descrever modo e diretório. Onde a
-  sessão aparece para o usuário (`/status`, registry) é da #65;
+  sessão aparece para o usuário (`/status`, registry) é da #65 (AD-20);
 - **request ↔ turno**: todo request nasce num turno e morre com ele; eventos carregam
   `SessionId` e `TurnId`, e approval/input carregam também o `RequestId`.
 
@@ -446,3 +446,45 @@ requests pendentes no interrupt evita um turno preso esperando resposta que nunc
 Código: `Sessions/CodexSessionDriver.cs`, `Sessions/AgentPermissionProfile.cs`,
 `Sessions/AgentProtocolException.cs`; testes em `CodexSessionDriverTests`, contra o
 app-server simulado de `tests/Dante.ProcessProbe/FakeCodex.cs`.
+
+## AD-20 — SessionRegistry em memória: dono, contexto fixo e sessão ativa por seleção explícita
+
+Status: vigente (Epic #60, #65)
+
+`SessionRegistry` (singleton) é o catálogo das sessões interativas durante a vida do Worker. Ele cria um driver por
+sessão (`IAgentSessionDriverFactory`), é o único que chama o driver e drena o fluxo de eventos de cada sessão para
+a `AgentSession` (AD-16), repassando cada evento já carimbado a um `IAgentSessionEventSink` opcional — a entrega ao
+Telegram é da #66.
+
+- **dono**: toda sessão pertence ao Telegram User ID que a iniciou. Operações (mensagem, interrupt, close,
+  seleção) só alcançam sessões do próprio usuário; sessão de outro usuário é respondida exatamente como sessão
+  inexistente. Resposta a approval/input é roteada pelo `R…` à sessão do request e recusada para quem não é dono;
+- **contexto fixo**: agente, contexto (`JobExecutionContext` já resolvido: General ou alias + path), ambiente e
+  perfil de permissão são fixados no início e não mudam durante a sessão. `/use` e `/agent set` valem para
+  execuções e sessões novas, nunca para uma sessão existente. A resolução de agente e contexto continua fora do
+  registry (hoje no `TelegramPollingService`, amanhã no resolvedor da #37): o registry recebe o contexto pronto;
+- **sessão ativa**: no máximo uma por usuário. Iniciar uma sessão com sucesso a torna ativa; trocar é
+  `Select(usuário, S…)` e limpar é `Select(usuário, null)`. `close` pelo dono limpa a seleção. Sessão que falha
+  continua selecionada, para que a próxima mensagem seja **recusada** com o erro em vez de ir para outro lugar
+  (mesma postura da AD-14);
+- **turnos**: mensagem para sessão ociosa vira turno novo na mesma sessão e no mesmo processo; durante um turno,
+  fila/steer seguem a AD-16. Quando um turno termina, o registry inicia o próximo da fila;
+- **falhas**: fluxo de eventos quebrado, processo que sai sem `close` ou mensagem que não chega ao agente
+  (`StartTurnAsync` falhou) tornam a sessão `Failed`, publicam `ErrorEvent` e matam o processo — um turno aberto
+  que nunca chegou ao agente ficaria `Running` para sempre. Steer recusado pelo agente (o turno pode ter acabado
+  entre o envio e o `turn/steer`) só recusa aquela mensagem;
+- **relação com jobs**: sessões não entram no `JobRegistry` e turnos não têm job id (AD-16). Ids distintos
+  (`J…` job, `S…` sessão, `T…` turno, `R…` request) evitam ambiguidade; `/status` lista os jobs e, em seção
+  própria, só as sessões do usuário que pediu;
+- **retenção e reinício**: sessões vivas e as 20 encerradas mais recentes ficam em memória. Ao parar o host, o
+  registry (descartado pelo container) marca toda sessão viva como `Failed` ("sessões não sobrevivem ao reinício
+  do Worker") e mata seus processos; depois do reinício, qualquer `S…` antigo é "não encontrada", com o mesmo
+  aviso.
+
+Por quê: o contexto de uma sessão é uma escolha feita quando ela começa; mudá-lo silenciosamente no meio de uma
+conversa faria o agente trabalhar no lugar errado. Tratar sessão alheia como inexistente evita revelar sessões de
+outros usuários.
+
+Código: `Sessions/SessionRegistry.cs`, `Sessions/IAgentSessionDriverFactory.cs`,
+`Sessions/IAgentSessionEventSink.cs`, `Sessions/AgentSessionSnapshot.cs`; testes em `SessionRegistryTests` e
+`TelegramJobCommandTests`.

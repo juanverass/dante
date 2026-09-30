@@ -1,0 +1,444 @@
+using Dante.Worker.Agents;
+using Dante.Worker.Jobs;
+using Dante.Worker.Sessions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace Dante.Tests;
+
+public sealed class SessionRegistryTests
+{
+    private const long Owner = 42;
+    private const long Intruder = 7;
+    private static readonly JobExecutionContext Repository = JobExecutionContext.Repository("@dante", "/repos/dante");
+    private readonly FakeSessionDriverFactory drivers = new();
+    private readonly RecordingSessionSink sink = new();
+
+    [Fact]
+    public async Task StartedSessionKeepsItsResolvedContextAndBecomesTheActiveSession()
+    {
+        await using var registry = CreateRegistry();
+        var environment = new Dictionary<string, string> { ["DANTE_ENV"] = "dev" };
+
+        var result = await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository,
+            environment, AgentPermissionProfile.Plan));
+
+        Assert.True(result.Accepted);
+        var session = result.Session!;
+        Assert.Equal(("S000001", AgentKind.Codex, Owner), (session.Id, session.Agent, session.OwnerUserId));
+        Assert.Equal((Repository, AgentPermissionProfile.Plan), (session.Context, session.Profile));
+        Assert.Equal(AgentSessionState.Idle, session.State);
+        Assert.True(session.IsActive);
+        var options = drivers.Created.Single().StartOptions!;
+        Assert.Equal(("/repos/dante", false, AgentPermissionProfile.Plan),
+            (options.WorkingDirectory, options.IsGeneral, options.Profile));
+        Assert.Same(environment, options.EnvironmentVariables);
+        Assert.Equal("S000001", registry.GetActive(Owner)!.Id);
+    }
+
+    [Fact]
+    public async Task GeneralSessionStartsInGeneralMode()
+    {
+        await using var registry = CreateRegistry();
+
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude,
+            JobExecutionContext.General("/home/user/.dante/workspaces/general")));
+
+        Assert.True(drivers.Created.Single().StartOptions!.IsGeneral);
+    }
+
+    [Fact]
+    public async Task IdleSessionRunsEachMessageAsNewTurnOfTheSameSession()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+        var driver = drivers.Created.Single();
+
+        var first = await registry.SubmitAsync(Owner, null, "primeira");
+        Assert.Equal((SubmitOutcome.TurnStarted, "S000001", "T000001"), (first.Outcome, first.SessionId, first.TurnId));
+        driver.Emit(new MessageCompletedEvent("m1", "ok"));
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        await Eventually(() => registry.GetActive(Owner)!.State == AgentSessionState.Idle);
+
+        var second = await registry.SubmitAsync(Owner, null, "segunda");
+        Assert.Equal((SubmitOutcome.TurnStarted, "T000002"), (second.Outcome, second.TurnId));
+        Assert.Equal(["start", "turn:primeira", "turn:segunda"], driver.Calls);
+        Assert.Single(drivers.Created);
+
+        var message = sink.Published.Select(published => published.Event).OfType<MessageCompletedEvent>().Single();
+        Assert.Equal(("S000001", "T000001"), (message.SessionId, message.TurnId));
+        var snapshot = registry.GetActive(Owner)!;
+        Assert.Equal((AgentKind.Claude, Repository), (snapshot.Agent, snapshot.Context));
+    }
+
+    [Fact]
+    public async Task MessagesDuringATurnAreQueuedAndRunInOrderWhenTheTurnEnds()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var driver = drivers.Created.Single();
+
+        Assert.Equal(SubmitOutcome.TurnStarted, (await registry.SubmitAsync(Owner, null, "a")).Outcome);
+        Assert.Equal(SubmitOutcome.Queued, (await registry.SubmitAsync(Owner, null, "b")).Outcome);
+        Assert.Equal(SubmitOutcome.Queued, (await registry.SubmitAsync(Owner, "s000001", "c")).Outcome);
+        Assert.Equal(2, registry.GetActive(Owner)!.QueuedCount);
+
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        await Eventually(() => driver.Calls.Contains("turn:b"));
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        await Eventually(() => driver.Calls.Contains("turn:c"));
+
+        Assert.Equal(["start", "turn:a", "turn:b", "turn:c"], driver.Calls);
+    }
+
+    [Fact]
+    public async Task SteerGoesToTheDriverOfTheSession()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+        var (codex, claude) = (drivers.Created[0], drivers.Created[1]);
+        await registry.SubmitAsync(Owner, "S000001", "tarefa");
+        await registry.SubmitAsync(Owner, "S000002", "tarefa");
+
+        var steered = await registry.SubmitAsync(Owner, "S000001", "mude o foco", MessageDelivery.Steer);
+        var interrupted = await registry.SubmitAsync(Owner, "S000002", "mude o foco", MessageDelivery.Steer);
+
+        Assert.Equal(SubmitOutcome.Steered, steered.Outcome);
+        Assert.Equal("steer:mude o foco", codex.Calls[^1]);
+        Assert.Equal(SubmitOutcome.SteerByInterrupt, interrupted.Outcome);
+        Assert.Equal("interrupt", claude.Calls[^1]);
+        claude.Emit(new TurnCompletedEvent(AgentTurnOutcome.Interrupted));
+        await Eventually(() => claude.Calls.Contains("turn:mude o foco"));
+    }
+
+    [Fact]
+    public async Task RejectedSteerKeepsTheSessionAlive()
+    {
+        await using var registry = CreateRegistry();
+        drivers.Configure = driver => driver.SteerFailure = new InvalidOperationException("turno encerrado");
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        await registry.SubmitAsync(Owner, null, "tarefa");
+
+        var result = await registry.SubmitAsync(Owner, null, "desvio", MessageDelivery.Steer);
+
+        Assert.Equal(SubmitOutcome.Rejected, result.Outcome);
+        Assert.Contains("T000001", result.Error);
+        Assert.Equal(AgentSessionState.Running, registry.GetActive(Owner)!.State);
+    }
+
+    [Fact]
+    public async Task InterruptStopsTheTurnAndDiscardsTheQueue()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var driver = drivers.Created.Single();
+        await registry.SubmitAsync(Owner, null, "a");
+        await registry.SubmitAsync(Owner, null, "b");
+
+        var result = await registry.InterruptAsync(Owner, null);
+
+        Assert.True(result.Accepted);
+        Assert.Equal(1, result.DiscardedMessages);
+        Assert.Equal("interrupt", driver.Calls[^1]);
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Interrupted));
+        await Eventually(() => registry.GetActive(Owner)!.State == AgentSessionState.Idle);
+        Assert.DoesNotContain("turn:b", driver.Calls);
+        Assert.False((await registry.InterruptAsync(Owner, null)).Accepted);
+    }
+
+    [Fact]
+    public async Task FailedInterruptTerminatesTheSessionInsteadOfLeavingAnUninterruptibleTurn()
+    {
+        await using var registry = CreateRegistry();
+        drivers.Configure = driver => driver.InterruptFailure = new AgentProcessInputClosedException("stdin fechado");
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        await registry.SubmitAsync(Owner, null, "tarefa");
+
+        var result = await registry.InterruptAsync(Owner, null);
+
+        Assert.False(result.Accepted);
+        Assert.Equal(AgentSessionState.Failed, registry.GetActive(Owner)!.State);
+        Assert.True(drivers.Created.Single().Disposed);
+    }
+
+    [Fact]
+    public async Task AnotherUserCannotSeeOrControlTheSession()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var driver = drivers.Created.Single();
+        await registry.SubmitAsync(Owner, null, "tarefa");
+        driver.Emit(new ApprovalRequestedEvent("upstream-7", AgentToolKind.Command, "git push"));
+        await Eventually(() => registry.GetActive(Owner)!.PendingRequestIds.Count == 1);
+        var requestId = registry.GetActive(Owner)!.PendingRequestIds.Single();
+        var callsBefore = driver.Calls.Count;
+
+        Assert.Null(registry.GetActive(Intruder));
+        Assert.Empty(registry.List(Intruder));
+        var submit = await registry.SubmitAsync(Intruder, "S000001", "outra coisa");
+        Assert.Equal(SubmitOutcome.Rejected, submit.Outcome);
+        Assert.Contains("não encontrada", submit.Error);
+        Assert.Equal("Nenhuma sessão ativa. Inicie ou selecione uma sessão.",
+            (await registry.SubmitAsync(Intruder, null, "outra coisa")).Error);
+        Assert.False((await registry.InterruptAsync(Intruder, "S000001")).Accepted);
+        Assert.False((await registry.CloseAsync(Intruder, "S000001")).Accepted);
+        Assert.False(registry.Select(Intruder, "S000001").Accepted);
+        var response = await registry.RespondAsync(Intruder, requestId,
+            new AgentApprovalResponse(AgentApprovalDecision.ApproveOnce));
+        Assert.False(response.Accepted);
+        Assert.Contains("dono da sessão", response.Error);
+        Assert.Equal(callsBefore, driver.Calls.Count);
+
+        Assert.True((await registry.RespondAsync(Owner, requestId,
+            new AgentApprovalResponse(AgentApprovalDecision.ApproveOnce))).Accepted);
+        Assert.Equal("respond:upstream-7", driver.Calls[^1]);
+        Assert.False((await registry.RespondAsync(Owner, requestId,
+            new AgentApprovalResponse(AgentApprovalDecision.ApproveOnce))).Accepted);
+    }
+
+    [Fact]
+    public async Task FailedResponseTerminatesTheSessionInsteadOfStrandingTheAgentRequest()
+    {
+        await using var registry = CreateRegistry();
+        drivers.Configure = driver => driver.ResponseFailure = new AgentProcessInputClosedException("stdin fechado");
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        await registry.SubmitAsync(Owner, null, "tarefa");
+        var driver = drivers.Created.Single();
+        driver.Emit(new ApprovalRequestedEvent("upstream-7", AgentToolKind.Command, "git push"));
+        await Eventually(() => registry.GetActive(Owner)!.PendingRequestIds.Count == 1);
+        var requestId = registry.GetActive(Owner)!.PendingRequestIds.Single();
+
+        var result = await registry.RespondAsync(Owner, requestId,
+            new AgentApprovalResponse(AgentApprovalDecision.ApproveOnce));
+
+        Assert.False(result.Accepted);
+        Assert.Equal(AgentSessionState.Failed, registry.GetActive(Owner)!.State);
+        Assert.True(driver.Disposed);
+    }
+
+    [Fact]
+    public async Task ClosedSessionDoesNotReceiveMessages()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+        var driver = drivers.Created.Single();
+        await registry.SubmitAsync(Owner, null, "tarefa");
+
+        var closed = await registry.CloseAsync(Owner, null);
+
+        Assert.True(closed.Accepted);
+        Assert.Equal(AgentSessionState.Closed, closed.Session!.State);
+        Assert.False(closed.Session.IsActive);
+        Assert.Equal(["start", "turn:tarefa", "interrupt", "close"], driver.Calls);
+        Assert.True(driver.Disposed);
+        Assert.Null(registry.GetActive(Owner));
+        var byId = await registry.SubmitAsync(Owner, "S000001", "depois");
+        Assert.Equal(SubmitOutcome.Rejected, byId.Outcome);
+        Assert.Contains("encerrada (Closed)", byId.Error);
+        Assert.Equal(SubmitOutcome.Rejected, (await registry.SubmitAsync(Owner, null, "depois")).Outcome);
+        Assert.False(registry.Select(Owner, "S000001").Accepted);
+        Assert.False((await registry.CloseAsync(Owner, "S000001")).Accepted);
+        Assert.Equal(AgentSessionState.Closed, registry.List(Owner).Single().State);
+        Assert.DoesNotContain("turn:depois", driver.Calls);
+    }
+
+    [Fact]
+    public async Task ProcessFailureEndsTheSessionExplicitly()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var driver = drivers.Created.Single();
+        await registry.SubmitAsync(Owner, null, "tarefa");
+
+        driver.Crash(new AgentProtocolException("O Codex encerrou inesperadamente."));
+        await Eventually(() => registry.GetActive(Owner)!.State == AgentSessionState.Failed);
+
+        Assert.True(driver.Disposed);
+        var error = sink.Published.Select(published => published.Event).OfType<ErrorEvent>().Single();
+        Assert.Equal(("S000001", "O Codex encerrou inesperadamente."), (error.SessionId, error.Message));
+        // The failed session stays selected, so the next message is refused instead of going elsewhere.
+        var result = await registry.SubmitAsync(Owner, null, "continua");
+        Assert.Equal(SubmitOutcome.Rejected, result.Outcome);
+        Assert.Contains("encerrada (Failed): O Codex encerrou inesperadamente.", result.Error);
+    }
+
+    [Fact]
+    public async Task ProcessExitWithoutCloseFailsTheSession()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+
+        await drivers.Created.Single().CloseAsync();
+        await Eventually(() => registry.GetActive(Owner)!.State == AgentSessionState.Failed);
+
+        Assert.Equal("O processo do agente encerrou inesperadamente.", registry.GetActive(Owner)!.Error);
+    }
+
+    [Fact]
+    public async Task StartFailureIsReportedAndNotSelected()
+    {
+        await using var registry = CreateRegistry();
+        drivers.Configure = driver => driver.StartFailure = new AgentProtocolException("O Claude recusou o initialize.");
+
+        var result = await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+
+        Assert.False(result.Accepted);
+        Assert.Equal("O Claude recusou o initialize.", result.Error);
+        Assert.Equal(AgentSessionState.Failed, result.Session!.State);
+        Assert.Null(registry.GetActive(Owner));
+        Assert.True(drivers.Created.Single().Disposed);
+    }
+
+    [Fact]
+    public async Task TurnThatCannotReachTheAgentFailsTheSession()
+    {
+        await using var registry = CreateRegistry();
+        drivers.Configure = driver => driver.TurnFailure = new AgentProcessInputClosedException("stdin fechado");
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+
+        var result = await registry.SubmitAsync(Owner, null, "tarefa");
+
+        Assert.Equal(SubmitOutcome.Rejected, result.Outcome);
+        Assert.Equal(AgentSessionState.Failed, registry.GetActive(Owner)!.State);
+        Assert.True(drivers.Created.Single().Disposed);
+    }
+
+    [Fact]
+    public async Task ActiveSessionChangesOnlyByExplicitSelection()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude,
+            JobExecutionContext.General("/general")));
+        Assert.Equal("S000002", registry.GetActive(Owner)!.Id);
+
+        Assert.True(registry.Select(Owner, "S000001").Accepted);
+        await registry.SubmitAsync(Owner, null, "tarefa");
+        Assert.Equal("turn:tarefa", drivers.Created[0].Calls[^1]);
+        Assert.DoesNotContain("turn:tarefa", drivers.Created[1].Calls);
+
+        Assert.True(registry.Select(Owner, null).Accepted);
+        Assert.Null(registry.GetActive(Owner));
+        Assert.Equal(["S000002", "S000001"], registry.List(Owner).Select(session => session.Id));
+        Assert.Equal((AgentKind.Codex, Repository), (registry.List(Owner)[1].Agent, registry.List(Owner)[1].Context));
+    }
+
+    [Fact]
+    public async Task UnknownSessionMentionsThatSessionsDoNotSurviveRestart()
+    {
+        await using var registry = CreateRegistry();
+
+        var result = await registry.SubmitAsync(Owner, "S000009", "olá");
+
+        Assert.Equal(SubmitOutcome.Rejected, result.Outcome);
+        Assert.Contains("não sobrevivem ao reinício do Worker", result.Error);
+    }
+
+    [Fact]
+    public async Task ConcurrentMessagesOpenExactlyOneTurnAndRunEveryMessageOnce()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var driver = drivers.Created.Single();
+        var texts = Enumerable.Range(1, 40).Select(index => $"m{index}").ToArray();
+
+        var results = await Task.WhenAll(texts.Select(text => Task.Run(() => registry.SubmitAsync(Owner, null, text))));
+
+        Assert.Single(results, result => result.Outcome == SubmitOutcome.TurnStarted);
+        Assert.Equal(texts.Length - 1, results.Count(result => result.Outcome == SubmitOutcome.Queued));
+        for (var turn = 1; turn <= texts.Length; turn++)
+        {
+            await Eventually(() => driver.Calls.Count(call => call.StartsWith("turn:")) == turn);
+            driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        }
+
+        await Eventually(() => registry.GetActive(Owner)!.State == AgentSessionState.Idle);
+        Assert.Equal(texts.Order(), driver.Calls.Where(call => call.StartsWith("turn:"))
+            .Select(call => call["turn:".Length..]).Order());
+    }
+
+    [Fact]
+    public async Task ConcurrentStartsKeepOneActiveSessionPerUser()
+    {
+        await using var registry = CreateRegistry();
+        var users = Enumerable.Range(1, 20).Select(user => (long)user).ToArray();
+
+        var results = await Task.WhenAll(users.Select(user => Task.Run(() =>
+            registry.StartAsync(new SessionStartRequest(user, AgentKind.Claude, Repository)))));
+
+        Assert.All(results, result => Assert.True(result.Accepted));
+        Assert.Equal(users.Length, results.Select(result => result.Session!.Id).Distinct().Count());
+        foreach (var user in users)
+        {
+            var active = registry.GetActive(user)!;
+            Assert.Equal(user, active.OwnerUserId);
+            Assert.Equal(active.Id, registry.List(user).Single().Id);
+        }
+    }
+
+    [Fact]
+    public async Task WorkerShutdownInvalidatesLiveSessions()
+    {
+        var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        await registry.SubmitAsync(Owner, null, "tarefa");
+
+        await registry.DisposeAsync();
+
+        var session = registry.List(Owner).Single();
+        Assert.Equal(AgentSessionState.Failed, session.State);
+        Assert.Contains("não sobrevivem ao reinício do Worker", session.Error);
+        Assert.True(drivers.Created.Single().Disposed);
+        Assert.False((await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository))).Accepted);
+        Assert.Single(drivers.Created);
+    }
+
+    [Fact]
+    public async Task SynchronousHostDisposalStopsSessionDrivers()
+    {
+        var services = new ServiceCollection()
+            .AddSingleton<IAgentSessionDriverFactory>(drivers)
+            .AddLogging()
+            .AddSingleton<SessionRegistry>()
+            .BuildServiceProvider();
+        var registry = services.GetRequiredService<SessionRegistry>();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+
+        services.Dispose();
+
+        Assert.True(drivers.Created.Single().Disposed);
+        Assert.Equal(AgentSessionState.Failed, registry.List(Owner).Single().State);
+    }
+
+    [Fact]
+    public async Task OnlyTheMostRecentEndedSessionsAreKept()
+    {
+        await using var registry = CreateRegistry();
+        for (var index = 0; index < 22; index++)
+        {
+            await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+            await registry.CloseAsync(Owner, null);
+        }
+
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+
+        var listed = registry.List(Owner);
+        Assert.Equal(21, listed.Count);
+        Assert.Equal("S000023", listed[0].Id);
+        Assert.DoesNotContain(listed, session => session.Id is "S000001" or "S000002");
+    }
+
+    private SessionRegistry CreateRegistry() =>
+        new(drivers, NullLogger<SessionRegistry>.Instance, sink);
+
+    private static async Task Eventually(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "A condição esperada não ocorreu a tempo.");
+            await Task.Delay(10);
+        }
+    }
+}

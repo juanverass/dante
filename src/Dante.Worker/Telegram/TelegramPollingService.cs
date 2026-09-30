@@ -1,6 +1,7 @@
 using Dante.Worker.Agents;
 using Dante.Worker.Jobs;
 using Dante.Worker.Repositories;
+using Dante.Worker.Sessions;
 using Dante.Worker.Settings;
 using System.Text;
 using Microsoft.Extensions.Options;
@@ -17,7 +18,8 @@ public sealed class TelegramPollingService(
     ILogger<TelegramPollingService> logger,
     RepositoryRegistry? repositories = null,
     GeneralWorkspace? generalWorkspace = null,
-    AssistantSettingsStore? settings = null) : BackgroundService
+    AssistantSettingsStore? settings = null,
+    SessionRegistry? sessions = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private readonly object runningGate = new();
@@ -129,6 +131,12 @@ public sealed class TelegramPollingService(
             var response = visible.Count == 0
                 ? "Nenhum job registrado."
                 : string.Join('\n', visible.Select(FormatJob));
+            // Sessions are listed apart from jobs (AD-16), and only the requesting user's own.
+            var ownSessions = sessions?.List(message.From!.Id) ?? [];
+            if (ownSessions.Count > 0)
+            {
+                response += "\n\nSessões:\n" + string.Join('\n', ownSessions.Select(FormatSession));
+            }
             await SendLongMessageAsync(message.Chat.Id, response, cancellationToken);
             return;
         }
@@ -522,6 +530,15 @@ public sealed class TelegramPollingService(
         (job.CancellationRequested && job.Status is JobStatus.Queued or JobStatus.Running
             ? " (cancelamento solicitado)" : string.Empty) +
         $" | criado {job.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
+
+    private static string FormatSession(AgentSessionSnapshot session) =>
+        $"{session.Id} {session.Agent} {session.Context.Label}: {session.State}" +
+        (session.IsActive ? " (ativa)" : string.Empty) +
+        (session.ActiveTurnId is null ? string.Empty : $" | turno {session.ActiveTurnId}") +
+        (session.QueuedCount == 0 ? string.Empty : $" | {session.QueuedCount} na fila") +
+        (session.PendingRequestIds.Count == 0 ? string.Empty :
+            $" | aguardando {string.Join(", ", session.PendingRequestIds)}") +
+        $" | perfil {session.Profile} | criada {session.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
 
     private static bool IsWithin(string path, string root)
     {

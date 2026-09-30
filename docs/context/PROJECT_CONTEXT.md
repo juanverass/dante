@@ -53,6 +53,7 @@ claude / codex (processo filho)
 | `AssistantSettingsStore` | `Settings/` | Agente padrão e repositório ativo por usuário, persistidos em `~/.dante/settings.json`. |
 | `GeneralWorkspace` | `Agents/` | Diretório neutro para consultas gerais. |
 | `JobRegistry` | `Jobs/` | Estado, contexto e cancelamento dos jobs, em memória. |
+| `SessionRegistry` | `Sessions/` | Sessões interativas em memória: dono, contexto fixo, sessão ativa por usuário e roteamento de turnos aos drivers. |
 | `ClaudeRunner` / `CodexRunner` | `Agents/` | Argumentos fixos de cada CLI por modo. |
 | `AgentProcessExecutor` | `Agents/` | Inicia o processo sem shell, filtra ambiente, captura saída, cancela a árvore. |
 | `AgentExecutableResolver` | `Agents/` | Resolve apenas `claude`/`codex` em entradas absolutas do `PATH`. |
