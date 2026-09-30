@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-09-30, com as configurações persistentes do assistente (#33).
+Última revisão: 2026-09-30, com o comando `/agent` (#34).
 
 ## Marcos
 
@@ -16,7 +16,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | MVP 1 — Telegram → D.A.N.T.E. → Claude/Codex → Telegram (Epic #1) | concluído |
 | MVP 2 — Context-aware orchestration (Epic #18) | concluído |
 | Agent Harness v1 (Epic #40) | concluído |
-| MVP 3 — Conversational Context (Epic #32) | em andamento: configurações persistentes (#33) |
+| MVP 3 — Conversational Context (Epic #32) | em andamento: configurações persistentes (#33) e `/agent` (#34) |
 
 ## Funcionalidades disponíveis
 
@@ -27,8 +27,9 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 - `/repos` e `/repo add|show|remove`;
 - `/repo env set|bind|list|remove` com segredos por referência ao host;
 - `/status` com contexto de cada job e `/cancel <jobId>`;
-- configurações do assistente em `~/.dante/settings.json` (agente padrão, hoje Claude
-  quando não configurado), ainda sem comando no Telegram (#34).
+- configurações do assistente em `~/.dante/settings.json` (agente padrão, Claude quando
+  não configurado);
+- `/agent` e `/agent set claude|codex` para consultar e alterar o agente padrão.
 
 Detalhes de uso: [README](../../README.md).
 
@@ -36,31 +37,31 @@ Detalhes de uso: [README](../../README.md).
 
 - jobs e histórico somente em memória (perdidos ao reiniciar);
 - Worker iniciado manualmente (execução automática como serviço: #39);
-- agente padrão persistido, mas ainda sem `/agent` nem mensagens sem slash command (MVP 3);
+- agente padrão configurável, mas ainda sem mensagens sem slash command (MVP 3);
 - sem repositório ativo por usuário (MVP 3);
 - sem worktrees, fila persistente ou execução concorrente isolada por Issue;
 - sem CI no GitHub: validação é local.
 
 ## Em andamento
 
-- **Epic #32 — MVP 3 (Conversational Context)**: configurações persistentes do assistente
-  (#33); demais Issues da Epic seguem no backlog.
+- **Epic #32 — MVP 3 (Conversational Context)**: configurações persistentes (#33) e
+  `/agent` (#34); demais Issues da Epic seguem no backlog.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #33:
+Estado conhecido com #34:
 
 ```text
 dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    90 aprovados, 0 falhas
+dotnet test Dante.sln    98 aprovados, 0 falhas
 ```
 
 ## Próximos marcos
 
-1. MVP 3 — Conversational Context (#32): após as configurações persistentes (#33), `/agent`
+1. MVP 3 — Conversational Context (#32): após as configurações persistentes (#33) e `/agent`
    (#34), mensagens sem slash command (#35), `/use` (#36), resolvedor de agente e
    contexto (#37), UX (#38);
 2. execução automática como serviço local (#39).

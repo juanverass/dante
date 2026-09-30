@@ -332,6 +332,36 @@ Jobs que utilizam bindings sensíveis não retornam a saída do agente pelo Tele
 
 ---
 
+# Agente padrão
+
+O agente padrão fica salvo em `~/.dante/settings.json` e sobrevive a reinícios. Sem
+configuração, é **Claude**.
+
+Consultar:
+
+```text
+/agent
+```
+
+```text
+Agente padrão: Claude
+```
+
+Alterar (aceita `claude` ou `codex`, sem diferenciar maiúsculas):
+
+```text
+/agent set codex
+```
+
+```text
+Agente padrão alterado para Codex.
+```
+
+`/agent` não inicia job. `/claude` e `/codex` valem somente para a execução em que são
+usados e não alteram o agente padrão.
+
+---
+
 # Jobs
 
 Cada chamada a Claude ou Codex gera um job.
@@ -400,6 +430,8 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/repo env bind @alias KEY HOST_ENV` | Vincula uma variável a uma variável do host |
 | `/repo env list @alias` | Lista nomes e origens das variáveis |
 | `/repo env remove @alias KEY` | Remove uma configuração de ambiente |
+| `/agent` | Exibe o agente padrão |
+| `/agent set claude\|codex` | Altera o agente padrão |
 | `/status` | Exibe jobs ativos e recentes |
 | `/cancel <jobId>` | Solicita cancelamento de um job |
 
