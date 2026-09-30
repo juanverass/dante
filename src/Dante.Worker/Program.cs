@@ -8,6 +8,7 @@ using Dante.Worker.Telegram;
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddSingleton<IAgentExecutableResolver, AgentExecutableResolver>();
 builder.Services.AddSingleton<IAgentProcessExecutor, AgentProcessExecutor>();
+builder.Services.AddSingleton<IInteractiveAgentProcessLauncher, InteractiveAgentProcessLauncher>();
 builder.Services.AddSingleton<GeneralWorkspace>();
 builder.Services.AddSingleton<ICodexRunner, CodexRunner>();
 builder.Services.AddSingleton<IClaudeRunner, ClaudeRunner>();

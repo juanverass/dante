@@ -19,53 +19,9 @@ public sealed class AgentProcessExecutor(IAgentExecutableResolver executableReso
             return Result(AgentProcessStatus.Cancelled, null, null, "Execution was cancelled.");
         }
 
-        if (!Path.IsPathFullyQualified(request.WorkingDirectory) ||
-            !Directory.Exists(request.WorkingDirectory))
+        if (!AgentProcessStartInfo.TryCreate(request, executableResolver, out var startInfo, out var error))
         {
-            return Result(AgentProcessStatus.Failed, null, null, "Working directory does not exist or is not absolute.");
-        }
-
-        var executable = executableResolver.Resolve(request.Agent);
-        if (executable is null)
-        {
-            return Result(AgentProcessStatus.Failed, null, null,
-                $"{request.Agent} executable is unavailable. Install it and add its native binary to PATH.");
-        }
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = executable,
-            WorkingDirectory = request.WorkingDirectory,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-
-        if (request.IsGeneral || request.EnvironmentVariables is not null)
-        {
-            // Keep only the host settings needed to launch/authenticate local CLIs.
-            var inherited = new Dictionary<string, string?>(startInfo.Environment,
-                OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-            startInfo.Environment.Clear();
-            foreach (var name in new[] { "PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TMP", "TEMP",
-                         "TMPDIR", "SYSTEMROOT", "WINDIR", "COMSPEC", "LANG", "LC_ALL", "TERM",
-                         "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY" })
-            {
-                if (inherited.TryGetValue(name, out var value) && value is not null)
-                    startInfo.Environment[name] = value;
-            }
-        }
-
-        if (request.EnvironmentVariables is not null)
-        {
-            foreach (var (name, value) in request.EnvironmentVariables)
-                startInfo.Environment[name] = value;
-        }
-
-        foreach (var argument in request.Arguments)
-        {
-            startInfo.ArgumentList.Add(argument);
+            return Result(AgentProcessStatus.Failed, null, null, error);
         }
 
         using var process = new Process { StartInfo = startInfo };
