@@ -164,9 +164,11 @@ atômica (arquivo temporário + rename) sob lock. Hoje o arquivo tem só `Defaul
 que aceita apenas `Claude` ou `Codex`. Sem arquivo, o padrão documentado é Claude.
 Arquivo corrompido, vazio ou com valor desconhecido é erro na carga: o D.A.N.T.E. não
 escolhe agente por inferência nem sobrescreve o arquivo inválido. O arquivo nunca guarda
-tokens, credenciais ou segredos.
+tokens, credenciais ou segredos. O store é carregado na inicialização do host (injetado
+no `Worker`), então um arquivo inválido impede o Worker de iniciar.
 
 Por quê: o agente padrão decide qual CLI roda com o prompt do usuário; um valor ambíguo
 deve parar o Worker, não ser adivinhado.
 
-Código: `Settings/AssistantSettingsStore.cs`; testes em `AssistantSettingsStoreTests`.
+Código: `Settings/AssistantSettingsStore.cs`; testes em `AssistantSettingsStoreTests` e
+`WorkerLifecycleTests`.

@@ -15,7 +15,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | --- | --- |
 | MVP 1 — Telegram → D.A.N.T.E. → Claude/Codex → Telegram (Epic #1) | concluído |
 | MVP 2 — Context-aware orchestration (Epic #18) | concluído |
-| Agent Harness v1 (Epic #40) | em andamento |
+| Agent Harness v1 (Epic #40) | concluído |
 | MVP 3 — Conversational Context (Epic #32) | em andamento: configurações persistentes (#33) |
 
 ## Funcionalidades disponíveis
@@ -43,9 +43,8 @@ Detalhes de uso: [README](../../README.md).
 
 ## Em andamento
 
-- **Epic #40 — Agent Harness v1**: contrato de agentes, contexto persistente,
-  protocolo de turno/handoff, backlog, skills e protocolo de review implementados em PRs
-  integrados em `main` (#48–#53). A validação zero-chat (#47) ainda precisa ser concluída.
+- **Epic #32 — MVP 3 (Conversational Context)**: configurações persistentes do assistente
+  (#33); demais Issues da Epic seguem no backlog.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -56,13 +55,12 @@ Estado conhecido com #33:
 
 ```text
 dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    89 aprovados, 0 falhas
+dotnet test Dante.sln    90 aprovados, 0 falhas
 ```
 
 ## Próximos marcos
 
-1. concluir e validar o Agent Harness v1 (#40), incluindo o teste zero-chat (#47);
-2. MVP 3 — Conversational Context (#32): após as configurações persistentes (#33), `/agent`
+1. MVP 3 — Conversational Context (#32): após as configurações persistentes (#33), `/agent`
    (#34), mensagens sem slash command (#35), `/use` (#36), resolvedor de agente e
    contexto (#37), UX (#38);
-3. execução automática como serviço local (#39).
+2. execução automática como serviço local (#39).
