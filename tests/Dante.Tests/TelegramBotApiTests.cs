@@ -49,6 +49,22 @@ public sealed class TelegramBotApiTests
         await Assert.ThrowsAsync<JsonException>(() => api.GetUpdatesAsync(0, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task SendMessageReportsRateLimitForDeliveryRetry()
+    {
+        using var httpClient = new HttpClient(new StubHandler(_ =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            {
+                Content = new StringContent("""{"ok":false,"parameters":{"retry_after":2}}""")
+            })));
+        var api = new TelegramBotApi(httpClient, Options.Create(new TelegramOptions { BotToken = "test-token" }));
+
+        var error = await Assert.ThrowsAnyAsync<HttpRequestException>(() =>
+            api.SendMessageAsync(-123, "texto", CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, error.StatusCode);
+    }
+
     private sealed class StubHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handle) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(

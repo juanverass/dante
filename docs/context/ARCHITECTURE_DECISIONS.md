@@ -488,3 +488,28 @@ outros usuários.
 Código: `Sessions/SessionRegistry.cs`, `Sessions/IAgentSessionDriverFactory.cs`,
 `Sessions/IAgentSessionEventSink.cs`, `Sessions/AgentSessionSnapshot.cs`; testes em `SessionRegistryTests` e
 `TelegramJobCommandTests`.
+
+## AD-21 — Entrega Telegram independente do resultado do agente
+
+Status: vigente (Epic #60, #66)
+
+`TelegramDeliveryService` recebe eventos já carimbados pelo `SessionRegistry`, identifica cada
+parte com sessão/turno, agrupa deltas em intervalos de 750 ms e entrega sequencialmente por
+turno. Jobs também registram a resposta final ali depois de concluir a execução. Registros
+recentes em memória distinguem `Pending`, `Delivered` e `Failed`, preservam a parte que falhou
+e as seguintes e permitem `/resend` sem chamar o agente novamente. `/status` mostra o último
+resultado do turno e o estado da entrega separadamente. Saídas de sessões com segredos vinculados são omitidas;
+segredos de autenticação do host são redigidos antes de cada envio, inclusive quando divididos
+entre deltas. A saída por registro é limitada e o truncamento é indicado ao usuário.
+
+Falhas transitórias (`HttpRequestException`, timeout, 429 e 5xx) recebem até quatro tentativas
+com backoff exponencial; 429 respeita `retry_after` quando informado. Erros permanentes encerram
+a tentativa, deixam a entrega como `Failed` e registram apenas o tipo do erro. Uma falha de
+entrega nunca muda o estado concluído do job ou do turno. Registros de entrega e sessões não
+sobrevivem ao reinício do Worker.
+
+Por quê: a conclusão de ações do agente não prova que o Telegram recebeu sua resposta. Separar
+os estados permite recuperação sem repetir efeitos no repositório ou no GitHub.
+
+Código: `Telegram/TelegramDeliveryService.cs`, `Telegram/TelegramPollingService.cs`,
+`Telegram/TelegramBotApi.cs`; testes em `TelegramDeliveryServiceTests` e `TelegramBotApiTests`.

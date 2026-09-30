@@ -16,7 +16,8 @@ public sealed record AgentSessionSnapshot(
     bool IsActive,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? EndedAtUtc,
-    string? Error);
+    string? Error,
+    AgentTurnOutcome? LastTurnOutcome = null);
 
 public sealed record SessionStartRequest(
     long OwnerUserId,
