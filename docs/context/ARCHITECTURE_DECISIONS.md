@@ -363,8 +363,9 @@ claude --print --input-format stream-json --output-format stream-json --verbose
 - **approval e input**: `can_use_tool` vira `ApprovalRequestedEvent`, exceto
   `AskUserQuestion`, que vira `UserInputRequestedEvent` com perguntas `q1`, `q2`…; o
   `request_id` do Claude é o id upstream. "Aprovar na sessão" devolve as
-  `permission_suggestions` em `updatedPermissions` (validado contra o Claude Code 2.1.284:
-  com `setMode acceptEdits`/`session`, o segundo `Write` do turno não pediu aprovação);
+  `permission_suggestions` de destino `session` em `updatedPermissions` (AD-22; validado
+  contra o Claude Code 2.1.284: com `setMode acceptEdits`/`session`, o segundo `Write` do
+  turno não pediu aprovação);
   respostas de `AskUserQuestion` vão em `updatedInput.answers`, chaveadas pelo texto da
   pergunta. Outros `control_request` recebem erro para o Claude não esperar para sempre;
 - **steer**: não há (AD-15); `SteerAsync` lança `NotSupportedException` e a sessão usa
@@ -523,13 +524,21 @@ O Telegram apresenta pedidos de aprovação e input com IDs `S…`, `T…` e `R�
 o dono e o turno antes de encaminhar a resposta ao driver. Um request é consumido uma vez.
 Respostas parciais de input, duplicadas, tardias ou destinadas a outro turno são recusadas.
 `/approve-session` só é oferecido quando o driver indica suporte no próprio request:
-`acceptForSession` no Codex e `permission_suggestions` não vazias no Claude.
+`acceptForSession` no Codex e ao menos uma `permission_suggestion` com
+`destination: session` no Claude. Só essas sugestões voltam em `updatedPermissions`; as de
+destino persistente (`userSettings`, `projectSettings`, `localSettings`) são descartadas,
+para que aprovar na sessão nunca grave permissão que sobreviva a ela.
 
 Cada request expira após cinco minutos em memória. Ao expirar, o registry remove o estado
 pendente e envia negação de approval ou input vazio ao driver para liberar o turno. O
-Telegram recebe um aviso de expiração. `/status` mostra os IDs ainda pendentes. Pedidos
-continuam chegando mesmo com segredos vinculados ao ambiente, mas os detalhes são omitidos
-nessa situação conforme a política de saída da AD-21.
+Telegram recebe um aviso de expiração. Resposta humana, expiração, interrupção (inclusive
+steer por interrupção) e fechamento são serializados por sessão: cada um muda o estado e
+alcança o driver como um passo só, de modo que um `stop`/`close` nunca limpa o request
+upstream entre a expiração local e a negação enviada ao agente. O prazo é conferido contra
+o relógio da sessão antes de expirar, para um timer adiantado não deixar o request pendente
+para sempre. `/status` mostra os IDs ainda pendentes. Pedidos continuam chegando mesmo com
+segredos vinculados ao ambiente, mas os detalhes são omitidos nessa situação conforme a
+política de saída da AD-21.
 
 `/permissions` consulta ou escolhe `manual`, `auto` e `plan` para sessões novas do usuário;
 a escolha dura até o reinício do Worker. `/session start` aceita um perfil explícito que

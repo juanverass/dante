@@ -266,9 +266,9 @@ public sealed class SessionRegistryTests
         var driver = Assert.Single(drivers.Created);
         driver.Emit(new ApprovalRequestedEvent("upstream-approval", AgentToolKind.Command, "git push")
         { CanApproveForSession = true });
-        await Eventually(() => registry.GetActive(Owner)!.PendingRequestIds.Count == 1);
-        var requestId = registry.GetActive(Owner)!.PendingRequestIds.Single();
+        // The request may expire before a poll sees it pending: its id comes from the published event.
         await Eventually(() => driver.Responses.Count == 1);
+        var requestId = sink.Published.Select(item => item.Event).OfType<ApprovalRequestedEvent>().Single().RequestId;
 
         Assert.Empty(registry.GetActive(Owner)!.PendingRequestIds);
         Assert.Equal(AgentSessionState.Running, registry.GetActive(Owner)!.State);
@@ -278,6 +278,41 @@ public sealed class SessionRegistryTests
             new AgentApprovalResponse(AgentApprovalDecision.ApproveOnce))).Accepted);
         Assert.Contains(sink.Published, item => item.Event is RequestExpiredEvent expired &&
             expired.RequestId == requestId && expired.TurnId == "T000001");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExpirationRacingStopOrCloseDoesNotFailTheSession(bool close)
+    {
+        await using var registry = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance,
+            sink, requestTimeout: TimeSpan.FromMilliseconds(100));
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        drivers.Configure = driver =>
+        {
+            driver.ResponseGate = gate;
+            driver.RejectResponsesAfterInterrupt = true;
+        };
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        await registry.SubmitAsync(Owner, null, "tarefa");
+        var driver = Assert.Single(drivers.Created);
+        driver.Emit(new ApprovalRequestedEvent("upstream-approval", AgentToolKind.Command, "git push"));
+        // The expiration already consumed the request locally and is delivering the denial upstream.
+        await Eventually(() => driver.Calls.Contains("respond:upstream-approval"));
+
+        var ending = close ? registry.CloseAsync(Owner, null) : registry.InterruptAsync(Owner, null);
+        gate.SetResult();
+        var result = await ending;
+        await Eventually(() => sink.Published.Any(item => item.Event is RequestExpiredEvent or ErrorEvent));
+
+        Assert.True(result.Accepted);
+        Assert.Equal(close ? AgentSessionState.Closed : AgentSessionState.Running, registry.List(Owner).Single().State);
+        // The denial reached the agent before the interrupt cleared its request.
+        var calls = driver.Calls;
+        Assert.True(calls.ToList().IndexOf("respond:upstream-approval") < calls.ToList().IndexOf("interrupt"));
+        Assert.Single(driver.Responses);
+        Assert.DoesNotContain(sink.Published, item => item.Event is ErrorEvent);
+        Assert.Contains(sink.Published, item => item.Event is RequestExpiredEvent);
     }
 
     [Fact]
@@ -308,9 +343,8 @@ public sealed class SessionRegistryTests
         await registry.SubmitAsync(Owner, null, "tarefa");
         var driver = Assert.Single(drivers.Created);
         driver.Emit(new UserInputRequestedEvent("upstream-input", [new AgentQuestion("q1", "Nome?", [])]));
-        await Eventually(() => registry.GetActive(Owner)!.PendingRequestIds.Count == 1);
-        var requestId = registry.GetActive(Owner)!.PendingRequestIds.Single();
         await Eventually(() => driver.Responses.Count == 1);
+        var requestId = sink.Published.Select(item => item.Event).OfType<UserInputRequestedEvent>().Single().RequestId;
 
         Assert.Equal("upstream-input", driver.Responses.Single().RequestId);
         Assert.Empty(Assert.IsType<AgentInputResponse>(driver.Responses.Single().Response).Answers);

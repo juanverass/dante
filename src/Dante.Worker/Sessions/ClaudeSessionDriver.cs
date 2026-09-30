@@ -229,7 +229,8 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
         }
 
         var result = new JsonObject { ["behavior"] = "allow", ["updatedInput"] = pending.Input.DeepClone() };
-        // "For the session" applies the suggestions Claude offered (e.g. setMode acceptEdits, destination session).
+        // "For the session" applies only the suggestions scoped to the session (e.g. setMode acceptEdits); the
+        // persistent ones (userSettings, projectSettings, localSettings) were dropped when the request arrived.
         if (approval.Decision == AgentApprovalDecision.ApproveForSession && pending.Suggestions is { Count: > 0 })
         {
             result["updatedPermissions"] = pending.Suggestions.DeepClone();
@@ -237,6 +238,14 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
 
         return result;
     }
+
+    // /approve-session must never write a permission that outlives the session.
+    private static JsonArray SessionSuggestions(JsonArray? suggestions) =>
+        new((suggestions ?? [])
+            .OfType<JsonObject>()
+            .Where(suggestion => GetString(suggestion, "destination") == "session")
+            .Select(suggestion => (JsonNode?)suggestion.DeepClone())
+            .ToArray());
 
     // AskUserQuestion takes the answers inside updatedInput, keyed by the question text.
     private static JsonObject InputResult(
@@ -406,7 +415,8 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
         }
         else
         {
-            pending = new PendingControl(input, request["permission_suggestions"] as JsonArray, null);
+            pending = new PendingControl(
+                input, SessionSuggestions(request["permission_suggestions"] as JsonArray), null);
             requested = new ApprovalRequestedEvent(
                 requestId, ToolKind(toolName), Describe(toolName, input), GetString(input, "description"))
             { CanApproveForSession = pending.Suggestions is { Count: > 0 } };

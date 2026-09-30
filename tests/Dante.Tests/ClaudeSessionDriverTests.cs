@@ -113,6 +113,44 @@ public sealed class ClaudeSessionDriverTests
     }
 
     [Fact]
+    public async Task PersistentSuggestionsDoNotEnableSessionApproval()
+    {
+        await using var driver = new ClaudeSessionDriver(new ProbeLauncher());
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+
+        await driver.StartTurnAsync("write-persistent");
+        var approval = await NextOfTypeAsync<ApprovalRequestedEvent>(events);
+        Assert.False(approval.CanApproveForSession);
+
+        // Even a session approval that bypasses the registry check carries no persistent permission to Claude.
+        await driver.RespondAsync(approval.UpstreamRequestId,
+            new AgentApprovalResponse(AgentApprovalDecision.ApproveForSession));
+        var rest = await ReadTurnAsync(events);
+
+        Assert.Equal("allow:once", rest.OfType<MessageCompletedEvent>().Single().Text);
+    }
+
+    [Fact]
+    public async Task SessionApprovalForwardsOnlySessionScopedSuggestions()
+    {
+        await using var driver = new ClaudeSessionDriver(new ProbeLauncher());
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+
+        await driver.StartTurnAsync("write-mixed");
+        var approval = await NextOfTypeAsync<ApprovalRequestedEvent>(events);
+        Assert.True(approval.CanApproveForSession);
+
+        await driver.RespondAsync(approval.UpstreamRequestId,
+            new AgentApprovalResponse(AgentApprovalDecision.ApproveForSession));
+        var rest = await ReadTurnAsync(events);
+
+        // Two of the five suggestions are session-scoped; userSettings, projectSettings and localSettings never go back.
+        Assert.Equal("allow:session,session", rest.OfType<MessageCompletedEvent>().Single().Text);
+    }
+
+    [Fact]
     public async Task DeniedApprovalCarriesTheReasonToClaude()
     {
         await using var driver = new ClaudeSessionDriver(new ProbeLauncher());

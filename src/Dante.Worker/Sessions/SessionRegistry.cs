@@ -87,6 +87,21 @@ public sealed class SessionRegistry(
             return SessionSubmitResult.Reject(error!, sessionId);
         }
 
+        // SteerByInterrupt interrupts the turn upstream: serialized with the other request operations.
+        await entry.Upstream.WaitAsync(cancellationToken);
+        try
+        {
+            return await SubmitLockedAsync(entry, text, delivery, cancellationToken);
+        }
+        finally
+        {
+            entry.Upstream.Release();
+        }
+    }
+
+    private async Task<SessionSubmitResult> SubmitLockedAsync(Entry entry, string text, MessageDelivery delivery,
+        CancellationToken cancellationToken)
+    {
         var session = entry.Session;
         var result = session.Submit(text, delivery);
         try
@@ -140,6 +155,19 @@ public sealed class SessionRegistry(
             return SessionResult.Reject(error!);
         }
 
+        await entry.Upstream.WaitAsync(cancellationToken);
+        try
+        {
+            return await InterruptLockedAsync(entry, cancellationToken);
+        }
+        finally
+        {
+            entry.Upstream.Release();
+        }
+    }
+
+    private async Task<SessionResult> InterruptLockedAsync(Entry entry, CancellationToken cancellationToken)
+    {
         if (!entry.Session.TryInterrupt(out var discarded))
         {
             return SessionResult.Reject($"A sessão {entry.Session.Id} não tem turno em andamento para interromper.");
@@ -171,6 +199,19 @@ public sealed class SessionRegistry(
             return SessionResult.Reject(error!);
         }
 
+        await entry.Upstream.WaitAsync(cancellationToken);
+        try
+        {
+            return await CloseLockedAsync(userId, entry, cancellationToken);
+        }
+        finally
+        {
+            entry.Upstream.Release();
+        }
+    }
+
+    private async Task<SessionResult> CloseLockedAsync(long userId, Entry entry, CancellationToken cancellationToken)
+    {
         var session = entry.Session;
         var hadTurn = session.ActiveTurnId is not null;
         if (!session.TryClose())
@@ -238,6 +279,20 @@ public sealed class SessionRegistry(
             return SessionResult.Reject($"A solicitação {requestId} não está pendente.");
         }
 
+        await entry.Upstream.WaitAsync(cancellationToken);
+        try
+        {
+            return await RespondLockedAsync(entry, userId, requestId, response, cancellationToken);
+        }
+        finally
+        {
+            entry.Upstream.Release();
+        }
+    }
+
+    private async Task<SessionResult> RespondLockedAsync(Entry entry, long userId, string requestId,
+        AgentUserResponse response, CancellationToken cancellationToken)
+    {
         var resolution = entry.Session.Resolve(requestId, userId, response);
         if (!resolution.Accepted)
         {
@@ -439,13 +494,33 @@ public sealed class SessionRegistry(
     {
         try
         {
-            await Task.Delay(requestTimeout, lifetime.Token);
-            var resolution = entry.Session.TryExpire(requestId);
-            if (!resolution.Accepted) return;
-            AgentUserResponse response = isApproval
-                ? new AgentApprovalResponse(AgentApprovalDecision.Deny, "Solicitação expirada.")
-                : new AgentInputResponse(new Dictionary<string, string>());
-            await entry.Driver.RespondAsync(resolution.UpstreamRequestId!, response, lifetime.Token);
+            // A timer may fire slightly before the wall clock reaches the deadline, and TryExpire would then refuse
+            // and leave the request pending forever: wait until the deadline really passed.
+            while (entry.Session.GetPendingRequest(requestId) is { } pending &&
+                   pending.ExpiresAtUtc > DateTimeOffset.UtcNow)
+            {
+                await Task.Delay(pending.ExpiresAtUtc - DateTimeOffset.UtcNow + TimeSpan.FromMilliseconds(1),
+                    lifetime.Token);
+            }
+
+            RequestResolution resolution;
+            // Expiring and answering the upstream request is one step: a stop or close cannot clear the upstream
+            // request between them, so its absence is never mistaken for a broken session.
+            await entry.Upstream.WaitAsync(lifetime.Token);
+            try
+            {
+                resolution = entry.Session.TryExpire(requestId);
+                if (!resolution.Accepted) return;
+                AgentUserResponse response = isApproval
+                    ? new AgentApprovalResponse(AgentApprovalDecision.Deny, "Solicitação expirada.")
+                    : new AgentInputResponse(new Dictionary<string, string>());
+                await entry.Driver.RespondAsync(resolution.UpstreamRequestId!, response, lifetime.Token);
+            }
+            finally
+            {
+                entry.Upstream.Release();
+            }
+
             await PublishAsync(entry, new RequestExpiredEvent(requestId)
             {
                 SessionId = entry.Session.Id,
@@ -607,6 +682,10 @@ public sealed class SessionRegistry(
         public DateTimeOffset? EndedAtUtc { get; set; }
         public Task? Pump { get; set; }
         public AgentTurnOutcome? LastTurnOutcome { get; set; }
+
+        // Serializes the operations that consume or cancel upstream requests (answer, expiration, interrupt,
+        // steer by interrupt, close): each changes the session state and reaches the driver as one step.
+        public SemaphoreSlim Upstream { get; } = new(1, 1);
 
         public async Task DisposeDriverAsync()
         {
