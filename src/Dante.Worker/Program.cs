@@ -15,6 +15,8 @@ builder.Services.AddSingleton<ICodexRunner, CodexRunner>();
 builder.Services.AddSingleton<IClaudeRunner, ClaudeRunner>();
 builder.Services.AddSingleton<JobRegistry>();
 builder.Services.AddSingleton<IAgentSessionDriverFactory, AgentSessionDriverFactory>();
+builder.Services.AddSingleton<TelegramDeliveryService>();
+builder.Services.AddSingleton<IAgentSessionEventSink>(provider => provider.GetRequiredService<TelegramDeliveryService>());
 builder.Services.AddSingleton<SessionRegistry>();
 builder.Services.AddSingleton<RepositoryRegistry>();
 builder.Services.AddSingleton<AssistantSettingsStore>();

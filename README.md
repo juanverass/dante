@@ -483,12 +483,25 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/repo env remove @alias KEY` | Remove uma configuração de ambiente |
 | `/agent` | Exibe o agente padrão |
 | `/agent set claude\|codex` | Altera o agente padrão |
-| `<mensagem>` | Executa o agente padrão no contexto ativo (ou `@alias <prompt>`) |
+| `<mensagem>` | Inicia um turno na sessão ativa (ou executa o agente padrão no contexto ativo quando não há sessão ativa) |
 | `/use` | Exibe o contexto ativo do usuário |
 | `/use @alias` | Define o repositório ativo |
 | `/use general` | Volta ao General Mode |
-| `/status` | Exibe jobs ativos e recentes e, em seção própria, as sessões interativas do próprio usuário |
+| `/status` | Exibe jobs, sessões próprias e estado da entrega recente ao Telegram |
 | `/cancel <jobId>` | Solicita cancelamento de um job |
+| `/session start [claude\|codex] [@alias]` | Inicia e seleciona uma sessão interativa; usa agente e contexto ativos se omitidos |
+| `/session list` | Lista as suas sessões |
+| `/session select <id\|none>` | Seleciona uma sessão ou volta a mensagens avulsas |
+| `/session stop [id]` | Interrompe o turno e descarta a fila, mantendo a sessão |
+| `/session close [id]` | Encerra a sessão e seu processo |
+| `/steer <orientação>` | Orienta imediatamente o turno da sessão ativa; no Claude, interrompe o turno e prioriza a orientação |
+| `/resend <jobId\|sessionId[/turnId]>` | Reenvia as partes pendentes da saída recente, sem executar o agente novamente |
+
+Durante um turno interativo, mensagens comuns entram na fila. A sessão mantém o mesmo agente e
+repositório até ser encerrada, mesmo que `/agent set` ou `/use` mudem depois. Eventos são
+agrupados antes do envio e cada parte identifica a sessão e o turno. Uma falha de entrega
+aparece em `/status` separadamente do resultado da execução; `/resend` tenta novamente as
+partes ainda não entregues. Resultados recentes ficam em memória enquanto o Worker está vivo.
 
 ---
 

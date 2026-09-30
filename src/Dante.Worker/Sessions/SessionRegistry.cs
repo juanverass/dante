@@ -363,6 +363,10 @@ public sealed class SessionRegistry(
                     break;
                 }
 
+                if (stamped is TurnCompletedEvent completed)
+                {
+                    lock (gate) entry.LastTurnOutcome = completed.Outcome;
+                }
                 await PublishAsync(entry, stamped);
                 if (stamped is TurnCompletedEvent)
                 {
@@ -531,7 +535,7 @@ public sealed class SessionRegistry(
             return new AgentSessionSnapshot(session.Id, session.Agent, session.OwnerUserId, session.Context,
                 entry.Profile, session.State, session.ActiveTurnId, session.QueuedCount, session.PendingRequestIds,
                 activeSessions.TryGetValue(session.OwnerUserId, out var active) && active == session.Id,
-                entry.CreatedAtUtc, entry.EndedAtUtc, session.Error);
+                entry.CreatedAtUtc, entry.EndedAtUtc, session.Error, entry.LastTurnOutcome);
         }
     }
 
@@ -548,6 +552,7 @@ public sealed class SessionRegistry(
         public DateTimeOffset CreatedAtUtc { get; } = DateTimeOffset.UtcNow;
         public DateTimeOffset? EndedAtUtc { get; set; }
         public Task? Pump { get; set; }
+        public AgentTurnOutcome? LastTurnOutcome { get; set; }
 
         public async Task DisposeDriverAsync()
         {
