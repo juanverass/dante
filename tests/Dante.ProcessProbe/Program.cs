@@ -10,6 +10,8 @@ internal static class Program
     {
         switch (args[0])
         {
+            case "fake-claude":
+                return FakeClaude.Run(args);
             case "echo":
                 Console.WriteLine(args[1]);
                 Console.Error.WriteLine("probe stderr");
