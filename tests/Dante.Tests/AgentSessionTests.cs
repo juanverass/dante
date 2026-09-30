@@ -15,13 +15,53 @@ public sealed class AgentSessionTests
 
         Assert.Equal(SubmitOutcome.Queued, session.Submit("primeira").Outcome);
         Assert.Equal(SubmitOutcome.Rejected, session.Submit("desvio", MessageDelivery.Steer).Outcome);
-        session.MarkStarted("thread-1");
+        session.MarkStarted(new AgentSessionStarted("thread-1", 4242));
 
         Assert.Equal("thread-1", session.UpstreamSessionId);
+        Assert.Equal(4242, session.ProcessId);
         Assert.True(session.TryStartQueued(out var turnId, out var text));
         Assert.Equal(("T000001", "primeira"), (turnId, text));
         Assert.Equal(AgentSessionState.Running, session.State);
         Assert.False(session.TryStartQueued(out _, out _));
+    }
+
+    [Fact]
+    public void MessageAfterStartDoesNotOvertakeTheQueue()
+    {
+        var session = CreateSession(AgentDriverCapabilities.Codex, started: false);
+        session.Submit("primeira");
+        session.MarkStarted(new AgentSessionStarted("thread-1", 4242));
+
+        var second = session.Submit("segunda");
+        Assert.Equal(SubmitOutcome.Queued, second.Outcome);
+        Assert.Null(session.ActiveTurnId);
+
+        Assert.True(session.TryStartQueued(out var turnId, out var text));
+        Assert.Equal(("T000001", "primeira"), (turnId, text));
+        session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        Assert.True(session.TryStartQueued(out _, out text));
+        Assert.Equal("segunda", text);
+    }
+
+    [Fact]
+    public void MessageAfterTurnCompletionDoesNotOvertakeTheQueue()
+    {
+        var session = CreateSession(AgentDriverCapabilities.Codex);
+        session.Submit("tarefa");
+        session.Submit("fila");
+        session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+
+        Assert.Equal(SubmitOutcome.Queued, session.Submit("nova").Outcome);
+        Assert.Equal(SubmitOutcome.Queued, session.Submit("urgente", MessageDelivery.Steer).Outcome);
+
+        var order = new List<string>();
+        while (session.TryStartQueued(out _, out var text))
+        {
+            order.Add(text!);
+            session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        }
+
+        Assert.Equal(["urgente", "fila", "nova"], order);
     }
 
     [Fact]
@@ -216,7 +256,7 @@ public sealed class AgentSessionTests
 
         Assert.Equal(AgentSessionState.Closed, session.State);
         Assert.Throws<InvalidOperationException>(() => session.Apply(new WarningEvent("tarde")));
-        Assert.Throws<InvalidOperationException>(() => session.MarkStarted("x"));
+        Assert.Throws<InvalidOperationException>(() => session.MarkStarted(new AgentSessionStarted("x", 4242)));
         Assert.False(session.TryInterrupt(out _));
     }
 
@@ -250,7 +290,7 @@ public sealed class AgentSessionTests
         Assert.Throws<InvalidOperationException>(() => session.Apply(new MessageDeltaEvent("i", "x")));
         Assert.Throws<InvalidOperationException>(() =>
             session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Completed)));
-        Assert.Throws<InvalidOperationException>(() => session.MarkStarted("again"));
+        Assert.Throws<InvalidOperationException>(() => session.MarkStarted(new AgentSessionStarted("again", 4242)));
     }
 
     private static AgentSession CreateSession(AgentDriverCapabilities capabilities, bool started = true,
@@ -261,7 +301,7 @@ public sealed class AgentSessionTests
             JobExecutionContext.General("/general"), capabilities, ids);
         if (started)
         {
-            session.MarkStarted("upstream");
+            session.MarkStarted(new AgentSessionStarted("upstream", 4242));
         }
 
         return session;

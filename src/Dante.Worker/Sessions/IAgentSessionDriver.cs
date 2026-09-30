@@ -5,13 +5,17 @@ public sealed record AgentSessionStartOptions(
     bool IsGeneral = false,
     IReadOnlyDictionary<string, string>? EnvironmentVariables = null);
 
+// Upstream session id (Claude session_id, Codex thread.id) and the OS id of the process that serves it.
+public sealed record AgentSessionStarted(string UpstreamSessionId, int ProcessId);
+
 // What each structured protocol offers, as validated by the #61 spikes (docs/spikes/interactive-protocols).
 public sealed record AgentDriverCapabilities(bool NativeSteer, bool Approvals, bool UserInput)
 {
     // Claude stream-json: no mid-turn steer; approvals and AskUserQuestion via --permission-prompt-tool stdio.
     public static AgentDriverCapabilities Claude { get; } = new(NativeSteer: false, Approvals: true, UserInput: true);
 
-    // Codex app-server: turn/steer; approvals and item/tool/requestUserInput as server requests.
+    // Codex app-server: turn/steer; approvals and item/tool/requestUserInput as server requests. User input is
+    // EXPERIMENTAL: it needs capabilities.experimentalApi and the plan collaboration mode on 0.157.1.
     public static AgentDriverCapabilities Codex { get; } = new(NativeSteer: true, Approvals: true, UserInput: true);
 }
 
@@ -21,8 +25,8 @@ public interface IAgentSessionDriver : IAsyncDisposable
 {
     AgentDriverCapabilities Capabilities { get; }
 
-    // Starts the process and the upstream session/thread; returns its upstream id.
-    Task<string> StartAsync(AgentSessionStartOptions options, CancellationToken cancellationToken = default);
+    // Starts the process and the upstream session/thread; one call per driver instance.
+    Task<AgentSessionStarted> StartAsync(AgentSessionStartOptions options, CancellationToken cancellationToken = default);
 
     Task StartTurnAsync(string input, CancellationToken cancellationToken = default);
 

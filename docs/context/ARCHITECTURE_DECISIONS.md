@@ -250,14 +250,31 @@ Ids: `S000001` (sessão), `T000001` (turno), `R000001` (approval/input), globais
 Worker como os de job. Ids upstream (`session_id`, `threadId`, `turnId`, ids JSON-RPC)
 ficam no driver; só o id upstream de um request volta a ele na resposta.
 
+Correlação:
+
+- **sessão ↔ processo**: 1:1 pela vida inteira da sessão. O driver inicia o processo e
+  devolve `AgentSessionStarted` (id upstream + PID), que a sessão guarda em
+  `UpstreamSessionId` e `ProcessId`. Processo morto é sessão `Failed`, nunca um processo
+  novo na mesma sessão;
+- **sessão/turno ↔ job**: sessão interativa **não é job**. Ela não entra no
+  `JobRegistry`, e um turno interativo não tem job id: é identificado por sessão + turno.
+  Jobs continuam sendo só as execuções one-shot (`codex exec`, `claude --print`).
+  `JobExecutionContext` é reaproveitado apenas para descrever modo e diretório. Onde a
+  sessão aparece para o usuário (`/status`, registry) é da #65;
+- **request ↔ turno**: todo request nasce num turno e morre com ele; eventos carregam
+  `SessionId` e `TurnId`, e approval/input carregam também o `RequestId`.
+
 Semântica:
 
 - **queue** (padrão): mensagem durante um turno fica na fila do D.A.N.T.E. e vira um
-  turno novo quando o ativo termina. A fila é do D.A.N.T.E. porque o Codex absorve um
+  turno novo quando o ativo termina. A fila é FIFO e nada a ultrapassa: com a sessão
+  ociosa mas fila não vazia (logo após iniciar ou após um turno terminar), a mensagem
+  nova também é enfileirada, e `TryStartQueued` executa a mais antiga. A fila é do D.A.N.T.E. porque o Codex absorve um
   `turn/start` feito durante um turno ativo em vez de enfileirá-lo;
 - **steer** (só explícito): com steer nativo (Codex), a mensagem vai ao turno ativo e é
   aplicada no próximo boundary do modelo; sem steer nativo (Claude), o turno é
-  interrompido e a mensagem roda em seguida, antes da fila. Steer é recusado com
+  interrompido e a mensagem roda em seguida, antes da fila. Com a sessão ociosa e fila não
+  vazia, steer só coloca a mensagem à frente da fila. Steer é recusado com
   approval/input pendente;
 - **interrupt / stop turn**: interrompe o turno ativo, expira os requests pendentes e
   descarta a fila; a sessão volta a `Idle`;

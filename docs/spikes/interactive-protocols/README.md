@@ -20,7 +20,10 @@ Worker e consomem cota real das CLIs. Rode num diretório vazio e descartável:
 mkdir -p /tmp/spike && cd /tmp/spike && git init -q
 python3 <repo>/docs/spikes/interactive-protocols/claude_stream_json_spike.py /tmp/spike
 python3 <repo>/docs/spikes/interactive-protocols/codex_app_server_spike.py /tmp/spike
+python3 <repo>/docs/spikes/interactive-protocols/codex_user_input_spike.py /tmp/spike <modelo>
 ```
+
+`<modelo>` é o `model` de `~/.codex/config.toml`: o modo `plan` exige o modelo explícito.
 
 Cada script imprime todas as mensagens enviadas (`>>`) e recebidas (`<<`).
 
@@ -74,7 +77,7 @@ O schema completo da versão instalada sai de `codex app-server generate-json-sc
 | multi-turno | novo `turn/start` no mesmo `threadId` | ok |
 | eventos | `turn/started`, `item/started`, `item/completed` (`agentMessage`, `commandExecution`, `fileChange`, `reasoning`…), `item/agentMessage/delta`, `turn/diff/updated`, `thread/status/changed`, `warning`, `error` | ok |
 | approval | request do servidor `item/commandExecution/requestApproval` (e `item/fileChange/requestApproval`) → resposta `{"decision": "accept" \| "acceptForSession" \| "decline" \| "cancel"}` | ok com `decline`; `thread/status/changed` sinaliza `waitingOnApproval` e `serverRequest/resolved` confirma |
-| input humano | request do servidor `item/tool/requestUserInput` → `{"answers": {<id>: {"answers": [...]}}}` | declarado no protocolo (marcado EXPERIMENTAL); **não exercitado** no spike |
+| input humano | request do servidor `item/tool/requestUserInput` (`questions`: `id`, `header`, `question`, `options`, `isOther`) → `{"answers": {<id>: {"answers": ["..."]}}}` | ok, **EXPERIMENTAL** (`codex_user_input_spike.py`): request chegou ao host, a resposta voltou (`serverRequest/resolved`) e o modelo respondeu com o texto enviado; `thread/status/changed` sinaliza `waitingOnUserInput`. Exige `capabilities.experimentalApi` no `initialize` e `collaborationMode` `plan` no `turn/start` |
 | interrupt | `turn/interrupt` (`threadId`, `turnId`) | ok; `turn/completed` com `status: interrupted` |
 | steer | `turn/steer` (`threadId`, `expectedTurnId`, `input`) | ok; a mensagem entra no turno ativo, mas **só no próximo boundary do modelo** (não preempta a resposta em curso) |
 | `turn/start` com turno ativo | — | **não cria turno novo**: devolve o mesmo `turn.id` e a mensagem é absorvida pelo turno ativo, como um steer |
@@ -82,6 +85,12 @@ O schema completo da versão instalada sai de `codex app-server generate-json-sc
 
 Achados que viram regra:
 
+- input humano no Codex é API experimental e, na 0.157.1, só existe no modo `plan`: a
+  ferramenta `request_user_input` no modo padrão depende da feature
+  `default_mode_request_user_input`, listada como *under development* e desligada. O
+  driver (#64) precisa de `experimentalApi` e decide quando usar o modo `plan`; a
+  capacidade `UserInput` do Codex vale com essa condição e deve ser revalidada a cada
+  versão da CLI;
 - o comportamento de `turn/start` durante um turno ativo torna a fila responsabilidade
   do D.A.N.T.E.: o driver só inicia turno com a sessão ociosa;
 - `approvalPolicy` aceita `untrusted`, `on-request`, `never` ou granular; `sandbox`

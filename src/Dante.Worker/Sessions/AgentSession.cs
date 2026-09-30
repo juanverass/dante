@@ -10,6 +10,10 @@ public sealed record RequestResolution(bool Accepted, string? UpstreamRequestId 
 
 // Neutral state machine of one interactive session. It never talks to a process: the caller applies
 // driver events here and performs the driver call that each accepted operation asks for.
+// Correlation: one session owns exactly one agent process (ProcessId) through one driver, for its whole
+// life. A session is not a job: it is not registered in JobRegistry, and its turns have no job id. A turn
+// is identified by session + turn id, and a request by its request id, which belongs to one turn.
+// Context reuses JobExecutionContext only to describe the mode and working directory.
 public sealed class AgentSession(
     string id,
     AgentKind agent,
@@ -30,6 +34,7 @@ public sealed class AgentSession(
     public JobExecutionContext Context { get; } = context;
     public AgentDriverCapabilities Capabilities { get; } = capabilities;
     public string? UpstreamSessionId { get; private set; }
+    public int? ProcessId { get; private set; }
     public string? Error { get; private set; }
 
     public AgentSessionState State
@@ -52,13 +57,15 @@ public sealed class AgentSession(
         get { lock (gate) { return pending.Keys.ToArray(); } }
     }
 
-    public void MarkStarted(string upstreamSessionId)
+    public void MarkStarted(AgentSessionStarted started)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(upstreamSessionId);
+        ArgumentNullException.ThrowIfNull(started);
+        ArgumentException.ThrowIfNullOrWhiteSpace(started.UpstreamSessionId);
         lock (gate)
         {
             Require(state == AgentSessionState.Starting, "iniciar");
-            UpstreamSessionId = upstreamSessionId;
+            UpstreamSessionId = started.UpstreamSessionId;
+            ProcessId = started.ProcessId;
             state = AgentSessionState.Idle;
         }
     }
@@ -70,6 +77,18 @@ public sealed class AgentSession(
         {
             switch (state)
             {
+                case AgentSessionState.Idle when queue.Count > 0:
+                    // Queued messages have not started yet: never overtake them (steer still goes first).
+                    if (delivery == MessageDelivery.Steer)
+                    {
+                        queue.AddFirst(text);
+                    }
+                    else
+                    {
+                        queue.AddLast(text);
+                    }
+
+                    return new SubmitResult(SubmitOutcome.Queued);
                 case AgentSessionState.Idle:
                     return new SubmitResult(SubmitOutcome.TurnStarted, OpenTurn());
                 case AgentSessionState.Starting when delivery == MessageDelivery.Queue:
