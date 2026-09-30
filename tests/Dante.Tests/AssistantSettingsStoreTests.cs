@@ -43,6 +43,11 @@ public sealed class AssistantSettingsStoreTests : IDisposable
     [InlineData("{ \"DefaultAgent\": \"Gemini\" }")]
     [InlineData("{ \"DefaultAgent\": \"1\" }")]
     [InlineData("{ \"DefaultAgent\": 1 }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"ActiveRepositories\": { \"abc\": \"@demo\" } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"ActiveRepositories\": { \"123\": \"demo\" } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"ActiveRepositories\": { \"123\": null } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"ActiveRepositories\": [] }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"ActiveRepositories\": null }")]
     public void RejectsInvalidOrCorruptedFileWithoutChoosingAgent(string content)
     {
         Directory.CreateDirectory(root);
@@ -51,6 +56,75 @@ public sealed class AssistantSettingsStoreTests : IDisposable
         var exception = Assert.Throws<InvalidDataException>(() => new AssistantSettingsStore(file));
         Assert.Contains(file, exception.Message);
         Assert.Equal(content, File.ReadAllText(file));
+    }
+
+    [Fact]
+    public void PersistsActiveRepositoryPerUserAcrossInstances()
+    {
+        var file = Path.Combine(root, "settings.json");
+        var store = new AssistantSettingsStore(file);
+        Assert.Null(store.GetActiveRepository(123));
+        store.SetActiveRepository(123, "@Demo");
+        store.SetActiveRepository(456, "@other");
+        store.SetDefaultAgent(AgentKind.Codex);
+
+        var reopened = new AssistantSettingsStore(file);
+        Assert.Equal("@demo", reopened.GetActiveRepository(123));
+        Assert.Equal("@other", reopened.GetActiveRepository(456));
+        Assert.Equal(AgentKind.Codex, reopened.Current.DefaultAgent);
+
+        reopened.SetActiveRepository(123, null);
+        Assert.Null(new AssistantSettingsStore(file).GetActiveRepository(123));
+        Assert.Equal("@other", new AssistantSettingsStore(file).GetActiveRepository(456));
+    }
+
+    [Fact]
+    public void ClearsActiveRepositoryForEveryUser()
+    {
+        var file = Path.Combine(root, "settings.json");
+        var store = new AssistantSettingsStore(file);
+        store.SetActiveRepository(123, "@demo");
+        store.SetActiveRepository(456, "@demo");
+        store.SetActiveRepository(789, "@other");
+
+        Assert.Equal(2, store.ClearActiveRepository("@DEMO"));
+        Assert.Equal(0, store.ClearActiveRepository("@demo"));
+        var reopened = new AssistantSettingsStore(file);
+        Assert.Null(reopened.GetActiveRepository(123));
+        Assert.Null(reopened.GetActiveRepository(456));
+        Assert.Equal("@other", reopened.GetActiveRepository(789));
+    }
+
+    [Fact]
+    public void LoadsFileWithoutActiveRepositories()
+    {
+        Directory.CreateDirectory(root);
+        var file = Path.Combine(root, "settings.json");
+        File.WriteAllText(file, "{ \"DefaultAgent\": \"Codex\" }");
+        var store = new AssistantSettingsStore(file);
+        Assert.Equal(AgentKind.Codex, store.Current.DefaultAgent);
+        Assert.Null(store.GetActiveRepository(123));
+    }
+
+    [Fact]
+    public void RejectsInvalidActiveRepositoryAliasWithoutPersisting()
+    {
+        var file = Path.Combine(root, "settings.json");
+        var store = new AssistantSettingsStore(file);
+        Assert.Throws<ArgumentException>(() => store.SetActiveRepository(123, "demo"));
+        Assert.Null(store.GetActiveRepository(123));
+        Assert.False(File.Exists(file));
+    }
+
+    [Fact]
+    public void FailedActiveRepositoryWriteKeepsPreviousValue()
+    {
+        Directory.CreateDirectory(root);
+        var blocker = Path.Combine(root, "blocker");
+        File.WriteAllText(blocker, "not a directory");
+        var store = new AssistantSettingsStore(Path.Combine(blocker, "settings.json"));
+        Assert.ThrowsAny<IOException>(() => store.SetActiveRepository(123, "@demo"));
+        Assert.Null(store.GetActiveRepository(123));
     }
 
     [Fact]

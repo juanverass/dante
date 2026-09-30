@@ -28,8 +28,9 @@ Telegram (long polling)
    ↓
 TelegramPollingService ── TelegramUserAuthorizer
    ↓ comando
-   ├─ sem @alias → GeneralWorkspace      → General Mode
-   └─ com @alias → RepositoryRegistry    → Repository Mode
+   ├─ com @alias            → RepositoryRegistry → Repository Mode
+   ├─ sem @alias, com /use  → repositório ativo  → Repository Mode
+   └─ sem @alias, sem ativo → GeneralWorkspace   → General Mode
    ↓ contexto resolvido (JobExecutionContext)
 JobRegistry
    ↓
@@ -49,6 +50,7 @@ claude / codex (processo filho)
 | `TelegramBotApi` | `Telegram/` | Cliente HTTP da Bot API (`getUpdates`, `sendMessage`). |
 | `TelegramUserAuthorizer` | `Telegram/` | Allowlist por `message.from.id`; fail-closed. |
 | `RepositoryRegistry` | `Repositories/` | Catálogo persistente de aliases, paths, GitHub e ambiente por repositório. |
+| `AssistantSettingsStore` | `Settings/` | Agente padrão e repositório ativo por usuário, persistidos em `~/.dante/settings.json`. |
 | `GeneralWorkspace` | `Agents/` | Diretório neutro para consultas gerais. |
 | `JobRegistry` | `Jobs/` | Estado, contexto e cancelamento dos jobs, em memória. |
 | `ClaudeRunner` / `CodexRunner` | `Agents/` | Argumentos fixos de cada CLI por modo. |
@@ -64,14 +66,17 @@ claude / codex (processo filho)
 
 ## Modos de execução
 
-**General Mode** — comando sem `@alias`. Executa em `~/.dante/workspaces/general` (ou
+**General Mode** — execução sem `@alias` e sem repositório ativo. Executa em `~/.dante/workspaces/general` (ou
 `DANTE_GENERAL_WORKSPACE`), fora de qualquer repositório cadastrado. O processo filho
 recebe apenas variáveis básicas de sistema, rede e autenticação das CLIs. O Codex roda
 com sandbox `workspace-write`; o Claude em modo restrito com ferramentas de arquivo.
 
-**Repository Mode** — comando com `@alias` como primeiro argumento. Executa no path
+**Repository Mode** — comando com `@alias` como primeiro argumento ou, sem `@alias`,
+com repositório ativo selecionado pelo usuário via `/use @alias` (persistido por
+Telegram User ID; `@alias` explícito vale só para aquela execução). Executa no path
 cadastrado do repositório, com o ambiente configurado para aquele alias. Alias
-desconhecido é erro; nunca há inferência de repositório.
+desconhecido é erro; repositório ativo que saiu do catálogo recusa a execução em vez de
+cair para General Mode; nunca há inferência de repositório pelo texto do prompt.
 
 ## Integrações
 

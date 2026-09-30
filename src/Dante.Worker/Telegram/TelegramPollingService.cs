@@ -116,6 +116,13 @@ public sealed class TelegramPollingService(
             return;
         }
 
+        if (string.Equals(command, "/use", StringComparison.OrdinalIgnoreCase))
+        {
+            await botApi.SendMessageAsync(message.Chat.Id, HandleUseCommand(message.From!.Id, prompt),
+                cancellationToken);
+            return;
+        }
+
         if (string.Equals(command, "/status", StringComparison.OrdinalIgnoreCase))
         {
             var visible = jobs.GetVisible();
@@ -169,11 +176,11 @@ public sealed class TelegramPollingService(
         var generalMode = true;
         string? repositoryAlias = null;
         ResolvedRepositoryEnvironment? repositoryEnvironment = null;
+        RepositoryDefinition? repository = null;
         var firstSpace = prompt.IndexOfAny([' ', '\t', '\r', '\n']);
         var firstArgument = firstSpace < 0 ? prompt : prompt[..firstSpace];
         if (firstArgument.StartsWith('@'))
         {
-            RepositoryDefinition? repository;
             try { repository = repositories?.Get(firstArgument); }
             catch (ArgumentException)
             {
@@ -194,6 +201,22 @@ public sealed class TelegramPollingService(
                     cancellationToken);
                 return;
             }
+        }
+        else if (settings?.GetActiveRepository(message.From!.Id) is { } activeAlias)
+        {
+            // A stale active repository requires a new selection instead of silently falling back to General.
+            repository = repositories?.Get(activeAlias);
+            if (repository is null)
+            {
+                await botApi.SendMessageAsync(message.Chat.Id,
+                    $"O repositório ativo {activeAlias} não está mais cadastrado. Use /use @alias ou /use general.",
+                    cancellationToken);
+                return;
+            }
+        }
+
+        if (repository is not null)
+        {
             workingDirectory = repository.Path;
             generalMode = false;
             repositoryAlias = repository.Alias;
@@ -282,7 +305,9 @@ public sealed class TelegramPollingService(
             }
             else if (parts[0].Equals("remove", StringComparison.OrdinalIgnoreCase) && parts.Length == 2)
             {
-                response = repositories.Remove(parts[1]) ? "Repositório removido." : "Repositório não cadastrado.";
+                var removed = repositories.Remove(parts[1]);
+                if (removed) ClearActiveRepository(parts[1]);
+                response = removed ? "Repositório removido." : "Repositório não cadastrado.";
             }
             else response = usage;
         }
@@ -311,6 +336,52 @@ public sealed class TelegramPollingService(
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             return "Não foi possível salvar as configurações do assistente.";
+        }
+    }
+
+    private string HandleUseCommand(long userId, string prompt)
+    {
+        const string usage = "Uso: /use | /use @alias | /use general";
+        if (settings is null) return "Configurações do assistente indisponíveis.";
+        var parts = prompt.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        try
+        {
+            if (parts.Length == 0)
+            {
+                var active = settings.GetActiveRepository(userId);
+                return active is null ? "Contexto ativo: General" :
+                    repositories?.Get(active) is null
+                        ? $"Contexto ativo: {active} (não cadastrado; use /use @alias ou /use general)"
+                        : $"Contexto ativo: {active}";
+            }
+            if (parts.Length != 1) return usage;
+            if (parts[0].Equals("general", StringComparison.OrdinalIgnoreCase))
+            {
+                settings.SetActiveRepository(userId, null);
+                return "Contexto ativo: General";
+            }
+            if (!parts[0].StartsWith('@')) return usage;
+
+            RepositoryDefinition? repository;
+            try { repository = repositories?.Get(parts[0]); }
+            catch (ArgumentException) { return "Alias inválido."; }
+            if (repository is null) return $"Repositório {parts[0]} não cadastrado.";
+            settings.SetActiveRepository(userId, repository.Alias);
+            return $"Contexto ativo: {repository.Alias}";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return "Não foi possível salvar as configurações do assistente.";
+        }
+    }
+
+    private void ClearActiveRepository(string alias)
+    {
+        try { settings?.ClearActiveRepository(alias); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // The repository is already removed; a stale active context is still rejected at execution time.
+            logger.LogWarning("Falha ao limpar o repositório ativo removido ({ErrorType}).", exception.GetType().Name);
         }
     }
 
