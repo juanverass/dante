@@ -145,7 +145,16 @@ public sealed class TelegramPollingService(
         var isClaude = string.Equals(command, "/claude", StringComparison.OrdinalIgnoreCase);
         if (!isCodex && !isClaude)
         {
-            return;
+            if (text.StartsWith('/'))
+            {
+                // Unknown commands are never forwarded to the default agent as prompts.
+                await botApi.SendMessageAsync(message.Chat.Id, $"Comando desconhecido: {command}.", cancellationToken);
+                return;
+            }
+
+            if (text.Length == 0) return;
+            isCodex = (settings?.Current ?? AssistantSettings.Default).DefaultAgent == AgentKind.Codex;
+            prompt = text;
         }
 
         var agent = isCodex ? "Codex" : "Claude";
