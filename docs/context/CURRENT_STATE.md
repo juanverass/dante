@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-09-29, durante a validação do Agent Harness v1 (Epic #40).
+Última revisão: 2026-09-30, com as configurações persistentes do assistente (#33).
 
 ## Marcos
 
@@ -16,7 +16,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | MVP 1 — Telegram → D.A.N.T.E. → Claude/Codex → Telegram (Epic #1) | concluído |
 | MVP 2 — Context-aware orchestration (Epic #18) | concluído |
 | Agent Harness v1 (Epic #40) | em andamento |
-| MVP 3 — Conversational Context (Epic #32) | planejado; nenhuma Issue iniciada |
+| MVP 3 — Conversational Context (Epic #32) | em andamento: configurações persistentes (#33) |
 
 ## Funcionalidades disponíveis
 
@@ -26,7 +26,9 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 - General Mode em workspace isolado e Repository Mode por `@alias`;
 - `/repos` e `/repo add|show|remove`;
 - `/repo env set|bind|list|remove` com segredos por referência ao host;
-- `/status` com contexto de cada job e `/cancel <jobId>`.
+- `/status` com contexto de cada job e `/cancel <jobId>`;
+- configurações do assistente em `~/.dante/settings.json` (agente padrão, hoje Claude
+  quando não configurado), ainda sem comando no Telegram (#34).
 
 Detalhes de uso: [README](../../README.md).
 
@@ -34,7 +36,7 @@ Detalhes de uso: [README](../../README.md).
 
 - jobs e histórico somente em memória (perdidos ao reiniciar);
 - Worker iniciado manualmente (execução automática como serviço: #39);
-- sem agente padrão nem mensagens sem slash command (MVP 3);
+- agente padrão persistido, mas ainda sem `/agent` nem mensagens sem slash command (MVP 3);
 - sem repositório ativo por usuário (MVP 3);
 - sem worktrees, fila persistente ou execução concorrente isolada por Issue;
 - sem CI no GitHub: validação é local.
@@ -50,17 +52,17 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido em `main` (c6d906c):
+Estado conhecido com #33:
 
 ```text
 dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    67 aprovados, 0 falhas
+dotnet test Dante.sln    89 aprovados, 0 falhas
 ```
 
 ## Próximos marcos
 
 1. concluir e validar o Agent Harness v1 (#40), incluindo o teste zero-chat (#47);
-2. MVP 3 — Conversational Context (#32): configurações persistentes (#33), `/agent`
+2. MVP 3 — Conversational Context (#32): após as configurações persistentes (#33), `/agent`
    (#34), mensagens sem slash command (#35), `/use` (#36), resolvedor de agente e
    contexto (#37), UX (#38);
 3. execução automática como serviço local (#39).
