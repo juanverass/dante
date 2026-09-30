@@ -213,6 +213,34 @@ public sealed class TelegramDeliveryServiceTests
     }
 
     [Fact]
+    public async Task FinalEventArrivingAfterBatchDrainsIsScheduledWithoutAnotherEvent()
+    {
+        var api = new RecordingApi();
+        var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance);
+        var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        delivery.BeforeScheduledDeliveryCleanupAsync = async () =>
+        {
+            drained.TrySetResult();
+            await finishCleanup.Task;
+        };
+        delivery.RegisterSession("S1", 123, -123, false);
+        var session = Snapshot("S1");
+
+        await delivery.PublishAsync(session, new TurnStartedEvent { SessionId = "S1", TurnId = "T1" }, default);
+        await drained.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(TelegramDeliveryState.Delivered, delivery.Get("S1", 123)!.State);
+        await delivery.PublishAsync(session, new TurnCompletedEvent(AgentTurnOutcome.Completed)
+            { SessionId = "S1", TurnId = "T1" }, default);
+        Assert.Equal(TelegramDeliveryState.Pending, delivery.Get("S1", 123)!.State);
+
+        finishCleanup.SetResult();
+        await Eventually(() => delivery.Get("S1", 123)?.State == TelegramDeliveryState.Delivered &&
+            api.Messages.Any(message => message.Text.Contains("Turno concluído")));
+        Assert.Equal(2, api.Messages.Count);
+    }
+
+    [Fact]
     public async Task StreamingRedactsSecretSplitAcrossDeltasAndDeliveryBatches()
     {
         const string name = "OPENAI_API_KEY";

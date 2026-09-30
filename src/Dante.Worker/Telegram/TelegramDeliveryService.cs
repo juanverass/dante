@@ -22,6 +22,9 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
     private readonly Dictionary<string, string> latestTurns = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, StringBuilder> itemText = new(StringComparer.OrdinalIgnoreCase);
 
+    // Allows the race between draining a batch and clearing Scheduled to be exercised in tests.
+    internal Func<Task>? BeforeScheduledDeliveryCleanupAsync { get; set; }
+
     public void RegisterSession(string sessionId, long userId, long chatId, bool hideOutput)
     {
         lock (gate) chats[sessionId] = (userId, chatId, hideOutput);
@@ -176,6 +179,7 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         record.RetainedLength += text.Length;
         if (safe) record.Chunks.AddRange(Split(text, record.Prefix));
         else record.Buffer.Append(text);
+        record.ContentVersion++;
         if (record.State != TelegramDeliveryState.Failed)
         {
             record.State = TelegramDeliveryState.Pending;
@@ -190,9 +194,31 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
             record.Scheduled = true;
             _ = Task.Run(async () =>
             {
-                await Task.Delay(750);
-                await DeliverAsync(record, CancellationToken.None);
-                lock (gate) record.Scheduled = false;
+                try
+                {
+                    await Task.Delay(750);
+                    await DeliverAsync(record, CancellationToken.None);
+                    if (BeforeScheduledDeliveryCleanupAsync is { } beforeCleanup)
+                        await beforeCleanup();
+                }
+                catch (Exception exception)
+                {
+                    logger.LogWarning("Falha inesperada de entrega ao Telegram para {DeliveryId} ({ErrorType}).",
+                        record.Id, exception.GetType().Name);
+                    lock (gate) record.State = TelegramDeliveryState.Failed;
+                }
+                finally
+                {
+                    lock (gate)
+                    {
+                        record.Scheduled = false;
+                        if (record.State != TelegramDeliveryState.Failed &&
+                            (record.NextChunk < record.Chunks.Count ||
+                             record.ContentVersion != record.DrainedVersion ||
+                             record.Final && record.Buffer.Length > 0))
+                            Schedule(record);
+                    }
+                }
             });
         }
     }
@@ -226,6 +252,7 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
                     {
                         record.State = record.Buffer.Length == 0
                             ? TelegramDeliveryState.Delivered : TelegramDeliveryState.Pending;
+                        record.DrainedVersion = record.ContentVersion;
                         return;
                     }
                     part = record.Chunks[record.NextChunk];
@@ -338,6 +365,8 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         public TelegramDeliveryState State { get; set; } = TelegramDeliveryState.Pending;
         public int NextChunk { get; set; }
         public int RetainedLength { get; set; }
+        public int ContentVersion { get; set; }
+        public int DrainedVersion { get; set; }
         public bool Scheduled { get; set; }
         public bool Final { get; set; }
         public bool Truncated { get; set; }
