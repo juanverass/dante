@@ -160,8 +160,8 @@ forem implementadas.
 Status: vigente (MVP 3, #33)
 
 Preferências conversacionais vivem em `~/.dante/settings.json`, gravado com escrita
-atômica (arquivo temporário + rename) sob lock. Hoje o arquivo tem só `DefaultAgent`,
-que aceita apenas `Claude` ou `Codex`. Sem arquivo, o padrão documentado é Claude.
+atômica (arquivo temporário + rename) sob lock. `DefaultAgent` aceita apenas `Claude`
+ou `Codex` (o repositório ativo por usuário, também nesse arquivo, é a AD-14). Sem arquivo, o padrão documentado é Claude.
 Arquivo corrompido, vazio ou com valor desconhecido é erro na carga: o D.A.N.T.E. não
 escolhe agente por inferência nem sobrescreve o arquivo inválido. O arquivo nunca guarda
 tokens, credenciais ou segredos. O store é carregado na inicialização do host (injetado
@@ -172,3 +172,26 @@ deve parar o Worker, não ser adivinhado.
 
 Código: `Settings/AssistantSettingsStore.cs`; testes em `AssistantSettingsStoreTests` e
 `WorkerLifecycleTests`.
+
+## AD-14 — Repositório ativo por usuário, persistido; contexto stale exige nova seleção
+
+Status: vigente (MVP 3, #36)
+
+`/use @alias` grava o repositório ativo por Telegram User ID em `ActiveRepositories` no
+`~/.dante/settings.json` (mesma escrita atômica e carga fail-closed da AD-13: user ID não
+numérico ou alias malformado impede o Worker de iniciar). Só aliases cadastrados no
+`RepositoryRegistry` são aceitos na seleção. Sem `@alias` explícito, toda execução de
+agente do usuário — mensagem comum, `/claude` ou `/codex` — usa o repositório ativo; um
+`@alias` explícito vale só para aquela execução e não altera o ativo.
+
+`/repo remove` limpa o repositório ativo de todos os usuários que apontavam para o alias.
+Se ainda assim o ativo não estiver mais no catálogo (falha ao gravar a limpeza, edição
+manual do catálogo), a execução é **recusada** com instrução para `/use @alias` ou
+`/use general`: o D.A.N.T.E. não cai silenciosamente para General Mode.
+
+Por quê: o usuário que selecionou um repositório espera que o agente trabalhe nele;
+executar em outro contexto sem aviso seria uma escolha implícita. A precedência completa
+de agente e contexto será centralizada no resolvedor da #37.
+
+Código: `Settings/AssistantSettingsStore.cs`, `Telegram/TelegramPollingService.cs`;
+testes em `AssistantSettingsStoreTests` e `TelegramActiveRepositoryTests`.

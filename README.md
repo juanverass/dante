@@ -375,9 +375,41 @@ Com Claude como padrão, isso equivale a `/claude Explique o padrão Strategy.`.
 @dante revise o README
 ```
 
-Sem alias, a mensagem roda em General Mode. `/claude` e `/codex` seguem disponíveis como
+Sem alias e sem repositório ativo, a mensagem roda em General Mode. `/claude` e `/codex` seguem disponíveis como
 override pontual. Mensagens iniciadas por `/` com comando desconhecido nunca são enviadas
 ao agente: o D.A.N.T.E. responde `Comando desconhecido`.
+
+## Repositório ativo
+
+Cada usuário autorizado pode manter um repositório ativo para as próximas mensagens, sem
+repetir `@alias`:
+
+```text
+/use @fitness_backend
+```
+
+```text
+Implemente a issue 500.
+```
+
+A mensagem acima, assim como `/claude <prompt>` e `/codex <prompt>` sem alias, roda em
+`@fitness_backend`. Um `@alias` explícito vale só para aquela execução:
+
+```text
+/codex @dante revise o README
+```
+
+Depois disso, o repositório ativo continua sendo `@fitness_backend`.
+
+```text
+/use            consulta o contexto ativo (General ou @alias)
+/use general    volta ao General Mode
+```
+
+`/use @alias` só aceita repositórios cadastrados e não inicia job. O contexto é por
+usuário e sobrevive a reinícios. `/repo remove` limpa o repositório ativo de quem o usava;
+se um repositório ativo deixar de existir por outro motivo, o D.A.N.T.E. recusa a
+execução e pede `/use @alias` ou `/use general`, em vez de cair para General Mode.
 
 ---
 
@@ -451,7 +483,10 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/repo env remove @alias KEY` | Remove uma configuração de ambiente |
 | `/agent` | Exibe o agente padrão |
 | `/agent set claude\|codex` | Altera o agente padrão |
-| `<mensagem>` | Executa o agente padrão (General Mode ou `@alias <prompt>`) |
+| `<mensagem>` | Executa o agente padrão no contexto ativo (ou `@alias <prompt>`) |
+| `/use` | Exibe o contexto ativo do usuário |
+| `/use @alias` | Define o repositório ativo |
+| `/use general` | Volta ao General Mode |
 | `/status` | Exibe jobs ativos e recentes |
 | `/cancel <jobId>` | Solicita cancelamento de um job |
 
@@ -533,7 +568,7 @@ Atualmente:
 
 | Informação | Persistência |
 | --- | --- |
-| Configurações do assistente (agente padrão) | `~/.dante/settings.json` |
+| Configurações do assistente (agente padrão, repositório ativo por usuário) | `~/.dante/settings.json` |
 | Repositórios cadastrados | `~/.dante/repositories.json` |
 | Perfis de ambiente | `~/.dante/repositories.json` |
 | Valores de bindings secretos | não são persistidos |
@@ -545,13 +580,16 @@ Atualmente:
 
 ```json
 {
-  "DefaultAgent": "Claude"
+  "DefaultAgent": "Claude",
+  "ActiveRepositories": {
+    "123456789": "@fitness_backend"
+  }
 }
 ```
 
 Enquanto o arquivo não existe, o agente padrão é **Claude**; o arquivo é criado na
 primeira alteração, com escrita atômica. `DefaultAgent` aceita somente `Claude` ou
-`Codex`. Arquivo corrompido ou com valor desconhecido impede o Worker de iniciar com
+`Codex`; `ActiveRepositories` associa Telegram User IDs a aliases. Arquivo corrompido ou com valor desconhecido impede o Worker de iniciar com
 erro claro, em vez de escolher um agente por conta própria.
 
 ---
