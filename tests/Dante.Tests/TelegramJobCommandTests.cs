@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Dante.Worker.Agents;
 using Dante.Worker.Jobs;
 using Dante.Worker.Repositories;
+using Dante.Worker.Sessions;
 using Dante.Worker.Telegram;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -83,6 +84,43 @@ public sealed class TelegramJobCommandTests
             Assert.Contains("já encerrado", await api.NextMessageAsync());
             api.Enqueue("/status");
             Assert.Contains("J000001 Claude General: Succeeded", await api.NextMessageAsync());
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task StatusListsOnlyTheRequestingUsersSessionsApartFromJobs()
+    {
+        var api = new InteractiveBotApi();
+        var runner = new ImmediateRunner();
+        var options = Options.Create(new TelegramOptions
+        {
+            BotToken = "test-token",
+            AllowedUserIds = "123",
+            AgentWorkingDirectory = "/tmp/agent-work"
+        });
+        await using var sessions = new SessionRegistry(new FakeSessionDriverFactory(),
+            NullLogger<SessionRegistry>.Instance);
+        await sessions.StartAsync(new SessionStartRequest(999, AgentKind.Claude,
+            JobExecutionContext.General("/tmp/general")));
+        await sessions.StartAsync(new SessionStartRequest(123, AgentKind.Codex,
+            JobExecutionContext.Repository("@dante", "/repos/dante"), Profile: AgentPermissionProfile.Plan));
+        await sessions.SubmitAsync(123, null, "tarefa");
+        await sessions.SubmitAsync(123, null, "depois");
+        using var service = new TelegramPollingService(api, options, new TelegramUserAuthorizer(options),
+            runner, runner, new JobRegistry(), NullLogger<TelegramPollingService>.Instance, sessions: sessions);
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            api.Enqueue("/status");
+            var status = await api.NextMessageAsync();
+            Assert.StartsWith("Nenhum job registrado.\n\nSessões:\n", status);
+            Assert.Contains("S000002 Codex @dante: Running (ativa) | turno T000001 | 1 na fila | perfil Plan", status);
+            Assert.DoesNotContain("S000001", status);
         }
         finally
         {

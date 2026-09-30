@@ -487,7 +487,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/use` | Exibe o contexto ativo do usuário |
 | `/use @alias` | Define o repositório ativo |
 | `/use general` | Volta ao General Mode |
-| `/status` | Exibe jobs ativos e recentes |
+| `/status` | Exibe jobs ativos e recentes e, em seção própria, as sessões interativas do próprio usuário |
 | `/cancel <jobId>` | Solicita cancelamento de um job |
 
 ---
