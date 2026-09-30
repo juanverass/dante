@@ -481,12 +481,26 @@ Atualmente:
 
 | Informação | Persistência |
 | --- | --- |
+| Configurações do assistente (agente padrão) | `~/.dante/settings.json` |
 | Repositórios cadastrados | `~/.dante/repositories.json` |
 | Perfis de ambiente | `~/.dante/repositories.json` |
 | Valores de bindings secretos | não são persistidos |
 | Workspace geral | `~/.dante/workspaces/general` |
 | Jobs | somente memória |
 | Histórico de jobs | somente memória |
+
+`~/.dante/settings.json` guarda apenas preferências, nunca tokens ou segredos:
+
+```json
+{
+  "DefaultAgent": "Claude"
+}
+```
+
+Enquanto o arquivo não existe, o agente padrão é **Claude**; o arquivo é criado na
+primeira alteração, com escrita atômica. `DefaultAgent` aceita somente `Claude` ou
+`Codex`. Arquivo corrompido ou com valor desconhecido impede o Worker de iniciar com
+erro claro, em vez de escolher um agente por conta própria.
 
 ---
 
