@@ -574,3 +574,51 @@ Claude Code, Codex e desenvolvedores humanos seguem o mesmo
 [contrato de desenvolvimento](docs/development/agent-contract.md). `CLAUDE.md` e
 `AGENTS.md` são adaptadores finos que apontam para ele. O contexto persistente do
 projeto (visão, estado atual, decisões e histórico) está em [`docs/context/`](docs/context/).
+
+### Agent Harness
+
+O Agent Harness é o conjunto de regras e registros que permite a qualquer agente
+iniciar, continuar ou revisar uma Issue sem depender do histórico de uma conversa. Tudo
+o que o próximo worker precisa vem de fontes persistidas:
+
+| Fonte | O que informa |
+| --- | --- |
+| Labels `status:*` da Issue | em que fase a Issue está ([backlog](docs/development/backlog.md)) |
+| Comentários `## TURNO ASSUMIDO`, `## HANDOFF`, `## TURNO FINALIZADO` na Issue | quem está no turno, branch, checkpoint, próximos passos e Decision Locks ([turnos](docs/development/handoff.md)) |
+| Comentários `## REVIEW` no PR | veredito e correções solicitadas ([review](docs/development/review.md)) |
+| Git e testes | o estado real do código — vence qualquer registro divergente |
+
+Regra fixa: `1 Issue → 1 branch → 1 PR`, quantos turnos e agentes forem necessários.
+
+#### Iniciar trabalho
+
+Trabalho novo só sai de Issues `status:ready` que não sejam Epic nem tenham dependência
+aberta:
+
+```bash
+gh issue list --state open --label status:ready
+gh issue edit <numero> --remove-label status:ready --add-label status:in-progress
+git switch -c <prefixo>/issue-<numero>-<slug>
+gh issue comment <numero> --body-file <claim>   # ## TURNO ASSUMIDO, antes de alterar arquivos
+```
+
+Depois: baseline (`dotnet build` + `dotnet test`), implementação dentro do escopo,
+validação e staging seletivo, conforme o [contrato](docs/development/agent-contract.md).
+
+#### Continuar trabalho
+
+Para uma Issue `status:in-progress`, use a skill `$continuar-turno`: ela recupera o
+[handoff](docs/development/handoff.md#continuar-turno) nos comentários da Issue,
+confirma ownership, branch e PR, compara o checkpoint com o Git e publica um novo
+`## TURNO ASSUMIDO` antes de qualquer alteração. Se não houver handoff confiável, siga
+o [RECOVERY MODE](docs/development/handoff.md#recovery-mode) preservando o trabalho
+recebido. Em `status:review`, só continue se o PR pedir correção; use a mesma branch e
+o mesmo PR.
+
+#### Encerrar trabalho
+
+Use a skill `$encerrar-turno` e registre a validação real. Se o trabalho estiver
+inacabado, faça checkpoint e push, depois publique `## HANDOFF` na Issue. Se a
+implementação estiver concluída, abra o PR, mova a Issue para `status:review` e publique
+`## TURNO FINALIZADO` na Issue. Os [registros de turno](docs/development/handoff.md#onde-vivem-os-registros)
+ficam nos comentários da Issue, nunca em arquivos do repositório.

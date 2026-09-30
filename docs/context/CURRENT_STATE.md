@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-09-28, durante o Agent Harness v1 (Epic #40).
+Última revisão: 2026-09-29, durante a validação do Agent Harness v1 (Epic #40).
 
 ## Marcos
 
@@ -43,14 +43,14 @@ Detalhes de uso: [README](../../README.md).
 
 - **Epic #40 — Agent Harness v1**: contrato de agentes, contexto persistente,
   protocolo de turno/handoff, backlog, skills e protocolo de review implementados em PRs
-  empilhados (#48–#53), aguardando revisão. Falta a validação zero-chat (#47).
+  integrados em `main` (#48–#53). A validação zero-chat (#47) ainda precisa ser concluída.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
 
 ## Build e testes
 
-Estado conhecido em `main` (79674db):
+Estado conhecido em `main` (c6d906c):
 
 ```text
 dotnet build Dante.sln   sucesso, sem avisos
