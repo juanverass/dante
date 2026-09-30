@@ -417,13 +417,15 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
             case "item/commandExecution/requestApproval":
                 pending = new PendingServerRequest(id.DeepClone(), method, []);
                 requested = new ApprovalRequestedEvent(upstreamId, AgentToolKind.Command,
-                    GetString(parameters, "command") ?? "comando", GetString(parameters, "reason"));
+                    GetString(parameters, "command") ?? "comando", GetString(parameters, "reason"))
+                { CanApproveForSession = true };
                 break;
             case "item/fileChange/requestApproval":
                 pending = new PendingServerRequest(id.DeepClone(), method, []);
                 requested = new ApprovalRequestedEvent(upstreamId, AgentToolKind.FileChange,
                     GetString(parameters, "grantRoot") is { } root ? $"escrever em {root}" : "alterar arquivos",
-                    GetString(parameters, "reason"));
+                    GetString(parameters, "reason"))
+                { CanApproveForSession = true };
                 break;
             case UserInputMethod:
                 var questions = (parameters["questions"] as JsonArray ?? [])

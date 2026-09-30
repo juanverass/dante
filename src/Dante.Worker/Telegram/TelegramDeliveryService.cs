@@ -47,7 +47,9 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
             var record = GetOrCreate(id, chat.UserId, chat.ChatId, $"[{session.Id} {agentEvent.TurnId ?? "sistema"}] ");
             var formatted = FormatEvent(agentEvent, chat.HideOutput, id);
             if (agentEvent is TurnCompletedEvent or ErrorEvent) record.Final = true;
-            if (formatted.Length > 0) Append(record, formatted, safe: agentEvent is TurnStartedEvent);
+            if (formatted.Length > 0) Append(record, formatted,
+                safe: agentEvent is TurnStartedEvent,
+                flush: agentEvent is ApprovalRequestedEvent or UserInputRequestedEvent or RequestExpiredEvent);
             if (agentEvent is TurnCompletedEvent or ErrorEvent)
                 foreach (var key in itemText.Keys.Where(key => key.StartsWith(
                                  agentEvent.TurnId is null ? session.Id + "/" : id + "/",
@@ -103,6 +105,9 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
             {
                 TurnStartedEvent => "Turno iniciado. Saída omitida para proteger segredos do ambiente.\n",
                 TurnCompletedEvent completed => $"Turno {FormatOutcome(completed.Outcome)}. Saída omitida para proteger segredos do ambiente.\n",
+                ApprovalRequestedEvent approval => ApprovalInstructions(approval, hideDetails: true),
+                UserInputRequestedEvent input => InputInstructions(input, hideDetails: true),
+                RequestExpiredEvent expired => $"A solicitação {expired.RequestId} expirou.\n",
                 _ => string.Empty
             };
         }
@@ -116,12 +121,34 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
             FileChangeEvent change => $"Arquivos alterados: {string.Join(", ", change.Paths)}\n",
             WarningEvent warning => $"Aviso: {warning.Message}\n",
             ErrorEvent error => $"Erro: {error.Message}\n",
-            ApprovalRequestedEvent approval => $"Aprovação pendente {approval.RequestId}: {approval.Action}\n",
-            UserInputRequestedEvent input => $"Resposta pendente {input.RequestId}: {string.Join("; ", input.Questions.Select(q => q.Text))}\n",
+            ApprovalRequestedEvent approval => ApprovalInstructions(approval, hideDetails: false),
+            UserInputRequestedEvent input => InputInstructions(input, hideDetails: false),
+            RequestExpiredEvent expired => $"A solicitação {expired.RequestId} expirou.\n",
             TurnCompletedEvent completed => $"\nTurno {FormatOutcome(completed.Outcome)}." +
                 (completed.Error is null ? "\n" : $" {completed.Error}\n"),
             _ => string.Empty
         };
+    }
+
+    private static string ApprovalInstructions(ApprovalRequestedEvent approval, bool hideDetails)
+    {
+        var ids = $"{approval.SessionId} {approval.TurnId} {approval.RequestId}";
+        var details = hideDetails ? "Detalhes omitidos para proteger segredos do ambiente." :
+            $"{approval.Action}" + (approval.Reason is null ? "" : $"\nMotivo: {approval.Reason}");
+        return $"\nAprovação pendente {ids}: {details}\n/approve {ids}\n" +
+            (approval.CanApproveForSession ? $"/approve-session {ids}\n" : "") +
+            $"/deny {ids} [motivo]\nExpira em 5 minutos.\n";
+    }
+
+    private static string InputInstructions(UserInputRequestedEvent input, bool hideDetails)
+    {
+        var ids = $"{input.SessionId} {input.TurnId} {input.RequestId}";
+        var questions = hideDetails ? "Perguntas omitidas para proteger segredos do ambiente." :
+            string.Join("\n", input.Questions.Select((question, index) =>
+                $"{index + 1}. {question.Text}" + (question.Options.Count == 0 ? "" :
+                    $" (opções: {string.Join(", ", question.Options)})")));
+        return $"\nResposta pendente {ids}:\n{questions}\n/input {ids} <resposta1>" +
+            (input.Questions.Count > 1 ? " | <resposta2> ..." : "") + "\nExpira em 5 minutos.\n";
     }
 
     private string Delta(string id, MessageDeltaEvent delta)
@@ -162,7 +189,8 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         return record;
     }
 
-    private void Append(DeliveryRecord record, string text, bool schedule = true, bool safe = false)
+    private void Append(DeliveryRecord record, string text, bool schedule = true, bool safe = false,
+        bool flush = false)
     {
         // Keep a bounded recent result; truncation is visible to the user.
         if (record.Truncated)
@@ -179,6 +207,11 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         record.RetainedLength += text.Length;
         if (safe) record.Chunks.AddRange(Split(text, record.Prefix));
         else record.Buffer.Append(text);
+        if (flush && record.Buffer.Length > 0)
+        {
+            record.Chunks.AddRange(Split(Redact(record.Buffer.ToString(), record), record.Prefix));
+            record.Buffer.Clear();
+        }
         record.ContentVersion++;
         if (record.State != TelegramDeliveryState.Failed)
         {

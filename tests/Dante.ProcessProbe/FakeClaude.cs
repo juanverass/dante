@@ -95,7 +95,10 @@ internal static class FakeClaude
                                 })
                             }
                         });
-                        var scope = decision["updatedPermissions"] is JsonArray { Count: > 0 } ? "session" : "once";
+                        // Reports the destination of every permission update Claude would apply ("once" if none).
+                        var scope = decision["updatedPermissions"] is JsonArray { Count: > 0 } updates
+                            ? string.Join(",", updates.Select(update => (string?)update!["destination"]))
+                            : "once";
                         Assistant(allowed ? $"allow:{scope}" : $"deny:{decision["message"]}");
                     }
                     else
@@ -130,7 +133,7 @@ internal static class FakeClaude
                             Assistant($"pong {turns}");
                             Result(true, $"pong {turns}");
                             break;
-                        case "write":
+                        case "write" or "write-persistent" or "write-mixed":
                             var input = new JsonObject { ["file_path"] = "notes.txt", ["content"] = "hi" };
                             Send(new JsonObject
                             {
@@ -150,10 +153,7 @@ internal static class FakeClaude
                                 ["subtype"] = "can_use_tool",
                                 ["tool_name"] = "Write",
                                 ["input"] = input,
-                                ["permission_suggestions"] = new JsonArray(new JsonObject
-                                {
-                                    ["type"] = "setMode", ["mode"] = "acceptEdits", ["destination"] = "session"
-                                }),
+                                ["permission_suggestions"] = WriteSuggestions((string)message["message"]!["content"]!),
                                 ["tool_use_id"] = "toolu_write"
                             });
                             break;
@@ -195,6 +195,27 @@ internal static class FakeClaude
         }
 
         return 0;
+    }
+
+    // "write" offers only a session suggestion, "write-persistent" only persistent ones, "write-mixed" both.
+    private static JsonArray WriteSuggestions(string prompt)
+    {
+        var session = new JsonObject { ["type"] = "setMode", ["mode"] = "acceptEdits", ["destination"] = "session" };
+        JsonObject Rule(string destination) => new()
+        {
+            ["type"] = "addRules",
+            ["rules"] = new JsonArray(new JsonObject { ["toolName"] = "Write" }),
+            ["behavior"] = "allow",
+            ["destination"] = destination
+        };
+
+        return prompt switch
+        {
+            "write-persistent" => [Rule("userSettings"), Rule("projectSettings"), Rule("localSettings")],
+            "write-mixed" => [Rule("userSettings"), session, Rule("projectSettings"), Rule("session"),
+                Rule("localSettings")],
+            _ => [session]
+        };
     }
 
     private static JsonObject ControlResponse(string requestId, string subtype, string? error = null)

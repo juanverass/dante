@@ -10,6 +10,8 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
 {
     private readonly Channel<AgentEvent> events = Channel.CreateUnbounded<AgentEvent>();
     private readonly ConcurrentQueue<string> calls = new();
+    private readonly ConcurrentQueue<(string RequestId, AgentUserResponse Response)> responses = new();
+    private volatile bool interrupted;
 
     public AgentDriverCapabilities Capabilities { get; } = capabilities;
     public AgentSessionStartOptions? StartOptions { get; private set; }
@@ -18,8 +20,13 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
     public Exception? SteerFailure { get; set; }
     public Exception? InterruptFailure { get; set; }
     public Exception? ResponseFailure { get; set; }
+    // Holds RespondAsync (after recording the call) until the test completes it.
+    public TaskCompletionSource? ResponseGate { get; set; }
+    // Like the real drivers: interrupting or closing clears the upstream requests, so a later answer is refused.
+    public bool RejectResponsesAfterInterrupt { get; set; }
     public bool Disposed { get; private set; }
     public IReadOnlyList<string> Calls => calls.ToArray();
+    public IReadOnlyList<(string RequestId, AgentUserResponse Response)> Responses => responses.ToArray();
 
     public void Emit(AgentEvent agentEvent) => events.Writer.TryWrite(agentEvent);
 
@@ -50,14 +57,29 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
     public Task InterruptTurnAsync(CancellationToken cancellationToken = default)
     {
         calls.Enqueue("interrupt");
+        interrupted = true;
         return InterruptFailure is null ? Task.CompletedTask : Task.FromException(InterruptFailure);
     }
 
-    public Task RespondAsync(string upstreamRequestId, AgentUserResponse response,
+    public async Task RespondAsync(string upstreamRequestId, AgentUserResponse response,
         CancellationToken cancellationToken = default)
     {
         calls.Enqueue("respond:" + upstreamRequestId);
-        return ResponseFailure is null ? Task.CompletedTask : Task.FromException(ResponseFailure);
+        if (ResponseGate is { } gate)
+        {
+            await gate.Task;
+        }
+
+        if (RejectResponsesAfterInterrupt && interrupted)
+        {
+            throw new InvalidOperationException($"A solicitação {upstreamRequestId} não está pendente.");
+        }
+
+        responses.Enqueue((upstreamRequestId, response));
+        if (ResponseFailure is not null)
+        {
+            throw ResponseFailure;
+        }
     }
 
     public IAsyncEnumerable<AgentEvent> ReadEventsAsync(CancellationToken cancellationToken = default) =>

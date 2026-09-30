@@ -11,7 +11,8 @@ public sealed class SessionRegistry(
     IAgentSessionDriverFactory drivers,
     ILogger<SessionRegistry> logger,
     IAgentSessionEventSink? sink = null,
-    SessionIdGenerator? ids = null) : IAsyncDisposable, IDisposable
+    SessionIdGenerator? ids = null,
+    TimeSpan? requestTimeout = null) : IAsyncDisposable, IDisposable
 {
     private const int RecentEndedLimit = 20;
     private const string RestartNotice = "Sessões existem só em memória e não sobrevivem ao reinício do Worker.";
@@ -20,6 +21,7 @@ public sealed class SessionRegistry(
     private readonly Dictionary<long, string> activeSessions = [];
     private readonly CancellationTokenSource lifetime = new();
     private readonly SessionIdGenerator ids = ids ?? new SessionIdGenerator();
+    private readonly TimeSpan requestTimeout = requestTimeout ?? TimeSpan.FromMinutes(5);
     private bool disposed;
 
     // Starting a session is an explicit selection: on success it becomes the owner's active session.
@@ -37,7 +39,7 @@ public sealed class SessionRegistry(
 
             var driver = drivers.Create(request.Agent);
             var session = new AgentSession(ids.NextSessionId(), request.Agent, request.OwnerUserId, request.Context,
-                driver.Capabilities, ids);
+                driver.Capabilities, ids, requestTimeout);
             entry = new Entry(session, driver, request.Profile);
             sessions.Add(session.Id, entry);
         }
@@ -85,6 +87,21 @@ public sealed class SessionRegistry(
             return SessionSubmitResult.Reject(error!, sessionId);
         }
 
+        // SteerByInterrupt interrupts the turn upstream: serialized with the other request operations.
+        await entry.Upstream.WaitAsync(cancellationToken);
+        try
+        {
+            return await SubmitLockedAsync(entry, text, delivery, cancellationToken);
+        }
+        finally
+        {
+            entry.Upstream.Release();
+        }
+    }
+
+    private async Task<SessionSubmitResult> SubmitLockedAsync(Entry entry, string text, MessageDelivery delivery,
+        CancellationToken cancellationToken)
+    {
         var session = entry.Session;
         var result = session.Submit(text, delivery);
         try
@@ -138,6 +155,19 @@ public sealed class SessionRegistry(
             return SessionResult.Reject(error!);
         }
 
+        await entry.Upstream.WaitAsync(cancellationToken);
+        try
+        {
+            return await InterruptLockedAsync(entry, cancellationToken);
+        }
+        finally
+        {
+            entry.Upstream.Release();
+        }
+    }
+
+    private async Task<SessionResult> InterruptLockedAsync(Entry entry, CancellationToken cancellationToken)
+    {
         if (!entry.Session.TryInterrupt(out var discarded))
         {
             return SessionResult.Reject($"A sessão {entry.Session.Id} não tem turno em andamento para interromper.");
@@ -169,6 +199,19 @@ public sealed class SessionRegistry(
             return SessionResult.Reject(error!);
         }
 
+        await entry.Upstream.WaitAsync(cancellationToken);
+        try
+        {
+            return await CloseLockedAsync(userId, entry, cancellationToken);
+        }
+        finally
+        {
+            entry.Upstream.Release();
+        }
+    }
+
+    private async Task<SessionResult> CloseLockedAsync(long userId, Entry entry, CancellationToken cancellationToken)
+    {
         var session = entry.Session;
         var hadTurn = session.ActiveTurnId is not null;
         if (!session.TryClose())
@@ -236,6 +279,20 @@ public sealed class SessionRegistry(
             return SessionResult.Reject($"A solicitação {requestId} não está pendente.");
         }
 
+        await entry.Upstream.WaitAsync(cancellationToken);
+        try
+        {
+            return await RespondLockedAsync(entry, userId, requestId, response, cancellationToken);
+        }
+        finally
+        {
+            entry.Upstream.Release();
+        }
+    }
+
+    private async Task<SessionResult> RespondLockedAsync(Entry entry, long userId, string requestId,
+        AgentUserResponse response, CancellationToken cancellationToken)
+    {
         var resolution = entry.Session.Resolve(requestId, userId, response);
         if (!resolution.Accepted)
         {
@@ -258,6 +315,26 @@ public sealed class SessionRegistry(
         }
 
         return new SessionResult(true, Snapshot(entry));
+    }
+
+    public AgentPendingRequest? GetPendingRequest(long userId, string requestId)
+    {
+        lock (gate)
+        {
+            return sessions.Values.Where(candidate => candidate.Session.OwnerUserId == userId)
+                .Select(candidate => candidate.Session.GetPendingRequest(requestId))
+                .FirstOrDefault(request => request is not null);
+        }
+    }
+
+    public Task<SessionResult> RespondAsync(long userId, string sessionId, string turnId,
+        string requestId, AgentUserResponse response, CancellationToken cancellationToken = default)
+    {
+        var pending = GetPendingRequest(userId, requestId);
+        if (pending is null || !pending.SessionId.Equals(sessionId, StringComparison.OrdinalIgnoreCase) ||
+            !pending.TurnId.Equals(turnId, StringComparison.OrdinalIgnoreCase))
+            return Task.FromResult(SessionResult.Reject("Solicitação não encontrada neste turno da sessão."));
+        return RespondAsync(userId, requestId, response, cancellationToken);
     }
 
     // Explicit selection of the active session; null clears it (the next plain message is not a session turn).
@@ -367,6 +444,10 @@ public sealed class SessionRegistry(
                 {
                     lock (gate) entry.LastTurnOutcome = completed.Outcome;
                 }
+                if (stamped is ApprovalRequestedEvent { RequestId: var approvalId })
+                    _ = ExpireRequestAsync(entry, approvalId, true);
+                else if (stamped is UserInputRequestedEvent { RequestId: var inputId })
+                    _ = ExpireRequestAsync(entry, inputId, false);
                 await PublishAsync(entry, stamped);
                 if (stamped is TurnCompletedEvent)
                 {
@@ -405,6 +486,54 @@ public sealed class SessionRegistry(
 
         if (session.State == AgentSessionState.Failed)
         {
+            await entry.DisposeDriverAsync();
+        }
+    }
+
+    private async Task ExpireRequestAsync(Entry entry, string requestId, bool isApproval)
+    {
+        try
+        {
+            // A timer may fire slightly before the wall clock reaches the deadline, and TryExpire would then refuse
+            // and leave the request pending forever: wait until the deadline really passed.
+            while (entry.Session.GetPendingRequest(requestId) is { } pending &&
+                   pending.ExpiresAtUtc > DateTimeOffset.UtcNow)
+            {
+                await Task.Delay(pending.ExpiresAtUtc - DateTimeOffset.UtcNow + TimeSpan.FromMilliseconds(1),
+                    lifetime.Token);
+            }
+
+            RequestResolution resolution;
+            // Expiring and answering the upstream request is one step: a stop or close cannot clear the upstream
+            // request between them, so its absence is never mistaken for a broken session.
+            await entry.Upstream.WaitAsync(lifetime.Token);
+            try
+            {
+                resolution = entry.Session.TryExpire(requestId);
+                if (!resolution.Accepted) return;
+                AgentUserResponse response = isApproval
+                    ? new AgentApprovalResponse(AgentApprovalDecision.Deny, "Solicitação expirada.")
+                    : new AgentInputResponse(new Dictionary<string, string>());
+                await entry.Driver.RespondAsync(resolution.UpstreamRequestId!, response, lifetime.Token);
+            }
+            finally
+            {
+                entry.Upstream.Release();
+            }
+
+            await PublishAsync(entry, new RequestExpiredEvent(requestId)
+            {
+                SessionId = entry.Session.Id,
+                TurnId = resolution.TurnId,
+                TimestampUtc = DateTimeOffset.UtcNow
+            });
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            logger.LogWarning("Falha ao expirar a solicitação {RequestId} ({ErrorType}).",
+                requestId, exception.GetType().Name);
+            await FailAsync(entry, $"Não foi possível expirar a solicitação {requestId}; a sessão foi encerrada.");
             await entry.DisposeDriverAsync();
         }
     }
@@ -553,6 +682,10 @@ public sealed class SessionRegistry(
         public DateTimeOffset? EndedAtUtc { get; set; }
         public Task? Pump { get; set; }
         public AgentTurnOutcome? LastTurnOutcome { get; set; }
+
+        // Serializes the operations that consume or cancel upstream requests (answer, expiration, interrupt,
+        // steer by interrupt, close): each changes the session state and reaches the driver as one step.
+        public SemaphoreSlim Upstream { get; } = new(1, 1);
 
         public async Task DisposeDriverAsync()
         {
