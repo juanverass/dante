@@ -385,3 +385,64 @@ inferidos.
 Código: `Sessions/ClaudeSessionDriver.cs`, `Sessions/AgentPermissionProfile.cs`,
 `Sessions/AgentProtocolException.cs`; testes em `ClaudeSessionDriverTests`, contra o
 Claude simulado de `tests/Dante.ProcessProbe/FakeClaude.cs`.
+
+## AD-19 — Driver Codex: `app-server` com thread efêmera e perfis mapeados para approval/sandbox
+
+Status: vigente (Epic #60, #64)
+
+`CodexSessionDriver` implementa `IAgentSessionDriver` sobre um único
+`codex app-server --listen stdio://` por sessão (JSON-RPC em JSONL), iniciado pelo
+`InteractiveAgentProcessLauncher` (AD-17):
+
+- **início**: `initialize` (com `capabilities.experimentalApi`) → `initialized` →
+  `thread/start` (`cwd`, `approvalPolicy`, `sandbox`, `ephemeral: true`). O `thread.id` é o
+  id upstream da sessão e o `model` da resposta é guardado para o modo `plan`. Falha em
+  qualquer passo encerra o processo e falha o `StartAsync`;
+- **turnos**: `turn/start` na mesma thread, só com a sessão ociosa (o Codex absorveria o
+  turno no ativo, AD-16); o `turn.id` da resposta é o turno ativo usado por steer e
+  interrupt. `turn/started` → `TurnStartedEvent`; `turn/completed` → `TurnCompletedEvent`
+  (`completed`, `interrupted`, demais = `Failed` com `turn.error.message`);
+- **eventos**: `item/agentMessage/delta` → delta; `item/completed` `agentMessage` →
+  mensagem; `commandExecution` → `Command` (sucesso = `completed` e exit code 0);
+  `fileChange` → `FileChange` + `FileChangeEvent` com paths e diffs quando aplicado;
+  `mcpToolCall`/`dynamicToolCall`/`webSearch` → `Tool`; `warning` e `error` com
+  `willRetry` → `WarningEvent`, `error` definitivo → `ErrorEvent`;
+- **approval e input**: `item/commandExecution/requestApproval` e
+  `item/fileChange/requestApproval` → `ApprovalRequestedEvent`, respondidos com
+  `accept`/`acceptForSession`/`decline` (o motivo da negação não tem campo no protocolo e
+  fica no D.A.N.T.E.); `item/tool/requestUserInput` → `UserInputRequestedEvent` com os ids
+  de pergunta do próprio Codex, respondido em `answers.<id>.answers`. O id JSON-RPC do
+  request (número ou texto, na forma textual) é o id upstream. Outros requests do
+  servidor (elicitation MCP, permissões, ferramentas dinâmicas, auth) recebem erro
+  JSON-RPC `-32601` para o Codex não esperar para sempre; `serverRequest/resolved` retira
+  o request da lista de pendentes;
+- **steer**: `turn/steer` com `expectedTurnId` do turno ativo, aplicado no próximo
+  boundary do modelo;
+- **interrupt**: approvals pendentes recebem `cancel` e perguntas pendentes recebem
+  respostas vazias antes de `turn/interrupt`, para nada ficar esperando upstream; o
+  processo e a thread continuam. Sem turno ativo, interrupt não faz nada;
+- **falhas**: request recusado pelo Codex (JSON-RPC `error`) falha só aquela chamada com
+  `InvalidOperationException`; linha fora do protocolo ou processo que sai sem
+  `CloseAsync` terminam `ReadEventsAsync` com `AgentProtocolException` e matam o
+  processo; `CloseAsync` fecha o stdin (`StopAsync`, AD-17) e termina o fluxo normalmente.
+
+Perfis (`AgentPermissionProfile`, padrão `Manual`) mapeiam para `thread/start`:
+
+| Perfil | `approvalPolicy` | `sandbox` | `turn/start` |
+| --- | --- | --- | --- |
+| `Manual` | `on-request` | `workspace-write` | — |
+| `Auto` | `never` | `workspace-write` | — |
+| `Plan` | `on-request` | `read-only` | `collaborationMode` `plan` com o modelo da thread |
+
+Nenhum perfil chega a `danger-full-access`; a escolha pelo usuário e um eventual `full`
+são da #67. Input humano do Codex continua **experimental** e, na 0.157.1, só aparece no
+perfil `Plan` (AD-15). `app-server` não tem `--ignore-user-config`: em General Mode o
+isolamento vem do ambiente filtrado, do diretório neutro e do `sandbox` da thread. O
+one-shot (`CodexRunner`, `codex exec`) continua inalterado.
+
+Por quê: a thread efêmera acompanha a vida da sessão em memória (Epic #60), e cancelar os
+requests pendentes no interrupt evita um turno preso esperando resposta que nunca virá.
+
+Código: `Sessions/CodexSessionDriver.cs`, `Sessions/AgentPermissionProfile.cs`,
+`Sessions/AgentProtocolException.cs`; testes em `CodexSessionDriverTests`, contra o
+app-server simulado de `tests/Dante.ProcessProbe/FakeCodex.cs`.

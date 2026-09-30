@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-09-30, com o driver interativo do Claude Code (#63).
+Última revisão: 2026-09-30, com os drivers interativos Claude (#63) e Codex (#64).
 
 ## Marcos
 
@@ -17,7 +17,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | MVP 2 — Context-aware orchestration (Epic #18) | concluído |
 | Agent Harness v1 (Epic #40) | concluído |
 | MVP 3 — Conversational Context (Epic #32) | pausado pela Priority Lock da Epic #60, após #33–#36 |
-| Interactive Agent Sessions (Epic #60) | em andamento: contrato de sessão e spikes (#61), processo bidirecional (#62), driver Claude (#63) |
+| Interactive Agent Sessions (Epic #60) | em andamento: contrato de sessão e spikes (#61), processo bidirecional (#62), drivers Claude (#63) e Codex (#64) |
 
 ## Funcionalidades disponíveis
 
@@ -44,10 +44,10 @@ Detalhes de uso: [README](../../README.md).
 - Worker iniciado manualmente (execução automática como serviço: #39);
 - precedência de agente e contexto ainda sem resolvedor único (#37);
 - sem worktrees, fila persistente ou execução concorrente isolada por Issue;
-- sessões interativas têm contrato (`Sessions/`, AD-15/AD-16) e processo bidirecional
-  (`InteractiveAgentProcess`, AD-17) e driver Claude `stream-json` (`ClaudeSessionDriver`,
-  AD-18), mas ainda sem driver Codex, registry nem integração com o Telegram, que segue só
-  com jobs one-shot;
+- sessões interativas têm contrato (`Sessions/`, AD-15/AD-16), processo bidirecional
+  (`InteractiveAgentProcess`, AD-17) e drivers Claude `stream-json` (`ClaudeSessionDriver`,
+  AD-18) e Codex `app-server` (`CodexSessionDriver`, AD-19), mas ainda sem registry nem
+  integração com o Telegram, que segue só com jobs one-shot;
 - sem CI no GitHub: validação é local.
 
 ## Em andamento
@@ -55,9 +55,10 @@ Detalhes de uso: [README](../../README.md).
 - **Epic #60 — Interactive Agent Sessions**: contrato `AgentSession`/`AgentEvent`/
   `IAgentSessionDriver` e spikes de Claude `stream-json` e Codex `app-server` (#61,
   `docs/spikes/interactive-protocols/`) e infraestrutura de processo bidirecional
-  (#62: leitura incremental, stdin serializado, encerramento sem órfãos) e driver Claude
-  (#63: multi-turno, deltas, approvals, `AskUserQuestion`, interrupt e perfis
-  `manual`/`auto`/`plan`). Priority Lock:
+  (#62: leitura incremental, stdin serializado, encerramento sem órfãos), driver Claude
+  (#63: multi-turno, deltas, approvals, `AskUserQuestion` e interrupt) e driver Codex
+  (#64: thread efêmera multi-turno, deltas, approvals, input, steer e interrupt), ambos
+  com perfis `manual`/`auto`/`plan`. Priority Lock:
   só Issues da #60 avançam;
 - **Epic #32 — MVP 3 (Conversational Context)**: pausada após #33–#36; #37 e #38
   bloqueadas pela #60.
@@ -67,19 +68,19 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #63:
+Estado conhecido com #63 e #64:
 
 ```text
 dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    171 testes; 170 aprovados
+dotnet test Dante.sln    188 testes; 187 ou 188 aprovados
 ```
 
-`InteractiveAgentProcessTests.GracefulExitDoesNotLeaveOrphanedChildProcess` (#62) falha
-na suíte completa em WSL2 e passa isolado; já falhava assim antes da #63.
+`InteractiveAgentProcessTests.GracefulExitDoesNotLeaveOrphanedChildProcess` (#62) é
+intermitente na suíte completa em WSL2 e passa isolado; já falhava assim antes da #63.
 
 ## Próximos marcos
 
-1. Interactive Agent Sessions (#60): driver Codex (#64), SessionRegistry (#65), streaming no Telegram (#66), approvals e
+1. Interactive Agent Sessions (#60): SessionRegistry (#65), streaming no Telegram (#66), approvals e
    perfis (#67), validação end-to-end (#68);
 2. retomada do MVP 3 (#32): resolvedor de agente e contexto (#37), UX (#38);
 3. execução automática como serviço local (#39).
