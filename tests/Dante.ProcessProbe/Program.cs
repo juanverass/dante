@@ -67,6 +67,22 @@ internal static class Program
 
                 await Task.Delay(Timeout.InfiniteTimeSpan);
                 return 0;
+            case "spawn-until-eof":
+                // Like "spawn", but exits cleanly on stdin EOF while the grandchild keeps running.
+                using (var child = Process.Start(new ProcessStartInfo(Environment.ProcessPath!)
+                       {
+                           ArgumentList = { "exec", "--runtimeconfig", args[1], typeof(Program).Assembly.Location, "wait" },
+                           UseShellExecute = false
+                       }))
+                {
+                    Console.WriteLine(child!.Id);
+                }
+
+                while (Console.In.ReadLine() is not null)
+                {
+                }
+
+                return 0;
             default:
                 return 2;
         }

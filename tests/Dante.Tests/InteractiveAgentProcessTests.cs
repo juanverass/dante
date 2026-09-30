@@ -224,6 +224,42 @@ public sealed class InteractiveAgentProcessTests
     }
 
     [Fact]
+    public async Task GracefulExitDoesNotLeaveOrphanedChildProcess()
+    {
+        await using var stopped = await StartAsync("spawn-until-eof", RuntimeConfig);
+        var stoppedChild = int.Parse(await NextStdoutAsync(stopped));
+        var exit = await stopped.StopAsync(Timeout).WaitAsync(Timeout);
+
+        await using var closed = await StartAsync("spawn-until-eof", RuntimeConfig);
+        var closedChild = int.Parse(await NextStdoutAsync(closed));
+        await closed.CloseInputAsync();
+        await closed.Completion.WaitAsync(Timeout);
+
+        // The parent left on its own; its child, still running when it exited, was killed.
+        Assert.False(exit.Killed);
+        Assert.Equal(0, exit.ExitCode);
+        Assert.True(HasExited(stoppedChild));
+        Assert.True(HasExited(closedChild));
+        // The pipes the child inherited are released, so the output completes as well.
+        await ReadToEndAsync(stopped).WaitAsync(Timeout);
+    }
+
+    [Fact]
+    public async Task RedactionFailureFailsTheOutputAndKillsTheProcess()
+    {
+        var failure = new InvalidOperationException("redaction failed");
+        await using var process = await StartAsync(
+            line => line.StartsWith("echo:boom") ? throw failure : line, "interactive");
+        Assert.Equal("ready", await NextStdoutAsync(process));
+
+        await process.WriteLineAsync("boom");
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => ReadToEndAsync(process));
+        Assert.Same(failure, thrown);
+        Assert.True((await process.Completion.WaitAsync(Timeout)).Killed);
+    }
+
+    [Fact]
     public async Task CancelledWriteWaitDoesNotBreakTheStream()
     {
         await using var process = await StartAsync("interactive");

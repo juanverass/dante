@@ -68,7 +68,7 @@ Estado conhecido com #62:
 
 ```text
 dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    155 aprovados, 0 falhas
+dotnet test Dante.sln    157 aprovados, 0 falhas
 ```
 
 ## Próximos marcos

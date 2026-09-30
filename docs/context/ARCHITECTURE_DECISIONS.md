@@ -306,7 +306,8 @@ AD-10).
 - **saída**: stdout e stderr são lidos linha a linha e publicados num canal limitado
   (256 linhas) assim que chegam; leitor lento pausa as bombas e, pelo pipe cheio, o
   agente, em vez de crescer memória. Toda linha passa pelo hook de redaction opcional
-  antes de sair do wrapper;
+  antes de sair do wrapper; se o hook lançar, o canal termina com essa exceção e a árvore
+  de processos é morta, em vez de o consumidor esperar para sempre;
 - **entrada**: `WriteLineAsync` escreve uma linha JSONL inteira por vez, serializada; linha
   com quebra é recusada. O token cancela só a espera pela vez de escrever: linha iniciada
   é escrita inteira, para não corromper o framing. Stdin fechado, parada em curso ou
@@ -317,11 +318,19 @@ AD-10).
 - **turno × sessão**: interromper um turno é mensagem de protocolo escrita pelo driver no
   stdin; encerrar a sessão é `StopAsync` (fecha o stdin, espera o período de graça e mata a
   árvore de processos). `DisposeAsync` mata a árvore imediatamente. Nenhum dos caminhos
-  deixa processo filho órfão.
+  deixa processo filho órfão;
+- **descendentes**: depois que o agente sai, os filhos dele deixam de ser alcançáveis por
+  `Process.Kill(entireProcessTree)`. Por isso o wrapper registra os descendentes enquanto
+  o agente vive (a cada segundo e antes de fechar o stdin, via `/proc` no Linux e Toolhelp
+  no Windows) e mata os sobreviventes quando ele sai, inclusive em saída graciosa. PID e
+  horário de início identificam cada processo, para nunca matar um PID reutilizado.
+  Limites: descendente criado e o agente encerrado dentro do mesmo intervalo pode escapar;
+  em outros sistemas operacionais só vale a morte da árvore viva.
 
 Por quê: os protocolos estruturados (AD-15) são JSONL sobre um único processo vivo; uma
 linha intercalada ou um processo esquecido quebraria a sessão ou vazaria recursos no
 host.
 
 Código: `Agents/InteractiveAgentProcess.cs`, `Agents/InteractiveAgentProcessLauncher.cs`,
-`Agents/AgentProcessStartInfo.cs`; testes em `InteractiveAgentProcessTests`.
+`Agents/AgentProcessStartInfo.cs`, `Agents/ProcessTree.cs`; testes em
+`InteractiveAgentProcessTests`.

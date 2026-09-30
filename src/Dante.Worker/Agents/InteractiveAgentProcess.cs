@@ -30,11 +30,14 @@ public sealed class AgentProcessInputClosedException(string message, Exception? 
 
 // One long-lived agent process: stdout/stderr are read line by line as they arrive and stdin accepts serialized
 // JSONL writes. Interrupting a turn is a protocol message written by the driver; StopAsync/DisposeAsync end the
-// whole process tree, so no child is left orphaned.
+// whole process tree, and descendants still alive when the agent exits are killed, so no child is left orphaned.
 public sealed class InteractiveAgentProcess : IAsyncDisposable
 {
     // Bounded: a slow reader stops the pumps, and the full pipe then pauses the agent instead of growing memory.
     private const int OutputCapacity = 256;
+    // Descendants started and exited within one interval may go unseen; the explicit refreshes before closing stdin
+    // cover the shutdown paths.
+    private static readonly TimeSpan DescendantTrackingInterval = TimeSpan.FromSeconds(1);
 
     private readonly Process process;
     private readonly Func<string, string>? redactOutput;
@@ -50,6 +53,8 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
     private readonly TaskCompletionSource<AgentProcessExit> completion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object stateGate = new();
+    private readonly DateTime? startTime;
+    private readonly Dictionary<int, DateTime> descendants = [];
     private InteractiveAgentProcessState state = InteractiveAgentProcessState.Running;
     private bool killed;
     private int disposed;
@@ -60,11 +65,13 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         this.redactOutput = redactOutput;
         ProcessId = process.Id;
         StartedAtUtc = DateTimeOffset.UtcNow;
+        startTime = ProcessTree.TryGetStartTime(process.Id);
 
         var stdout = PumpAsync(process.StandardOutput, AgentOutputStream.StandardOutput);
         var stderr = PumpAsync(process.StandardError, AgentOutputStream.StandardError);
         _ = CompleteOutputAsync(stdout, stderr);
         _ = MonitorExitAsync();
+        _ = TrackDescendantsAsync();
     }
 
     public int ProcessId { get; }
@@ -76,10 +83,12 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         get { lock (stateGate) { return state; } }
     }
 
-    // Lines from stdout and stderr, in arrival order per stream; completes when both streams reach EOF.
+    // Lines from stdout and stderr, in arrival order per stream; completes when both streams reach EOF. If a line
+    // cannot be processed (the redaction hook threw), it completes with that exception and the process is killed.
     public ChannelReader<AgentOutputLine> Output => output.Reader;
 
-    // Completes when the process exits, independently of whether the output was consumed.
+    // Completes when the process exits and its surviving descendants were killed, independently of whether the
+    // output was consumed.
     public Task<AgentProcessExit> Completion => completion.Task;
 
     // Writes one line atomically: concurrent callers are serialized and never interleave. The token only
@@ -117,6 +126,7 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
     // Closes stdin after any write in progress; the structured CLIs end the session when stdin reaches EOF.
     public async Task CloseInputAsync()
     {
+        TrackDescendants();
         await inputGate.WaitAsync();
         try
         {
@@ -139,6 +149,8 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
             }
         }
 
+        // The agent may exit as soon as stdin closes; its descendants must be known before that.
+        TrackDescendants();
         using var grace = new CancellationTokenSource(gracePeriod);
         try
         {
@@ -185,6 +197,8 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         {
             // The process exited between the check and the kill request.
         }
+
+        KillTrackedDescendants();
     }
 
     public async ValueTask DisposeAsync()
@@ -257,6 +271,17 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         {
             // The pipe broke together with the process.
         }
+        catch (ChannelClosedException)
+        {
+            // The other stream failed and already completed the output.
+        }
+        catch (Exception exception)
+        {
+            // Unprocessed output cannot be published and an undrained pipe would stall the agent: the consumer sees
+            // the failure on Output and the process is killed.
+            output.Writer.TryComplete(exception);
+            Kill();
+        }
     }
 
     private async Task CompleteOutputAsync(Task stdout, Task stderr)
@@ -265,9 +290,52 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         output.Writer.TryComplete();
     }
 
+    private async Task TrackDescendantsAsync()
+    {
+        while (!Completion.IsCompleted)
+        {
+            TrackDescendants();
+            await Task.WhenAny(Completion, Task.Delay(DescendantTrackingInterval));
+        }
+    }
+
+    // Records the current descendants while the agent is alive; after it exits they are no longer reachable from it.
+    private void TrackDescendants()
+    {
+        if (startTime is not { } rootStartTime || Completion.IsCompleted)
+        {
+            return;
+        }
+
+        var found = ProcessTree.GetDescendants(ProcessId, rootStartTime);
+        lock (descendants)
+        {
+            foreach (var (id, descendantStartTime) in found)
+            {
+                descendants.TryAdd(id, descendantStartTime);
+            }
+        }
+    }
+
+    private void KillTrackedDescendants()
+    {
+        KeyValuePair<int, DateTime>[] tracked;
+        lock (descendants)
+        {
+            tracked = [.. descendants];
+        }
+
+        foreach (var (id, descendantStartTime) in tracked)
+        {
+            ProcessTree.Kill(id, descendantStartTime);
+        }
+    }
+
     private async Task MonitorExitAsync()
     {
         await process.WaitForExitAsync();
+        // A graceful exit does not end what the agent started: survivors would be orphaned.
+        KillTrackedDescendants();
         bool wasKilled;
         lock (stateGate)
         {
