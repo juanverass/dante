@@ -47,6 +47,7 @@ public sealed class AssistantSettingsStoreTests : IDisposable
     [InlineData("{ \"DefaultAgent\": \"Claude\", \"ActiveRepositories\": { \"123\": \"demo\" } }")]
     [InlineData("{ \"DefaultAgent\": \"Claude\", \"ActiveRepositories\": { \"123\": null } }")]
     [InlineData("{ \"DefaultAgent\": \"Claude\", \"ActiveRepositories\": [] }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"ActiveRepositories\": null }")]
     public void RejectsInvalidOrCorruptedFileWithoutChoosingAgent(string content)
     {
         Directory.CreateDirectory(root);

@@ -95,7 +95,17 @@ public sealed class AssistantSettingsStore
     private static AssistantSettings Load(string path, Dictionary<long, string> activeRepositories)
     {
         SettingsFile? saved;
-        try { saved = JsonSerializer.Deserialize<SettingsFile>(File.ReadAllText(path)); }
+        bool activeRepositoriesIsNull;
+        try
+        {
+            var content = File.ReadAllText(path);
+            saved = JsonSerializer.Deserialize<SettingsFile>(content);
+            // Absent ActiveRepositories is a legacy file; an explicit null is invalid, not an empty map.
+            using var document = JsonDocument.Parse(content);
+            activeRepositoriesIsNull = document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty(nameof(SettingsFile.ActiveRepositories), out var property)
+                && property.ValueKind == JsonValueKind.Null;
+        }
         catch (JsonException exception)
         {
             throw new InvalidDataException($"O arquivo de configurações {path} está corrompido: {exception.Message}", exception);
@@ -105,6 +115,8 @@ public sealed class AssistantSettingsStore
         if (!TryParseAgent(saved.DefaultAgent, out var agent))
             throw new InvalidDataException(
                 $"DefaultAgent inválido em {path}: \"{saved.DefaultAgent}\". Valores permitidos: Claude ou Codex.");
+        if (activeRepositoriesIsNull)
+            throw new InvalidDataException($"ActiveRepositories inválido em {path}: null não é permitido.");
         foreach (var (user, alias) in saved.ActiveRepositories ?? [])
         {
             if (!long.TryParse(user, NumberStyles.None, CultureInfo.InvariantCulture, out var userId))

@@ -90,11 +90,16 @@ Código: `Repositories/RepositoryRegistry.cs`; testes em `RepositoryRegistryTest
 
 ## AD-08 — Contexto explícito, sem inferência de repositório
 
-Status: vigente (MVP 2, #21)
+Status: vigente, com a regra "sem alias → General Mode" substituída pela AD-14 (MVP 2, #21)
 
 O repositório só é usado quando o comando traz `@alias` como primeiro argumento. Sem
 alias, a execução é General Mode. Alias desconhecido é erro. O D.A.N.T.E. nunca deduz o
 repositório a partir do texto do prompt.
+
+Desde a AD-14, sem `@alias` a execução usa o repositório ativo selecionado pelo usuário
+com `/use`, e só é General Mode quando não há repositório ativo. Continuam vigentes: o
+repositório vem sempre de uma escolha explícita (`@alias` ou `/use`), alias desconhecido
+é erro e o repositório nunca é inferido do texto do prompt.
 
 Por quê: executar um agente com permissões de escrita no projeto errado é pior do que
 pedir o alias.
@@ -182,7 +187,9 @@ Status: vigente (MVP 3, #36)
 numérico ou alias malformado impede o Worker de iniciar). Só aliases cadastrados no
 `RepositoryRegistry` são aceitos na seleção. Sem `@alias` explícito, toda execução de
 agente do usuário — mensagem comum, `/claude` ou `/codex` — usa o repositório ativo; um
-`@alias` explícito vale só para aquela execução e não altera o ativo.
+`@alias` explícito vale só para aquela execução e não altera o ativo. Isso substitui a
+regra "sem alias → General Mode" da AD-08; a proibição de inferir o repositório pelo
+texto do prompt continua valendo — o ativo é sempre uma escolha explícita do usuário.
 
 `/repo remove` limpa o repositório ativo de todos os usuários que apontavam para o alias.
 Se ainda assim o ativo não estiver mais no catálogo (falha ao gravar a limpeza, edição
