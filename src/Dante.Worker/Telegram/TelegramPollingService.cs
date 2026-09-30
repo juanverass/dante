@@ -1,6 +1,7 @@
 using Dante.Worker.Agents;
 using Dante.Worker.Jobs;
 using Dante.Worker.Repositories;
+using Dante.Worker.Settings;
 using System.Text;
 using Microsoft.Extensions.Options;
 
@@ -15,7 +16,8 @@ public sealed class TelegramPollingService(
     JobRegistry jobs,
     ILogger<TelegramPollingService> logger,
     RepositoryRegistry? repositories = null,
-    GeneralWorkspace? generalWorkspace = null) : BackgroundService
+    GeneralWorkspace? generalWorkspace = null,
+    AssistantSettingsStore? settings = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private readonly object runningGate = new();
@@ -105,6 +107,12 @@ public sealed class TelegramPollingService(
         if (string.Equals(command, "/repo", StringComparison.OrdinalIgnoreCase))
         {
             await HandleRepositoryCommandAsync(message.Chat.Id, prompt, cancellationToken);
+            return;
+        }
+
+        if (string.Equals(command, "/agent", StringComparison.OrdinalIgnoreCase))
+        {
+            await botApi.SendMessageAsync(message.Chat.Id, HandleAgentCommand(prompt), cancellationToken);
             return;
         }
 
@@ -279,6 +287,22 @@ public sealed class TelegramPollingService(
         }
 
         await botApi.SendMessageAsync(chatId, response, cancellationToken);
+    }
+
+    private string HandleAgentCommand(string prompt)
+    {
+        const string usage = "Uso: /agent | /agent set claude|codex";
+        if (settings is null) return "Configurações do assistente indisponíveis.";
+        var parts = prompt.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return $"Agente padrão: {settings.Current.DefaultAgent}";
+        if (parts.Length != 2 || !parts[0].Equals("set", StringComparison.OrdinalIgnoreCase)) return usage;
+        if (!AssistantSettingsStore.TryParseAgent(parts[1], out var agent))
+            return $"Agente desconhecido: {parts[1]}. Use claude ou codex.";
+        try { return $"Agente padrão alterado para {settings.SetDefaultAgent(agent).DefaultAgent}."; }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return "Não foi possível salvar as configurações do assistente.";
+        }
     }
 
     private static string FormatRepository(RepositoryDefinition repository) =>
