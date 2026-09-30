@@ -604,3 +604,21 @@ gh issue comment <numero> --body-file <claim>   # ## TURNO ASSUMIDO, antes de al
 
 Depois: baseline (`dotnet build` + `dotnet test`), implementação dentro do escopo,
 validação e staging seletivo, conforme o [contrato](docs/development/agent-contract.md).
+
+#### Continuar trabalho
+
+Para uma Issue `status:in-progress`, use a skill `$continuar-turno`: ela recupera o
+[handoff](docs/development/handoff.md#continuar-turno) nos comentários da Issue,
+confirma ownership, branch e PR, compara o checkpoint com o Git e publica um novo
+`## TURNO ASSUMIDO` antes de qualquer alteração. Se não houver handoff confiável, siga
+o [RECOVERY MODE](docs/development/handoff.md#recovery-mode) preservando o trabalho
+recebido. Em `status:review`, só continue se o PR pedir correção; use a mesma branch e
+o mesmo PR.
+
+#### Encerrar trabalho
+
+Use a skill `$encerrar-turno` e registre a validação real. Se o trabalho estiver
+inacabado, faça checkpoint e push, depois publique `## HANDOFF` na Issue. Se a
+implementação estiver concluída, abra o PR, mova a Issue para `status:review` e publique
+`## TURNO FINALIZADO` na Issue. Os [registros de turno](docs/development/handoff.md#onde-vivem-os-registros)
+ficam nos comentários da Issue, nunca em arquivos do repositório.
