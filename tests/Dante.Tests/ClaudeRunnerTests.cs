@@ -5,6 +5,18 @@ namespace Dante.Tests;
 public sealed class ClaudeRunnerTests
 {
     [Fact]
+    public async Task EffortIsPassedAsDataWithoutChangingGeneralModeRestrictions()
+    {
+        var executor = new RecordingExecutor(Result(AgentProcessStatus.Succeeded));
+        var runner = new ClaudeRunner(executor);
+        await runner.RunAsync("question", AppContext.BaseDirectory, generalMode: true, effort: "high");
+        var arguments = executor.Request!.Arguments.ToList();
+        Assert.Equal("high", arguments[arguments.IndexOf("--effort") + 1]);
+        Assert.True(executor.Request.IsGeneral);
+        Assert.Equal(["--", "question"], arguments.ToArray()[^2..]);
+    }
+
+    [Fact]
     public async Task GeneralModeRestrictsToolsToWorkspaceFiles()
     {
         var executor = new RecordingExecutor(Result(AgentProcessStatus.Succeeded));

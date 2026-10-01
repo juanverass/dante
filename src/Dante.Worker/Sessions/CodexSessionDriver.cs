@@ -24,6 +24,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
     private InteractiveAgentProcess? process;
     private string? threadId;
     private string? model;
+    private string? effort;
     private string? activeTurnId;
     private string? completedTurnId;
     private AgentPermissionProfile profile;
@@ -57,6 +58,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
         {
             process = agent;
             profile = options.Profile;
+            effort = options.ModelSelection?.Effort;
         }
 
         _ = ReadOutputAsync(agent);
@@ -113,6 +115,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
         }
 
         var parameters = new JsonObject { ["threadId"] = thread, ["input"] = TextInput(input) };
+        if (effort is not null) parameters["effort"] = effort;
         if (current == AgentPermissionProfile.Plan)
         {
             // The plan collaboration mode needs the model explicitly; thread/start reported it.
@@ -122,6 +125,9 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
                 ["settings"] = new JsonObject { ["model"] = currentModel, ["developer_instructions"] = null }
             };
         }
+
+        if (effort is not null && parameters["collaborationMode"]?["settings"] is JsonObject collaborationSettings)
+            collaborationSettings["reasoning_effort"] = effort;
 
         var result = await SendRequestAsync("turn/start", parameters, cancellationToken);
         var turnId = GetString(result["turn"] as JsonObject, "id")

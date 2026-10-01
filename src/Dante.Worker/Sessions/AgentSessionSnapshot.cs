@@ -22,6 +22,8 @@ public sealed record AgentSessionSnapshot(
     string? ReportedModel = null)
 {
     // The model chosen when the session started, or the CLI default with the model the CLI reported, if any (#77).
+    public string EffortLabel => ModelSelection?.EffortLabel ?? "padrão da CLI";
+
     public string ModelLabel => ModelSelection?.Model ??
         (ReportedModel is null ? AgentModelSelection.CliDefault.ModelLabel : $"padrão da CLI ({ReportedModel})");
 }

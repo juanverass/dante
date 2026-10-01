@@ -8,6 +8,32 @@ public sealed class AssistantSettingsStoreTests : IDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "dante-settings-" + Guid.NewGuid().ToString("N"));
 
+    [Theory]
+    [InlineData("null")]
+    [InlineData("{\"bad-user\":{\"Claude\":\"high\"}}")]
+    [InlineData("{\"123\":{\"unknown\":\"high\"}}")]
+    [InlineData("{\"123\":{\"Claude\":null}}")]
+    [InlineData("{\"123\":{\"Claude\":\"high low\"}}")]
+    public void InvalidEffortMapStopsLoading(string map)
+    {
+        Directory.CreateDirectory(root);
+        var file = Path.Combine(root, "settings.json");
+        File.WriteAllText(file, "{\"DefaultAgent\":\"Claude\",\"Efforts\":" + map + "}");
+        Assert.Throws<InvalidDataException>(() => new AssistantSettingsStore(file));
+    }
+
+    [Fact]
+    public void FailedEffortWriteRestoresPreviousPreference()
+    {
+        var file = Path.Combine(root, "settings.json");
+        var store = new AssistantSettingsStore(file);
+        store.SetEffort(123, AgentKind.Claude, "high");
+        File.Delete(file);
+        Directory.CreateDirectory(file);
+        Assert.ThrowsAny<Exception>(() => store.SetEffort(123, AgentKind.Claude, "low"));
+        Assert.Equal("high", store.GetEffort(123, AgentKind.Claude));
+    }
+
     [Fact]
     public void UsesDocumentedDefaultWithoutCreatingFile()
     {

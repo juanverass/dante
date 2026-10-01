@@ -192,7 +192,7 @@ public sealed class AgentModelCatalog(
     }
 
     private static IReadOnlyList<string> Levels(IEnumerable<string?> levels) =>
-        levels.Where(AgentModelSelection.IsValidName).Select(level => level!).ToArray();
+        levels.Where(AgentModelSelection.IsValidEffort).Select(level => level!).ToArray();
 
     // stdout carries the protocol; stderr and unrelated messages (notifications, other responses) are skipped.
     private static async Task<JsonObject> ReadUntilAsync(InteractiveAgentProcess process, Func<JsonObject, bool> match,

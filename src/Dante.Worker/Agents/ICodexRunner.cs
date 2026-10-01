@@ -8,5 +8,5 @@ public interface ICodexRunner
         CancellationToken cancellationToken = default,
         bool generalMode = false,
         IReadOnlyDictionary<string, string>? environment = null,
-        string? model = null);
+        string? model = null, string? effort = null);
 }

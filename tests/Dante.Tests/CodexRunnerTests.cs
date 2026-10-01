@@ -5,6 +5,18 @@ namespace Dante.Tests;
 public sealed class CodexRunnerTests
 {
     [Fact]
+    public async Task EffortIsPassedAsDataWithoutChangingGeneralModeRestrictions()
+    {
+        var executor = new RecordingExecutor(Result(AgentProcessStatus.Succeeded));
+        var runner = new CodexRunner(executor);
+        await runner.RunAsync("question", AppContext.BaseDirectory, generalMode: true, effort: "xhigh");
+        var arguments = executor.Request!.Arguments.ToList();
+        Assert.Equal("model_reasoning_effort=\"xhigh\"", arguments[arguments.IndexOf("--config") + 1]);
+        Assert.True(executor.Request.IsGeneral);
+        Assert.Equal(["--", "question"], arguments.ToArray()[^2..]);
+    }
+
+    [Fact]
     public async Task GeneralModeUsesWorkspaceSandboxWithoutGitRequirement()
     {
         var executor = new RecordingExecutor(Result(AgentProcessStatus.Succeeded));

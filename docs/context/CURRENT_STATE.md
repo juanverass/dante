@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-01, com seleção explícita de modelo por agente (#77).
+Última revisão: 2026-10-01, com seleção de esforço por agente/modelo (#78).
 
 ## Marcos
 
@@ -29,7 +29,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 - `/repo env set|bind|list|remove` com segredos por referência ao host;
 - `/status` com contexto de cada job e `/cancel <jobId>`;
 - configurações do assistente em `~/.dante/settings.json` (agente padrão, Claude quando
-  não configurado; repositório ativo, modo padrão e modelos por usuário);
+  não configurado; repositório ativo, modo padrão, modelos e esforço por usuário);
 - `/agent` e `/agent set claude|codex` para consultar e alterar o agente padrão;
 - `/model` e `/model claude|codex [<modelo>|default]`: preferência persistida por usuário
   e agente, validada no catálogo das CLIs (cache de dez minutos), usada nas novas sessões
@@ -37,6 +37,10 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   e `model=default` retorna ao padrão da CLI naquela sessão. Modelo fica fixo e visível
   em `/status`; preferência indisponível recusa novas execuções e orienta nova escolha
   ou retorno ao default, sem troca silenciosa (AD-25);
+- `/effort` e `/effort claude|codex [<nível>|default]`: preferência por usuário/agente
+  validada nos níveis anunciados pela CLI para o modelo escolhido, aplicada às novas
+  sessões e one-shot; override `effort=<nível>|default` em `/session start`, esforço
+  fixo entre turnos e visível em `/status`, independente de permissões (AD-26);
 - conversa session-first (AD-23): mensagem sem slash command abre uma sessão interativa do
   agente padrão no contexto atual, ou continua a sessão ativa, e mostra essencialmente a
   resposta do agente, com progresso curto e indicador "digitando…"; `/claude` e `/codex`
@@ -92,11 +96,11 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #77:
+Estado conhecido com #78:
 
 ```text
 dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    297 testes aprovados
+dotnet test Dante.sln    311 testes aprovados
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →

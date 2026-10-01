@@ -710,3 +710,42 @@ Código: `Agents/AgentModelCatalog.cs`, `Agents/AgentModelSelection.cs`,
 `Settings/AssistantSettingsStore.cs`, `Sessions/SessionRegistry.cs`, drivers,
 runners e `Telegram/TelegramPollingService.cs`. Testes: `AgentModelCatalogTests`,
 `TelegramModelCommandTests`, settings, runners e drivers.
+
+
+## AD-26 — Esforço por agente e usuário, validado por modelo e independente de permissões
+
+Status: vigente (#78)
+
+`/effort` consulta preferências e níveis anunciados pela CLI para cada modelo;
+`/effort claude|codex <nível>|default` grava ou remove a preferência em `Efforts`,
+no settings local, com escrita atômica, rollback e carga fail-closed. Não há lista
+estática nem equivalência entre CLIs. O catálogo da AD-25 fornece `EffortLevels`;
+sem modelo escolhido usa a entrada marcada como default. Sem default identificável,
+a seleção explícita recusa e orienta escolher um modelo. Modelos sem níveis não
+aceitam esforço explícito. Sem esforço escolhido, a CLI mantém o padrão nativo.
+
+`AgentModelSelection` carrega modelo e esforço juntos, fixados no snapshot e nas
+opções do driver ao iniciar. `/session start ... effort=<nível>|default` vale apenas
+para aquela sessão. Novas conversas e jobs usam a preferência do agente nomeado;
+`/status` e `/session list` mostram o esforço escolhido ou o padrão da CLI.
+Alterações de preferência não chegam às sessões existentes.
+
+Claude recebe `--effort` tanto no processo interativo quanto no one-shot. Codex
+recebe `effort` em cada `turn/start`; em plan também recebe `reasoning_effort`
+nas configurações de colaboração para preservar a escolha. One-shot Codex recebe
+`--config model_reasoning_effort="<nível>"` como argumento separado. Sem esforço
+explícito esses parâmetros são omitidos. Perfis de permissão, sandbox e ferramentas
+continuam determinados apenas pelo modo de execução: esforço não amplia acesso.
+
+A combinação modelo × esforço é validada antes do processo de execução. Preferência
+incompatível após troca de modelo ou atualização da CLI recusa novas execuções após
+renovação do catálogo, com orientação para outra escolha ou `default`; não há
+fallback silencioso. Remover a preferência não depende do catálogo estar disponível.
+
+Por quê: esforço é uma capacidade do modelo, não uma permissão do agente. Usar os
+nomes anunciados por cada CLI evita aceitar níveis inexistentes ou reinterpretar a
+intenção do usuário. A escolha fixa mantém a sessão coerente entre turnos.
+
+Código: `Agents/AgentModelSelection.cs`, catálogo, runners, settings, drivers e
+`Telegram/TelegramPollingService.cs`. Testes: settings, runners, drivers reais com
+ProcessProbe e `TelegramModelCommandTests` (seleção combinada de modelo e esforço).
