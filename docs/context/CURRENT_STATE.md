@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-01, com seleção de esforço por agente/modelo (#78).
+Última revisão: 2026-10-01, com aprovações inline no Telegram (#80).
 
 ## Marcos
 
@@ -62,6 +62,9 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   solicitações correlacionadas por sessão, turno e request, com expiração em cinco minutos
   e estado pendente em `/status` (AD-22).
 
+- aprovações oferecem botões inline com validação de dono, turno, request e expiração;
+  `/approve`, `/approve-session` e `/deny` seguem disponíveis como fallback textual;
+
 Detalhes de uso: [README](../../README.md).
 
 ## Limitações atuais
@@ -72,7 +75,6 @@ Detalhes de uso: [README](../../README.md).
 - sem worktrees, fila persistente ou execução concorrente isolada por Issue;
 - sessões interativas e resultados recentes de entrega ficam apenas em memória; ao
   reiniciar o Worker, sessões e saídas pendentes não podem ser recuperadas;
-- aprovação com botão inline não está exposta; comandos textuais estão disponíveis;
 - perfil `full` não é oferecido, pois não há mapeamento comum validado entre as CLIs;
 - input humano do Codex só aparece no perfil `plan` (limitação do `app-server`, AD-19);
 - streaming longo ainda chega em várias mensagens (uma por lote de linhas); editar uma única
@@ -96,11 +98,11 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #78:
+Estado conhecido com #80:
 
 ```text
 dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    311 testes aprovados
+dotnet test Dante.sln    329 testes aprovados
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →

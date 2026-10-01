@@ -25,6 +25,14 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
     private readonly Dictionary<string, StringBuilder> itemText = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> toolDescriptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<long, string> activeSessions = [];
+    private readonly Dictionary<string, ApprovalMessage> approvals = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool OwnsApprovalMessage(string requestId, long userId, long chatId, long messageId)
+    {
+        lock (gate) return approvals.TryGetValue(requestId, out var approval) &&
+            approval.Record.UserId == userId && approval.Record.ChatId == chatId &&
+            approval.MessageId == messageId && messageId > 0 && approval.Status is null;
+    }
 
     // Allows the race between draining a batch and clearing Scheduled to be exercised in tests.
     internal Func<Task>? BeforeScheduledDeliveryCleanupAsync { get; set; }
@@ -73,10 +81,33 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
                 session.Id + "/" + agentEvent.TurnId;
             if (agentEvent.TurnId is not null) latestTurns[session.Id] = id;
             var record = GetOrCreate(id, chat.UserId, chat.ChatId, session.Id);
+            if (agentEvent is RequestResolvedEvent resolved && approvals.TryGetValue(resolved.RequestId, out var answered))
+                ResolveApproval(answered, TelegramApprovalCallback.DecisionText(resolved.Decision));
+            if (agentEvent is RequestExpiredEvent expired && approvals.TryGetValue(expired.RequestId, out var timedOut))
+                ResolveApproval(timedOut, "⌛ Solicitação expirada");
+            if (agentEvent is TurnCompletedEvent or ErrorEvent)
+                foreach (var approval in approvals.Values.Where(a => a.Record.SessionId == session.Id && a.Status is null))
+                    ResolveApproval(approval, "Solicitação encerrada.");
             var formatted = FormatEvent(session, agentEvent, chat.HideOutput, record);
             if (agentEvent is TurnCompletedEvent or ErrorEvent) record.Final = true;
-            if (formatted.Length > 0) Append(record, formatted,
-                flush: agentEvent is ApprovalRequestedEvent or UserInputRequestedEvent or RequestExpiredEvent);
+            if (agentEvent is ApprovalRequestedEvent request)
+            {
+                // Keep each keyboard on its own request, even when several approvals arrive in the same batch.
+                FlushBuffer(record);
+                // Actionable requests remain deliverable after ordinary output has reached its retention limit.
+                record.Chunks.AddRange(Split(Redact(formatted, record), record.PrefixReserve + 80));
+                record.ContentVersion++;
+                if (record.State != TelegramDeliveryState.Failed)
+                {
+                    record.State = TelegramDeliveryState.Pending;
+                    Schedule(record);
+                }
+                var approval = new ApprovalMessage(record, TelegramApprovalCallback.Keyboard(request));
+                approvals[request.RequestId] = approval;
+                record.ApprovalChunks[record.Chunks.Count - 1] = approval;
+            }
+            else if (formatted.Length > 0) Append(record, formatted,
+                flush: agentEvent is UserInputRequestedEvent or RequestExpiredEvent);
             else if (record.Final && record.State != TelegramDeliveryState.Failed) Schedule(record);
             record.AwaitingUser = agentEvent is ApprovalRequestedEvent or UserInputRequestedEvent;
             if (agentEvent.TurnId is not null) StartTyping(record);
@@ -295,7 +326,12 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
         {
             var oldest = records.Values.Where(r => r.State != TelegramDeliveryState.Pending)
                 .OrderBy(r => r.CreatedAtUtc).FirstOrDefault();
-            if (oldest is not null) records.Remove(oldest.Id);
+            if (oldest is not null)
+            {
+                records.Remove(oldest.Id);
+                foreach (var key in approvals.Where(pair => pair.Value.Record == oldest).Select(pair => pair.Key).ToArray())
+                    approvals.Remove(key);
+            }
         }
         return record;
     }
@@ -318,17 +354,67 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
         if (text.Length > 0) record.EndsWithNewLine = text[^1] == '\n';
         if (!string.IsNullOrWhiteSpace(text)) record.HasVisibleText = true;
         record.Buffer.Append(text);
-        if (flush && record.Buffer.Length > 0)
-        {
-            record.Chunks.AddRange(Split(Redact(record.Buffer.ToString(), record), record.PrefixReserve));
-            record.Buffer.Clear();
-        }
+        if (flush) FlushBuffer(record);
         record.ContentVersion++;
         if (record.State != TelegramDeliveryState.Failed)
         {
             record.State = TelegramDeliveryState.Pending;
             if (schedule) Schedule(record);
         }
+    }
+
+    private void FlushBuffer(DeliveryRecord record)
+    {
+        if (record.Buffer.Length == 0) return;
+        record.Chunks.AddRange(Split(Redact(record.Buffer.ToString(), record), record.PrefixReserve + 80));
+        record.Buffer.Clear();
+    }
+
+    private void ResolveApproval(ApprovalMessage approval, string status)
+    {
+        approval.Status = status;
+        _ = RefreshApprovalAsync(approval);
+    }
+
+    private async Task RefreshApprovalAsync(ApprovalMessage approval)
+    {
+        // Serialize with sending: expiry can happen before Telegram has returned the message id.
+        await approval.Record.SendGate.WaitAsync();
+        try
+        {
+            if (approval.MessageId is not { } messageId || approval.Status is not { } status) return;
+            for (var attempt = 0; attempt < 4; attempt++)
+            {
+                try
+                {
+                    var text = approval.SentText!.TrimEnd() + "\n\n" + status;
+                    await botApi.EditApprovalAsync(approval.Record.ChatId, messageId,
+                        Redact(text, approval.Record), CancellationToken.None);
+                    return;
+                }
+                catch (Exception exception) when (IsTransient(exception, CancellationToken.None) && attempt < 3)
+                {
+                    var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
+                    if (exception is TelegramRateLimitException { RetryAfter: { } retry } && retry > delay) delay = retry;
+                    await Task.Delay(delay);
+                }
+                catch (Exception exception)
+                {
+                    logger.LogDebug("Falha ao atualizar aprovação ({ErrorType}).", exception.GetType().Name);
+                    return;
+                }
+            }
+        }
+        finally { approval.Record.SendGate.Release(); }
+    }
+
+    private sealed class ApprovalMessage(DeliveryRecord record, TelegramInlineKeyboard keyboard)
+    {
+        public DeliveryRecord Record { get; } = record;
+        public TelegramInlineKeyboard Keyboard { get; } = keyboard;
+        public long? MessageId { get; set; }
+        public string? SentText { get; set; }
+        public string? Status { get; set; }
     }
 
     private void Schedule(DeliveryRecord record)
@@ -385,6 +471,7 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
                 if (wait > TimeSpan.Zero) await Task.Delay(wait, cancellationToken);
 
                 string? part;
+                ApprovalMessage? approval;
                 lock (gate)
                 {
                     if (record.State == TelegramDeliveryState.Failed) return;
@@ -415,6 +502,8 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
                         return;
                     }
                     part = PrefixFor(record) + record.Chunks[record.NextChunk];
+                    approval = record.ApprovalChunks.GetValueOrDefault(record.NextChunk);
+                    if (approval?.Status is { } status) part += "\n" + status;
                 }
 
                 var sent = false;
@@ -422,7 +511,20 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
                 {
                     try
                     {
-                        await botApi.SendMessageAsync(record.ChatId, Redact(part, record), cancellationToken);
+                        var safePart = Redact(part, record);
+                        if (approval is null) await botApi.SendMessageAsync(record.ChatId, safePart, cancellationToken);
+                        else
+                        {
+                            var messageId = await botApi.SendApprovalAsync(record.ChatId, safePart,
+                                approval.Status is null ? approval.Keyboard : null, cancellationToken);
+                            lock (gate)
+                            {
+                                approval.MessageId = messageId;
+                                approval.SentText = safePart;
+                            }
+                            // A decision/expiry may have raced with sendMessage returning its id.
+                            if (approval.Status is not null) _ = RefreshApprovalAsync(approval);
+                        }
                         sent = true;
                         break;
                     }
@@ -546,6 +648,7 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
         public DateTimeOffset CreatedAtUtc { get; } = DateTimeOffset.UtcNow;
         public StringBuilder Buffer { get; } = new();
         public List<string> Chunks { get; } = [];
+        public Dictionary<int, ApprovalMessage> ApprovalChunks { get; } = [];
         public SemaphoreSlim SendGate { get; } = new(1, 1);
         public TelegramDeliveryState State { get; set; } = TelegramDeliveryState.Pending;
         public int NextChunk { get; set; }
