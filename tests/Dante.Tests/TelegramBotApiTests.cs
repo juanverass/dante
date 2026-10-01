@@ -1,6 +1,12 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text.Json;
+using Dante.Worker.Agents;
+using Dante.Worker.Jobs;
+using Dante.Worker.Sessions;
 using Dante.Worker.Telegram;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Dante.Tests;
@@ -146,8 +152,137 @@ public sealed class TelegramBotApiTests
         Assert.Equal(TelegramDeliveryState.Delivered, delivery.Get("J1", 123)!.State);
         Assert.Equal(2, requests.Count);
         Assert.Equal("HTML", requests[0].GetProperty("parse_mode").GetString());
-        Assert.Equal(JsonValueKind.Null, requests[1].GetProperty("parse_mode").ValueKind);
+        Assert.False(requests[1].TryGetProperty("parse_mode", out _));
+        Assert.False(requests[1].TryGetProperty("reply_markup", out _));
         Assert.Equal("-a < b\n+c > d\n", requests[1].GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public async Task PingReplyOmitsUnsetOptionalFieldsThatTelegramRejectsAsNull()
+    {
+        var telegram = new BotApiLikeHandler();
+        using var http = new HttpClient(telegram);
+        var api = new TelegramBotApi(http, Options.Create(new TelegramOptions { BotToken = "test" }));
+
+        await api.SendMessageAsync(-123, "pong", default);
+
+        var body = Assert.Single(telegram.Accepted);
+        Assert.Equal("pong", body.GetProperty("text").GetString());
+        Assert.False(body.TryGetProperty("parse_mode", out _));
+        Assert.False(body.TryGetProperty("reply_markup", out _));
+    }
+
+    [Fact]
+    public async Task OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard()
+    {
+        var telegram = new BotApiLikeHandler();
+        using var http = new HttpClient(telegram);
+        var api = new TelegramBotApi(http, Options.Create(new TelegramOptions { BotToken = "test" }));
+        var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance)
+            { PartInterval = TimeSpan.Zero };
+        var session = new AgentSessionSnapshot("S000001", AgentKind.Claude, 123,
+            JobExecutionContext.General("/tmp/general"), AgentPermissionProfile.Manual,
+            AgentSessionState.Running, "T000001", 0, [], true, DateTimeOffset.UtcNow, null, null);
+        delivery.RegisterSession(session.Id, 123, -123, false);
+        delivery.SetActiveSession(123, session.Id);
+
+        foreach (AgentEvent evt in new AgentEvent[]
+                 {
+                     new MessageDeltaEvent("item", "Estou bem, "),
+                     new MessageCompletedEvent("item", "Estou bem, e você? <tudo> & 'certo'"),
+                     new TurnCompletedEvent(AgentTurnOutcome.Completed)
+                 })
+            await delivery.PublishAsync(session, evt with { SessionId = session.Id, TurnId = "T000001" }, default);
+
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (delivery.Get(session.Id, 123)?.State == TelegramDeliveryState.Pending)
+            await Task.Delay(10, deadline.Token);
+        Assert.Equal(TelegramDeliveryState.Delivered, delivery.Get(session.Id, 123)!.State);
+        var body = Assert.Single(telegram.Accepted);
+        Assert.Equal("HTML", body.GetProperty("parse_mode").GetString());
+        Assert.False(body.TryGetProperty("reply_markup", out _));
+        Assert.Equal("Estou bem, e voc&#234;? &lt;tudo&gt; &amp; &#39;certo&#39;\n",
+            body.GetProperty("text").GetString());
+    }
+
+    [Theory]
+    [InlineData("Bad Request: unsupported parse_mode")]
+    [InlineData("Bad Request: object expected as reply markup")]
+    public async Task InvalidRequestFieldsAreNotMistakenForRejectedMarkup(string description)
+    {
+        using var http = new HttpClient(new StubHandler(_ => Task.FromResult(
+            new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new { ok = false, description }))
+            })));
+        var api = new TelegramBotApi(http, Options.Create(new TelegramOptions { BotToken = "test" }));
+        var message = Assert.Single(new TelegramMessageFormatter().Format("texto"));
+
+        var error = await Assert.ThrowsAnyAsync<HttpRequestException>(() =>
+            api.SendFormattedMessageAsync(-123, message, null, default));
+
+        Assert.IsNotType<TelegramMarkupException>(error);
+        Assert.Equal(HttpStatusCode.BadRequest, error.StatusCode);
+    }
+
+    [Fact]
+    public async Task RejectedDeliveryLogsStatusWithoutTokenOrTelegramDiagnostic()
+    {
+        using var http = new HttpClient(new StubHandler(_ => Task.FromResult(
+            new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("""{"ok":false,"description":"Bad Request: echoed-content"}""")
+            })));
+        var api = new TelegramBotApi(http, Options.Create(new TelegramOptions { BotToken = "secret-token" }));
+        var logger = new CapturingLogger();
+        var delivery = new TelegramDeliveryService(api, logger);
+
+        await delivery.DeliverJobAsync("J1", 123, -123, "texto", default);
+
+        Assert.Equal(TelegramDeliveryState.Failed, delivery.Get("J1", 123)!.State);
+        var line = Assert.Single(logger.Lines);
+        Assert.Contains("HTTP 400", line);
+        Assert.DoesNotContain("secret-token", line);
+        Assert.DoesNotContain("api.telegram.org", line);
+        Assert.DoesNotContain("echoed-content", line);
+    }
+
+    private sealed class CapturingLogger : ILogger<TelegramDeliveryService>
+    {
+        public readonly ConcurrentQueue<string> Lines = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel >= LogLevel.Warning) Lines.Enqueue(formatter(state, exception));
+        }
+    }
+
+    // Mirrors what the real Bot API answered for sendMessage: optional fields sent as JSON null are invalid, not absent.
+    private sealed class BotApiLikeHandler : HttpMessageHandler
+    {
+        public readonly ConcurrentQueue<JsonElement> Accepted = new();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken)).RootElement.Clone();
+            var error =
+                body.TryGetProperty("parse_mode", out var mode) && mode.ValueKind != JsonValueKind.String
+                    ? "Bad Request: unsupported parse_mode"
+                    : body.TryGetProperty("reply_markup", out var markup) && markup.ValueKind != JsonValueKind.Object
+                        ? "Bad Request: object expected as reply markup"
+                        : null;
+            if (error is not null)
+                return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(new { ok = false, error_code = 400, description = error }))
+                };
+            Accepted.Enqueue(body);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = new StringContent("""{"ok":true,"result":{"message_id":5}}""") };
+        }
     }
 
     private sealed class StubHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handle) : HttpMessageHandler
