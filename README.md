@@ -557,7 +557,9 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 Durante um turno interativo, mensagens comuns entram na fila. A sessão mantém o mesmo agente e
 repositório até ser encerrada, mesmo que `/agent set` ou `/use` mudem depois. Eventos são
 agrupados por cerca de 750 ms antes do envio, em mensagens de até 4000 caracteres; a saída da
-sessão ativa chega sem prefixo e a de qualquer outra sessão é identificada por `[S…]`. Uma
+sessão ativa chega sem prefixo e a de qualquer outra sessão é identificada por `[S…]` — inclusive
+quando você troca de sessão no meio de um turno: a partir da troca, a anterior passa a aparecer
+com `[S…]`. Partes de um mesmo turno saem com pelo menos 1,5 s entre si. Uma
 falha de entrega aparece em `/status` separadamente do resultado da execução; `/resend` tenta
 novamente as partes ainda não entregues. Resultados recentes ficam em memória enquanto o Worker
 está vivo.

@@ -288,6 +288,7 @@ public sealed class TelegramDeliveryServiceTests
             TypingInterval = TimeSpan.FromMilliseconds(50)
         };
         delivery.RegisterSession("S1", 123, -123, false);
+        delivery.SetActiveSession(123, "S1");
         var session = Snapshot("S1");
         Task Publish(AgentEvent agentEvent, string? turn = "T1", AgentSessionSnapshot? snapshot = null) =>
             delivery.PublishAsync(snapshot ?? session, agentEvent with { SessionId = "S1", TurnId = turn }, default);
@@ -346,6 +347,70 @@ public sealed class TelegramDeliveryServiceTests
     }
 
     [Fact]
+    public async Task SessionThatStopsBeingActiveMidTurnIsIdentifiedAndStopsTyping()
+    {
+        var api = new RecordingApi();
+        var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance)
+        {
+            TypingInterval = TimeSpan.FromMilliseconds(50),
+            PartInterval = TimeSpan.FromMilliseconds(50)
+        };
+        delivery.RegisterSession("S1", 123, -123, false);
+        delivery.RegisterSession("S2", 123, -123, false);
+        delivery.SetActiveSession(123, "S1");
+        Task Publish(string sessionId, AgentEvent agentEvent) => delivery.PublishAsync(Snapshot(sessionId),
+            agentEvent with { SessionId = sessionId, TurnId = "T1" }, default);
+
+        await Publish("S1", new TurnStartedEvent());
+        await Publish("S1", new MessageDeltaEvent("m1", "primeira parte\n"));
+        await Eventually(() => api.Messages.Any(message => message.Text == "primeira parte\n"));
+        Assert.True(api.ChatActions > 0);
+
+        // /session start or /session select moves the conversation to S2 while S1's turn is still running.
+        delivery.SetActiveSession(123, "S2");
+        await Task.Delay(200);
+        var afterSwitch = api.ChatActions;
+        await Task.Delay(300);
+        Assert.Equal(afterSwitch, api.ChatActions);
+
+        await Publish("S1", new MessageDeltaEvent("m1", "segunda parte\n"));
+        await Eventually(() => api.Messages.Any(message => message.Text == "[S1] segunda parte\n"));
+        await Task.Delay(300);
+        Assert.Equal(afterSwitch, api.ChatActions);
+
+        await Publish("S2", new TurnStartedEvent());
+        await Publish("S2", new MessageCompletedEvent("m2", "resposta de S2"));
+        await Eventually(() => api.Messages.Any(message => message.Text == "resposta de S2\n"));
+        await Eventually(() => api.ChatActions > afterSwitch);
+        await Publish("S1", new TurnCompletedEvent(AgentTurnOutcome.Failed, "boom"));
+        await Eventually(() => api.Messages.Any(message => message.Text == "[S1] A resposta falhou: boom\n"));
+        Assert.DoesNotContain(api.Messages, message => message.Text.StartsWith("[S2]"));
+    }
+
+    [Fact]
+    public async Task ConsecutivePartsOfATurnAreSpacedEvenWhenOneFlushProducesSeveral()
+    {
+        var api = new RecordingApi();
+        var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance)
+        {
+            PartInterval = TimeSpan.FromMilliseconds(400)
+        };
+        delivery.RegisterSession("S1", 123, -123, false);
+        delivery.SetActiveSession(123, "S1");
+        var session = Snapshot("S1");
+        await delivery.PublishAsync(session, new MessageCompletedEvent("m1", new string('x', 9000))
+            { SessionId = "S1", TurnId = "T1" }, default);
+        await delivery.PublishAsync(session, new TurnCompletedEvent(AgentTurnOutcome.Completed)
+            { SessionId = "S1", TurnId = "T1" }, default);
+
+        await Eventually(() => delivery.Get("S1", 123)?.State == TelegramDeliveryState.Delivered);
+        var sent = api.Sent;
+        Assert.Equal(3, sent.Count);
+        Assert.All(sent.Zip(sent.Skip(1)), pair =>
+            Assert.True(pair.Second - pair.First >= TimeSpan.FromMilliseconds(380), $"{pair.Second - pair.First}"));
+    }
+
+    [Fact]
     public async Task FinalEventArrivingAfterBatchDrainsIsScheduledWithoutAnotherEvent()
     {
         var api = new RecordingApi();
@@ -389,10 +454,15 @@ public sealed class TelegramDeliveryServiceTests
             delivery.RegisterSession("S1", 123, -123, false);
             var session = Snapshot("S1");
             await delivery.PublishAsync(session, new TurnStartedEvent { SessionId = "S1", TurnId = "T1" }, default);
+            // A short progress line cannot complete the secret: it is not held back until the turn ends.
+            await delivery.PublishAsync(session, new ToolStartedEvent("c1", AgentToolKind.Command, "dotnet test")
+                { SessionId = "S1", TurnId = "T1" }, default);
+            await Eventually(() => api.Messages.Any(message => message.Text.Contains("→ dotnet test")));
             await delivery.PublishAsync(session, new MessageDeltaEvent("item",
                 new string('x', 100) + "\n" + new string('z', 40) + "dante-cross-")
                 { SessionId = "S1", TurnId = "T1" }, default);
-            await Eventually(() => api.Messages.Count > 0);
+            await Eventually(() => api.Messages.Count > 1);
+            Assert.DoesNotContain(api.Messages, message => message.Text.Contains("dante-cross-"));
             await delivery.PublishAsync(session, new MessageDeltaEvent("item", "boundary-secret" + new string('y', 100))
                 { SessionId = "S1", TurnId = "T1" }, default);
             await delivery.PublishAsync(session, new TurnCompletedEvent(AgentTurnOutcome.Completed)
@@ -449,6 +519,8 @@ public sealed class TelegramDeliveryServiceTests
         public HttpStatusCode FailureStatus { get; set; }
         public int Attempts => attempts;
         public IReadOnlyList<(long ChatId, string Text)> Messages => messages.ToArray();
+        public IReadOnlyList<DateTimeOffset> Sent => sent.ToArray();
+        private readonly ConcurrentQueue<DateTimeOffset> sent = new();
         public int ChatActions => chatActions;
         private int chatActions;
 
@@ -468,6 +540,7 @@ public sealed class TelegramDeliveryServiceTests
             if (attempt <= Failures || attempt == FailOnAttempt)
                 throw new HttpRequestException("falha simulada", null, FailureStatus);
             messages.Enqueue((chatId, text));
+            sent.Enqueue(DateTimeOffset.UtcNow);
             return Task.CompletedTask;
         }
     }

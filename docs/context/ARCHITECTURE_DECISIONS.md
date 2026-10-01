@@ -511,8 +511,12 @@ entrega nunca muda o estado concluído do job ou do turno. Registros de entrega 
 sobrevivem ao reinício do Worker.
 
 Desde a AD-23, a saída da sessão ativa não leva prefixo de sessão/turno (só a de outras sessões,
-como `[S…]`), o streaming sai em linhas inteiras com pausa mínima entre partes do mesmo turno e
-partes sem texto visível não são enviadas. Separação entre entrega e execução, retry, `/resend`,
+como `[S…]`, decidido no envio de cada parte), o streaming sai em linhas inteiras com pausa mínima
+entre partes do mesmo turno e partes sem texto visível não são enviadas. A retenção de segredos
+parciais passou a ser exata: só fica retido o final do texto que ainda pode completar um segredo
+conhecido (sufixo que é prefixo dele), em vez de sempre os últimos `tamanho do maior segredo - 1`
+caracteres — com uma API key no ambiente, linhas curtas de progresso ficavam presas até o fim do
+turno. Separação entre entrega e execução, retry, `/resend`,
 redaction e omissão por segredos vinculados continuam como descrito acima.
 
 Por quê: a conclusão de ações do agente não prova que o Telegram recebeu sua resposta. Separar
@@ -591,18 +595,27 @@ Apresentação no Telegram:
 - a sessão ativa fala como conversa: texto do agente, linhas curtas de progresso (`→ comando`,
   arquivos alterados, `✗ … falhou`), `Resposta interrompida.`, `A resposta falhou: …` e
   `(sem resposta do agente)` quando o turno termina sem texto visível. Não há `Job ID` nem
-  `Turno iniciado/concluído`. Saída de outra sessão leva o prefixo `[S…]`;
+  `Turno iniciado/concluído`. Saída de outra sessão leva o prefixo `[S…]`. A identificação é
+  decidida no envio de cada parte, contra a sessão ativa do usuário no momento: o
+  `TelegramDeliveryService` acompanha a seleção do `SessionRegistry` (atualizada pelo
+  `TelegramPollingService` a cada abertura implícita, `/session start`, `select` e `close`), então
+  a saída de uma sessão que deixa de ser ativa no meio de um turno passa a chegar como `[S…]` e a
+  de uma sessão reselecionada volta a chegar sem prefixo;
 - IDs aparecem só onde o usuário precisa agir (pedido de aprovação/input, cujos comandos
   exigem `S… T… R…`), em `/status`, `/session` e nos demais comandos explícitos. `/status` mostra
   também o erro de sessões encerradas, exceto quando a sessão tem segredos vinculados;
 - caminhos dentro do diretório da sessão aparecem relativos a ele; nas linhas de progresso o
   wrapper `/bin/bash -lc '…'` do Codex é omitido. O pedido de aprovação mostra o comando completo, com o wrapper;
-- enquanto o turno roda, `sendChatAction(typing)` é renovado a cada 4 s; ele pausa enquanto um
-  pedido espera o usuário e para no fim do turno. Falha do indicador é ignorada.
+- enquanto o turno da sessão ativa roda, `sendChatAction(typing)` é renovado a cada 4 s. Como o
+  indicador é do chat inteiro, ele nunca roda para outra sessão: para quando a sessão deixa de ser
+  ativa, pausa enquanto um pedido espera o usuário e para no fim do turno. Falha do indicador é
+  ignorada.
 
 Cadência e limites do Telegram: o primeiro lote de um turno sai 750 ms após o primeiro evento;
-partes seguintes do mesmo turno respeitam pausa mínima de 1,5 s (orientação do Telegram de cerca
-de uma mensagem por segundo por chat); o streaming sai em linhas inteiras — uma parte nunca
+quaisquer partes consecutivas do mesmo turno — inclusive várias geradas por um único flush, como
+uma resposta maior que 4000 caracteres — saem com pelo menos 1,5 s entre si (orientação do
+Telegram de cerca de uma mensagem por segundo por chat); o resultado final de um job one-shot
+mantém o envio contínuo; o streaming sai em linhas inteiras — uma parte nunca
 começa ou termina no meio de uma linha, salvo linha maior que uma mensagem — e respeita a
 retenção de segredos parciais da AD-21; partes de até 4000 caracteres; parte sem texto visível
 não é enviada, porque o Telegram a recusaria e a entrega do turno ficaria `Failed`. 429 respeita

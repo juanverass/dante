@@ -168,6 +168,39 @@ public sealed class TelegramPlainMessageTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task OutputOfASessionThatStopsBeingActiveMidTurnIsIdentified()
+    {
+        using var service = CreateService(Settings());
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            api.Enqueue("tarefa longa");
+            var first = await SingleDriverAsync();
+            await Eventually(() => first.Calls.Contains("turn:tarefa longa"));
+            first.Emit(new TurnStartedEvent());
+            first.Emit(new MessageDeltaEvent("m1", "parte 1\n"));
+            Assert.Equal("parte 1\n", await api.NextMessageAsync());
+
+            api.Enqueue("/session start");
+            Assert.Contains("Sessão S000002 iniciada", await api.NextMessageAsync());
+            first.Emit(new MessageDeltaEvent("m1", "parte 2\n"));
+            Assert.Equal("[S000001] parte 2\n", await api.NextMessageAsync());
+
+            api.Enqueue("/session select S000001");
+            Assert.Equal("Sessão ativa: S000001.", await api.NextMessageAsync());
+            first.Emit(new MessageDeltaEvent("m1", "parte 3\n"));
+            Assert.Equal("parte 3\n", await api.NextMessageAsync());
+
+            api.Enqueue("/session close S000001");
+            Assert.Equal("Sessão S000001 encerrada.", await api.NextMessageAsync());
+            api.Enqueue("/session select S000002");
+            await api.NextMessageAsync();
+            await Eventually(() => sessions!.GetActive(123)?.Id == "S000002");
+        }
+        finally { await service.StopAsync(CancellationToken.None); }
+    }
+
+    [Fact]
     public async Task PlainMessageWithAliasOpensTheSessionInThatRepositoryWithoutChangingTheActiveContext()
     {
         var registry = new RepositoryRegistry(Path.Combine(root, "config", "repositories.json"));

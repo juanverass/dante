@@ -87,7 +87,7 @@ Estado conhecido com #68:
 
 ```text
 dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    240 testes aprovados
+dotnet test Dante.sln    243 testes aprovados
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →

@@ -444,6 +444,7 @@ public sealed class TelegramPollingService(
             {
                 delivery.RegisterSession(started.Session!.Id, userId, message.Chat.Id,
                     environment?.HasSecrets == true);
+                SyncActiveSession(userId);
                 await SendReplyAsync(message.Chat.Id,
                     $"Sessão {started.Session.Id} iniciada com {agent} ({context.Label}), perfil {profile.ToString().ToLowerInvariant()}. Envie uma mensagem para iniciar o turno.",
                     cancellationToken);
@@ -458,6 +459,7 @@ public sealed class TelegramPollingService(
         {
             var selected = sessions.Select(userId, parts[1].Equals("none", StringComparison.OrdinalIgnoreCase)
                 ? null : parts[1]);
+            SyncActiveSession(userId);
             await SendReplyAsync(message.Chat.Id, selected.Accepted
                 ? selected.Session is null ? "Nenhuma sessão ativa." : $"Sessão ativa: {selected.Session.Id}."
                 : selected.Error!, cancellationToken);
@@ -477,6 +479,7 @@ public sealed class TelegramPollingService(
         if (parts[0].Equals("close", StringComparison.OrdinalIgnoreCase) && parts.Length <= 2)
         {
             var closed = await sessions.CloseAsync(userId, parts.ElementAtOrDefault(1), cancellationToken);
+            SyncActiveSession(userId);
             await SendReplyAsync(message.Chat.Id, closed.Accepted
                 ? $"Sessão {closed.Session!.Id} encerrada." : closed.Error!, cancellationToken);
             return;
@@ -638,6 +641,7 @@ public sealed class TelegramPollingService(
                 return;
             }
             delivery.RegisterSession(started.Session!.Id, userId, chatId, environment?.HasSecrets == true);
+            SyncActiveSession(userId);
             sessionId = started.Session.Id;
         }
 
@@ -777,6 +781,9 @@ public sealed class TelegramPollingService(
             return "Não foi possível salvar as configurações do assistente.";
         }
     }
+
+    // The delivery identifies output of every session other than the one selected here (AD-23).
+    private void SyncActiveSession(long userId) => delivery.SetActiveSession(userId, sessions?.GetActive(userId)?.Id);
 
     // AD-20: preferences apply to new sessions only; say that the active one is kept instead of switching silently.
     private string KeptSessionNotice(long userId, Func<AgentSessionSnapshot, bool> differs, string purpose) =>
