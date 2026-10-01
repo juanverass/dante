@@ -7,8 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-01, com a conversa session-first e a validação end-to-end das sessões
-interativas (#68).
+Última revisão: 2026-10-01, com os modos operacionais das sessões no Telegram (#76).
 
 ## Marcos
 
@@ -30,7 +29,7 @@ interativas (#68).
 - `/repo env set|bind|list|remove` com segredos por referência ao host;
 - `/status` com contexto de cada job e `/cancel <jobId>`;
 - configurações do assistente em `~/.dante/settings.json` (agente padrão, Claude quando
-  não configurado);
+  não configurado; repositório ativo e modo padrão por usuário);
 - `/agent` e `/agent set claude|codex` para consultar e alterar o agente padrão;
 - conversa session-first (AD-23): mensagem sem slash command abre uma sessão interativa do
   agente padrão no contexto atual, ou continua a sessão ativa, e mostra essencialmente a
@@ -44,8 +43,12 @@ interativas (#68).
   continua com outro agente ou contexto;
 - entrega de resultados de jobs e eventos de sessão com retry/backoff, estado independente
   da execução em `/status` e recuperação de partes pendentes por `/resend` (AD-21).
-- `/permissions` escolhe `manual`, `auto` ou `plan` para novas sessões; `/session start`
-  aceita perfil explícito. `/approve`, `/approve-session`, `/deny` e `/input` respondem a
+- `/mode` consulta e escolhe o modo de trabalho das novas sessões — `manual` (aprovação), `auto`
+  (automático) ou `plan` (planejamento) —, com padrão por usuário persistido em
+  `~/.dante/settings.json`; `/session start` aceita modo explícito, a sessão mantém o modo até ser
+  encerrada, `/status` e a abertura da conversa o mostram, e modo não suportado pelo agente é
+  recusado antes de iniciar (AD-24). `/permissions` segue como interface de baixo nível do mesmo
+  padrão. `/approve`, `/approve-session`, `/deny` e `/input` respondem a
   solicitações correlacionadas por sessão, turno e request, com expiração em cinco minutos
   e estado pendente em `/status` (AD-22).
 
@@ -83,11 +86,11 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #68:
+Estado conhecido com #76:
 
 ```text
 dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    243 testes aprovados
+dotnet test Dante.sln    256 testes aprovados
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →

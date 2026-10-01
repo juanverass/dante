@@ -151,7 +151,7 @@ public sealed class TelegramDeliveryServiceTests
             api.Enqueue("/permissions auto");
             Assert.Contains("Perfil para novas sessões: auto", await api.NextMessageAsync());
             api.Enqueue("/session start codex");
-            Assert.Contains("perfil auto", await api.NextMessageAsync());
+            Assert.Contains("modo auto (automático)", await api.NextMessageAsync());
             var driver = Assert.Single(drivers.Created);
             Assert.Equal(AgentPermissionProfile.Auto, driver.StartOptions!.Profile);
             api.Enqueue("tarefa");
@@ -198,7 +198,7 @@ public sealed class TelegramDeliveryServiceTests
             Assert.Equal((AgentApprovalDecision.Deny, "não permitido"), (denial.Decision, denial.Reason));
 
             api.Enqueue("/session start claude plan");
-            Assert.Contains("perfil plan", await api.NextMessageContainingAsync("perfil plan"));
+            Assert.Contains("modo plan", await api.NextMessageContainingAsync("modo plan"));
             Assert.Equal(AgentPermissionProfile.Plan, drivers.Created.Last().StartOptions!.Profile);
             api.Enqueue("/permissions full");
             Assert.Contains("Acesso full não é oferecido", await api.NextMessageContainingAsync("Acesso full"));

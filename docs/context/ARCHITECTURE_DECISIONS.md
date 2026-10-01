@@ -527,7 +527,8 @@ Código: `Telegram/TelegramDeliveryService.cs`, `Telegram/TelegramPollingService
 
 ## AD-22 — Approvals e input por IDs correlacionados, perfis escolhidos para sessões novas
 
-Status: vigente (Epic #60, #67)
+Status: vigente (Epic #60, #67), com a escolha do perfil padrão (em memória até o reinício)
+substituída pela AD-24
 
 O Telegram apresenta pedidos de aprovação e input com IDs `S…`, `T…` e `R…`. Os comandos
 `/approve`, `/approve-session`, `/deny` e `/input` exigem os três IDs; o registry confirma
@@ -567,7 +568,8 @@ Código: `Sessions/AgentSession.cs`, `Sessions/SessionRegistry.cs`,
 
 ## AD-23 — Conversa session-first no Telegram; one-shot só por comando explícito
 
-Status: vigente (Epic #60, #68)
+Status: vigente (Epic #60, #68), com o aviso único de abertura da conversa (agente, contexto e modo) e o modo
+padrão persistido acrescentados pela AD-24
 
 Mensagem comum é conversa com uma sessão interativa, não um job:
 
@@ -632,3 +634,40 @@ Código: `Telegram/TelegramPollingService.cs`, `Telegram/TelegramDeliveryService
 `Telegram/TelegramBotApi.cs`; testes em `TelegramPlainMessageTests`, `TelegramDeliveryServiceTests`
 e `InteractiveSessionEndToEndTests` (Telegram → `SessionRegistry` → drivers reais → CLIs
 simuladas do `Dante.ProcessProbe`).
+
+## AD-24 — Modos operacionais: perfis com nomes amigáveis, padrão persistido por usuário e capacidade por agente
+
+Status: vigente (#76)
+
+Os perfis de permissão da AD-22 são apresentados ao usuário como **modos** de trabalho:
+`manual` (aprovação; `approval` é sinônimo na entrada), `auto` (automático) e `plan`
+(planejamento). Nomes, descrições e parsing ficam num único lugar (`AgentSessionModes`),
+compartilhado por `/mode`, `/permissions`, `/session start` e o arquivo de configurações. Os
+mapeamentos para cada CLI continuam os das AD-18 e AD-19.
+
+- **padrão por usuário, persistido**: `/mode <modo>` grava o modo padrão do Telegram User ID em
+  `SessionModes` no `~/.dante/settings.json`, com a mesma escrita atômica e carga fail-closed da
+  AD-13 (usuário não numérico, `null` ou valor fora de `manual|auto|plan` impede o Worker de
+  iniciar; sinônimos não são aceitos no arquivo). Sem escolha, o modo é `manual`. Isso substitui a
+  escolha em memória até o reinício da AD-22. `/permissions` continua como interface de baixo nível
+  e lê e grava o mesmo padrão;
+- **imutável na sessão**: o modo é fixado quando a sessão começa (AD-20). Mudar o padrão vale só
+  para sessões futuras, e a resposta avisa quando a sessão ativa continua no modo anterior. Um modo
+  em `/session start` vale só para aquela sessão e não altera o padrão;
+- **visível**: `/status` mostra o modo de cada sessão, `/session start` o informa, e a conversa
+  session-first (AD-23) diz uma única vez, ao abrir a sessão, com qual agente, contexto e modo ela
+  começou — a resposta do agente vem em seguida;
+- **capacidade por agente**: `AgentDriverCapabilities.Modes` declara os modos que cada driver
+  mapeia. O `SessionRegistry` recusa um modo fora dessa lista antes de iniciar o processo e sem
+  registrar sessão, com erro que lista os modos disponíveis. Hoje Claude e Codex declaram os três;
+- **sem acesso irrestrito**: nenhum modo concede `full`, e o D.A.N.T.E. nunca escolhe um modo por
+  inferência. One-shot (`/claude`, `/codex`) continua sem modos.
+
+Por quê: o usuário precisa saber e escolher quanta autonomia o agente tem sem conhecer os detalhes
+internos de cada CLI; um padrão que se perde no reinício mudaria silenciosamente o comportamento
+das próximas conversas.
+
+Código: `Sessions/AgentSessionModes.cs`, `Sessions/IAgentSessionDriver.cs`,
+`Sessions/SessionRegistry.cs`, `Settings/AssistantSettingsStore.cs`,
+`Telegram/TelegramPollingService.cs`; testes em `TelegramModeCommandTests`, `SessionRegistryTests`
+e `AssistantSettingsStoreTests`.

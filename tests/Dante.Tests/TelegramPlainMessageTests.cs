@@ -38,6 +38,9 @@ public sealed class TelegramPlainMessageTests : IAsyncDisposable
             api.Enqueue("  Explique o padrão Strategy.\n");
             var driver = await SingleDriverAsync();
             await Eventually(() => driver.Calls.Contains("turn:Explique o padrão Strategy."));
+            // The mode is said once, when the conversation opens (#76).
+            Assert.Equal($"Nova conversa com {defaultAgent} (General), modo manual (aprovação).",
+                await api.NextMessageAsync());
             Assert.Equal(general.Path, driver.StartOptions!.WorkingDirectory);
             Assert.True(driver.StartOptions.IsGeneral);
             Assert.Equal(AgentPermissionProfile.Manual, driver.StartOptions.Profile);
@@ -82,6 +85,7 @@ public sealed class TelegramPlainMessageTests : IAsyncDisposable
             api.Enqueue("primeira");
             var driver = await SingleDriverAsync();
             await Eventually(() => driver.Calls.Contains("turn:primeira"));
+            Assert.StartsWith("Nova conversa com Claude", await api.NextMessageAsync());
             api.Enqueue("não altere o arquivo X");
             Assert.Equal("Recebido; envio ao agente quando a resposta atual terminar.", await api.NextMessageAsync());
             Assert.DoesNotContain("turn:não altere o arquivo X", driver.Calls);
@@ -137,6 +141,7 @@ public sealed class TelegramPlainMessageTests : IAsyncDisposable
             api.Enqueue("olá");
             var driver = await SingleDriverAsync();
             await Eventually(() => driver.Calls.Contains("turn:olá"));
+            Assert.StartsWith("Nova conversa com Claude", await api.NextMessageAsync());
             driver.Emit(new TurnStartedEvent());
             driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
             await api.NextMessageAsync();
@@ -177,6 +182,7 @@ public sealed class TelegramPlainMessageTests : IAsyncDisposable
             api.Enqueue("tarefa longa");
             var first = await SingleDriverAsync();
             await Eventually(() => first.Calls.Contains("turn:tarefa longa"));
+            Assert.StartsWith("Nova conversa com Claude", await api.NextMessageAsync());
             first.Emit(new TurnStartedEvent());
             first.Emit(new MessageDeltaEvent("m1", "parte 1\n"));
             Assert.Equal("parte 1\n", await api.NextMessageAsync());
@@ -257,7 +263,7 @@ public sealed class TelegramPlainMessageTests : IAsyncDisposable
             Assert.Null(sessions!.GetActive(123));
             api.Enqueue("/status");
             var status = await api.NextMessageAsync();
-            Assert.Contains("S000001 Claude General: Failed | perfil Manual", status);
+            Assert.Contains("S000001 Claude General: Failed | modo manual", status);
             Assert.Contains("erro: O Claude recusou o initialize.", status);
 
             // The next message tries again with a new session.
@@ -266,6 +272,7 @@ public sealed class TelegramPlainMessageTests : IAsyncDisposable
             await Eventually(() => drivers.Created.Count == 2);
             var driver = drivers.Created[1];
             await Eventually(() => driver.Calls.Contains("turn:de novo"));
+            Assert.StartsWith("Nova conversa com Claude", await api.NextMessageAsync());
 
             // A crashed session stays selected (AD-20): the next message is refused with the way out.
             driver.Crash(new AgentProtocolException("O processo do Claude encerrou inesperadamente (código 5)."));

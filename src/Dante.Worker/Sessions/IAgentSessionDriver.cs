@@ -1,3 +1,5 @@
+using Dante.Worker.Agents;
+
 namespace Dante.Worker.Sessions;
 
 public sealed record AgentSessionStartOptions(
@@ -12,12 +14,19 @@ public sealed record AgentSessionStarted(string UpstreamSessionId, int ProcessId
 // What each structured protocol offers, as validated by the #61 spikes (docs/spikes/interactive-protocols).
 public sealed record AgentDriverCapabilities(bool NativeSteer, bool Approvals, bool UserInput)
 {
+    // Modes (permission profiles) the driver maps to its CLI; a session in any other mode is refused before it starts.
+    public IReadOnlyList<AgentPermissionProfile> Modes { get; init; } = AgentSessionModes.All;
+
     // Claude stream-json: no mid-turn steer; approvals and AskUserQuestion via --permission-prompt-tool stdio.
+    // Modes map to --permission-mode manual|auto|plan (AD-18).
     public static AgentDriverCapabilities Claude { get; } = new(NativeSteer: false, Approvals: true, UserInput: true);
 
     // Codex app-server: turn/steer; approvals and item/tool/requestUserInput as server requests. User input is
     // EXPERIMENTAL: it needs capabilities.experimentalApi and the plan collaboration mode on 0.157.1.
+    // Modes map to approvalPolicy/sandbox and the plan collaboration mode (AD-19).
     public static AgentDriverCapabilities Codex { get; } = new(NativeSteer: true, Approvals: true, UserInput: true);
+
+    public static AgentDriverCapabilities For(AgentKind agent) => agent == AgentKind.Codex ? Codex : Claude;
 }
 
 // One driver instance owns one long-lived agent process for one session. Upstream ids (Claude session_id,

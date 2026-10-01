@@ -1,4 +1,5 @@
 using Dante.Worker.Agents;
+using Dante.Worker.Sessions;
 using Dante.Worker.Settings;
 
 namespace Dante.Tests;
@@ -48,6 +49,12 @@ public sealed class AssistantSettingsStoreTests : IDisposable
     [InlineData("{ \"DefaultAgent\": \"Claude\", \"ActiveRepositories\": { \"123\": null } }")]
     [InlineData("{ \"DefaultAgent\": \"Claude\", \"ActiveRepositories\": [] }")]
     [InlineData("{ \"DefaultAgent\": \"Claude\", \"ActiveRepositories\": null }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"SessionModes\": null }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"SessionModes\": { \"abc\": \"auto\" } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"SessionModes\": { \"123\": \"full\" } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"SessionModes\": { \"123\": \"approval\" } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"SessionModes\": { \"123\": \"Auto\" } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"SessionModes\": { \"123\": null } }")]
     public void RejectsInvalidOrCorruptedFileWithoutChoosingAgent(string content)
     {
         Directory.CreateDirectory(root);
@@ -76,6 +83,41 @@ public sealed class AssistantSettingsStoreTests : IDisposable
         reopened.SetActiveRepository(123, null);
         Assert.Null(new AssistantSettingsStore(file).GetActiveRepository(123));
         Assert.Equal("@other", new AssistantSettingsStore(file).GetActiveRepository(456));
+    }
+
+    [Fact]
+    public void PersistsSessionModePerUserAcrossInstances()
+    {
+        var file = Path.Combine(root, "settings.json");
+        var store = new AssistantSettingsStore(file);
+        store.SetDefaultAgent(AgentKind.Codex);
+        // Users who never chose a mode keep the file as before.
+        Assert.DoesNotContain("SessionModes", File.ReadAllText(file));
+        Assert.Equal(AgentPermissionProfile.Manual, store.GetSessionMode(123));
+        store.SetSessionMode(123, AgentPermissionProfile.Plan);
+        store.SetSessionMode(456, AgentPermissionProfile.Auto);
+
+        var reopened = new AssistantSettingsStore(file);
+        Assert.Equal(AgentPermissionProfile.Plan, reopened.GetSessionMode(123));
+        Assert.Equal(AgentPermissionProfile.Auto, reopened.GetSessionMode(456));
+        Assert.Equal(AgentPermissionProfile.Manual, reopened.GetSessionMode(789));
+        Assert.Equal(AgentKind.Codex, reopened.Current.DefaultAgent);
+        Assert.Contains("\"plan\"", File.ReadAllText(file));
+
+        reopened.SetSessionMode(123, AgentPermissionProfile.Manual);
+        Assert.Equal(AgentPermissionProfile.Manual, new AssistantSettingsStore(file).GetSessionMode(123));
+        Assert.Throws<ArgumentOutOfRangeException>(() => reopened.SetSessionMode(123, (AgentPermissionProfile)42));
+    }
+
+    [Fact]
+    public void FailedSessionModeWriteKeepsPreviousValue()
+    {
+        Directory.CreateDirectory(root);
+        var blocker = Path.Combine(root, "blocker");
+        File.WriteAllText(blocker, "not a directory");
+        var store = new AssistantSettingsStore(Path.Combine(blocker, "settings.json"));
+        Assert.ThrowsAny<IOException>(() => store.SetSessionMode(123, AgentPermissionProfile.Auto));
+        Assert.Equal(AgentPermissionProfile.Manual, store.GetSessionMode(123));
     }
 
     [Fact]
