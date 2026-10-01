@@ -22,6 +22,24 @@ resultado
 Telegram
 ```
 
+## Documentação para mantenedores
+
+Se você vai **manter, depurar ou evoluir** o D.A.N.T.E., consulte o [Guia de manutenção](docs/maintainer/README.md).
+
+Ele documenta:
+
+- a arquitetura utilizada e seus limites;
+- os módulos `Agents`, `Jobs`, `Repositories`, `Sessions`, `Settings` e `Telegram`;
+- os fluxos session-first e one-shot de ponta a ponta;
+- Claude stream-json e Codex app-server;
+- estado, concorrência, approvals, streaming, formatação e redaction;
+- configuração local, operação, troubleshooting e testes;
+- glossário e roteiro recomendado de estudo.
+
+A documentação formal das decisões continua em [ARCHITECTURE_DECISIONS](docs/context/ARCHITECTURE_DECISIONS.md).
+
+---
+
 ## Estado atual
 
 Converse com o agente como no terminal: uma mensagem comum abre uma **sessão interativa** do
