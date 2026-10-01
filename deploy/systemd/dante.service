@@ -1,0 +1,28 @@
+# D.A.N.T.E. como serviço do usuário (systemd --user). Instalado por deploy/dante-service.sh.
+# Não coloque segredos aqui: tokens e variáveis locais ficam em ~/.config/dante/dante.env (permissão 600).
+[Unit]
+Description=D.A.N.T.E. Worker (Telegram -> Claude/Codex)
+Documentation=https://github.com/juanverass/dante#executando-como-servi%C3%A7o
+# Até 5 falhas em 5 minutos; depois disso o serviço fica parado até um start manual.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/dante/app
+# As CLIs do Claude/Codex costumam ficar em ~/.local/bin; o dante.env pode sobrescrever PATH.
+Environment=PATH=%h/.local/bin:%h/.dotnet:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Uma linha por log, com prioridade reconhecida pelo journald.
+Environment=Logging__Console__FormatterName=systemd
+EnvironmentFile=%h/.config/dante/dante.env
+ExecStart=/usr/bin/env dotnet %h/.local/share/dante/app/Dante.Worker.dll
+SyslogIdentifier=dante
+Restart=on-failure
+RestartSec=10
+# SIGTERM só no Worker, que encerra jobs e sessões; o que restar no cgroup recebe SIGKILL.
+KillMode=mixed
+TimeoutStopSec=45
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

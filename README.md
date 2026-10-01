@@ -179,6 +179,91 @@ pong
 
 ---
 
+## Executando como serviço
+
+No WSL com systemd, o D.A.N.T.E. pode rodar como serviço do seu usuário, sem terminal aberto: o systemd
+inicia o Worker quando a distro sobe e o reinicia após falha inesperada; uma tarefa do Windows sobe a distro
+no logon e a mantém ativa.
+
+```text
+logon no Windows → tarefa "DANTE WSL" abre a distro (sem janela)
+                 → systemd do usuário (linger) → dante.service → Telegram
+```
+
+Pré-requisitos: `systemd=true` na seção `[boot]` de `/etc/wsl.conf`, .NET SDK e as CLIs autenticadas no
+mesmo usuário Linux. O serviço roda como esse usuário, sem root, e usa as mesmas credenciais locais das CLIs
+(`~/.claude`, `~/.codex`).
+
+### Instalar
+
+No WSL, a partir do repositório:
+
+```bash
+deploy/dante-service.sh install
+```
+
+O serviço lê `~/.config/dante/dante.env`. Na primeira instalação, o comando cria esse arquivo convertendo o
+`~/.config/dante/env` do setup manual, se existir, ou copiando [`deploy/dante.env.example`](deploy/dante.env.example).
+Depois publica o Worker em `~/.local/share/dante/app`, instala `~/.config/systemd/user/dante.service` e ativa o
+linger do usuário. O serviço só é habilitado e iniciado quando `Telegram__BotToken` está preenchido; senão,
+preencha e rode `install` de novo:
+
+```bash
+nano ~/.config/dante/dante.env      # Telegram__BotToken, Telegram__AllowedUserIds, ...
+deploy/dante-service.sh install
+```
+
+O systemd não usa shell: o `dante.env` aceita só `CHAVE=valor` literal, sem `$VAR`, `~`, `` `comando` ``, barra
+invertida ou comentário na mesma linha (`export` é removido na conversão). Um arquivo com outra coisa é recusado,
+indicando apenas o número da linha, antes de qualquer instalação — por exemplo,
+`export DANTE_GENERAL_WORKSPACE="$HOME/general"` precisa virar `DANTE_GENERAL_WORKSPACE=/home/<usuario>/general`.
+Valide um arquivo com `bash deploy/dante-env.sh check ~/.config/dante/dante.env`.
+
+O `dante.env` guarda segredos: fica fora do repositório, com permissão `600`, e também recebe
+`DANTE_GENERAL_WORKSPACE` e as variáveis do host usadas por `/repo env bind`. Se o linger não puder ser ativado
+sem privilégio, rode uma vez `sudo loginctl enable-linger $USER`.
+
+Depois, no **PowerShell do Windows** (sem administrador), registre a inicialização da distro no logon. Use o
+nome mostrado por `wsl -l -v`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\windows\Register-DanteAutostart.ps1 -Distro Ubuntu
+```
+
+Pare qualquer Worker iniciado manualmente antes de iniciar o serviço: duas instâncias com o mesmo token
+disputam o long polling.
+
+### Operar
+
+| Ação | Comando (WSL) |
+| --- | --- |
+| iniciar | `deploy/dante-service.sh start` ou `systemctl --user start dante` |
+| parar | `deploy/dante-service.sh stop` ou `systemctl --user stop dante` |
+| reiniciar | `deploy/dante-service.sh restart` ou `systemctl --user restart dante` |
+| status | `deploy/dante-service.sh status` ou `systemctl --user status dante` |
+| logs ao vivo | `deploy/dante-service.sh logs` ou `journalctl --user -u dante -f` |
+| logs do boot atual | `journalctl --user -u dante -b` |
+| atualizar após `git pull` | `deploy/dante-service.sh install` (republica e reinicia) |
+| desabilitar | `systemctl --user disable --now dante` |
+| remover | `deploy/dante-service.sh uninstall` |
+
+`stop` envia `SIGTERM` ao Worker, que encerra jobs e sessões antes de sair. Uma falha inesperada é reiniciada
+em 10 s; após 5 falhas em 5 minutos o serviço fica parado até um `start` manual. Os logs ficam no journald do
+usuário, uma linha por evento, com prioridade.
+
+Para remover a inicialização no Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\windows\Register-DanteAutostart.ps1 -Unregister
+```
+
+### Validar
+
+Reinicie o Windows, faça logon e envie `/ping` pelo Telegram. Sem resposta, confira
+`wsl -l -v` (distro `Running`), `systemctl --user status dante` e `journalctl --user -u dante -b`.
+
+---
+
 # Uso
 
 ## Consultas gerais

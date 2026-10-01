@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-01, com o resolvedor unificado de agente e contexto (#37).
+Última revisão: 2026-10-01, com o resolvedor unificado de agente e contexto (#37) e a execução como serviço local (#39).
 
 ## Marcos
 
@@ -73,13 +73,16 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   anterior e aguardam a liberação segura de caudas de segredo retidas;
 - aprovações oferecem botões inline com validação de dono, turno, request e expiração;
   `/approve`, `/approve-session` e `/deny` seguem disponíveis como fallback textual;
+- execução como serviço systemd do usuário no WSL (`deploy/dante-service.sh`), com restart em
+  falha, stop gracioso, logs no journald e distro iniciada no logon do Windows por tarefa agendada
+  (AD-28);
 
 Detalhes de uso: [README](../../README.md).
 
 ## Limitações atuais
 
 - jobs e histórico somente em memória (perdidos ao reiniciar);
-- Worker iniciado manualmente (execução automática como serviço: #39);
+- como serviço, o D.A.N.T.E. fica disponível a partir do logon no Windows, não do boot (AD-28);
 - sem worktrees, fila persistente ou execução concorrente isolada por Issue;
 - sessões interativas e resultados recentes de entrega ficam apenas em memória; ao
   reiniciar o Worker, sessões e saídas pendentes não podem ser recuperadas;
@@ -101,11 +104,11 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #37:
+Estado conhecido com #37 e #39:
 
 ```text
-dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    388 testes aprovados
+dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
+dotnet test Dante.sln    401 testes aprovados
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
@@ -116,5 +119,4 @@ intermitente na suíte completa em WSL2 e passa isolado; já falhava assim antes
 
 ## Próximos marcos
 
-1. conclusão do MVP 3 (#32): UX de contexto e jobs (#38);
-2. execução automática como serviço local (#39).
+1. conclusão do MVP 3 (#32): UX de contexto e jobs (#38).
