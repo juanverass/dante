@@ -658,7 +658,6 @@ public sealed class TelegramPollingService(
         }
 
         var sessionId = active?.Id;
-        string? opened = null;
         if (sessionId is null)
         {
             string? alias = null;
@@ -693,14 +692,12 @@ public sealed class TelegramPollingService(
             delivery.RegisterSession(started.Session!.Id, userId, chatId, environment?.HasSecrets == true);
             SyncActiveSession(userId);
             sessionId = started.Session.Id;
-            // The mode is said once, when the conversation opens; the agent's reply follows (#76).
-            opened = $"Nova conversa com {agent} ({context.Label}), modo {AgentSessionModes.Label(mode)}.";
         }
 
         var result = await sessions.SubmitAsync(userId, sessionId, text, MessageDelivery.Queue, cancellationToken);
         var reply = result.Outcome switch
         {
-            SubmitOutcome.TurnStarted => opened,
+            SubmitOutcome.TurnStarted => null,
             SubmitOutcome.Queued => "Recebido; envio ao agente quando a resposta atual terminar.",
             _ => result.Error ?? "A sessão recusou a mensagem."
         };
