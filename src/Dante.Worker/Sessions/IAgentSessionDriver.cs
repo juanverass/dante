@@ -6,10 +6,12 @@ public sealed record AgentSessionStartOptions(
     string WorkingDirectory,
     bool IsGeneral = false,
     IReadOnlyDictionary<string, string>? EnvironmentVariables = null,
-    AgentPermissionProfile Profile = AgentPermissionProfile.Manual);
+    AgentPermissionProfile Profile = AgentPermissionProfile.Manual,
+    AgentModelSelection? ModelSelection = null);
 
-// Upstream session id (Claude session_id, Codex thread.id) and the OS id of the process that serves it.
-public sealed record AgentSessionStarted(string UpstreamSessionId, int ProcessId);
+// Upstream session id (Claude session_id, Codex thread.id) and the OS id of the process that serves it. Model is the
+// model the CLI reports for the session when it says so at start (Codex thread/start), even without a selection.
+public sealed record AgentSessionStarted(string UpstreamSessionId, int ProcessId, string? Model = null);
 
 // What each structured protocol offers, as validated by the #61 spikes (docs/spikes/interactive-protocols).
 public sealed record AgentDriverCapabilities(bool NativeSteer, bool Approvals, bool UserInput)

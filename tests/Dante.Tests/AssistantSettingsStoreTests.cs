@@ -55,6 +55,15 @@ public sealed class AssistantSettingsStoreTests : IDisposable
     [InlineData("{ \"DefaultAgent\": \"Claude\", \"SessionModes\": { \"123\": \"approval\" } }")]
     [InlineData("{ \"DefaultAgent\": \"Claude\", \"SessionModes\": { \"123\": \"Auto\" } }")]
     [InlineData("{ \"DefaultAgent\": \"Claude\", \"SessionModes\": { \"123\": null } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"Models\": null }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"Models\": { \"abc\": { \"Claude\": \"opus\" } } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"Models\": { \"123\": null } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"Models\": { \"123\": { \"Gemini\": \"pro\" } } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"Models\": { \"123\": { \"Claude\": null } } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"Models\": { \"123\": { \"Claude\": \"\" } } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"Models\": { \"123\": { \"Claude\": \"--dangerous\" } } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"Models\": { \"123\": { \"Codex\": \"a b\" } } }")]
+    [InlineData("{ \"DefaultAgent\": \"Claude\", \"Models\": { \"123\": \"opus\" } }")]
     public void RejectsInvalidOrCorruptedFileWithoutChoosingAgent(string content)
     {
         Directory.CreateDirectory(root);
@@ -107,6 +116,62 @@ public sealed class AssistantSettingsStoreTests : IDisposable
         reopened.SetSessionMode(123, AgentPermissionProfile.Manual);
         Assert.Equal(AgentPermissionProfile.Manual, new AssistantSettingsStore(file).GetSessionMode(123));
         Assert.Throws<ArgumentOutOfRangeException>(() => reopened.SetSessionMode(123, (AgentPermissionProfile)42));
+    }
+
+    [Fact]
+    public void PersistsModelPerUserAndAgentAcrossInstances()
+    {
+        var file = Path.Combine(root, "settings.json");
+        var store = new AssistantSettingsStore(file);
+        store.SetDefaultAgent(AgentKind.Codex);
+        // Users who never chose a model keep the file as before.
+        Assert.DoesNotContain("Models", File.ReadAllText(file));
+        Assert.Null(store.GetModel(123, AgentKind.Claude));
+        store.SetModel(123, AgentKind.Claude, "opus");
+        store.SetModel(123, AgentKind.Codex, "gpt-5.5");
+        store.SetModel(456, AgentKind.Claude, "claude-sonnet-5-5");
+
+        var reopened = new AssistantSettingsStore(file);
+        Assert.Equal("opus", reopened.GetModel(123, AgentKind.Claude));
+        Assert.Equal("gpt-5.5", reopened.GetModel(123, AgentKind.Codex));
+        Assert.Equal("claude-sonnet-5-5", reopened.GetModel(456, AgentKind.Claude));
+        Assert.Null(reopened.GetModel(456, AgentKind.Codex));
+        Assert.Null(reopened.GetModel(789, AgentKind.Claude));
+        Assert.Equal(AgentKind.Codex, reopened.Current.DefaultAgent);
+
+        // Back to the CLI default removes the entry; the other agent keeps its model.
+        reopened.SetModel(123, AgentKind.Claude, null);
+        reopened.SetModel(456, AgentKind.Claude, null);
+        var cleared = new AssistantSettingsStore(file);
+        Assert.Null(cleared.GetModel(123, AgentKind.Claude));
+        Assert.Equal("gpt-5.5", cleared.GetModel(123, AgentKind.Codex));
+        Assert.DoesNotContain("456", File.ReadAllText(file));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("-m")]
+    [InlineData("opus; rm -rf /")]
+    [InlineData("opus\nsonnet")]
+    public void RejectsInvalidModelNamesWithoutPersisting(string model)
+    {
+        var file = Path.Combine(root, "settings.json");
+        var store = new AssistantSettingsStore(file);
+        Assert.Throws<ArgumentException>(() => store.SetModel(123, AgentKind.Claude, model));
+        Assert.Throws<ArgumentOutOfRangeException>(() => store.SetModel(123, (AgentKind)42, "opus"));
+        Assert.Null(store.GetModel(123, AgentKind.Claude));
+        Assert.False(File.Exists(file));
+    }
+
+    [Fact]
+    public void FailedModelWriteKeepsPreviousValue()
+    {
+        Directory.CreateDirectory(root);
+        var blocker = Path.Combine(root, "blocker");
+        File.WriteAllText(blocker, "not a directory");
+        var store = new AssistantSettingsStore(Path.Combine(blocker, "settings.json"));
+        Assert.ThrowsAny<IOException>(() => store.SetModel(123, AgentKind.Codex, "gpt-5.5"));
+        Assert.Null(store.GetModel(123, AgentKind.Codex));
     }
 
     [Fact]

@@ -57,6 +57,32 @@ public sealed class ClaudeSessionDriverTests
     }
 
     [Fact]
+    public async Task ChosenModelIsPassedOnceAndKeptForEveryTurn()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new ClaudeSessionDriver(launcher);
+        var started = await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, IsGeneral: true,
+            ModelSelection: new AgentModelSelection("opus")));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+
+        await driver.StartTurnAsync("model");
+        var first = await ReadTurnAsync(events);
+        await driver.StartTurnAsync("model");
+        var second = await ReadTurnAsync(events);
+
+        Assert.Equal(["--model", "opus"], Assert.Single(launcher.Requests).Arguments.ToArray()[^2..]);
+        Assert.Equal("model:opus", first.OfType<MessageCompletedEvent>().Single().Text);
+        Assert.Equal("model:opus", second.OfType<MessageCompletedEvent>().Single().Text);
+        // Claude says nothing about the model at start; without a selection no --model is passed.
+        Assert.Null(started.Model);
+        var defaultLauncher = new ProbeLauncher();
+        await using var cliDefault = new ClaudeSessionDriver(defaultLauncher);
+        await cliDefault.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory,
+            ModelSelection: AgentModelSelection.CliDefault));
+        Assert.DoesNotContain("--model", Assert.Single(defaultLauncher.Requests).Arguments);
+    }
+
+    [Fact]
     public async Task TwoTurnsRunInTheSameProcessAndStreamDeltas()
     {
         await using var driver = new ClaudeSessionDriver(new ProbeLauncher());

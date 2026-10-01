@@ -16,6 +16,20 @@ public sealed class CodexRunnerTests
     }
 
     [Fact]
+    public async Task ChosenModelGoesBeforeThePromptSeparator()
+    {
+        var executor = new RecordingExecutor(Result(AgentProcessStatus.Succeeded));
+        var runner = new CodexRunner(executor);
+        await runner.RunAsync("question", AppContext.BaseDirectory, generalMode: true, model: "gpt-5.5");
+        Assert.Equal(["exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "--ignore-user-config",
+            "--model", "gpt-5.5", "--", "question"], executor.Request!.Arguments);
+
+        await runner.RunAsync("question", AppContext.BaseDirectory, model: "gpt-6.1-sol");
+        Assert.Equal(["exec", "--approve-for-me", "--model", "gpt-6.1-sol", "--", "question"],
+            executor.Request!.Arguments);
+    }
+
+    [Fact]
     public async Task UsesFixedCommandAndPassesPromptAsOneArgument()
     {
         const string prompt = "--dangerously-bypass-approvals-and-sandbox; $(echo unsafe)";

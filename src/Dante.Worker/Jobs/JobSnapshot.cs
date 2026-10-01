@@ -1,3 +1,5 @@
+using Dante.Worker.Agents;
+
 namespace Dante.Worker.Jobs;
 
 public sealed record JobSnapshot(
@@ -10,4 +12,5 @@ public sealed record JobSnapshot(
     bool CancellationRequested,
     int? ExitCode,
     string? ErrorMessage,
-    JobExecutionContext Context);
+    JobExecutionContext Context,
+    AgentModelSelection? ModelSelection = null);

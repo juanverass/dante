@@ -22,9 +22,11 @@ public sealed class TelegramPollingService(
     GeneralWorkspace? generalWorkspace = null,
     AssistantSettingsStore? settings = null,
     SessionRegistry? sessions = null,
-    TelegramDeliveryService? delivery = null) : BackgroundService
+    TelegramDeliveryService? delivery = null,
+    IAgentModelCatalog? models = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
+    private const string ModelOption = "model=";
     private readonly object runningGate = new();
     private readonly HashSet<Task> runningJobs = [];
     // Default modes when no settings store is composed; otherwise they persist in settings.json (#76).
@@ -165,6 +167,13 @@ public sealed class TelegramPollingService(
         if (string.Equals(command, "/mode", StringComparison.OrdinalIgnoreCase))
         {
             await SendReplyAsync(message.Chat.Id, HandleModeCommand(message.From!.Id, prompt), cancellationToken);
+            return;
+        }
+
+        if (string.Equals(command, "/model", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendLongMessageAsync(message.Chat.Id, await HandleModelCommandAsync(message.From!.Id, prompt,
+                cancellationToken), cancellationToken);
             return;
         }
 
@@ -316,13 +325,18 @@ public sealed class TelegramPollingService(
             return;
         }
 
+        // One-shot jobs use the user's default model of the agent they name; an unavailable one stops here (#77).
+        var modelSelection = await ResolveModelAsync(message.From!.Id, isCodex ? AgentKind.Codex : AgentKind.Claude,
+            null, message.Chat.Id, cancellationToken);
+        if (modelSelection is null) return;
         var context = generalMode ? JobExecutionContext.General(workingDirectory) :
             JobExecutionContext.Repository(repositoryAlias!, workingDirectory);
-        var (job, jobToken) = jobs.Create(agent, context, cancellationToken);
+        var (job, jobToken) = jobs.Create(agent, context, cancellationToken, modelSelection);
         try
         {
             await SendReplyAsync(message.Chat.Id,
-                $"{agent} iniciado. Job ID: {job.Id} ({context.Label}).", cancellationToken);
+                $"{agent} iniciado. Job ID: {job.Id} ({context.Label}){ModelSuffix(modelSelection)}.",
+                cancellationToken);
         }
         catch
         {
@@ -331,7 +345,7 @@ public sealed class TelegramPollingService(
         }
 
         var task = RunJobAsync(job.Id, agent, isCodex, prompt, context,
-            repositoryEnvironment, message.From!.Id, message.Chat.Id, jobToken,
+            repositoryEnvironment, modelSelection.Model, message.From!.Id, message.Chat.Id, jobToken,
             cancellationToken);
         lock (runningGate)
         {
@@ -404,7 +418,7 @@ public sealed class TelegramPollingService(
     private async Task HandleSessionCommandAsync(TelegramMessage message, string prompt,
         CancellationToken cancellationToken)
     {
-        const string usage = "Uso: /session start [claude|codex] [@alias] [manual|auto|plan] | list | select <id|none> | stop [id] | close [id]";
+        const string usage = "Uso: /session start [claude|codex] [@alias] [manual|auto|plan] [model=<modelo>] | list | select <id|none> | stop [id] | close [id]";
         if (sessions is null)
         {
             await SendReplyAsync(message.Chat.Id, "Sessões indisponíveis.", cancellationToken);
@@ -425,12 +439,15 @@ public sealed class TelegramPollingService(
             var agent = (settings?.Current ?? AssistantSettings.Default).DefaultAgent;
             var profile = DefaultMode(userId);
             string? alias = null;
+            string? model = null;
             var profileSpecified = false;
             for (var index = 1; index < parts.Length; index++)
             {
                 if (parts[index].Equals("claude", StringComparison.OrdinalIgnoreCase)) agent = AgentKind.Claude;
                 else if (parts[index].Equals("codex", StringComparison.OrdinalIgnoreCase)) agent = AgentKind.Codex;
                 else if (parts[index].StartsWith('@') && alias is null) alias = parts[index];
+                else if (parts[index].StartsWith(ModelOption, StringComparison.OrdinalIgnoreCase) && model is null &&
+                         parts[index].Length > ModelOption.Length) model = parts[index][ModelOption.Length..];
                 else if (AgentSessionModes.TryParse(parts[index], out var requested) && !profileSpecified)
                 {
                     profile = requested;
@@ -445,15 +462,18 @@ public sealed class TelegramPollingService(
             var resolved = await ResolveSessionContextAsync(userId, alias, message.Chat.Id, cancellationToken);
             if (resolved is null) return;
             var (context, environment) = resolved.Value;
+            // A model given here is for this session only and, like the default, is checked before any process starts.
+            var modelSelection = await ResolveModelAsync(userId, agent, model, message.Chat.Id, cancellationToken);
+            if (modelSelection is null) return;
             var started = await sessions.StartAsync(new SessionStartRequest(userId, agent, context,
-                environment?.Values, profile), cancellationToken);
+                environment?.Values, profile, modelSelection), cancellationToken);
             if (started.Accepted)
             {
                 delivery.RegisterSession(started.Session!.Id, userId, message.Chat.Id,
                     environment?.HasSecrets == true);
                 SyncActiveSession(userId);
                 await SendReplyAsync(message.Chat.Id,
-                    $"Sessão {started.Session.Id} iniciada com {agent} ({context.Label}), modo {AgentSessionModes.Label(profile)}. Envie uma mensagem para iniciar o turno.",
+                    $"Sessão {started.Session.Id} iniciada com {agent} ({context.Label}), modo {AgentSessionModes.Label(profile)}{ModelSuffix(modelSelection)}. Envie uma mensagem para iniciar o turno.",
                     cancellationToken);
             }
             // Without a session the request was refused before any process started (e.g. unsupported mode).
@@ -564,6 +584,117 @@ public sealed class TelegramPollingService(
             return false;
         }
     }
+
+    // Models per agent and user (#77): the default applies to new sessions and one-shot jobs, a session keeps the model
+    // it started with, and only a model the installed CLI offers is accepted. "default" returns to the CLI's own choice.
+    private async Task<string> HandleModelCommandAsync(long userId, string prompt, CancellationToken cancellationToken)
+    {
+        const string usage = "Uso: /model | /model claude|codex [<modelo>|default]";
+        if (settings is null) return "Configurações do assistente indisponíveis.";
+        var parts = prompt.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 3 && parts[0].Equals("set", StringComparison.OrdinalIgnoreCase)) parts = parts[1..];
+        if (parts.Length == 0)
+        {
+            var lines = new List<string> { "Modelo padrão para novas sessões e execuções one-shot:" };
+            lines.AddRange(new[] { AgentKind.Claude, AgentKind.Codex }.Select(agent =>
+                $"- {agent}: {new AgentModelSelection(settings.GetModel(userId, agent)).ModelLabel}"));
+            if (sessions?.GetActive(userId) is { State: not (AgentSessionState.Failed or AgentSessionState.Closing or
+                    AgentSessionState.Closed) } active)
+                lines.Add($"Sessão ativa {active.Id}: {active.Agent}, modelo {active.ModelLabel}, fixo até ela ser encerrada.");
+            lines.Add("Use /model claude|codex para ver os modelos oferecidos pela CLI instalada, " +
+                "/model <agente> <modelo> para escolher ou /model <agente> default para voltar ao padrão da CLI.");
+            return string.Join('\n', lines);
+        }
+        if (parts.Length > 2 || !AssistantSettingsStore.TryParseAgent(parts[0], out var selectedAgent)) return usage;
+        var name = selectedAgent.ToString().ToLowerInvariant();
+        var current = settings.GetModel(userId, selectedAgent);
+        if (parts.Length == 1)
+        {
+            if (models is null) return "Catálogo de modelos indisponível.";
+            IReadOnlyList<AgentModelInfo> offered;
+            try { offered = await models.GetModelsAsync(selectedAgent, cancellationToken); }
+            catch (AgentModelCatalogException exception)
+            {
+                return $"Não foi possível consultar os modelos do {selectedAgent}: {exception.Message}.";
+            }
+            var lines = new List<string>
+            {
+                $"Modelo padrão do {selectedAgent}: {new AgentModelSelection(current).ModelLabel}.",
+                $"Modelos oferecidos pelo {selectedAgent} instalado:"
+            };
+            lines.AddRange(offered.Select(model =>
+                $"- {model.Id}" +
+                (model.DisplayName == model.Id && model.ResolvedId is null ? string.Empty
+                    : $" ({model.DisplayName}{(model.ResolvedId is null ? string.Empty : $" → {model.ResolvedId}")})") +
+                (model.IsDefault ? " — padrão da CLI" : string.Empty) +
+                (current is not null && AgentModelCatalog.Find([model], current) is not null ? " — escolhido" : string.Empty)));
+            lines.Add($"Use /model {name} <modelo> ou /model {name} default.");
+            return string.Join('\n', lines);
+        }
+
+        AgentModelSelection selected;
+        if (parts[1].Equals("default", StringComparison.OrdinalIgnoreCase)) selected = AgentModelSelection.CliDefault;
+        else
+        {
+            if (!AgentModelSelection.IsValidName(parts[1])) return $"Nome de modelo inválido: {parts[1]}.";
+            var (found, error) = await FindModelAsync(selectedAgent, parts[1], cancellationToken);
+            if (found is null) return error ?? NotOffered(selectedAgent, parts[1]);
+            selected = new AgentModelSelection(found);
+        }
+        try { settings.SetModel(userId, selectedAgent, selected.Model); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return "Não foi possível salvar as configurações do assistente.";
+        }
+        return $"Modelo padrão do {selectedAgent}: {selected.ModelLabel}. Vale para novas sessões e para /{name}; " +
+            "sessões existentes mantêm o modelo original." +
+            KeptSessionNotice(userId, session => session.Agent == selectedAgent &&
+                    !string.Equals(session.ModelSelection?.Model, selected.Model, StringComparison.Ordinal),
+                $"usar o modelo {selected.ModelLabel}");
+    }
+
+    // The model a new session or job of the agent runs with: the explicit one or the user's default, checked against
+    // what the installed CLI offers now. Null means refused, with the reason already sent; no model skips the check.
+    private async Task<AgentModelSelection?> ResolveModelAsync(long userId, AgentKind agent, string? requested,
+        long chatId, CancellationToken cancellationToken)
+    {
+        var name = requested ?? settings?.GetModel(userId, agent);
+        if (name is null || (requested is not null && requested.Equals("default", StringComparison.OrdinalIgnoreCase)))
+            return AgentModelSelection.CliDefault;
+        if (!AgentModelSelection.IsValidName(name))
+        {
+            await SendReplyAsync(chatId, $"Nome de modelo inválido: {name}.", cancellationToken);
+            return null;
+        }
+        var (found, error) = await FindModelAsync(agent, name, cancellationToken);
+        if (found is not null) return new AgentModelSelection(found);
+        var command = $"/model {agent.ToString().ToLowerInvariant()}";
+        // A default the CLI stopped offering is never swapped for another model silently.
+        await SendReplyAsync(chatId, error ?? (requested is not null ? NotOffered(agent, name) :
+            $"O modelo {name}, padrão do {agent}, não é mais oferecido pelo {agent} instalado. Escolha outro com " +
+            $"{command} <modelo> ou volte ao padrão da CLI com {command} default."), cancellationToken);
+        return null;
+    }
+
+    // The name as the CLI spells it; neither a name nor an error means the CLI does not offer the model.
+    private async Task<(string? Found, string? Error)> FindModelAsync(AgentKind agent, string name,
+        CancellationToken cancellationToken)
+    {
+        if (models is null) return (null, $"Não foi possível validar o modelo {name}: catálogo de modelos indisponível.");
+        try { return (AgentModelCatalog.Find(await models.GetModelsAsync(agent, cancellationToken), name), null); }
+        catch (AgentModelCatalogException exception)
+        {
+            return (null, $"Não foi possível validar o modelo {name} do {agent}: {exception.Message}. " +
+                $"Tente novamente ou use /model {agent.ToString().ToLowerInvariant()} default.");
+        }
+    }
+
+    private static string NotOffered(AgentKind agent, string name) =>
+        $"Modelo {name} não é oferecido pelo {agent} instalado. Use /model {agent.ToString().ToLowerInvariant()} " +
+        "para ver os disponíveis.";
+
+    private static string ModelSuffix(AgentModelSelection selection) =>
+        selection.Model is null ? string.Empty : $", modelo {selection.Model}";
 
     private async Task HandleRequestCommandAsync(TelegramMessage message, string command, string prompt,
         CancellationToken cancellationToken)
@@ -680,8 +811,10 @@ public sealed class TelegramPollingService(
             var agent = (settings?.Current ?? AssistantSettings.Default).DefaultAgent;
             var mode = DefaultMode(userId);
             await SendTypingAsync(chatId, cancellationToken);
+            var modelSelection = await ResolveModelAsync(userId, agent, null, chatId, cancellationToken);
+            if (modelSelection is null) return;
             var started = await sessions.StartAsync(new SessionStartRequest(userId, agent, context,
-                environment?.Values, mode), cancellationToken);
+                environment?.Values, mode, modelSelection), cancellationToken);
             if (!started.Accepted)
             {
                 // Without a session the request was refused before any process started (e.g. unsupported mode).
@@ -694,7 +827,8 @@ public sealed class TelegramPollingService(
             SyncActiveSession(userId);
             sessionId = started.Session.Id;
             // The mode is said once, when the conversation opens; the agent's reply follows (#76).
-            opened = $"Nova conversa com {agent} ({context.Label}), modo {AgentSessionModes.Label(mode)}.";
+            opened = $"Nova conversa com {agent} ({context.Label}), modo {AgentSessionModes.Label(mode)}" +
+                $"{ModelSuffix(modelSelection)}.";
         }
 
         var result = await sessions.SubmitAsync(userId, sessionId, text, MessageDelivery.Queue, cancellationToken);
@@ -927,8 +1061,8 @@ public sealed class TelegramPollingService(
     }
 
     private async Task RunJobAsync(string id, string agent, bool isCodex, string prompt,
-        JobExecutionContext context, ResolvedRepositoryEnvironment? repositoryEnvironment, long userId, long chatId,
-        CancellationToken jobToken, CancellationToken stoppingToken)
+        JobExecutionContext context, ResolvedRepositoryEnvironment? repositoryEnvironment, string? model, long userId,
+        long chatId, CancellationToken jobToken, CancellationToken stoppingToken)
     {
         AgentProcessResult? result = null;
         var status = AgentProcessStatus.Cancelled;
@@ -940,10 +1074,10 @@ public sealed class TelegramPollingService(
                 result = isCodex
                     ? await codexRunner.RunAsync(prompt, context.WorkingDirectory, jobToken,
                         context.Mode == JobExecutionMode.General,
-                        repositoryEnvironment?.Values)
+                        repositoryEnvironment?.Values, model)
                     : await claudeRunner.RunAsync(prompt, context.WorkingDirectory, jobToken,
                         context.Mode == JobExecutionMode.General,
-                        repositoryEnvironment?.Values);
+                        repositoryEnvironment?.Values, model);
                 status = result.Status;
                 errorMessage = result.ErrorMessage;
             }
@@ -990,6 +1124,7 @@ public sealed class TelegramPollingService(
         $"{job.Id} {job.Agent} {job.Context.Label}: {job.Status}" +
         (job.CancellationRequested && job.Status is JobStatus.Queued or JobStatus.Running
             ? " (cancelamento solicitado)" : string.Empty) +
+        (job.ModelSelection?.Model is { } model ? $" | modelo {model}" : string.Empty) +
         $" | criado {job.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
 
     private static string FormatSession(AgentSessionSnapshot session) =>
@@ -1006,7 +1141,8 @@ public sealed class TelegramPollingService(
                 AgentTurnOutcome.Interrupted => "interrompido",
                 _ => "falhou"
             }}") +
-        $" | modo {AgentSessionModes.Name(session.Profile)} | criada {session.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
+        $" | modo {AgentSessionModes.Name(session.Profile)} | modelo {session.ModelLabel}" +
+        $" | criada {session.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
 
     private static bool IsWithin(string path, string root)
     {

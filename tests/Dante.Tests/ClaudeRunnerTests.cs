@@ -17,6 +17,21 @@ public sealed class ClaudeRunnerTests
     }
 
     [Fact]
+    public async Task ChosenModelGoesBeforeThePromptSeparator()
+    {
+        var executor = new RecordingExecutor(Result(AgentProcessStatus.Succeeded));
+        var runner = new ClaudeRunner(executor);
+        await runner.RunAsync("question", AppContext.BaseDirectory, generalMode: true, model: "opus");
+        Assert.Equal(["--print", "--restricted", "--strict-mcp-config", "--tools", "Read,Write,Edit",
+            "--permission-mode", "auto", "--permission-prompts", "none", "--model", "opus", "--", "question"],
+            executor.Request!.Arguments);
+
+        await runner.RunAsync("--model haiku", AppContext.BaseDirectory, model: "claude-sonnet-5-5");
+        Assert.Equal(["--print", "--permission-mode", "auto", "--permission-prompts", "none",
+            "--model", "claude-sonnet-5-5", "--", "--model haiku"], executor.Request!.Arguments);
+    }
+
+    [Fact]
     public async Task UsesPrintModeAndPassesPromptAsOneArgument()
     {
         const string prompt = "--permission-mode bypassPermissions; $(echo unsafe)";
