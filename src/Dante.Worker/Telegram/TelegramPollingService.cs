@@ -26,6 +26,7 @@ public sealed class TelegramPollingService(
     IAgentModelCatalog? models = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
+    private const string EffortOption = "effort=";
     private const string ModelOption = "model=";
     private readonly object runningGate = new();
     private readonly HashSet<Task> runningJobs = [];
@@ -167,6 +168,13 @@ public sealed class TelegramPollingService(
         if (string.Equals(command, "/mode", StringComparison.OrdinalIgnoreCase))
         {
             await SendReplyAsync(message.Chat.Id, HandleModeCommand(message.From!.Id, prompt), cancellationToken);
+            return;
+        }
+
+        if (string.Equals(command, "/effort", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendLongMessageAsync(message.Chat.Id, await HandleEffortCommandAsync(message.From!.Id, prompt,
+                cancellationToken), cancellationToken);
             return;
         }
 
@@ -345,7 +353,7 @@ public sealed class TelegramPollingService(
         }
 
         var task = RunJobAsync(job.Id, agent, isCodex, prompt, context,
-            repositoryEnvironment, modelSelection.Model, message.From!.Id, message.Chat.Id, jobToken,
+            repositoryEnvironment, modelSelection, message.From!.Id, message.Chat.Id, jobToken,
             cancellationToken);
         lock (runningGate)
         {
@@ -418,7 +426,7 @@ public sealed class TelegramPollingService(
     private async Task HandleSessionCommandAsync(TelegramMessage message, string prompt,
         CancellationToken cancellationToken)
     {
-        const string usage = "Uso: /session start [claude|codex] [@alias] [manual|auto|plan] [model=<modelo>] | list | select <id|none> | stop [id] | close [id]";
+        const string usage = "Uso: /session start [claude|codex] [@alias] [manual|auto|plan] [model=<modelo>] [effort=<nível>] | list | select <id|none> | stop [id] | close [id]";
         if (sessions is null)
         {
             await SendReplyAsync(message.Chat.Id, "Sessões indisponíveis.", cancellationToken);
@@ -440,6 +448,7 @@ public sealed class TelegramPollingService(
             var profile = DefaultMode(userId);
             string? alias = null;
             string? model = null;
+            string? effort = null;
             var profileSpecified = false;
             for (var index = 1; index < parts.Length; index++)
             {
@@ -448,6 +457,8 @@ public sealed class TelegramPollingService(
                 else if (parts[index].StartsWith('@') && alias is null) alias = parts[index];
                 else if (parts[index].StartsWith(ModelOption, StringComparison.OrdinalIgnoreCase) && model is null &&
                          parts[index].Length > ModelOption.Length) model = parts[index][ModelOption.Length..];
+                else if (parts[index].StartsWith(EffortOption, StringComparison.OrdinalIgnoreCase) && effort is null &&
+                         parts[index].Length > EffortOption.Length) effort = parts[index][EffortOption.Length..];
                 else if (AgentSessionModes.TryParse(parts[index], out var requested) && !profileSpecified)
                 {
                     profile = requested;
@@ -463,7 +474,7 @@ public sealed class TelegramPollingService(
             if (resolved is null) return;
             var (context, environment) = resolved.Value;
             // A model given here is for this session only and, like the default, is checked before any process starts.
-            var modelSelection = await ResolveModelAsync(userId, agent, model, message.Chat.Id, cancellationToken);
+            var modelSelection = await ResolveModelAsync(userId, agent, model, message.Chat.Id, cancellationToken, effort);
             if (modelSelection is null) return;
             var started = await sessions.StartAsync(new SessionStartRequest(userId, agent, context,
                 environment?.Values, profile, modelSelection), cancellationToken);
@@ -656,24 +667,104 @@ public sealed class TelegramPollingService(
     // The model a new session or job of the agent runs with: the explicit one or the user's default, checked against
     // what the installed CLI offers now. Null means refused, with the reason already sent; no model skips the check.
     private async Task<AgentModelSelection?> ResolveModelAsync(long userId, AgentKind agent, string? requested,
-        long chatId, CancellationToken cancellationToken)
+        long chatId, CancellationToken cancellationToken, string? requestedEffort = null)
     {
         var name = requested ?? settings?.GetModel(userId, agent);
         if (name is null || (requested is not null && requested.Equals("default", StringComparison.OrdinalIgnoreCase)))
-            return AgentModelSelection.CliDefault;
+            return await ResolveEffortAsync(userId, agent, AgentModelSelection.CliDefault, requestedEffort, chatId,
+                cancellationToken);
         if (!AgentModelSelection.IsValidName(name))
         {
             await SendReplyAsync(chatId, $"Nome de modelo inválido: {name}.", cancellationToken);
             return null;
         }
         var (found, error) = await FindModelAsync(agent, name, cancellationToken);
-        if (found is not null) return new AgentModelSelection(found);
+        if (found is not null)
+            return await ResolveEffortAsync(userId, agent, new AgentModelSelection(found), requestedEffort, chatId,
+                cancellationToken);
         var command = $"/model {agent.ToString().ToLowerInvariant()}";
         // A default the CLI stopped offering is never swapped for another model silently.
         await SendReplyAsync(chatId, error ?? (requested is not null ? NotOffered(agent, name) :
             $"O modelo {name}, padrão do {agent}, não é mais oferecido pelo {agent} instalado. Escolha outro com " +
             $"{command} <modelo> ou volte ao padrão da CLI com {command} default."), cancellationToken);
         return null;
+    }
+
+    private async Task<(AgentModelInfo? Model, string? Error)> EffortModelAsync(AgentKind agent, string? model,
+        CancellationToken cancellationToken)
+    {
+        if (models is null) return (null, "Catálogo de capacidades indisponível.");
+        try
+        {
+            var offered = await models.GetModelsAsync(agent, cancellationToken);
+            var selected = model is null ? offered.FirstOrDefault(item => item.IsDefault)
+                : offered.FirstOrDefault(item => AgentModelCatalog.Find([item], model) is not null);
+            return selected is null
+                ? (null, "Não foi possível identificar o modelo e seus níveis de esforço. Escolha um modelo com /model.")
+                : (selected, null);
+        }
+        catch (AgentModelCatalogException exception)
+        {
+            return (null, $"Não foi possível consultar os níveis de esforço do {agent}: {exception.Message}.");
+        }
+    }
+
+    private async Task<AgentModelSelection?> ResolveEffortAsync(long userId, AgentKind agent,
+        AgentModelSelection selection, string? requested, long chatId, CancellationToken cancellationToken)
+    {
+        var effort = requested ?? settings?.GetEffort(userId, agent);
+        if (effort is null || effort.Equals("default", StringComparison.OrdinalIgnoreCase)) return selection;
+        var (model, error) = await EffortModelAsync(agent, selection.Model, cancellationToken);
+        var found = model?.EffortLevels.FirstOrDefault(level => level.Equals(effort, StringComparison.OrdinalIgnoreCase));
+        if (found is not null) return selection with { Effort = found };
+        await SendReplyAsync(chatId, error ??
+            $"Esforço {effort} incompatível com {agent}, modelo {model!.Id}. Opções: " +
+            $"{string.Join(", ", model.EffortLevels)}. Use /effort {agent.ToString().ToLowerInvariant()} default para voltar ao padrão da CLI.",
+            cancellationToken);
+        return null;
+    }
+
+    private async Task<string> HandleEffortCommandAsync(long userId, string prompt, CancellationToken cancellationToken)
+    {
+        const string usage = "Uso: /effort | /effort claude|codex [<nível>|default]";
+        if (settings is null) return "Configurações do assistente indisponíveis.";
+        var parts = prompt.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length > 2 || parts.Length > 0 && !AssistantSettingsStore.TryParseAgent(parts[0], out _)) return usage;
+        var agents = parts.Length == 0 ? new[] { AgentKind.Claude, AgentKind.Codex }
+            : new[] { AssistantSettingsStore.TryParseAgent(parts[0], out var parsed) ? parsed : AgentKind.Claude };
+        if (parts.Length == 2 && parts[1].Equals("default", StringComparison.OrdinalIgnoreCase))
+        {
+            try { settings.SetEffort(userId, agents[0], null); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            { return "Não foi possível salvar a preferência de esforço."; }
+            return $"Esforço padrão do {agents[0]}: padrão da CLI. Sessões existentes mantêm o esforço original.";
+        }
+        var lines = new List<string>();
+        foreach (var agent in agents)
+        {
+            var (model, error) = await EffortModelAsync(agent, settings.GetModel(userId, agent), cancellationToken);
+            if (error is not null)
+            {
+                if (parts.Length == 2) return error;
+                lines.Add($"{agent}: {settings.GetEffort(userId, agent) ?? "padrão da CLI"}. {error}");
+                continue;
+            }
+            if (parts.Length == 2)
+            {
+                var found = model!.EffortLevels.FirstOrDefault(level => level.Equals(parts[1], StringComparison.OrdinalIgnoreCase));
+                if (found is null) return $"Esforço {parts[1]} incompatível com {agent}, modelo {model.Id}. Opções: {string.Join(", ", model.EffortLevels)}.";
+                try { settings.SetEffort(userId, agent, found); }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                { return "Não foi possível salvar a preferência de esforço."; }
+                return $"Esforço padrão do {agent}: {found}. Vale para novas sessões e execuções one-shot; sessões existentes mantêm o esforço original.";
+            }
+            lines.Add($"{agent}: {settings.GetEffort(userId, agent) ?? "padrão da CLI"}; modelo {model!.Id}. " +
+                $"Opções: {(model.EffortLevels.Count == 0 ? "nenhum nível explícito" : string.Join(", ", model.EffortLevels))}, default.");
+        }
+        if (sessions?.GetActive(userId) is { } active)
+            lines.Add($"Sessão ativa {active.Id}: esforço {active.EffortLabel}, fixo até ela ser encerrada.");
+        lines.Add("Use /effort <agente> <nível> ou default. Esforço não altera permissões.");
+        return string.Join('\n', lines);
     }
 
     // The name as the CLI spells it; neither a name nor an error means the CLI does not offer the model.
@@ -694,7 +785,8 @@ public sealed class TelegramPollingService(
         "para ver os disponíveis.";
 
     private static string ModelSuffix(AgentModelSelection selection) =>
-        selection.Model is null ? string.Empty : $", modelo {selection.Model}";
+        (selection.Model is null ? string.Empty : $", modelo {selection.Model}") +
+        (selection.Effort is null ? string.Empty : $", esforço {selection.Effort}");
 
     private async Task HandleRequestCommandAsync(TelegramMessage message, string command, string prompt,
         CancellationToken cancellationToken)
@@ -1057,7 +1149,7 @@ public sealed class TelegramPollingService(
     }
 
     private async Task RunJobAsync(string id, string agent, bool isCodex, string prompt,
-        JobExecutionContext context, ResolvedRepositoryEnvironment? repositoryEnvironment, string? model, long userId,
+        JobExecutionContext context, ResolvedRepositoryEnvironment? repositoryEnvironment, AgentModelSelection selection, long userId,
         long chatId, CancellationToken jobToken, CancellationToken stoppingToken)
     {
         AgentProcessResult? result = null;
@@ -1070,10 +1162,10 @@ public sealed class TelegramPollingService(
                 result = isCodex
                     ? await codexRunner.RunAsync(prompt, context.WorkingDirectory, jobToken,
                         context.Mode == JobExecutionMode.General,
-                        repositoryEnvironment?.Values, model)
+                        repositoryEnvironment?.Values, selection.Model, selection.Effort)
                     : await claudeRunner.RunAsync(prompt, context.WorkingDirectory, jobToken,
                         context.Mode == JobExecutionMode.General,
-                        repositoryEnvironment?.Values, model);
+                        repositoryEnvironment?.Values, selection.Model, selection.Effort);
                 status = result.Status;
                 errorMessage = result.ErrorMessage;
             }
@@ -1121,6 +1213,7 @@ public sealed class TelegramPollingService(
         (job.CancellationRequested && job.Status is JobStatus.Queued or JobStatus.Running
             ? " (cancelamento solicitado)" : string.Empty) +
         (job.ModelSelection?.Model is { } model ? $" | modelo {model}" : string.Empty) +
+        $" | esforço {job.ModelSelection?.EffortLabel ?? "padrão da CLI"}" +
         $" | criado {job.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
 
     private static string FormatSession(AgentSessionSnapshot session) =>
@@ -1137,7 +1230,7 @@ public sealed class TelegramPollingService(
                 AgentTurnOutcome.Interrupted => "interrompido",
                 _ => "falhou"
             }}") +
-        $" | modo {AgentSessionModes.Name(session.Profile)} | modelo {session.ModelLabel}" +
+        $" | modo {AgentSessionModes.Name(session.Profile)} | modelo {session.ModelLabel} | esforço {session.EffortLabel}" +
         $" | criada {session.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
 
     private static bool IsWithin(string path, string root)

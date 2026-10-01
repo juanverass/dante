@@ -14,6 +14,7 @@ public sealed class AssistantSettingsStore
     private readonly Dictionary<long, string> activeRepositories = [];
     private readonly Dictionary<long, AgentPermissionProfile> sessionModes = [];
     private readonly Dictionary<long, Dictionary<AgentKind, string>> models = [];
+    private readonly Dictionary<long, Dictionary<AgentKind, string>> efforts = [];
     private AssistantSettings current;
 
     public AssistantSettingsStore(string? filePath = null)
@@ -21,7 +22,7 @@ public sealed class AssistantSettingsStore
         this.filePath = filePath ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dante", "settings.json");
         current = File.Exists(this.filePath)
-            ? Load(this.filePath, activeRepositories, sessionModes, models)
+            ? Load(this.filePath, activeRepositories, sessionModes, models, efforts)
             : AssistantSettings.Default;
     }
 
@@ -110,6 +111,19 @@ public sealed class AssistantSettingsStore
         lock (gate) SetAgentValue(models, userId, agent, model);
     }
 
+    public string? GetEffort(long userId, AgentKind agent)
+    {
+        lock (gate) return GetAgentValue(efforts, userId, agent);
+    }
+
+    public void SetEffort(long userId, AgentKind agent, string? effort)
+    {
+        if (!Enum.IsDefined(agent)) throw new ArgumentOutOfRangeException(nameof(agent));
+        if (effort is not null && !AgentModelSelection.IsValidEffort(effort))
+            throw new ArgumentException("Nome de esforço inválido.", nameof(effort));
+        lock (gate) SetAgentValue(efforts, userId, agent, effort);
+    }
+
     public int ClearActiveRepository(string alias)
     {
         alias = RepositoryRegistry.NormalizeAlias(alias);
@@ -171,7 +185,8 @@ public sealed class AssistantSettingsStore
     }
 
     private static AssistantSettings Load(string path, Dictionary<long, string> activeRepositories,
-        Dictionary<long, AgentPermissionProfile> sessionModes, Dictionary<long, Dictionary<AgentKind, string>> models)
+        Dictionary<long, AgentPermissionProfile> sessionModes, Dictionary<long, Dictionary<AgentKind, string>> models,
+        Dictionary<long, Dictionary<AgentKind, string>> efforts)
     {
         SettingsFile? saved;
         string? nullMap;
@@ -184,7 +199,7 @@ public sealed class AssistantSettingsStore
             nullMap = new[]
                 {
                     nameof(SettingsFile.ActiveRepositories), nameof(SettingsFile.SessionModes),
-                    nameof(SettingsFile.Models)
+                    nameof(SettingsFile.Models), nameof(SettingsFile.Efforts)
                 }
                 .FirstOrDefault(name => document.RootElement.ValueKind == JsonValueKind.Object
                     && document.RootElement.TryGetProperty(name, out var property)
@@ -222,6 +237,7 @@ public sealed class AssistantSettingsStore
             sessionModes[userId] = parsed;
         }
         LoadAgentMap(path, nameof(SettingsFile.Models), saved.Models, AgentModelSelection.IsValidName, models);
+        LoadAgentMap(path, nameof(SettingsFile.Efforts), saved.Efforts, AgentModelSelection.IsValidEffort, efforts);
         return new AssistantSettings(agent);
     }
 
@@ -266,7 +282,7 @@ public sealed class AssistantSettingsStore
                     sessionModes.Count == 0 ? null : sessionModes.OrderBy(entry => entry.Key).ToDictionary(
                         entry => entry.Key.ToString(CultureInfo.InvariantCulture),
                         entry => AgentSessionModes.Name(entry.Value)),
-                    SaveAgentMap(models)),
+                    SaveAgentMap(models), SaveAgentMap(efforts)),
                 new JsonSerializerOptions
                 {
                     WriteIndented = true,
@@ -279,5 +295,6 @@ public sealed class AssistantSettingsStore
 
     private sealed record SettingsFile(string? DefaultAgent, Dictionary<string, string>? ActiveRepositories = null,
         Dictionary<string, string>? SessionModes = null,
-        Dictionary<string, Dictionary<string, string>?>? Models = null);
+        Dictionary<string, Dictionary<string, string>?>? Models = null,
+        Dictionary<string, Dictionary<string, string>?>? Efforts = null);
 }

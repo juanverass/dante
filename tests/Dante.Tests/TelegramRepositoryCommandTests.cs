@@ -193,7 +193,7 @@ public sealed class TelegramRepositoryCommandTests : IDisposable
         public IReadOnlyDictionary<string, string>? Environment { get; private set; }
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
             CancellationToken cancellationToken = default, bool generalMode = false,
-            IReadOnlyDictionary<string, string>? environment = null, string? model = null)
+            IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null)
         {
             Environment = environment;
             return Task.FromResult(new AgentProcessResult(AgentProcessStatus.Succeeded, "secret-value-123", "", 0,

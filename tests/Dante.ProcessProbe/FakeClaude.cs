@@ -189,6 +189,10 @@ internal static class FakeClaude
                             break;
                         case "crash":
                             return 5;
+                        case "effort":
+                            Assistant("effort:" + (ValueAfter(args, "--effort") ?? "default"));
+                            Result(true, "done");
+                            break;
                         case "model":
                             // Reports the --model the session was started with.
                             Assistant("model:" + (ValueAfter(args, "--model") ?? "default"));

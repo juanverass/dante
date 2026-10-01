@@ -578,13 +578,15 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/use general` | Volta ao General Mode |
 | `/status` | Exibe jobs, sessões próprias e estado da entrega recente ao Telegram |
 | `/cancel <jobId>` | Solicita cancelamento de um job |
-| `/session start [claude\|codex] [@alias] [manual\|auto\|plan] [model=<modelo>]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e modo selecionados se omitidos |
+| `/session start [claude\|codex] [@alias] [manual\|auto\|plan] [model=<modelo>] [effort=<nível>]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e modo selecionados se omitidos |
 | `/session list` | Lista as suas sessões |
 | `/session select <id\|none>` | Seleciona uma sessão; `none` faz a próxima mensagem abrir uma sessão nova |
 | `/session stop [id]` | Interrompe o turno e descarta a fila, mantendo a sessão |
 | `/session close [id]` | Encerra a sessão e seu processo |
 | `/model` | Consulta os modelos padrão de Claude e Codex para o usuário |
 | `/model claude\|codex [<modelo>\|default]` | Lista modelos da CLI instalada, escolhe um modelo ou volta ao padrão da CLI |
+| `/effort` | Consulta esforço e níveis suportados por agente/modelo |
+| `/effort claude\|codex [<nível>\|default]` | Escolhe o esforço das novas sessões e execuções one-shot ou volta ao padrão da CLI |
 | `/mode` | Consulta o modo padrão, as opções e o suporte de cada agente |
 | `/mode manual\|auto\|plan` | Escolhe o modo padrão para novas sessões do usuário (`approval` = `manual`) |
 | `/permissions [manual\|auto\|plan]` | Interface de baixo nível do `/mode`: consulta ou escolhe o mesmo padrão |
@@ -762,6 +764,35 @@ renovação do catálogo: escolha outro modelo listado ou use `/model <agente> d
 Não há troca silenciosa para outro modelo. Se a consulta à CLI falhar, a seleção
 explícita é recusada; voltar a `default` continua disponível sem consultar o catálogo.
 
+O esforço de raciocínio também é independente por usuário e agente:
+
+```text
+/effort                              consulta preferências e opções por modelo
+/effort claude                       lista os níveis do modelo escolhido para Claude
+/effort codex <nível>                 escolhe um nível oferecido pelo Codex
+/effort claude default               remove a preferência e usa o padrão nativo
+/session start claude model=<modelo> effort=<nível>   override só para a sessão
+/session start codex effort=default   ignora a preferência de esforço nesta sessão
+```
+
+Os nomes e o suporte vêm do catálogo da CLI instalada, por modelo; não há tradução
+ou equivalência de níveis entre Claude e Codex. Sem modelo escolhido, a validação usa
+o modelo que o catálogo identifica como padrão. Se não for possível identificá-lo,
+escolha um modelo com `/model` antes de escolher esforço. Modelos sem suporte não
+oferecem níveis explícitos. Ausência de escolha ou `default` omite o parâmetro de
+esforço e conserva o padrão nativo da CLI.
+
+O esforço fica fixo na sessão e aparece em `/status` e `/session list`. Alterar
+`/effort` só afeta novas sessões e jobs one-shot: `/claude` e `/codex` usam a preferência
+do agente nomeado. O override não muda a preferência persistida. Permissões e modo
+`manual|auto|plan` continuam independentes; esforço não concede acesso adicional.
+
+A combinação modelo × esforço é validada antes de iniciar a execução. Se mudar o
+modelo ou atualizar a CLI tornar o esforço salvo incompatível, novas execuções são
+recusadas após a renovação do catálogo, sem conversão silenciosa: escolha outro nível
+ou `/effort <agente> default`. Falha na consulta também recusa esforço explícito;
+voltar a `default` funciona sem consultar a CLI. Sessões existentes mantêm seu esforço.
+
 `~/.dante/settings.json` guarda apenas preferências, nunca tokens ou segredos:
 
 ```json
@@ -777,6 +808,11 @@ explícita é recusada; voltar a `default` continua disponível sem consultar o 
     "123456789": {
       "Claude": "opus"
     }
+  },
+  "Efforts": {
+    "123456789": {
+      "Claude": "high"
+    }
   }
 }
 ```
@@ -786,7 +822,8 @@ primeira alteração, com escrita atômica. `DefaultAgent` aceita somente `Claud
 `Codex`; `ActiveRepositories` associa Telegram User IDs a aliases; `SessionModes`, quando
 existe, associa Telegram User IDs ao modo padrão (`manual`, `auto` ou `plan`).
 `Models` associa cada usuário às preferências separadas de `Claude` e `Codex`; ausência
-da entrada significa padrão da CLI. A carga valida a sintaxe; a disponibilidade é
+da entrada significa padrão da CLI. `Efforts` guarda os níveis escolhidos no mesmo
+formato por usuário e agente. A carga valida a sintaxe; a disponibilidade é
 conferida no catálogo ao selecionar e ao iniciar uma execução. Arquivo corrompido
 ou com valor desconhecido impede o Worker de iniciar com erro claro, em vez de
 escolher um agente por conta própria.

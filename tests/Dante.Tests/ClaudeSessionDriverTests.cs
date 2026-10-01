@@ -10,6 +10,22 @@ namespace Dante.Tests;
 // without the Claude CLI or any call to Anthropic.
 public sealed class ClaudeSessionDriverTests
 {
+    [Fact]
+    public async Task EffortIsKeptAcrossTurnsInPlanMode()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new ClaudeSessionDriver(launcher);
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, IsGeneral: true,
+            Profile: AgentPermissionProfile.Plan, ModelSelection: new AgentModelSelection("opus", "high")));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("effort");
+        var first = await ReadTurnAsync(events);
+        await driver.StartTurnAsync("effort");
+        var second = await ReadTurnAsync(events);
+        Assert.Equal("effort:high", first.OfType<MessageCompletedEvent>().Single().Text);
+        Assert.Equal("effort:high", second.OfType<MessageCompletedEvent>().Single().Text);
+    }
+
     private const long Owner = 42;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
 

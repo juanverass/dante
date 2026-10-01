@@ -10,6 +10,24 @@ namespace Dante.Tests;
 // JSON-RPC protocol, without the Codex CLI or any external service.
 public sealed class CodexSessionDriverTests
 {
+    [Theory]
+    [InlineData(AgentPermissionProfile.Plan, "effort:high/high")]
+    [InlineData(AgentPermissionProfile.Manual, "effort:high/default")]
+    public async Task EffortIsKeptAcrossTurns(AgentPermissionProfile profile, string expected)
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new CodexSessionDriver(launcher);
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, IsGeneral: true,
+            Profile: profile, ModelSelection: new AgentModelSelection("fake-model", "high")));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("effort");
+        var first = await ReadTurnAsync(events);
+        await driver.StartTurnAsync("effort");
+        var second = await ReadTurnAsync(events);
+        Assert.Equal(expected, first.OfType<MessageCompletedEvent>().Single().Text);
+        Assert.Equal(expected, second.OfType<MessageCompletedEvent>().Single().Text);
+    }
+
     private const long Owner = 42;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
 

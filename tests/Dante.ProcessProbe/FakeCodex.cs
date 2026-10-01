@@ -277,6 +277,12 @@ internal static class FakeCodex
                             break;
                         case "crash":
                             return 5;
+                        case "effort":
+                            var requestedEffort = (string?)turnParams["effort"] ?? "default";
+                            var planEffort = (string?)turnParams["collaborationMode"]?["settings"]?["reasoning_effort"];
+                            Message("effort:" + requestedEffort + "/" + (planEffort ?? "default"));
+                            Complete("completed");
+                            break;
                         case "model":
                             // Reports the model thread/start received.
                             Message("model:" + ((string?)threadParams!["model"] ?? "default"));

@@ -8,7 +8,7 @@ public sealed class CodexRunner(IAgentProcessExecutor processExecutor) : ICodexR
         CancellationToken cancellationToken = default,
         bool generalMode = false,
         IReadOnlyDictionary<string, string>? environment = null,
-        string? model = null)
+        string? model = null, string? effort = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
@@ -16,13 +16,16 @@ public sealed class CodexRunner(IAgentProcessExecutor processExecutor) : ICodexR
         // ArgumentList keeps the prompt as one data argument, even if it starts with '-'. Without a model the CLI picks
         // its own default (#77).
         string[] modelArguments = model is null ? [] : ["--model", model];
+        if (effort is not null && !AgentModelSelection.IsValidEffort(effort))
+            throw new ArgumentException("Nome de esforço inválido.", nameof(effort));
+        string[] effortArguments = effort is null ? [] : ["--config", $"model_reasoning_effort=\"{effort}\""];
         var request = new AgentProcessRequest(
             AgentKind.Codex,
             workingDirectory,
             generalMode
                 ? ["exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "--ignore-user-config",
-                    .. modelArguments, "--", prompt]
-                : ["exec", "--approve-for-me", .. modelArguments, "--", prompt],
+                    .. modelArguments, .. effortArguments, "--", prompt]
+                : ["exec", "--approve-for-me", .. modelArguments, .. effortArguments, "--", prompt],
             generalMode,
             environment);
 

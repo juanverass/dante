@@ -208,6 +208,7 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
 
         // Without a selection the CLI picks its own default model (#77).
         if (options.ModelSelection?.Model is { } model) arguments.AddRange(["--model", model]);
+        if (options.ModelSelection?.Effort is { } effort) arguments.AddRange(["--effort", effort]);
         return arguments;
     }
 
