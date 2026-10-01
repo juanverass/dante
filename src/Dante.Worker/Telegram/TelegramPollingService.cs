@@ -468,7 +468,8 @@ public sealed class TelegramPollingService(
         {
             var stopped = await sessions.InterruptAsync(userId, parts.ElementAtOrDefault(1), cancellationToken);
             await SendReplyAsync(message.Chat.Id, stopped.Accepted
-                ? $"Interrupção solicitada para {stopped.Session!.Id}; {stopped.DiscardedMessages} mensagem(ns) removida(s) da fila."
+                ? $"Interrupção solicitada para {stopped.Session!.Id}" + (stopped.DiscardedMessages == 0 ? "."
+                    : $"; {stopped.DiscardedMessages} mensagem(ns) removida(s) da fila.")
                 : stopped.Error!, cancellationToken);
             return;
         }

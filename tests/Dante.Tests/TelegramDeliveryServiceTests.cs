@@ -256,9 +256,9 @@ public sealed class TelegramDeliveryServiceTests
         await delivery.PublishAsync(second, new TurnStartedEvent { SessionId = "S2", TurnId = "T2" }, default);
         for (var index = 0; index < 200; index++)
         {
-            await delivery.PublishAsync(first, new MessageDeltaEvent("item", "a")
+            await delivery.PublishAsync(first, new MessageDeltaEvent("item", "a\n")
                 { SessionId = "S1", TurnId = "T1" }, default);
-            await delivery.PublishAsync(second, new MessageDeltaEvent("item", "b")
+            await delivery.PublishAsync(second, new MessageDeltaEvent("item", "b\n")
                 { SessionId = "S2", TurnId = "T2" }, default);
         }
         await Eventually(() => api.Messages.Count >= 2);
@@ -266,17 +266,17 @@ public sealed class TelegramDeliveryServiceTests
         Assert.All(api.Messages, message => Assert.InRange(message.Text.Length, 1, 4000));
         Assert.All(api.Messages, message => Assert.True(message.Text.StartsWith("[S1] ") ||
             message.Text.StartsWith("[S2] ")));
-        await Eventually(() => api.Messages.Any(message => message.Text.Contains(new string('a', 20))) &&
-            api.Messages.Any(message => message.Text.Contains(new string('b', 20))));
+        var lines = (string text) => string.Concat(Enumerable.Repeat(text + "\n", 20));
+        await Eventually(() => api.Messages.Any(message => message.Text.Contains(lines("a"))) &&
+            api.Messages.Any(message => message.Text.Contains(lines("b"))));
         Assert.True(api.Messages.Count < 20);
-        Assert.DoesNotContain(api.Messages, message => message.Text.Contains(new string('a', 20)) &&
-            message.Text.Contains(new string('b', 20)));
+        Assert.DoesNotContain(api.Messages, message => message.Text.Contains('a') && message.Text.Contains('b'));
         await delivery.PublishAsync(first, new TurnCompletedEvent(AgentTurnOutcome.Completed)
             { SessionId = "S1", TurnId = "T1" }, default);
         await Eventually(() => delivery.Get("S1", 123)?.State == TelegramDeliveryState.Delivered);
         var firstOutput = string.Concat(api.Messages.Where(message => message.Text.StartsWith("[S1] "))
             .Select(message => message.Text["[S1] ".Length..]));
-        Assert.Equal(new string('a', 200), firstOutput);
+        Assert.Equal(string.Concat(Enumerable.Repeat("a\n", 200)), firstOutput);
     }
 
     [Fact]
@@ -295,8 +295,13 @@ public sealed class TelegramDeliveryServiceTests
         await Publish(new TurnStartedEvent());
         await Eventually(() => api.ChatActions > 0);
         await Publish(new MessageDeltaEvent("m1", "Vou rodar os testes"));
-        await Publish(new ToolStartedEvent("c1", AgentToolKind.Command, "dotnet test"));
+        await Publish(new ToolStartedEvent("c1", AgentToolKind.Command, "dotnet test /tmp/general/tests/A.csproj"));
         await Publish(new ToolCompletedEvent("c1", AgentToolKind.Command, false));
+        await Publish(new FileChangeEvent(["/tmp/general/src/A.cs", "/outside/B.cs"]));
+        await Publish(new MessageCompletedEvent("blank", "\n"));
+        await Eventually(() => api.Messages.Count > 0);
+        await Publish(new MessageCompletedEvent("leading", "\n\nDepois de uma linha em branco."));
+        await Publish(new ToolStartedEvent("c2", AgentToolKind.Command, "/bin/bash -lc 'git status --short'"));
         await Publish(new ApprovalRequestedEvent("upstream", AgentToolKind.Command, "git push")
             { RequestId = "R1" });
         // Waiting for the user is not "typing".
@@ -313,6 +318,7 @@ public sealed class TelegramDeliveryServiceTests
         Assert.Equal(afterTurn, api.ChatActions);
 
         await Publish(new TurnStartedEvent(), "T2");
+        await Publish(new MessageCompletedEvent("only-blank", " \n"), "T2");
         await Publish(new TurnCompletedEvent(AgentTurnOutcome.Completed), "T2");
         await Publish(new TurnStartedEvent(), "T3");
         await Publish(new TurnCompletedEvent(AgentTurnOutcome.Failed, "boom"), "T3");
@@ -323,7 +329,12 @@ public sealed class TelegramDeliveryServiceTests
             api.Messages.Any(message => message.Text.Contains("sem resposta")));
 
         var output = string.Join("\n---\n", api.Messages.Select(message => message.Text));
-        Assert.Contains("Vou rodar os testes\n→ dotnet test\n✗ dotnet test falhou.\n", output);
+        Assert.Contains("Vou rodar os testes\n→ dotnet test tests/A.csproj\n✗ dotnet test tests/A.csproj falhou.\n" +
+            "Arquivos alterados: src/A.cs, /outside/B.cs\n", output);
+        Assert.Contains("→ git status --short\n", output);
+        Assert.Contains("Depois de uma linha em branco.", output);
+        Assert.DoesNotContain(api.Messages, message => string.IsNullOrWhiteSpace(message.Text));
+        Assert.DoesNotContain(api.Messages, message => message.Text.StartsWith('\n'));
         Assert.Contains("Aprovação pendente S1 T1 R1", output);
         Assert.Contains("Testes falharam.", output);
         Assert.Contains("(sem resposta do agente)", output);
@@ -378,7 +389,8 @@ public sealed class TelegramDeliveryServiceTests
             delivery.RegisterSession("S1", 123, -123, false);
             var session = Snapshot("S1");
             await delivery.PublishAsync(session, new TurnStartedEvent { SessionId = "S1", TurnId = "T1" }, default);
-            await delivery.PublishAsync(session, new MessageDeltaEvent("item", new string('x', 100) + "dante-cross-")
+            await delivery.PublishAsync(session, new MessageDeltaEvent("item",
+                new string('x', 100) + "\n" + new string('z', 40) + "dante-cross-")
                 { SessionId = "S1", TurnId = "T1" }, default);
             await Eventually(() => api.Messages.Count > 0);
             await delivery.PublishAsync(session, new MessageDeltaEvent("item", "boundary-secret" + new string('y', 100))

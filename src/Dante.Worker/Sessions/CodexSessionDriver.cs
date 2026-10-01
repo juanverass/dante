@@ -25,6 +25,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
     private string? threadId;
     private string? model;
     private string? activeTurnId;
+    private string? completedTurnId;
     private AgentPermissionProfile profile;
     private bool closing;
     private bool ended;
@@ -124,8 +125,9 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
                      ?? throw new AgentProtocolException("O Codex iniciou o turno sem id.");
         lock (gate)
         {
-            // turn/started may already have set it; the response is authoritative.
-            activeTurnId = turnId;
+            // turn/started may already have set it; the response is authoritative, unless a fast turn already
+            // completed while the response was on its way: restoring it would leave a stale active turn behind.
+            if (turnId != completedTurnId) activeTurnId = turnId;
         }
     }
 
@@ -572,6 +574,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
     {
         lock (gate)
         {
+            completedTurnId = GetString(turn, "id");
             activeTurnId = null;
             pendingRequests.Clear();
         }

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using Dante.Worker.Sessions;
 
 namespace Dante.Worker.Telegram;
@@ -10,11 +11,14 @@ public sealed record TelegramDeliverySnapshot(string Id, TelegramDeliveryState S
     int TotalChunks);
 
 // Delivery is independent of the agent's outcome. Records stay in memory for recovery without rerunning work.
-public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<TelegramDeliveryService> logger)
+public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<TelegramDeliveryService> logger)
     : IAgentSessionEventSink
 {
     private const int MaxMessageLength = 4000;
     private const int MaxRecords = 100;
+    private static readonly TimeSpan BatchDelay = TimeSpan.FromMilliseconds(750);
+    // Telegram asks bots to stay around one message per second per chat; a long stream is sent in fewer, larger parts.
+    private static readonly TimeSpan StreamPause = TimeSpan.FromSeconds(1.5);
     private readonly object gate = new();
     private readonly Dictionary<string, DeliveryRecord> records = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (long UserId, long ChatId, bool HideOutput)> chats =
@@ -136,8 +140,8 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
                     AgentTurnOutcome.Interrupted => $"Resposta interrompida. {omitted}\n",
                     _ => $"A resposta falhou. {omitted}\n"
                 },
-                ApprovalRequestedEvent approval => ApprovalInstructions(approval, hideDetails: true),
-                UserInputRequestedEvent input => InputInstructions(input, hideDetails: true),
+                ApprovalRequestedEvent approval => Line(record, ApprovalInstructions(approval, hideDetails: true)),
+                UserInputRequestedEvent input => Line(record, InputInstructions(input, hideDetails: true)),
                 RequestExpiredEvent expired => $"A solicitação {expired.RequestId} expirou.\n",
                 _ => string.Empty
             };
@@ -146,18 +150,21 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         {
             MessageDeltaEvent delta => Delta(record.Id, delta),
             MessageCompletedEvent completed => CompleteMessage(record.Id, completed),
-            ToolStartedEvent tool => Line(record, $"→ {Remember(record.Id, tool)}\n"),
+            ToolStartedEvent tool => Line(record,
+                $"→ {Remember(record.Id, Unwrapped(Relative(session, tool.Description)), tool)}\n"),
             ToolCompletedEvent { Succeeded: false } tool => Line(record,
                 $"✗ {toolDescriptions.GetValueOrDefault(record.Id + "/" + tool.ItemId) ?? "Ferramenta"} falhou.\n"),
-            FileChangeEvent change => Line(record, $"Arquivos alterados: {string.Join(", ", change.Paths)}\n"),
+            FileChangeEvent change => Line(record,
+                $"Arquivos alterados: {Relative(session, string.Join(", ", change.Paths))}\n"),
             WarningEvent warning => Line(record, $"Aviso: {warning.Message}\n"),
             ErrorEvent error => Line(record, $"Erro: {error.Message}\n"),
-            ApprovalRequestedEvent approval => ApprovalInstructions(approval, hideDetails: false),
-            UserInputRequestedEvent input => InputInstructions(input, hideDetails: false),
+            ApprovalRequestedEvent approval => Line(record,
+                ApprovalInstructions(approval with { Action = Relative(session, approval.Action) }, hideDetails: false)),
+            UserInputRequestedEvent input => Line(record, InputInstructions(input, hideDetails: false)),
             RequestExpiredEvent expired => Line(record, $"A solicitação {expired.RequestId} expirou.\n"),
             TurnCompletedEvent completed => completed.Outcome switch
             {
-                AgentTurnOutcome.Completed => record.RetainedLength == 0 ? "(sem resposta do agente)\n" : string.Empty,
+                AgentTurnOutcome.Completed => record.HasVisibleText ? string.Empty : "(sem resposta do agente)\n",
                 AgentTurnOutcome.Interrupted => Line(record, "Resposta interrompida.\n"),
                 _ => Line(record, "A resposta falhou" + (completed.Error is null ? ".\n" : $": {completed.Error}\n"))
             },
@@ -165,10 +172,25 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         };
     }
 
-    private string Remember(string id, ToolStartedEvent tool)
+    private string Remember(string id, string description, ToolStartedEvent tool)
     {
-        toolDescriptions[id + "/" + tool.ItemId] = tool.Description;
-        return tool.Description;
+        toolDescriptions[id + "/" + tool.ItemId] = description;
+        return description;
+    }
+
+    // Progress lines show the command itself, not Codex's "/bin/bash -lc '...'" wrapper. Approvals keep the exact text.
+    private static string Unwrapped(string command) =>
+        ShellWrapper().Match(command) is { Success: true } match ? match.Groups[1].Value : command;
+
+    [GeneratedRegex(@"^(?:/usr)?/bin/(?:ba)?sh -lc '([^']*)'$")]
+    private static partial Regex ShellWrapper();
+
+    // Paths inside the session's directory are shown relative to it: shorter on a phone, same meaning.
+    private static string Relative(AgentSessionSnapshot session, string text)
+    {
+        var root = session.Context.WorkingDirectory.TrimEnd('/', '\\');
+        return root.Length == 0 ? text : text.Replace(root + "/", string.Empty, StringComparison.Ordinal)
+            .Replace(root + "\\", string.Empty, StringComparison.Ordinal);
     }
 
     // Progress lines never glue onto streamed text that has not ended its line yet.
@@ -209,7 +231,7 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         var ids = $"{approval.SessionId} {approval.TurnId} {approval.RequestId}";
         var details = hideDetails ? "Detalhes omitidos para proteger segredos do ambiente." :
             $"{approval.Action}" + (approval.Reason is null ? "" : $"\nMotivo: {approval.Reason}");
-        return $"\nAprovação pendente {ids}: {details}\n/approve {ids}\n" +
+        return $"Aprovação pendente {ids}: {details}\n/approve {ids}\n" +
             (approval.CanApproveForSession ? $"/approve-session {ids}\n" : "") +
             $"/deny {ids} [motivo]\nExpira em 5 minutos.\n";
     }
@@ -221,7 +243,7 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
             string.Join("\n", input.Questions.Select((question, index) =>
                 $"{index + 1}. {question.Text}" + (question.Options.Count == 0 ? "" :
                     $" (opções: {string.Join(", ", question.Options)})")));
-        return $"\nResposta pendente {ids}:\n{questions}\n/input {ids} <resposta1>" +
+        return $"Resposta pendente {ids}:\n{questions}\n/input {ids} <resposta1>" +
             (input.Questions.Count > 1 ? " | <resposta2> ..." : "") + "\nExpira em 5 minutos.\n";
     }
 
@@ -272,6 +294,7 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         }
         record.RetainedLength += text.Length;
         if (text.Length > 0) record.EndsWithNewLine = text[^1] == '\n';
+        if (!string.IsNullOrWhiteSpace(text)) record.HasVisibleText = true;
         record.Buffer.Append(text);
         if (flush && record.Buffer.Length > 0)
         {
@@ -295,7 +318,7 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
             {
                 try
                 {
-                    await Task.Delay(750);
+                    await Task.Delay(BatchDelay);
                     await DeliverAsync(record, CancellationToken.None);
                     if (BeforeScheduledDeliveryCleanupAsync is { } beforeCleanup)
                         await beforeCleanup();
@@ -337,7 +360,12 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
                     {
                         var flushLength = record.Final ? record.Buffer.Length :
                             Math.Max(0, record.Buffer.Length - SecretHoldbackLength(record));
-                        if (!record.Final) flushLength = SafeFlushLength(record.Buffer.ToString(), flushLength, record);
+                        if (!record.Final)
+                        {
+                            flushLength = SafeFlushLength(record.Buffer.ToString(), flushLength, record);
+                            flushLength = LineBoundary(record.Buffer.ToString(), flushLength,
+                                MaxMessageLength - record.Prefix.Length);
+                        }
                         if (flushLength > 0 && flushLength < record.Buffer.Length &&
                             char.IsHighSurrogate(record.Buffer[flushLength - 1])) flushLength--;
                         if (flushLength > 0)
@@ -392,7 +420,7 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
                     record.NextChunk++;
                     pauseForNextBatch = record.NextChunk == record.Chunks.Count && record.Buffer.Length > 0;
                 }
-                if (pauseForNextBatch) await Task.Delay(750, cancellationToken);
+                if (pauseForNextBatch) await Task.Delay(StreamPause, cancellationToken);
             }
         }
         finally { record.SendGate.Release(); }
@@ -409,8 +437,11 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         {
             var length = Math.Min(MaxMessageLength - prefix.Length, text.Length - start);
             if (start + length < text.Length && char.IsHighSurrogate(text[start + length - 1])) length--;
-            yield return prefix + text.Substring(start, length);
+            // A message never opens with blank lines; one with no visible text is not sent at all, because Telegram
+            // rejects it and that would fail the rest of the delivery.
+            var part = text.Substring(start, length).TrimStart('\r', '\n');
             start += length;
+            if (!string.IsNullOrWhiteSpace(part)) yield return prefix + part;
         }
     }
 
@@ -430,6 +461,15 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
     {
         var max = Secrets(record).Select(secret => secret.Length).DefaultIfEmpty().Max();
         return Math.Max(0, max - 1);
+    }
+
+    // Streamed text goes out in whole lines, so a part never starts or ends in the middle of one; only a line longer
+    // than a whole message is split before the turn ends.
+    private static int LineBoundary(string text, int length, int messageLength)
+    {
+        if (length == 0) return 0;
+        var newline = text.LastIndexOf('\n', length - 1);
+        return newline >= 0 ? newline + 1 : length >= messageLength ? length : 0;
     }
 
     private static int SafeFlushLength(string text, int length, DeliveryRecord record)
@@ -470,6 +510,7 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         public bool Final { get; set; }
         public bool Truncated { get; set; }
         public bool EndsWithNewLine { get; set; }
+        public bool HasVisibleText { get; set; }
         public bool AwaitingUser { get; set; }
         public bool Typing { get; set; }
         public IReadOnlyList<string> HostSecrets { get; } = new[] { "OPENAI_API_KEY", "ANTHROPIC_API_KEY" }
