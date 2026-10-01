@@ -337,7 +337,7 @@ public sealed class SessionRegistry(
         return RespondAsync(userId, requestId, response, cancellationToken);
     }
 
-    // Explicit selection of the active session; null clears it (the next plain message is not a session turn).
+    // Explicit selection of the active session; null clears it (the next plain message opens a new session, AD-23).
     public SessionResult Select(long userId, string? sessionId)
     {
         if (sessionId is null)

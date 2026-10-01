@@ -21,13 +21,23 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> latestTurns = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, StringBuilder> itemText = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> toolDescriptions = new(StringComparer.OrdinalIgnoreCase);
 
     // Allows the race between draining a batch and clearing Scheduled to be exercised in tests.
     internal Func<Task>? BeforeScheduledDeliveryCleanupAsync { get; set; }
 
+    // Telegram shows "typing" for about five seconds; renewing it a bit earlier keeps it continuous.
+    internal TimeSpan TypingInterval { get; set; } = TimeSpan.FromSeconds(4);
+
     public void RegisterSession(string sessionId, long userId, long chatId, bool hideOutput)
     {
         lock (gate) chats[sessionId] = (userId, chatId, hideOutput);
+    }
+
+    // Sessions with bound secrets keep agent-provided details (including errors) out of Telegram.
+    public bool HidesOutput(string sessionId)
+    {
+        lock (gate) return chats.TryGetValue(sessionId, out var chat) && chat.HideOutput;
     }
 
     public Task PublishAsync(AgentSessionSnapshot session, AgentEvent agentEvent, CancellationToken cancellationToken)
@@ -44,17 +54,24 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
             var id = agentEvent.TurnId is null ? session.Id + "/system" :
                 session.Id + "/" + agentEvent.TurnId;
             if (agentEvent.TurnId is not null) latestTurns[session.Id] = id;
-            var record = GetOrCreate(id, chat.UserId, chat.ChatId, $"[{session.Id} {agentEvent.TurnId ?? "sistema"}] ");
-            var formatted = FormatEvent(agentEvent, chat.HideOutput, id);
+            // The active session reads like a conversation; output of any other session stays identified.
+            var record = GetOrCreate(id, chat.UserId, chat.ChatId, session.IsActive ? string.Empty : $"[{session.Id}] ");
+            var formatted = FormatEvent(session, agentEvent, chat.HideOutput, record);
             if (agentEvent is TurnCompletedEvent or ErrorEvent) record.Final = true;
             if (formatted.Length > 0) Append(record, formatted,
-                safe: agentEvent is TurnStartedEvent,
                 flush: agentEvent is ApprovalRequestedEvent or UserInputRequestedEvent or RequestExpiredEvent);
+            else if (record.Final && record.State != TelegramDeliveryState.Failed) Schedule(record);
+            record.AwaitingUser = agentEvent is ApprovalRequestedEvent or UserInputRequestedEvent;
+            if (agentEvent.TurnId is not null) StartTyping(record);
             if (agentEvent is TurnCompletedEvent or ErrorEvent)
-                foreach (var key in itemText.Keys.Where(key => key.StartsWith(
-                                 agentEvent.TurnId is null ? session.Id + "/" : id + "/",
-                                 StringComparison.OrdinalIgnoreCase))
+            {
+                var prefix = agentEvent.TurnId is null ? session.Id + "/" : id + "/";
+                foreach (var key in itemText.Keys.Where(key => key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                              .ToArray()) itemText.Remove(key);
+                foreach (var key in toolDescriptions.Keys
+                             .Where(key => key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                             .ToArray()) toolDescriptions.Remove(key);
+            }
         }
         return Task.CompletedTask;
     }
@@ -97,14 +114,28 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         lock (gate) return Snapshot(record);
     }
 
-    private string FormatEvent(AgentEvent agentEvent, bool hideOutput, string id)
+    // Conversation format: the agent's own text, compact progress lines and only the lifecycle the user must act on
+    // (approvals, input, interruptions, failures). Ids stay in requests, /status and output of non-active sessions.
+    private string FormatEvent(AgentSessionSnapshot session, AgentEvent agentEvent, bool hideOutput,
+        DeliveryRecord record)
     {
+        const string omitted = "Saída omitida para proteger segredos do ambiente.";
+        if (agentEvent is ErrorEvent { TurnId: null } ended && session.State == AgentSessionState.Failed)
+        {
+            return (hideOutput ? $"A sessão {session.Id} foi encerrada." :
+                    $"A sessão {session.Id} foi encerrada: {ended.Message}") +
+                "\nEnvie /session start para começar outra conversa.\n";
+        }
         if (hideOutput)
         {
             return agentEvent switch
             {
-                TurnStartedEvent => "Turno iniciado. Saída omitida para proteger segredos do ambiente.\n",
-                TurnCompletedEvent completed => $"Turno {FormatOutcome(completed.Outcome)}. Saída omitida para proteger segredos do ambiente.\n",
+                TurnCompletedEvent completed => completed.Outcome switch
+                {
+                    AgentTurnOutcome.Completed => $"Concluído. {omitted}\n",
+                    AgentTurnOutcome.Interrupted => $"Resposta interrompida. {omitted}\n",
+                    _ => $"A resposta falhou. {omitted}\n"
+                },
                 ApprovalRequestedEvent approval => ApprovalInstructions(approval, hideDetails: true),
                 UserInputRequestedEvent input => InputInstructions(input, hideDetails: true),
                 RequestExpiredEvent expired => $"A solicitação {expired.RequestId} expirou.\n",
@@ -113,21 +144,64 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         }
         return agentEvent switch
         {
-            TurnStartedEvent => "Turno iniciado.\n",
-            MessageDeltaEvent delta => Delta(id, delta),
-            MessageCompletedEvent completed => CompleteMessage(id, completed),
-            ToolStartedEvent tool => $"\nFerramenta: {tool.Description}\n",
-            ToolCompletedEvent tool => $"Ferramenta {tool.ItemId}: {(tool.Succeeded ? "concluída" : "falhou")}.\n",
-            FileChangeEvent change => $"Arquivos alterados: {string.Join(", ", change.Paths)}\n",
-            WarningEvent warning => $"Aviso: {warning.Message}\n",
-            ErrorEvent error => $"Erro: {error.Message}\n",
+            MessageDeltaEvent delta => Delta(record.Id, delta),
+            MessageCompletedEvent completed => CompleteMessage(record.Id, completed),
+            ToolStartedEvent tool => Line(record, $"→ {Remember(record.Id, tool)}\n"),
+            ToolCompletedEvent { Succeeded: false } tool => Line(record,
+                $"✗ {toolDescriptions.GetValueOrDefault(record.Id + "/" + tool.ItemId) ?? "Ferramenta"} falhou.\n"),
+            FileChangeEvent change => Line(record, $"Arquivos alterados: {string.Join(", ", change.Paths)}\n"),
+            WarningEvent warning => Line(record, $"Aviso: {warning.Message}\n"),
+            ErrorEvent error => Line(record, $"Erro: {error.Message}\n"),
             ApprovalRequestedEvent approval => ApprovalInstructions(approval, hideDetails: false),
             UserInputRequestedEvent input => InputInstructions(input, hideDetails: false),
-            RequestExpiredEvent expired => $"A solicitação {expired.RequestId} expirou.\n",
-            TurnCompletedEvent completed => $"\nTurno {FormatOutcome(completed.Outcome)}." +
-                (completed.Error is null ? "\n" : $" {completed.Error}\n"),
+            RequestExpiredEvent expired => Line(record, $"A solicitação {expired.RequestId} expirou.\n"),
+            TurnCompletedEvent completed => completed.Outcome switch
+            {
+                AgentTurnOutcome.Completed => record.RetainedLength == 0 ? "(sem resposta do agente)\n" : string.Empty,
+                AgentTurnOutcome.Interrupted => Line(record, "Resposta interrompida.\n"),
+                _ => Line(record, "A resposta falhou" + (completed.Error is null ? ".\n" : $": {completed.Error}\n"))
+            },
             _ => string.Empty
         };
+    }
+
+    private string Remember(string id, ToolStartedEvent tool)
+    {
+        toolDescriptions[id + "/" + tool.ItemId] = tool.Description;
+        return tool.Description;
+    }
+
+    // Progress lines never glue onto streamed text that has not ended its line yet.
+    private static string Line(DeliveryRecord record, string text) =>
+        record.RetainedLength > 0 && !record.EndsWithNewLine ? "\n" + text : text;
+
+    // Keeps Telegram's "typing…" visible while the agent works; it pauses while a request waits for the user.
+    private void StartTyping(DeliveryRecord record)
+    {
+        if (record.Typing || record.Final || record.AwaitingUser) return;
+        record.Typing = true;
+        _ = Task.Run(async () =>
+        {
+            while (true)
+            {
+                lock (gate)
+                {
+                    if (record.Final || record.AwaitingUser)
+                    {
+                        record.Typing = false;
+                        return;
+                    }
+                }
+                try { await botApi.SendChatActionAsync(record.ChatId, "typing", CancellationToken.None); }
+                catch (Exception exception)
+                {
+                    // Presence is cosmetic: a failure must never affect delivery of the actual output.
+                    logger.LogDebug("Falha ao indicar digitação para {DeliveryId} ({ErrorType}).", record.Id,
+                        exception.GetType().Name);
+                }
+                await Task.Delay(TypingInterval);
+            }
+        });
     }
 
     private static string ApprovalInstructions(ApprovalRequestedEvent approval, bool hideDetails)
@@ -159,13 +233,6 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         return delta.Text;
     }
 
-    private static string FormatOutcome(AgentTurnOutcome outcome) => outcome switch
-    {
-        AgentTurnOutcome.Completed => "concluído",
-        AgentTurnOutcome.Interrupted => "interrompido",
-        _ => "falhou"
-    };
-
     private string CompleteMessage(string id, MessageCompletedEvent completed)
     {
         var key = id + "/" + completed.ItemId;
@@ -189,8 +256,7 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         return record;
     }
 
-    private void Append(DeliveryRecord record, string text, bool schedule = true, bool safe = false,
-        bool flush = false)
+    private void Append(DeliveryRecord record, string text, bool schedule = true, bool flush = false)
     {
         // Keep a bounded recent result; truncation is visible to the user.
         if (record.Truncated)
@@ -205,8 +271,8 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
             record.Truncated = true;
         }
         record.RetainedLength += text.Length;
-        if (safe) record.Chunks.AddRange(Split(text, record.Prefix));
-        else record.Buffer.Append(text);
+        if (text.Length > 0) record.EndsWithNewLine = text[^1] == '\n';
+        record.Buffer.Append(text);
         if (flush && record.Buffer.Length > 0)
         {
             record.Chunks.AddRange(Split(Redact(record.Buffer.ToString(), record), record.Prefix));
@@ -403,6 +469,9 @@ public sealed class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<Tele
         public bool Scheduled { get; set; }
         public bool Final { get; set; }
         public bool Truncated { get; set; }
+        public bool EndsWithNewLine { get; set; }
+        public bool AwaitingUser { get; set; }
+        public bool Typing { get; set; }
         public IReadOnlyList<string> HostSecrets { get; } = new[] { "OPENAI_API_KEY", "ANTHROPIC_API_KEY" }
             .Select(Environment.GetEnvironmentVariable).OfType<string>().Where(value => value.Length > 0).ToArray();
     }
