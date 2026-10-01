@@ -17,14 +17,22 @@ public sealed record AgentSessionSnapshot(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? EndedAtUtc,
     string? Error,
-    AgentTurnOutcome? LastTurnOutcome = null);
+    AgentTurnOutcome? LastTurnOutcome = null,
+    AgentModelSelection? ModelSelection = null,
+    string? ReportedModel = null)
+{
+    // The model chosen when the session started, or the CLI default with the model the CLI reported, if any (#77).
+    public string ModelLabel => ModelSelection?.Model ??
+        (ReportedModel is null ? AgentModelSelection.CliDefault.ModelLabel : $"padrão da CLI ({ReportedModel})");
+}
 
 public sealed record SessionStartRequest(
     long OwnerUserId,
     AgentKind Agent,
     JobExecutionContext Context,
     IReadOnlyDictionary<string, string>? EnvironmentVariables = null,
-    AgentPermissionProfile Profile = AgentPermissionProfile.Manual);
+    AgentPermissionProfile Profile = AgentPermissionProfile.Manual,
+    AgentModelSelection? ModelSelection = null);
 
 // DiscardedMessages: queued messages dropped by an interrupt.
 public sealed record SessionResult(

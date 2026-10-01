@@ -399,7 +399,7 @@ processo do agente, que mantém o contexto da conversa. Não é preciso `/sessio
 A abertura implícita não envia aviso adicional; o modo pode ser consultado em `/mode` e
 `/status`, e é informado ao iniciar uma sessão explicitamente com `/session start`.
 
-A resposta mostra essencialmente o texto do agente, com linhas curtas de progresso
+Em seguida, a resposta mostra essencialmente o texto do agente, com linhas curtas de progresso
 (`→ dotnet test`, arquivos alterados, falha de ferramenta) e o indicador "digitando…"
 enquanto o agente trabalha. A conversa não mostra `Job ID`, nem avisos de início e fim de
 turno: IDs de sessão, turno e entrega ficam em `/status`, `/session list` e nos comandos
@@ -578,11 +578,13 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/use general` | Volta ao General Mode |
 | `/status` | Exibe jobs, sessões próprias e estado da entrega recente ao Telegram |
 | `/cancel <jobId>` | Solicita cancelamento de um job |
-| `/session start [claude\|codex] [@alias] [manual\|auto\|plan]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e modo selecionados se omitidos |
+| `/session start [claude\|codex] [@alias] [manual\|auto\|plan] [model=<modelo>]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e modo selecionados se omitidos |
 | `/session list` | Lista as suas sessões |
 | `/session select <id\|none>` | Seleciona uma sessão; `none` faz a próxima mensagem abrir uma sessão nova |
 | `/session stop [id]` | Interrompe o turno e descarta a fila, mantendo a sessão |
 | `/session close [id]` | Encerra a sessão e seu processo |
+| `/model` | Consulta os modelos padrão de Claude e Codex para o usuário |
+| `/model claude\|codex [<modelo>\|default]` | Lista modelos da CLI instalada, escolhe um modelo ou volta ao padrão da CLI |
 | `/mode` | Consulta o modo padrão, as opções e o suporte de cada agente |
 | `/mode manual\|auto\|plan` | Escolhe o modo padrão para novas sessões do usuário (`approval` = `manual`) |
 | `/permissions [manual\|auto\|plan]` | Interface de baixo nível do `/mode`: consulta ou escolhe o mesmo padrão |
@@ -734,6 +736,32 @@ Atualmente:
 | Sessões interativas, turnos, filas e solicitações pendentes | somente memória (perdidas ao reiniciar o Worker) |
 | Saídas recentes para `/resend` | somente memória |
 
+A seleção de modelo é independente por usuário e agente:
+
+```text
+/model                        consulta as preferências de Claude e Codex
+/model claude                 lista modelos oferecidos pelo Claude instalado
+/model codex                  lista modelos oferecidos pelo Codex instalado
+/model claude <modelo>        escolhe um modelo da lista
+/model codex default          volta ao padrão da CLI
+/session start claude model=<modelo>    override só para essa sessão
+/session start codex model=default      usa o padrão da CLI nessa sessão
+```
+
+O modelo fica fixo durante toda a sessão e aparece em `/status` e `/session list`.
+Mudar `/model` afeta as próximas conversas e execuções one-shot: `/claude` usa a
+preferência de Claude; `/codex`, a de Codex. O override de `/session start` não altera
+a preferência salva. Sem escolha, nenhum modelo é passado e a CLI usa seu padrão;
+quando o Codex informa esse modelo, `/status` também mostra o nome reportado.
+
+O catálogo vem das próprias CLIs, sem iniciar um turno: `initialize` do Claude e
+`model/list` do Codex. Respostas válidas ficam em cache por até dez minutos. Modelos
+inválidos, de outro agente ou indisponíveis são recusados antes da execução. Se uma
+atualização da CLI remover um modelo salvo, novas execuções são recusadas após a
+renovação do catálogo: escolha outro modelo listado ou use `/model <agente> default`.
+Não há troca silenciosa para outro modelo. Se a consulta à CLI falhar, a seleção
+explícita é recusada; voltar a `default` continua disponível sem consultar o catálogo.
+
 `~/.dante/settings.json` guarda apenas preferências, nunca tokens ou segredos:
 
 ```json
@@ -744,6 +772,11 @@ Atualmente:
   },
   "SessionModes": {
     "123456789": "auto"
+  },
+  "Models": {
+    "123456789": {
+      "Claude": "opus"
+    }
   }
 }
 ```
@@ -751,8 +784,12 @@ Atualmente:
 Enquanto o arquivo não existe, o agente padrão é **Claude**; o arquivo é criado na
 primeira alteração, com escrita atômica. `DefaultAgent` aceita somente `Claude` ou
 `Codex`; `ActiveRepositories` associa Telegram User IDs a aliases; `SessionModes`, quando
-existe, associa Telegram User IDs ao modo padrão (`manual`, `auto` ou `plan`). Arquivo corrompido ou com valor desconhecido impede o Worker de iniciar com
-erro claro, em vez de escolher um agente por conta própria.
+existe, associa Telegram User IDs ao modo padrão (`manual`, `auto` ou `plan`).
+`Models` associa cada usuário às preferências separadas de `Claude` e `Codex`; ausência
+da entrada significa padrão da CLI. A carga valida a sintaxe; a disponibilidade é
+conferida no catálogo ao selecionar e ao iniciar uma execução. Arquivo corrompido
+ou com valor desconhecido impede o Worker de iniciar com erro claro, em vez de
+escolher um agente por conta própria.
 
 ---
 

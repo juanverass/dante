@@ -51,6 +51,35 @@ public sealed class CodexSessionDriverTests
     }
 
     [Fact]
+    public async Task ChosenModelGoesToThreadStartAndTheReportedModelIsReturned()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new CodexSessionDriver(launcher);
+        var started = await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory,
+            Profile: AgentPermissionProfile.Plan, ModelSelection: new AgentModelSelection("fake-mini")));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+
+        await driver.StartTurnAsync("model");
+        var first = await ReadTurnAsync(events);
+        await driver.StartTurnAsync("config");
+        var second = await ReadTurnAsync(events);
+
+        // The model never goes on the command line; the plan collaboration mode reuses the thread's model.
+        Assert.Equal(["app-server", "--listen", "stdio://"], Assert.Single(launcher.Requests).Arguments);
+        Assert.Equal("fake-mini", started.Model);
+        Assert.Equal("model:fake-mini", first.OfType<MessageCompletedEvent>().Single().Text);
+        Assert.Equal("on-request/read-only/plan/fake-mini/true", second.OfType<MessageCompletedEvent>().Single().Text);
+
+        // Without a selection thread/start carries no model and the CLI reports its own default.
+        await using var cliDefault = new CodexSessionDriver(new ProbeLauncher());
+        var defaultStarted = await cliDefault.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var defaultEvents = cliDefault.ReadEventsAsync().GetAsyncEnumerator();
+        await cliDefault.StartTurnAsync("model");
+        Assert.Equal("model:default", (await ReadTurnAsync(defaultEvents)).OfType<MessageCompletedEvent>().Single().Text);
+        Assert.Equal("fake-model", defaultStarted.Model);
+    }
+
+    [Fact]
     public async Task TwoTurnsUseTheSameThreadAndStreamDeltas()
     {
         await using var driver = new CodexSessionDriver(new ProbeLauncher());

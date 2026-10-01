@@ -206,6 +206,8 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
             arguments.AddRange(["--restricted", "--strict-mcp-config", "--tools", "Read,Write,Edit,AskUserQuestion"]);
         }
 
+        // Without a selection the CLI picks its own default model (#77).
+        if (options.ModelSelection?.Model is { } model) arguments.AddRange(["--model", model]);
         return arguments;
     }
 

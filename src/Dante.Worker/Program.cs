@@ -13,6 +13,7 @@ builder.Services.AddSingleton<IInteractiveAgentProcessLauncher, InteractiveAgent
 builder.Services.AddSingleton<GeneralWorkspace>();
 builder.Services.AddSingleton<ICodexRunner, CodexRunner>();
 builder.Services.AddSingleton<IClaudeRunner, ClaudeRunner>();
+builder.Services.AddSingleton<IAgentModelCatalog, AgentModelCatalog>();
 builder.Services.AddSingleton<JobRegistry>();
 builder.Services.AddSingleton<IAgentSessionDriverFactory, AgentSessionDriverFactory>();
 builder.Services.AddSingleton<TelegramDeliveryService>();

@@ -671,3 +671,42 @@ Código: `Sessions/AgentSessionModes.cs`, `Sessions/IAgentSessionDriver.cs`,
 `Sessions/SessionRegistry.cs`, `Settings/AssistantSettingsStore.cs`,
 `Telegram/TelegramPollingService.cs`; testes em `TelegramModeCommandTests`, `SessionRegistryTests`
 e `AssistantSettingsStoreTests`.
+
+## AD-25 — Modelo por usuário e agente, validado pela CLI e fixado ao iniciar
+
+Status: vigente (#77)
+
+`/model` consulta ou escolhe o modelo padrão de cada agente para o Telegram User ID,
+persistido em `Models` no `~/.dante/settings.json` com escrita atômica e carga
+fail-closed. Sem preferência, o D.A.N.T.E. omite o modelo e mantém o padrão da CLI.
+`/model <agente> default` remove a preferência sem exigir consulta ao catálogo.
+
+`AgentModelCatalog` consulta `initialize` (Claude stream-json) e `model/list`
+(Codex app-server, paginado), sem iniciar turno, no workspace e ambiente gerais.
+O catálogo é separado por agente, descarta modelos ocultos do Codex e aceita os IDs
+resolvidos que o Claude informa para seus aliases. Consultas têm prazo de 30 segundos;
+respostas válidas ficam em cache por dez minutos, permitindo perceber mudanças da CLI
+sem reiniciar o Worker. Falha de consulta nunca é interpretada como autorização para
+usar um nome arbitrário.
+
+`/session start ... model=<modelo>` sobrescreve apenas aquela sessão;
+`model=default` ignora a preferência e usa o padrão da CLI. O modelo fica no snapshot
+e nas opções do driver, imutável durante a sessão. Claude recebe `--model`; Codex
+recebe `model` em `thread/start`, e seu modelo reportado é reutilizado no modo plan.
+`/status` mostra a escolha ou o padrão da CLI (com modelo reportado, quando disponível).
+Alterar a preferência avisa que sessões existentes mantêm o modelo original.
+
+One-shot explícito usa a preferência do agente nomeado pelo comando, fixada no job,
+e passa `--model` como argumento separado. Nomes são validados no catálogo antes de
+iniciar jobs ou sessões. Preferência removida pela CLI recusa novas execuções após
+a renovação do catálogo e orienta escolher outra ou voltar a `default`, sem fallback
+silencioso. Sessões existentes continuam com sua configuração original.
+
+Por quê: modelos e aliases variam por CLI e versão; consultar a CLI evita manter uma
+lista estática e impede que uma preferência de Claude chegue ao Codex. Recusar uma
+preferência obsoleta preserva a escolha do usuário e torna a recuperação explícita.
+
+Código: `Agents/AgentModelCatalog.cs`, `Agents/AgentModelSelection.cs`,
+`Settings/AssistantSettingsStore.cs`, `Sessions/SessionRegistry.cs`, drivers,
+runners e `Telegram/TelegramPollingService.cs`. Testes: `AgentModelCatalogTests`,
+`TelegramModelCommandTests`, settings, runners e drivers.

@@ -7,5 +7,6 @@ public interface IClaudeRunner
         string workingDirectory,
         CancellationToken cancellationToken = default,
         bool generalMode = false,
-        IReadOnlyDictionary<string, string>? environment = null);
+        IReadOnlyDictionary<string, string>? environment = null,
+        string? model = null);
 }

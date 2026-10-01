@@ -13,6 +13,7 @@ public sealed class AssistantSettingsStore
     private readonly string filePath;
     private readonly Dictionary<long, string> activeRepositories = [];
     private readonly Dictionary<long, AgentPermissionProfile> sessionModes = [];
+    private readonly Dictionary<long, Dictionary<AgentKind, string>> models = [];
     private AssistantSettings current;
 
     public AssistantSettingsStore(string? filePath = null)
@@ -20,7 +21,7 @@ public sealed class AssistantSettingsStore
         this.filePath = filePath ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dante", "settings.json");
         current = File.Exists(this.filePath)
-            ? Load(this.filePath, activeRepositories, sessionModes)
+            ? Load(this.filePath, activeRepositories, sessionModes, models)
             : AssistantSettings.Default;
     }
 
@@ -93,6 +94,22 @@ public sealed class AssistantSettingsStore
         }
     }
 
+    // Default model of each agent for the user's new sessions and one-shot jobs (#77); null keeps the CLI default.
+    // Only the name's syntax is checked here: whether the CLI offers it is checked when it is chosen and when used.
+    public string? GetModel(long userId, AgentKind agent)
+    {
+        lock (gate) return GetAgentValue(models, userId, agent);
+    }
+
+    public void SetModel(long userId, AgentKind agent, string? model)
+    {
+        if (!Enum.IsDefined(agent))
+            throw new ArgumentOutOfRangeException(nameof(agent), "Agente inválido. Use Claude ou Codex.");
+        if (model is not null && !AgentModelSelection.IsValidName(model))
+            throw new ArgumentException("Nome de modelo inválido.", nameof(model));
+        lock (gate) SetAgentValue(models, userId, agent, model);
+    }
+
     public int ClearActiveRepository(string alias)
     {
         alias = RepositoryRegistry.NormalizeAlias(alias);
@@ -122,8 +139,39 @@ public sealed class AssistantSettingsStore
         return true;
     }
 
+    private static string? GetAgentValue(Dictionary<long, Dictionary<AgentKind, string>> map, long userId,
+        AgentKind agent) => map.TryGetValue(userId, out var byAgent) ? byAgent.GetValueOrDefault(agent) : null;
+
+    // Caller holds the gate; a failed write restores the previous value.
+    private void SetAgentValue(Dictionary<long, Dictionary<AgentKind, string>> map, long userId, AgentKind agent,
+        string? value)
+    {
+        var previous = GetAgentValue(map, userId, agent);
+        if (previous == value) return;
+        Apply(value);
+        try { Save(); }
+        catch
+        {
+            Apply(previous);
+            throw;
+        }
+
+        void Apply(string? applied)
+        {
+            if (applied is not null)
+            {
+                if (!map.TryGetValue(userId, out var byAgent)) map[userId] = byAgent = [];
+                byAgent[agent] = applied;
+            }
+            else if (map.TryGetValue(userId, out var byAgent) && byAgent.Remove(agent) && byAgent.Count == 0)
+            {
+                map.Remove(userId);
+            }
+        }
+    }
+
     private static AssistantSettings Load(string path, Dictionary<long, string> activeRepositories,
-        Dictionary<long, AgentPermissionProfile> sessionModes)
+        Dictionary<long, AgentPermissionProfile> sessionModes, Dictionary<long, Dictionary<AgentKind, string>> models)
     {
         SettingsFile? saved;
         string? nullMap;
@@ -133,7 +181,11 @@ public sealed class AssistantSettingsStore
             saved = JsonSerializer.Deserialize<SettingsFile>(content);
             // An absent map is a legacy file; an explicit null is invalid, not an empty map.
             using var document = JsonDocument.Parse(content);
-            nullMap = new[] { nameof(SettingsFile.ActiveRepositories), nameof(SettingsFile.SessionModes) }
+            nullMap = new[]
+                {
+                    nameof(SettingsFile.ActiveRepositories), nameof(SettingsFile.SessionModes),
+                    nameof(SettingsFile.Models)
+                }
                 .FirstOrDefault(name => document.RootElement.ValueKind == JsonValueKind.Object
                     && document.RootElement.TryGetProperty(name, out var property)
                     && property.ValueKind == JsonValueKind.Null);
@@ -169,8 +221,37 @@ public sealed class AssistantSettingsStore
                     $"SessionModes inválido em {path}: modo \"{mode}\". Valores permitidos: manual, auto ou plan.");
             sessionModes[userId] = parsed;
         }
+        LoadAgentMap(path, nameof(SettingsFile.Models), saved.Models, AgentModelSelection.IsValidName, models);
         return new AssistantSettings(agent);
     }
+
+    // { "<user id>": { "Claude|Codex": "<value>" } }; anything else stops the Worker instead of being guessed.
+    private static void LoadAgentMap(string path, string name, Dictionary<string, Dictionary<string, string>?>? saved,
+        Func<string?, bool> isValid, Dictionary<long, Dictionary<AgentKind, string>> target)
+    {
+        foreach (var (user, byAgent) in saved ?? [])
+        {
+            if (!long.TryParse(user, NumberStyles.None, CultureInfo.InvariantCulture, out var userId) || byAgent is null)
+                throw new InvalidDataException($"{name} inválido em {path}: usuário \"{user}\".");
+            foreach (var (agentName, value) in byAgent)
+            {
+                if (!TryParseAgent(agentName, out var agent))
+                    throw new InvalidDataException($"{name} inválido em {path}: agente \"{agentName}\".");
+                if (!isValid(value))
+                    throw new InvalidDataException($"{name} inválido em {path}: valor \"{value}\" para {agent}.");
+                if (!target.TryGetValue(userId, out var values)) target[userId] = values = [];
+                values[agent] = value;
+            }
+        }
+    }
+
+    private static Dictionary<string, Dictionary<string, string>?>? SaveAgentMap(
+        Dictionary<long, Dictionary<AgentKind, string>> map) =>
+        map.Count == 0 ? null : map.OrderBy(entry => entry.Key).ToDictionary(
+            entry => entry.Key.ToString(CultureInfo.InvariantCulture),
+            Dictionary<string, string>? (entry) => entry.Value
+                .OrderBy(value => value.Key.ToString(), StringComparer.Ordinal)
+                .ToDictionary(value => value.Key.ToString(), value => value.Value));
 
     private void Save()
     {
@@ -184,7 +265,8 @@ public sealed class AssistantSettingsStore
                         entry => entry.Key.ToString(CultureInfo.InvariantCulture), entry => entry.Value),
                     sessionModes.Count == 0 ? null : sessionModes.OrderBy(entry => entry.Key).ToDictionary(
                         entry => entry.Key.ToString(CultureInfo.InvariantCulture),
-                        entry => AgentSessionModes.Name(entry.Value))),
+                        entry => AgentSessionModes.Name(entry.Value)),
+                    SaveAgentMap(models)),
                 new JsonSerializerOptions
                 {
                     WriteIndented = true,
@@ -196,5 +278,6 @@ public sealed class AssistantSettingsStore
     }
 
     private sealed record SettingsFile(string? DefaultAgent, Dictionary<string, string>? ActiveRepositories = null,
-        Dictionary<string, string>? SessionModes = null);
+        Dictionary<string, string>? SessionModes = null,
+        Dictionary<string, Dictionary<string, string>?>? Models = null);
 }

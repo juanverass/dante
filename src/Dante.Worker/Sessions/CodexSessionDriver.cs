@@ -70,14 +70,17 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
             }, cancellationToken);
             await WriteAsync(agent, new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "initialized" },
                 cancellationToken);
-            var thread = await SendRequestAsync("thread/start", new JsonObject
+            var threadParameters = new JsonObject
             {
                 ["cwd"] = options.WorkingDirectory,
                 ["approvalPolicy"] = approvalPolicy,
                 ["sandbox"] = sandbox,
                 // D.A.N.T.E. sessions live only while the Worker runs (Epic #60).
                 ["ephemeral"] = true
-            }, cancellationToken);
+            };
+            // Without a selection the CLI picks its own default model (#77); thread/start reports it either way.
+            if (options.ModelSelection?.Model is { } selectedModel) threadParameters["model"] = selectedModel;
+            var thread = await SendRequestAsync("thread/start", threadParameters, cancellationToken);
             var id = GetString(thread["thread"] as JsonObject, "id")
                      ?? throw new AgentProtocolException("O Codex iniciou a thread sem id.");
             lock (gate)
@@ -86,7 +89,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
                 model = GetString(thread, "model");
             }
 
-            return new AgentSessionStarted(id, agent.ProcessId);
+            return new AgentSessionStarted(id, agent.ProcessId, GetString(thread, "model"));
         }
         catch
         {

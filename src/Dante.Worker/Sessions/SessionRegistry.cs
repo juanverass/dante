@@ -1,11 +1,12 @@
+using Dante.Worker.Agents;
 using Dante.Worker.Jobs;
 
 namespace Dante.Worker.Sessions;
 
 // In-memory catalog of interactive sessions for the life of the Worker (AD-20). It owns one driver per session,
 // routes each user operation to the session it names (or to the user's active session) after checking ownership,
-// and pumps driver events into the AgentSession state machine. Agent, context and permission profile are fixed when
-// the session starts: /use or /agent set never reach a running session. Sessions are not jobs (AD-16) and do not
+// and pumps driver events into the AgentSession state machine. Agent, context, permission profile and model are fixed
+// when the session starts: /use, /agent set or /model never reach a running session. Sessions are not jobs (AD-16) and do not
 // survive a Worker restart: stopping the host fails every live session and kills its process.
 public sealed class SessionRegistry(
     IAgentSessionDriverFactory drivers,
@@ -44,7 +45,7 @@ public sealed class SessionRegistry(
             {
                 var session = new AgentSession(ids.NextSessionId(), request.Agent, request.OwnerUserId,
                     request.Context, driver.Capabilities, ids, requestTimeout);
-                entry = new Entry(session, driver, request.Profile);
+                entry = new Entry(session, driver, request.Profile, request.ModelSelection);
                 sessions.Add(session.Id, entry);
             }
         }
@@ -63,7 +64,9 @@ public sealed class SessionRegistry(
                 request.Context.WorkingDirectory,
                 request.Context.Mode == JobExecutionMode.General,
                 request.EnvironmentVariables,
-                request.Profile), cancellationToken);
+                request.Profile,
+                request.ModelSelection), cancellationToken);
+            entry.ReportedModel = started.Model;
             entry.Session.MarkStarted(started);
         }
         catch (Exception exception)
@@ -677,20 +680,24 @@ public sealed class SessionRegistry(
             return new AgentSessionSnapshot(session.Id, session.Agent, session.OwnerUserId, session.Context,
                 entry.Profile, session.State, session.ActiveTurnId, session.QueuedCount, session.PendingRequestIds,
                 activeSessions.TryGetValue(session.OwnerUserId, out var active) && active == session.Id,
-                entry.CreatedAtUtc, entry.EndedAtUtc, session.Error, entry.LastTurnOutcome);
+                entry.CreatedAtUtc, entry.EndedAtUtc, session.Error, entry.LastTurnOutcome, entry.ModelSelection,
+                entry.ReportedModel);
         }
     }
 
     private static bool IsEnded(AgentSessionState state) =>
         state is AgentSessionState.Closing or AgentSessionState.Closed or AgentSessionState.Failed;
 
-    private sealed class Entry(AgentSession session, IAgentSessionDriver driver, AgentPermissionProfile profile)
+    private sealed class Entry(AgentSession session, IAgentSessionDriver driver, AgentPermissionProfile profile,
+        AgentModelSelection? modelSelection)
     {
         private int driverDisposed;
 
         public AgentSession Session { get; } = session;
         public IAgentSessionDriver Driver { get; } = driver;
         public AgentPermissionProfile Profile { get; } = profile;
+        public AgentModelSelection? ModelSelection { get; } = modelSelection;
+        public string? ReportedModel { get; set; }
         public DateTimeOffset CreatedAtUtc { get; } = DateTimeOffset.UtcNow;
         public DateTimeOffset? EndedAtUtc { get; set; }
         public Task? Pump { get; set; }

@@ -9,11 +9,12 @@ public sealed class JobRegistry
     private readonly Dictionary<string, Job> jobs = new(StringComparer.OrdinalIgnoreCase);
     private long nextId;
 
+    // The model is fixed when the job is created (#77); null keeps the CLI default.
     public (JobSnapshot Snapshot, CancellationToken Token) Create(string agent, JobExecutionContext context,
-        CancellationToken stoppingToken)
+        CancellationToken stoppingToken, AgentModelSelection? modelSelection = null)
     {
         var job = new Job($"J{Interlocked.Increment(ref nextId):D6}", agent, context,
-            CancellationTokenSource.CreateLinkedTokenSource(stoppingToken));
+            CancellationTokenSource.CreateLinkedTokenSource(stoppingToken), modelSelection);
         lock (gate)
         {
             jobs.Add(job.Id, job);
@@ -103,15 +104,16 @@ public sealed class JobRegistry
 
     private static JobSnapshot Snapshot(Job job) => new(job.Id, job.Agent, job.Status,
         job.CreatedAtUtc, job.StartedAtUtc, job.FinishedAtUtc,
-        job.CancellationRequested, job.ExitCode, job.ErrorMessage, job.Context);
+        job.CancellationRequested, job.ExitCode, job.ErrorMessage, job.Context, job.ModelSelection);
 
     private sealed class Job(string id, string agent, JobExecutionContext context,
-        CancellationTokenSource cancellation)
+        CancellationTokenSource cancellation, AgentModelSelection? modelSelection)
     {
         public string Id { get; } = id;
         public string Agent { get; } = agent;
         public JobExecutionContext Context { get; } = context;
         public CancellationTokenSource Cancellation { get; } = cancellation;
+        public AgentModelSelection? ModelSelection { get; } = modelSelection;
         public DateTimeOffset CreatedAtUtc { get; } = DateTimeOffset.UtcNow;
         public DateTimeOffset? StartedAtUtc { get; set; }
         public DateTimeOffset? FinishedAtUtc { get; set; }

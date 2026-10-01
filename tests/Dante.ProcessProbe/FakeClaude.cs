@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 namespace Dante.ProcessProbe;
 
 // Simulated `claude --print` stream-json session, shaped like the messages captured from Claude Code 2.1.284.
-// Each user message picks a scenario by its text: pong, write, ask, slow, fail, garbage or crash.
+// Each user message picks a scenario by its text: pong, write, ask, slow, fail, garbage, crash or model.
 internal static class FakeClaude
 {
     public static int Run(string[] args)
@@ -62,7 +62,8 @@ internal static class FakeClaude
                         break;
                     }
 
-                    Send(ControlResponse((string)message["request_id"]!, "success"));
+                    Send(ControlResponse((string)message["request_id"]!, "success",
+                        payload: (string?)request["subtype"] == "initialize" ? Initialize() : null));
                     if ((string?)request["subtype"] == "interrupt" && turnActive)
                     {
                         Result(false, "");
@@ -188,6 +189,11 @@ internal static class FakeClaude
                             break;
                         case "crash":
                             return 5;
+                        case "model":
+                            // Reports the --model the session was started with.
+                            Assistant("model:" + (ValueAfter(args, "--model") ?? "default"));
+                            Result(true, "done");
+                            break;
                     }
 
                     break;
@@ -218,12 +224,42 @@ internal static class FakeClaude
         };
     }
 
-    private static JsonObject ControlResponse(string requestId, string subtype, string? error = null)
+    // The models part of the initialize response, shaped like Claude Code 2.1.286: "default" is the CLI default itself
+    // and names the model it resolves to.
+    private static JsonObject Initialize()
+    {
+        JsonObject Model(string value, string resolved, string displayName, bool effort = true)
+        {
+            var model = new JsonObject
+            {
+                ["value"] = value, ["resolvedModel"] = resolved, ["displayName"] = displayName
+            };
+            if (effort)
+            {
+                model["supportsEffort"] = true;
+                model["supportedEffortLevels"] = new JsonArray("low", "medium", "high");
+            }
+
+            return model;
+        }
+
+        return new JsonObject
+        {
+            ["models"] = new JsonArray(
+                Model("default", "claude-opus-test", "Default (recommended)"),
+                Model("opus", "claude-opus-test", "Opus Test"),
+                Model("sonnet", "claude-sonnet-test", "Sonnet Test"),
+                Model("claude-legacy-test", "claude-legacy-test", "Legacy Test", effort: false))
+        };
+    }
+
+    private static JsonObject ControlResponse(string requestId, string subtype, string? error = null,
+        JsonObject? payload = null)
     {
         var response = new JsonObject { ["subtype"] = subtype, ["request_id"] = requestId };
         if (error is null)
         {
-            response["response"] = new JsonObject();
+            response["response"] = payload ?? new JsonObject();
         }
         else
         {

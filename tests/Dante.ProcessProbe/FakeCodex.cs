@@ -4,7 +4,7 @@ namespace Dante.ProcessProbe;
 
 // Simulated `codex app-server --listen stdio://` (JSON-RPC in JSONL), shaped like codex-cli 0.157.1: responses have no
 // "jsonrpc" field, like the real server. Each turn picks a scenario by its text: pong, config, command, edit, ask,
-// slow, fail, warn, elicit, garbage or crash.
+// slow, fail, warn, elicit, garbage, crash or model. model/list answers in two pages.
 internal static class FakeCodex
 {
     private const string ThreadId = "thread-1";
@@ -142,8 +142,26 @@ internal static class FakeCodex
                     Reply(new JsonObject
                     {
                         ["thread"] = new JsonObject { ["id"] = ThreadId, ["cwd"] = (string?)parameters!["cwd"] },
-                        ["model"] = "fake-model"
+                        ["model"] = (string?)parameters["model"] ?? "fake-model"
                     });
+                    break;
+                case "model/list":
+                    // Shaped like codex-cli 0.159.3; the hidden model is never offered to the user.
+                    JsonObject Model(string name, bool isDefault = false, bool hidden = false) => new()
+                    {
+                        ["id"] = name, ["model"] = name, ["displayName"] = name.ToUpperInvariant(), ["hidden"] = hidden,
+                        ["isDefault"] = isDefault,
+                        ["supportedReasoningEfforts"] = new JsonArray(
+                            new JsonObject { ["reasoningEffort"] = "low" }, new JsonObject { ["reasoningEffort"] = "high" })
+                    };
+
+                    Reply((string?)parameters?["cursor"] == "page-2"
+                        ? new JsonObject { ["data"] = new JsonArray(Model("fake-mini")), ["nextCursor"] = null }
+                        : new JsonObject
+                        {
+                            ["data"] = new JsonArray(Model("fake-model", isDefault: true), Model("fake-hidden", hidden: true)),
+                            ["nextCursor"] = "page-2"
+                        });
                     break;
                 case "turn/start":
                     if ((string?)parameters!["threadId"] != ThreadId)
@@ -259,6 +277,11 @@ internal static class FakeCodex
                             break;
                         case "crash":
                             return 5;
+                        case "model":
+                            // Reports the model thread/start received.
+                            Message("model:" + ((string?)threadParams!["model"] ?? "default"));
+                            Complete("completed");
+                            break;
                     }
 
                     break;

@@ -7,19 +7,23 @@ public sealed class ClaudeRunner(IAgentProcessExecutor processExecutor) : IClaud
         string workingDirectory,
         CancellationToken cancellationToken = default,
         bool generalMode = false,
-        IReadOnlyDictionary<string, string>? environment = null)
+        IReadOnlyDictionary<string, string>? environment = null,
+        string? model = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
 
-        // The prompt remains a single positional argument, even when it starts with '-'.
+        // The prompt remains a single positional argument, even when it starts with '-'. Without a model the CLI picks
+        // its own default (#77).
+        string[] modelArguments = model is null ? [] : ["--model", model];
         var request = new AgentProcessRequest(
             AgentKind.Claude,
             workingDirectory,
             generalMode
                 ? ["--print", "--restricted", "--strict-mcp-config", "--tools", "Read,Write,Edit",
-                    "--permission-mode", "auto", "--permission-prompts", "none", "--", prompt]
-                : ["--print", "--permission-mode", "auto", "--permission-prompts", "none", "--", prompt],
+                    "--permission-mode", "auto", "--permission-prompts", "none", .. modelArguments, "--", prompt]
+                : ["--print", "--permission-mode", "auto", "--permission-prompts", "none", .. modelArguments, "--",
+                    prompt],
             generalMode,
             environment);
 
