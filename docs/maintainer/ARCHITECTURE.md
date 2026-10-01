@@ -240,7 +240,7 @@ Idle
    ↓
 Running
    ↕
-WaitingForApproval / WaitingForInput
+WaitingForUser
    ↓
 Idle
 
