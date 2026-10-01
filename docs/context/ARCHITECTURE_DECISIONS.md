@@ -829,3 +829,48 @@ com `User=` exigiria root para instalar e operar; Task Scheduler chamando o Work
 Código: `deploy/`; testes em `LocalServiceDeploymentTests`. Validado com o Worker publicado em unidade
 transitória do systemd do usuário (start, logs, stop gracioso e restart após `SIGKILL`); a reinicialização real
 da máquina é validação do usuário.
+
+---
+
+## Mídias no Telegram (Epic #92)
+
+## AD-29 — Anexos como entrada neutra, imagem nativa por CLI e artefato só por canal explícito
+
+Status: vigente (#93, spike); orienta #94–#99. Evidências e contrato completo em
+[`docs/spikes/multimodal`](../spikes/multimodal/README.md).
+
+Validado em Claude Code 2.1.287 e codex-cli 0.159.3 (sessão e one-shot):
+
+- **imagem** chega ao modelo nos quatro caminhos, sem mudar modo nem permissão: Claude sessão por blocos `image`
+  base64 no `content`; Codex sessão por itens `localImage` (também em `turn/steer`); Claude one-shot pela
+  ferramenta `Read` com `--add-dir` do diretório do anexo; Codex one-shot por `-i`;
+- **áudio e vídeo** não chegam ao modelo em nenhuma CLI. O `localAudio` do schema do `app-server` é aceito, mas o
+  modelo não ouve: suporte não se infere pelo schema nem pela capacidade do modelo;
+- **geração de imagem** existe só no Codex (`imageGeneration.savedPath` na sessão, PNG em
+  `~/.codex/generated_images/`, cota do plano ChatGPT). Ela redesenha os prints em vez de copiá-los. Claude não
+  gera imagem.
+
+Decisões:
+
+- O canal de entrada passa a ser texto opcional + anexos já baixados (`id`, `kind`, `mediaType`, `path`,
+  `bytes`, dimensões), sem tipos do Telegram no `SessionRegistry`, nos drivers ou nos runners. Cada driver
+  traduz para o formato nativo da sua CLI.
+- Anexos ficam fora do checkout, em `~/.dante/attachments/<usuário>/<sessão|job>/` (`700`/`600`), nunca no
+  repositório nem no workspace geral. O isolamento da AD-09 se mantém: o Claude one-shot recebe `--add-dir`
+  apenas daquele diretório.
+- Mídia sem pedido não inicia agente: fica pendente por usuário e contexto, é consumida pelo próximo texto e
+  descartada com aviso na troca de contexto ou após 10 min. Álbum vira um único lote. Mídia durante um turno
+  entra na fila FIFO como item único (AD-16).
+- Limites: até 20 MB por arquivo (`getFile`); imagem JPEG/PNG/GIF/WebP de até 7 MB e 8000 px por lado; até
+  10 imagens e 20 MB por turno; retenção até o fim da sessão ou do job. Áudio e vídeo são recusados
+  explicitamente até haver ferramenta aprovada (#96).
+- Artefato só sai por canal explícito: evento estruturado da CLI (`imageGeneration.savedPath`) ou pedido do
+  usuário por caminho dentro do diretório da sessão. Nunca por varredura do workspace nem por path citado na
+  prosa. Geração de imagem fica restrita às sessões, porque o one-shot não informa o caminho.
+- Ferramenta, dependência ou serviço que ainda não existe na máquina (transcrição, `ffmpeg`, biblioteca de
+  imagem, API paga) exige decisão humana registrada antes da Issue que depende dela.
+
+Por quê: o protocolo de cada CLI já transporta imagens, então o D.A.N.T.E. só precisa baixar, limitar, isolar e
+correlacionar anexos, sem processar conteúdo. Separar entrada neutra de tradução por driver segue a AD-16, e
+exigir canal explícito para artefatos impede que o agente (ou um prompt injetado) faça o bot enviar arquivos
+arbitrários do disco.
