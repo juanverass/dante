@@ -111,7 +111,6 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
                      Unwrapped(Relative(session, tool.Description)) is { } command &&
                      (command.Contains('\n') || command.Length > 200))
             {
-                FlushBuffer(record);
                 var room = Math.Max(0, 128_000 - record.RetainedLength);
                 if (command.Length > room)
                 {
@@ -119,7 +118,8 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
                     record.Truncated = true;
                 }
                 record.RetainedLength += command.Length;
-                record.Chunks.AddRange(TelegramMessageFormatter.Command(Redact(command, record), record.PrefixReserve));
+                record.PendingCommands.Enqueue(new PendingCommand(record.BufferOffset + record.Buffer.Length, command));
+                FlushBuffer(record);
                 record.HasVisibleText = true;
                 record.ContentVersion++;
                 if (record.State != TelegramDeliveryState.Failed)
@@ -387,18 +387,52 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
 
     private void FlushBuffer(DeliveryRecord record)
     {
-        if (record.Buffer.Length == 0) return;
-        var text = record.Buffer.ToString();
-        var length = record.Final ? text.Length : text.Length - SecretHoldbackLength(record, text);
-        if (!record.Final)
+        // Commands keep their position in the textual stream. A partial secret may postpone that boundary until
+        // its continuation arrives; only the complete redacted value can then be emitted before the command.
+        while (record.PendingCommands.TryPeek(out var command))
         {
-            length = SafeFlushLength(text, length, record);
-            length = LineBoundary(text, length, MaxMessageLength - record.PrefixReserve);
+            var text = record.Buffer.ToString();
+            var safeLength = SafeBufferLength(record, text);
+            var boundary = Math.Max(0, command.Position - record.BufferOffset);
+            foreach (var secret in Secrets(record))
+            {
+                for (var start = text.IndexOf(secret, StringComparison.Ordinal); start >= 0;
+                    start = text.IndexOf(secret, start + 1, StringComparison.Ordinal))
+                {
+                    if (start < boundary && start + secret.Length > boundary) boundary = start + secret.Length;
+                }
+            }
+            if (boundary > 0 && boundary <= text.Length && char.IsHighSurrogate(text[boundary - 1]))
+            {
+                if (boundary == text.Length && !record.Final) break;
+                if (boundary < text.Length && char.IsLowSurrogate(text[boundary])) boundary++;
+            }
+            if (boundary > safeLength) break;
+            FlushText(record, boundary);
+            record.PendingCommands.Dequeue();
+            record.Chunks.AddRange(TelegramMessageFormatter.Command(Redact(command.Text, record), record.PrefixReserve));
         }
-        if (length == 0) return;
-        record.Chunks.AddRange(record.Formatter.Format(Redact(text[..length], record), record.PrefixReserve + 80));
-        record.Buffer.Remove(0, length);
+        var remaining = record.Buffer.ToString();
+        var length = SafeBufferLength(record, remaining);
+        if (!record.Final) length = LineBoundary(remaining, length, MaxMessageLength - record.PrefixReserve);
+        FlushText(record, length);
     }
+
+    private static int SafeBufferLength(DeliveryRecord record, string text) => record.Final ? text.Length :
+        SafeFlushLength(text, text.Length - SecretHoldbackLength(record, text), record);
+
+    private static void FlushText(DeliveryRecord record, int length)
+    {
+        if (length > 0 && (length < record.Buffer.Length || !record.Final) &&
+            char.IsHighSurrogate(record.Buffer[length - 1])) length--;
+        if (length == 0) return;
+        var body = Redact(record.Buffer.ToString(0, length), record);
+        record.Chunks.AddRange(record.Formatter.Format(body, record.PrefixReserve));
+        record.Buffer.Remove(0, length);
+        record.BufferOffset += length;
+    }
+
+    private sealed record PendingCommand(int Position, string Text);
 
     private void ResolveApproval(ApprovalMessage approval, string status)
     {
@@ -475,7 +509,7 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
                         if (record.State != TelegramDeliveryState.Failed &&
                             (record.NextChunk < record.Chunks.Count ||
                              record.ContentVersion != record.DrainedVersion ||
-                             record.Final && record.Buffer.Length > 0))
+                             record.Final && (record.Buffer.Length > 0 || record.PendingCommands.Count > 0)))
                             Schedule(record);
                     }
                 }
@@ -505,25 +539,8 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
                 lock (gate)
                 {
                     if (record.State == TelegramDeliveryState.Failed) return;
-                    if (record.NextChunk == record.Chunks.Count && record.Buffer.Length > 0)
-                    {
-                        var flushLength = record.Final ? record.Buffer.Length :
-                            record.Buffer.Length - SecretHoldbackLength(record, record.Buffer.ToString());
-                        if (!record.Final)
-                        {
-                            flushLength = SafeFlushLength(record.Buffer.ToString(), flushLength, record);
-                            flushLength = LineBoundary(record.Buffer.ToString(), flushLength,
-                                MaxMessageLength - record.PrefixReserve);
-                        }
-                        if (flushLength > 0 && flushLength < record.Buffer.Length &&
-                            char.IsHighSurrogate(record.Buffer[flushLength - 1])) flushLength--;
-                        if (flushLength > 0)
-                        {
-                            var body = Redact(record.Buffer.ToString(0, flushLength), record);
-                            record.Buffer.Remove(0, flushLength);
-                            record.Chunks.AddRange(record.Formatter.Format(body, record.PrefixReserve));
-                        }
-                    }
+                    if (record.NextChunk == record.Chunks.Count &&
+                        (record.Buffer.Length > 0 || record.PendingCommands.Count > 0)) FlushBuffer(record);
                     if (record.NextChunk == record.Chunks.Count)
                     {
                         record.State = record.Buffer.Length == 0
@@ -669,7 +686,7 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
 
     private static TelegramDeliverySnapshot Snapshot(DeliveryRecord record) =>
         new(record.Id, record.State, record.NextChunk,
-            record.Chunks.Count + (record.Buffer.Length == 0 ? 0 :
+            record.Chunks.Count + record.PendingCommands.Count + (record.Buffer.Length == 0 ? 0 :
                 (record.Buffer.Length + MaxMessageLength - record.PrefixReserve - 1) /
                 (MaxMessageLength - record.PrefixReserve)));
 
@@ -684,6 +701,8 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
         public DateTimeOffset LastSentUtc { get; set; } = DateTimeOffset.MinValue;
         public DateTimeOffset CreatedAtUtc { get; } = DateTimeOffset.UtcNow;
         public StringBuilder Buffer { get; } = new();
+        public int BufferOffset { get; set; }
+        public Queue<PendingCommand> PendingCommands { get; } = [];
         public TelegramMessageFormatter Formatter { get; } = new();
         public List<TelegramFormattedMessage> Chunks { get; } = [];
         public HashSet<int> PlainChunks { get; } = [];

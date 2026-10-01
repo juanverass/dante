@@ -522,7 +522,9 @@ public sealed class TelegramDeliveryServiceTests
             // A tool flush must also retain the partial secret instead of serializing it into HTML.
             await delivery.PublishAsync(session, new ToolStartedEvent("cmd", AgentToolKind.Command, "echo one\necho two")
                 { SessionId = "S1", TurnId = "T1" }, default);
-            await Eventually(() => api.Output.Count > 1);
+            // Drain the scheduled batch while the secret is still incomplete: the command must remain pending.
+            await Task.Delay(1000);
+            Assert.Single(api.Output);
             Assert.DoesNotContain(api.Output, text => text.Contains("dante-secret-"));
             await delivery.PublishAsync(session, new MessageDeltaEvent("item", "<&>-suffix\n```\nFim")
                 { SessionId = "S1", TurnId = "T1" }, default);
@@ -533,6 +535,9 @@ public sealed class TelegramDeliveryServiceTests
             Assert.DoesNotContain(secret, output);
             Assert.DoesNotContain("dante-secret-", output);
             Assert.Contains("[segredo omitido]", output);
+            Assert.True(output.IndexOf("[segredo omitido]", StringComparison.Ordinal) <
+                output.IndexOf("→ Executando comando", StringComparison.Ordinal));
+            Assert.True(output.IndexOf("echo two", StringComparison.Ordinal) < output.IndexOf("Fim", StringComparison.Ordinal));
         }
         finally { Environment.SetEnvironmentVariable(name, previous); }
     }

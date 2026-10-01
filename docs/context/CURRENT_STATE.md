@@ -65,7 +65,8 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 - respostas técnicas renderizam blocos fenced Markdown como código nativo do Telegram,
   com linguagem, escape de HTML e divisão em partes válidas; comandos multiline/extensos
   usam blocos `bash`, com fallback para texto simples em rejeição de markup e recuperação
-  por retry e `/resend` sem reexecutar agentes (#81);
+  por retry e `/resend` sem reexecutar agentes (#81); comandos respeitam a ordem da prosa
+  anterior e aguardam a liberação segura de caudas de segredo retidas;
 - aprovações oferecem botões inline com validação de dono, turno, request e expiração;
   `/approve`, `/approve-session` e `/deny` seguem disponíveis como fallback textual;
 
@@ -106,7 +107,7 @@ Estado conhecido com #80–#81:
 
 ```text
 dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    357 testes aprovados
+dotnet test Dante.sln    360 testes aprovados
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
