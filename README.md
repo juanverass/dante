@@ -42,6 +42,19 @@ responder; cliques duplicados ou tardios são recusados. Os comandos `/approve`,
 mensagem. Sessões com segredos vinculados oferecem os botões com os detalhes omitidos.
 `/claude` e `/codex` continuam disponíveis como execução avulsa (one-shot).
 
+Respostas técnicas com blocos Markdown cercados por três ou mais crases (ou `~~~`)
+chegam como blocos de código nativos do Telegram. A linguagem é preservada quando
+informada (`csharp`, `python`, `bash`, `diff` e outras); texto antes/depois permanece
+fora do bloco. Comandos multiline e comandos extensos aparecem após **→ Executando
+comando**, em bloco `bash`; comandos curtos continuam compactos. Caminhos do workspace
+aparecem relativos, como antes.
+
+Blocos longos são divididos em mensagens válidas, com tags fechadas e espaço para o
+prefixo de sessão em background. O conteúdo do agente é escapado antes de gerar HTML,
+e segredos são redigidos antes da formatação. Se o Telegram recusar o markup, aquela
+parte é enviada em texto simples e a entrega continua. Retry e `/resend` preservam as
+partes pendentes e nunca reexecutam o agente.
+
 O contexto de cada conversa ou execução segue um de dois modos.
 
 ### General Mode

@@ -45,10 +45,18 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
 
     public async Task<long?> SendApprovalAsync(long chatId, string text, TelegramInlineKeyboard? keyboard,
         CancellationToken cancellationToken)
+        => await SendMessageCoreAsync(chatId, text, keyboard, null, cancellationToken);
+
+    public Task<long?> SendFormattedMessageAsync(long chatId, TelegramFormattedMessage message,
+        TelegramInlineKeyboard? keyboard, CancellationToken cancellationToken)
+        => SendMessageCoreAsync(chatId, message.Html, keyboard, "HTML", cancellationToken);
+
+    private async Task<long?> SendMessageCoreAsync(long chatId, string text, TelegramInlineKeyboard? keyboard,
+        string? parseMode, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, MethodUrl("sendMessage"))
         {
-            Content = JsonContent.Create(new { chat_id = chatId, text, reply_markup = keyboard })
+            Content = JsonContent.Create(new { chat_id = chatId, text, reply_markup = keyboard, parse_mode = parseMode })
         };
 
         using var response = await httpClient.SendAsync(request, cancellationToken);
@@ -70,6 +78,21 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
             }
             catch (JsonException) { /* Back off even if Telegram returned an invalid body. */ }
             throw new TelegramRateLimitException(delay);
+        }
+        if (parseMode is not null && response.StatusCode == HttpStatusCode.BadRequest)
+        {
+            // Read Telegram's diagnostic only to classify the error; never log or propagate it (it may echo content).
+            try
+            {
+                using var error = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                if (error.RootElement.TryGetProperty("description", out var description) &&
+                    description.GetString() is { } detail &&
+                    (detail.Contains("parse entities", StringComparison.OrdinalIgnoreCase) ||
+                     detail.Contains("unsupported start tag", StringComparison.OrdinalIgnoreCase) ||
+                     detail.Contains("can't find end", StringComparison.OrdinalIgnoreCase)))
+                    throw new TelegramMarkupException();
+            }
+            catch (JsonException) { }
         }
         response.EnsureSuccessStatusCode();
 
@@ -132,3 +155,6 @@ internal sealed class TelegramRateLimitException(TimeSpan? retryAfter)
 {
     public TimeSpan? RetryAfter { get; } = retryAfter;
 }
+
+internal sealed class TelegramMarkupException()
+    : HttpRequestException("Telegram recusou a formatação da mensagem.", null, HttpStatusCode.BadRequest);

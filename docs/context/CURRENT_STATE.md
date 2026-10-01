@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-01, com aprovações inline no Telegram (#80).
+Última revisão: 2026-10-01, com aprovações inline e formatação técnica no Telegram (#80–#81).
 
 ## Marcos
 
@@ -62,6 +62,10 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   solicitações correlacionadas por sessão, turno e request, com expiração em cinco minutos
   e estado pendente em `/status` (AD-22).
 
+- respostas técnicas renderizam blocos fenced Markdown como código nativo do Telegram,
+  com linguagem, escape de HTML e divisão em partes válidas; comandos multiline/extensos
+  usam blocos `bash`, com fallback para texto simples em rejeição de markup e recuperação
+  por retry e `/resend` sem reexecutar agentes (#81);
 - aprovações oferecem botões inline com validação de dono, turno, request e expiração;
   `/approve`, `/approve-session` e `/deny` seguem disponíveis como fallback textual;
 
@@ -98,11 +102,11 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #80:
+Estado conhecido com #80–#81:
 
 ```text
 dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    329 testes aprovados
+dotnet test Dante.sln    357 testes aprovados
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
