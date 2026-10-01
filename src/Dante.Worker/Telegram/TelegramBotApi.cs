@@ -20,7 +20,7 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
             {
                 offset,
                 timeout = 25,
-                allowed_updates = new[] { "message" }
+                allowed_updates = new[] { "message", "callback_query" }
             })
         };
 
@@ -40,9 +40,15 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
 
     public async Task SendMessageAsync(long chatId, string text, CancellationToken cancellationToken)
     {
+        await SendApprovalAsync(chatId, text, null, cancellationToken);
+    }
+
+    public async Task<long?> SendApprovalAsync(long chatId, string text, TelegramInlineKeyboard? keyboard,
+        CancellationToken cancellationToken)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Post, MethodUrl("sendMessage"))
         {
-            Content = JsonContent.Create(new { chat_id = chatId, text })
+            Content = JsonContent.Create(new { chat_id = chatId, text, reply_markup = keyboard })
         };
 
         using var response = await httpClient.SendAsync(request, cancellationToken);
@@ -74,6 +80,24 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
         {
             throw new JsonException("Resposta inválida da API do Telegram.");
         }
+        return envelope.Result.ValueKind == JsonValueKind.Object &&
+            envelope.Result.TryGetProperty("message_id", out var messageId) ? messageId.GetInt64() : null;
+    }
+
+    public Task EditApprovalAsync(long chatId, long messageId, string text, CancellationToken cancellationToken)
+        => SendControlAsync("editMessageText", new { chat_id = chatId, message_id = messageId, text,
+            reply_markup = new TelegramInlineKeyboard([]) }, cancellationToken);
+
+    public Task AnswerCallbackAsync(string callbackId, string text, CancellationToken cancellationToken)
+        => SendControlAsync("answerCallbackQuery", new { callback_query_id = callbackId, text }, cancellationToken);
+
+    private async Task SendControlAsync(string method, object body, CancellationToken cancellationToken)
+    {
+        using var response = await httpClient.PostAsJsonAsync(MethodUrl(method), body, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var envelope = await response.Content.ReadFromJsonAsync<TelegramEnvelope<JsonElement>>(
+            JsonOptions, cancellationToken);
+        if (envelope is not { Ok: true }) throw new JsonException("Resposta inválida da API do Telegram.");
     }
 
     public async Task SendChatActionAsync(long chatId, string action, CancellationToken cancellationToken)

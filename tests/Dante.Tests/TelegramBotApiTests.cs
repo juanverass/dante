@@ -69,6 +69,38 @@ public sealed class TelegramBotApiTests
         Assert.Equal(HttpStatusCode.TooManyRequests, error.StatusCode);
     }
 
+    [Fact]
+    public async Task InlineApprovalUsesBotApiKeyboardCallbackAndEditContracts()
+    {
+        var requests = new List<(string Path, JsonElement Body)>();
+        using var http = new HttpClient(new StubHandler(async request =>
+        {
+            requests.Add((request.RequestUri!.AbsolutePath,
+                JsonDocument.Parse(await request.Content!.ReadAsStringAsync()).RootElement.Clone()));
+            var result = request.RequestUri.AbsolutePath.EndsWith("getUpdates", StringComparison.Ordinal)
+                ? """{"ok":true,"result":[{"update_id":43,"callback_query":{"id":"cb","from":{"id":123},"data":"ap:S000001:T000001:R000001:0","message":{"message_id":5,"chat":{"id":-123}}}}]}"""
+                : """{"ok":true,"result":{"message_id":5}}""";
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(result) };
+        }));
+        var api = new TelegramBotApi(http, Options.Create(new TelegramOptions { BotToken = "test" }));
+        var keyboard = new TelegramInlineKeyboard([new[] { new TelegramInlineButton("Aprovar", "opaque") }]);
+        Assert.Equal(5, await api.SendApprovalAsync(-123, "aprovação", keyboard, CancellationToken.None));
+        var update = Assert.Single(await api.GetUpdatesAsync(0, CancellationToken.None));
+        Assert.Equal("cb", update.CallbackQuery!.Id);
+        Assert.Equal(5, update.CallbackQuery.Message!.MessageId);
+        await api.AnswerCallbackAsync("cb", "Aprovado", CancellationToken.None);
+        await api.EditApprovalAsync(-123, 5, "Aprovado", CancellationToken.None);
+        Assert.Equal("opaque", requests[0].Body.GetProperty("reply_markup").GetProperty("inline_keyboard")[0][0]
+            .GetProperty("callback_data").GetString());
+        Assert.Contains(requests[1].Body.GetProperty("allowed_updates").EnumerateArray(),
+            item => item.GetString() == "callback_query");
+        Assert.EndsWith("answerCallbackQuery", requests[2].Path);
+        Assert.Equal("cb", requests[2].Body.GetProperty("callback_query_id").GetString());
+        Assert.EndsWith("editMessageText", requests[3].Path);
+        Assert.Equal(5, requests[3].Body.GetProperty("message_id").GetInt64());
+        Assert.Empty(requests[3].Body.GetProperty("reply_markup").GetProperty("inline_keyboard").EnumerateArray());
+    }
+
     private sealed class StubHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handle) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(

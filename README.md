@@ -34,6 +34,12 @@ Agora mostre onde o token é validado.
 ```
 
 Aprovações, perguntas do agente, interrupção e encerramento também são feitos pelo Telegram.
+Pedidos de aprovação oferecem botões **Aprovar uma vez**, **Aprovar na sessão** (quando
+suportado pelo agente) e **Negar**. Após uma decisão ou os cinco minutos de expiração,
+a mensagem mostra o resultado e os botões são removidos. Apenas o dono da sessão pode
+responder; cliques duplicados ou tardios são recusados. Os comandos `/approve`,
+`/approve-session` e `/deny` continuam disponíveis como fallback e atualizam a mesma
+mensagem. Sessões com segredos vinculados oferecem os botões com os detalhes omitidos.
 `/claude` e `/codex` continuam disponíveis como execução avulsa (one-shot).
 
 O contexto de cada conversa ou execução segue um de dois modos.

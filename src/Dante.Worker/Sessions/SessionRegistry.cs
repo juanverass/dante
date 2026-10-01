@@ -318,6 +318,13 @@ public sealed class SessionRegistry(
         try
         {
             await entry.Driver.RespondAsync(resolution.UpstreamRequestId!, response, cancellationToken);
+            if (response is AgentApprovalResponse approval)
+                await PublishAsync(entry, new RequestResolvedEvent(requestId, approval.Decision)
+                {
+                    SessionId = entry.Session.Id,
+                    TurnId = resolution.TurnId,
+                    TimestampUtc = DateTimeOffset.UtcNow
+                });
         }
         catch (Exception exception)
         {

@@ -66,7 +66,11 @@ public sealed class TelegramPollingService(
                 {
                     // Advance before dispatch so a failed command is not executed again on the next poll.
                     offset = Math.Max(offset, update.UpdateId + 1);
-                    if (update.Message is { Text: not null } message
+                    if (update.CallbackQuery is { } callback)
+                    {
+                        await HandleCallbackAsync(callback, stoppingToken);
+                    }
+                    else if (update.Message is { Text: not null } message
                         && authorizer.IsAuthorized(message.From))
                     {
                         await HandleMessageAsync(message, stoppingToken);
@@ -91,6 +95,35 @@ public sealed class TelegramPollingService(
                 {
                     break;
                 }
+            }
+        }
+    }
+
+    private async Task HandleCallbackAsync(TelegramCallbackQuery callback, CancellationToken cancellationToken)
+    {
+        var reply = "Solicitação indisponível ou já respondida.";
+        try
+        {
+            if (authorizer.IsAuthorized(callback.From) && sessions is not null &&
+                callback.Message is { } message &&
+                TelegramApprovalCallback.TryParse(callback.Data, out var action))
+            {
+                var pending = sessions.GetPendingRequest(callback.From.Id, action.RequestId);
+                if (pending is { IsApproval: true } &&
+                    delivery.OwnsApprovalMessage(action.RequestId, callback.From.Id, message.Chat.Id, message.MessageId))
+                {
+                    var result = await sessions.RespondAsync(callback.From.Id, action.SessionId, action.TurnId,
+                        action.RequestId, new AgentApprovalResponse(action.Decision), cancellationToken);
+                    if (result.Accepted) reply = TelegramApprovalCallback.DecisionText(action.Decision);
+                }
+            }
+        }
+        finally
+        {
+            try { await botApi.AnswerCallbackAsync(callback.Id, reply, cancellationToken); }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogDebug("Falha ao confirmar callback ({ErrorType}).", exception.GetType().Name);
             }
         }
     }
