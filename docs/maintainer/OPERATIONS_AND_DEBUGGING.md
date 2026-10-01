@@ -70,7 +70,12 @@ Portanto:
 
 ---
 
-# 4. Forma recomendada no WSL enquanto não há serviço
+# 4. Configuração para execução manual no WSL
+
+Para rodar como serviço (systemd do usuário + inicialização no logon do Windows), siga
+[Executando como serviço](../../README.md#executando-como-servi%C3%A7o). O serviço lê
+`~/.config/dante/dante.env` (formato `CHAVE=valor`, sem `export`); `deploy/dante-service.sh install` o cria
+a partir do `~/.config/dante/env` abaixo, se ele existir.
 
 Crie:
 
@@ -115,7 +120,7 @@ echo "$Telegram__AllowedUserIds"
 
 Nunca registre o token no Git.
 
-A futura execução como serviço deve carregar secrets de fonte local protegida, não do repositório.
+O serviço carrega os secrets de `~/.config/dante/dante.env` (permissão `600`), nunca do repositório.
 
 ---
 
@@ -381,7 +386,10 @@ Verifique:
 
 ```bash
 pgrep -af 'Dante.Worker|dotnet run'
+systemctl --user is-active dante
 ```
+
+Com o serviço ativo, pare-o com `systemctl --user stop dante` antes de rodar o Worker manualmente.
 
 Para encerrar instâncias manuais:
 

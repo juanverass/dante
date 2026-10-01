@@ -749,3 +749,40 @@ intenção do usuário. A escolha fixa mantém a sessão coerente entre turnos.
 Código: `Agents/AgentModelSelection.cs`, catálogo, runners, settings, drivers e
 `Telegram/TelegramPollingService.cs`. Testes: settings, runners, drivers reais com
 ProcessProbe e `TelegramModelCommandTests` (seleção combinada de modelo e esforço).
+
+---
+
+## Operação local
+
+## AD-28 — Execução contínua como serviço systemd do usuário, com a distro WSL mantida pelo logon do Windows
+
+Status: vigente (#39)
+
+O Worker roda como `dante.service` do **systemd do usuário** (`systemctl --user`), não como serviço de sistema:
+mesmo usuário Linux das CLIs, sem root e com acesso direto às credenciais locais (`~/.claude`, `~/.codex`) e a
+`~/.dante`. O linger do usuário faz o systemd do usuário subir junto com a distro, sem shell de login. A unit
+versionada (`deploy/systemd/dante.service`) não tem segredos: tokens, allowlist, `DANTE_GENERAL_WORKSPACE` e
+variáveis de host dos bindings vêm de `~/.config/dante/dante.env`, fora do repositório e com permissão `600`.
+
+- O Worker publicado (`dotnet publish`) roda de `~/.local/share/dante/app`, fora do checkout em `/mnt/c`; uma
+  nova instalação publica ao lado e troca o diretório com o serviço parado.
+- `Restart=on-failure` com limite de 5 falhas em 5 minutos: saída limpa (stop, SIGTERM) não reinicia, e um
+  erro persistente de configuração (AD-13) não fica em loop.
+- `KillMode=mixed`: o `SIGTERM` vai só para o Worker, cujo host encerra polling, jobs e sessões (AD-17); o que
+  restar no cgroup recebe `SIGKILL`, sem processos de agente órfãos.
+- `NoNewPrivileges=yes`; `PATH` explícito incluindo `~/.local/bin`, onde as CLIs ficam.
+- Logs no journald do usuário, uma linha por evento com prioridade (formatter `systemd` do console logger).
+
+O WSL não sobe sozinho com o Windows e desliga uma distro sem processos cliente. A tarefa agendada `DANTE WSL`
+(`deploy/windows/Register-DanteAutostart.ps1`) roda no logon do usuário, com privilégio limitado e sem senha
+guardada, e mantém um `sleep infinity` na distro via `wslg.exe`, o lançador do WSL sem janela. Por isso o
+D.A.N.T.E. fica disponível a partir do logon, não do boot: iniciar antes do logon exigiria tarefa com senha
+armazenada ou privilégio maior.
+
+Por quê: é a combinação mais simples que dispensa terminal aberto e mantém o menor privilégio. Serviço de sistema
+com `User=` exigiria root para instalar e operar; Task Scheduler chamando o Worker direto perderia o supervisor
+(restart, stop gracioso, logs) que o systemd já oferece.
+
+Código: `deploy/`; testes em `LocalServiceDeploymentTests`. Validado com o Worker publicado em unidade
+transitória do systemd do usuário (start, logs, stop gracioso e restart após `SIGKILL`); a reinicialização real
+da máquina é validação do usuário.
