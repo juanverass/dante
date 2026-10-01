@@ -764,6 +764,13 @@ mesmo usuário Linux das CLIs, sem root e com acesso direto às credenciais loca
 versionada (`deploy/systemd/dante.service`) não tem segredos: tokens, allowlist, `DANTE_GENERAL_WORKSPACE` e
 variáveis de host dos bindings vêm de `~/.config/dante/dante.env`, fora do repositório e com permissão `600`.
 
+O `dante.env` só aceita atribuições literais (`deploy/dante-env.sh`): como o `EnvironmentFile` do systemd não
+expande `$VAR`, `~` nem comandos, um valor que dependa do shell chegaria diferente ao Worker (um
+`DANTE_GENERAL_WORKSPACE` começando por `$HOME` faria o Worker recusar o path relativo e não iniciar). A
+conversão do `~/.config/dante/env` do setup manual remove `export` e recusa o arquivo inteiro diante de qualquer
+linha não literal, sem executá-lo, sem gravar parcialmente e citando só números de linha. A validação ocorre
+antes de publicar ou instalar; o serviço só é habilitado e iniciado com o token preenchido.
+
 - O Worker publicado (`dotnet publish`) roda de `~/.local/share/dante/app`, fora do checkout em `/mnt/c`; uma
   nova instalação publica ao lado e troca o diretório com o serviço parado.
 - `Restart=on-failure` com limite de 5 falhas em 5 minutos: saída limpa (stop, SIGTERM) não reinicia, e um

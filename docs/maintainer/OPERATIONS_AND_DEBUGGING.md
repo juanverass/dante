@@ -74,8 +74,8 @@ Portanto:
 
 Para rodar como serviço (systemd do usuário + inicialização no logon do Windows), siga
 [Executando como serviço](../../README.md#executando-como-servi%C3%A7o). O serviço lê
-`~/.config/dante/dante.env` (formato `CHAVE=valor`, sem `export`); `deploy/dante-service.sh install` o cria
-a partir do `~/.config/dante/env` abaixo, se ele existir.
+`~/.config/dante/dante.env` (formato `CHAVE=valor` literal, sem `export` nem `$VAR`); `deploy/dante-service.sh install`
+o cria a partir do `~/.config/dante/env` abaixo, se ele existir e tiver só valores literais.
 
 Crie:
 

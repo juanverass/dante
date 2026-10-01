@@ -202,14 +202,22 @@ No WSL, a partir do repositório:
 deploy/dante-service.sh install
 ```
 
-O comando publica o Worker em `~/.local/share/dante/app`, instala `~/.config/systemd/user/dante.service`,
-habilita o serviço, ativa o linger do usuário e, na primeira vez, cria `~/.config/dante/dante.env` a partir de
-[`deploy/dante.env.example`](deploy/dante.env.example). Preencha esse arquivo e inicie:
+O serviço lê `~/.config/dante/dante.env`. Na primeira instalação, o comando cria esse arquivo convertendo o
+`~/.config/dante/env` do setup manual, se existir, ou copiando [`deploy/dante.env.example`](deploy/dante.env.example).
+Depois publica o Worker em `~/.local/share/dante/app`, instala `~/.config/systemd/user/dante.service` e ativa o
+linger do usuário. O serviço só é habilitado e iniciado quando `Telegram__BotToken` está preenchido; senão,
+preencha e rode `install` de novo:
 
 ```bash
 nano ~/.config/dante/dante.env      # Telegram__BotToken, Telegram__AllowedUserIds, ...
-deploy/dante-service.sh start
+deploy/dante-service.sh install
 ```
+
+O systemd não usa shell: o `dante.env` aceita só `CHAVE=valor` literal, sem `$VAR`, `~`, `` `comando` ``, barra
+invertida ou comentário na mesma linha (`export` é removido na conversão). Um arquivo com outra coisa é recusado,
+indicando apenas o número da linha, antes de qualquer instalação — por exemplo,
+`export DANTE_GENERAL_WORKSPACE="$HOME/general"` precisa virar `DANTE_GENERAL_WORKSPACE=/home/<usuario>/general`.
+Valide um arquivo com `bash deploy/dante-env.sh check ~/.config/dante/dante.env`.
 
 O `dante.env` guarda segredos: fica fora do repositório, com permissão `600`, e também recebe
 `DANTE_GENERAL_WORKSPACE` e as variáveis do host usadas por `/repo env bind`. Se o linger não puder ser ativado

@@ -14,16 +14,36 @@ fail() { echo "erro: $*" >&2; exit 1; }
 
 require_user_systemd() {
     [ "$(id -u)" -ne 0 ] || fail "execute como o seu usuário, não como root: o serviço usa as credenciais locais das CLIs."
+    systemctl --user show-environment >/dev/null 2>&1 && return
     [ "$(ps -p 1 -o comm= 2>/dev/null)" = systemd ] ||
         fail "systemd não está ativo. No WSL, adicione [boot] systemd=true em /etc/wsl.conf e rode 'wsl --shutdown' no Windows."
-    systemctl --user show-environment >/dev/null 2>&1 || fail "o gerenciador systemd do usuário não está acessível."
+    fail "o gerenciador systemd do usuário não está acessível."
 }
 
-token_configured() { grep -Eq '^Telegram__BotToken=.+' "$ENV_FILE"; }
+token_configured() { grep -Eq '^Telegram__BotToken=("[^"]+"|'"'"'[^'"'"']+'"'"'|[^"'"'"'].*)$' "$ENV_FILE"; }
+
+# The environment file must exist in systemd's literal format before anything is installed or started.
+prepare_environment() {
+    mkdir -p "$CONFIG_DIR"
+    chmod 700 "$CONFIG_DIR"
+    if [ ! -f "$ENV_FILE" ] && [ -f "$CONFIG_DIR/env" ]; then
+        # The manual setup keeps shell "export" lines in ~/.config/dante/env; only literal values convert unchanged.
+        bash "$REPO_ROOT/deploy/dante-env.sh" convert "$CONFIG_DIR/env" "$ENV_FILE" ||
+            fail "$CONFIG_DIR/env não pode ser convertido sem mudar valores. Crie $ENV_FILE a partir de deploy/dante.env.example com valores literais e rode install novamente."
+        echo "Criado $ENV_FILE a partir de $CONFIG_DIR/env, sem 'export'."
+    elif [ ! -f "$ENV_FILE" ]; then
+        install -m 600 "$REPO_ROOT/deploy/dante.env.example" "$ENV_FILE"
+        echo "Criado $ENV_FILE (permissão 600)."
+    fi
+    chmod 600 "$ENV_FILE"
+    bash "$REPO_ROOT/deploy/dante-env.sh" check "$ENV_FILE" ||
+        fail "corrija $ENV_FILE e rode install novamente."
+}
 
 install_service() {
     require_user_systemd
     command -v dotnet >/dev/null || fail "dotnet não encontrado no PATH."
+    prepare_environment
 
     # Publish beside the current build and swap, so a running service never sees a half-written app.
     local staging="$APP_DIR.new"
@@ -35,22 +55,9 @@ install_service() {
     mv "$staging" "$APP_DIR"
     rm -rf "$APP_DIR.old"
 
-    mkdir -p "$CONFIG_DIR"
-    chmod 700 "$CONFIG_DIR"
-    if [ ! -f "$ENV_FILE" ] && [ -f "$CONFIG_DIR/env" ]; then
-        # The manual setup keeps shell "export" lines in ~/.config/dante/env; systemd reads plain KEY=value.
-        (umask 077 && sed -E 's/^[[:space:]]*export[[:space:]]+//' "$CONFIG_DIR/env" > "$ENV_FILE")
-        echo "Criado $ENV_FILE a partir de $CONFIG_DIR/env, sem 'export'. Revise o conteúdo."
-    elif [ ! -f "$ENV_FILE" ]; then
-        install -m 600 "$REPO_ROOT/deploy/dante.env.example" "$ENV_FILE"
-        echo "Criado $ENV_FILE (permissão 600). Preencha Telegram__BotToken e Telegram__AllowedUserIds."
-    fi
-    chmod 600 "$ENV_FILE"
-
     mkdir -p "$UNIT_DIR"
     install -m 644 "$REPO_ROOT/deploy/systemd/$SERVICE" "$UNIT_DIR/$SERVICE"
     systemctl --user daemon-reload
-    systemctl --user enable "$SERVICE"
 
     # Linger starts the user's systemd (and the service) when the WSL distro boots, without a login shell.
     if [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" != yes ]; then
@@ -58,11 +65,14 @@ install_service() {
             echo "aviso: não foi possível ativar o linger. Rode: sudo loginctl enable-linger $(id -un)" >&2
     fi
 
+    # Only a configured service is enabled, so a boot never starts the Worker without its token.
     if token_configured; then
+        systemctl --user enable "$SERVICE"
         systemctl --user restart "$SERVICE"
-        echo "Serviço $SERVICE ativo. Status: deploy/dante-service.sh status"
+        echo "Serviço $SERVICE habilitado e ativo. Status: deploy/dante-service.sh status"
     else
-        echo "Serviço instalado e habilitado, mas não iniciado: configure $ENV_FILE e rode deploy/dante-service.sh start"
+        systemctl --user disable "$SERVICE" 2>/dev/null || true
+        echo "Serviço instalado, mas não habilitado: preencha Telegram__BotToken e Telegram__AllowedUserIds em $ENV_FILE e rode install novamente."
     fi
 
     echo
@@ -86,6 +96,7 @@ case "${1:-}" in
     uninstall) uninstall_service ;;
     start)
         [ -f "$ENV_FILE" ] && token_configured || fail "configure Telegram__BotToken em $ENV_FILE antes de iniciar."
+        bash "$REPO_ROOT/deploy/dante-env.sh" check "$ENV_FILE" || fail "corrija $ENV_FILE antes de iniciar."
         systemctl --user start "$SERVICE" ;;
     stop) systemctl --user stop "$SERVICE" ;;
     restart) systemctl --user restart "$SERVICE" ;;
