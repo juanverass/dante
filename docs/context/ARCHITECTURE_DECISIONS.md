@@ -401,7 +401,8 @@ Status: vigente (Epic #60, #64)
   qualquer passo encerra o processo e falha o `StartAsync`;
 - **turnos**: `turn/start` na mesma thread, só com a sessão ociosa (o Codex absorveria o
   turno no ativo, AD-16); o `turn.id` da resposta é o turno ativo usado por steer e
-  interrupt. `turn/started` → `TurnStartedEvent`; `turn/completed` → `TurnCompletedEvent`
+  interrupt — exceto quando o `turn/completed` desse turno chegou antes da resposta ser
+  processada (turno rápido), caso em que não há turno ativo e interrupt continua no-op (#68). `turn/started` → `TurnStartedEvent`; `turn/completed` → `TurnCompletedEvent`
   (`completed`, `interrupted`, demais = `Failed` com `turn.error.message`);
 - **eventos**: `item/agentMessage/delta` → delta; `item/completed` `agentMessage` →
   mensagem; `commandExecution` → `Command` (sucesso = `completed` e exit code 0);
@@ -492,7 +493,7 @@ Código: `Sessions/SessionRegistry.cs`, `Sessions/IAgentSessionDriverFactory.cs`
 
 ## AD-21 — Entrega Telegram independente do resultado do agente
 
-Status: vigente (Epic #60, #66)
+Status: vigente (Epic #60, #66), com formato e cadência das partes de sessão atualizados pela AD-23
 
 `TelegramDeliveryService` recebe eventos já carimbados pelo `SessionRegistry`, identifica cada
 parte com sessão/turno, agrupa deltas em intervalos de 750 ms e entrega sequencialmente por
@@ -508,6 +509,11 @@ com backoff exponencial; 429 respeita `retry_after` quando informado. Erros perm
 a tentativa, deixam a entrega como `Failed` e registram apenas o tipo do erro. Uma falha de
 entrega nunca muda o estado concluído do job ou do turno. Registros de entrega e sessões não
 sobrevivem ao reinício do Worker.
+
+Desde a AD-23, a saída da sessão ativa não leva prefixo de sessão/turno (só a de outras sessões,
+como `[S…]`), o streaming sai em linhas inteiras com pausa mínima entre partes do mesmo turno e
+partes sem texto visível não são enviadas. Separação entre entrega e execução, retry, `/resend`,
+redaction e omissão por segredos vinculados continuam como descrito acima.
 
 Por quê: a conclusão de ações do agente não prova que o Telegram recebeu sua resposta. Separar
 os estados permite recuperação sem repetir efeitos no repositório ou no GitHub.
@@ -554,3 +560,62 @@ sessão (AD-20), de modo que uma mudança de preferência não altera permissõe
 Código: `Sessions/AgentSession.cs`, `Sessions/SessionRegistry.cs`,
 `Telegram/TelegramPollingService.cs`, `Telegram/TelegramDeliveryService.cs`; testes em
 `SessionRegistryTests` e `TelegramDeliveryServiceTests`.
+
+## AD-23 — Conversa session-first no Telegram; one-shot só por comando explícito
+
+Status: vigente (Epic #60, #68)
+
+Mensagem comum é conversa com uma sessão interativa, não um job:
+
+- **com sessão ativa**: vira turno dessa sessão; durante um turno entra na fila (AD-16) e o
+  usuário recebe só um curto `Recebido`;
+- **sem sessão ativa**: o D.A.N.T.E. abre uma sessão com o agente padrão, no contexto atual e
+  com o perfil de `/permissions`, e envia a própria mensagem como primeiro turno. O contexto é
+  o `@alias` no início da mensagem, se houver (vale para aquela sessão e não altera o
+  repositório ativo), senão o repositório ativo, senão General Mode — a mesma resolução e as
+  mesmas recusas do `/session start` (alias desconhecido, repositório ativo fora do catálogo,
+  workspace geral sobreposto). A sessão nova passa a ser a ativa e as mensagens seguintes são
+  turnos dela até `/session close`, `/session start` ou `/session select`;
+- **sessão ativa encerrada** (`Failed`): continua selecionada (AD-20) e a mensagem é recusada
+  com a saída `/session start`, em vez de abrir silenciosamente outra conversa sem o contexto;
+- **falha ao iniciar**: resposta curta (`Não foi possível iniciar a conversa…`) com o detalhe
+  em `/status`; a sessão falha não fica selecionada e a próxima mensagem tenta de novo.
+
+`/claude` e `/codex` continuam sendo execução one-shot (jobs, `Job ID`, `/cancel`), sem tocar
+na conversa. Sem `SessionRegistry` na composição, mensagens comuns caem para one-shot.
+`/agent set` e `/use` não alteram uma sessão existente (AD-20); quando a sessão ativa difere da
+nova preferência, a resposta diz que ela continua e indica `/session start`.
+
+Apresentação no Telegram:
+
+- a sessão ativa fala como conversa: texto do agente, linhas curtas de progresso (`→ comando`,
+  arquivos alterados, `✗ … falhou`), `Resposta interrompida.`, `A resposta falhou: …` e
+  `(sem resposta do agente)` quando o turno termina sem texto visível. Não há `Job ID` nem
+  `Turno iniciado/concluído`. Saída de outra sessão leva o prefixo `[S…]`;
+- IDs aparecem só onde o usuário precisa agir (pedido de aprovação/input, cujos comandos
+  exigem `S… T… R…`), em `/status`, `/session` e nos demais comandos explícitos. `/status` mostra
+  também o erro de sessões encerradas, exceto quando a sessão tem segredos vinculados;
+- caminhos dentro do diretório da sessão aparecem relativos a ele; nas linhas de progresso o
+  wrapper `/bin/bash -lc '…'` do Codex é omitido. O pedido de aprovação mostra o comando completo, com o wrapper;
+- enquanto o turno roda, `sendChatAction(typing)` é renovado a cada 4 s; ele pausa enquanto um
+  pedido espera o usuário e para no fim do turno. Falha do indicador é ignorada.
+
+Cadência e limites do Telegram: o primeiro lote de um turno sai 750 ms após o primeiro evento;
+partes seguintes do mesmo turno respeitam pausa mínima de 1,5 s (orientação do Telegram de cerca
+de uma mensagem por segundo por chat); o streaming sai em linhas inteiras — uma parte nunca
+começa ou termina no meio de uma linha, salvo linha maior que uma mensagem — e respeita a
+retenção de segredos parciais da AD-21; partes de até 4000 caracteres; parte sem texto visível
+não é enviada, porque o Telegram a recusaria e a entrega do turno ficaria `Failed`. 429 respeita
+`retry_after` (AD-21).
+
+Por quê: no dogfooding real (#68), mensagens comuns ainda iniciavam um job sem contexto a cada
+mensagem e expunham o ciclo interno (`iniciado`, `Job ID`, `concluído`), e o streaming dividia
+palavras em dezenas de mensagens. A conversa passa a ser o caminho padrão sem esconder o estado
+operacional, que segue disponível em `/status`. Validado contra Claude Code 2.1.286 e codex-cli
+0.159.3 (multi-turno com contexto, aprovação negada e permitida, input, interrupt, steer e
+close).
+
+Código: `Telegram/TelegramPollingService.cs`, `Telegram/TelegramDeliveryService.cs`,
+`Telegram/TelegramBotApi.cs`; testes em `TelegramPlainMessageTests`, `TelegramDeliveryServiceTests`
+e `InteractiveSessionEndToEndTests` (Telegram → `SessionRegistry` → drivers reais → CLIs
+simuladas do `Dante.ProcessProbe`).

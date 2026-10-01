@@ -24,7 +24,19 @@ Telegram
 
 ## Estado atual
 
-O projeto possui dois modos de execução.
+Converse com o agente como no terminal: uma mensagem comum abre uma **sessão interativa** do
+agente padrão e as mensagens seguintes continuam a mesma conversa, com a resposta chegando
+enquanto o agente trabalha.
+
+```text
+Explique a autenticação deste projeto.
+Agora mostre onde o token é validado.
+```
+
+Aprovações, perguntas do agente, interrupção e encerramento também são feitos pelo Telegram.
+`/claude` e `/codex` continuam disponíveis como execução avulsa (one-shot).
+
+O contexto de cada conversa ou execução segue um de dois modos.
 
 ### General Mode
 
@@ -360,23 +372,58 @@ Agente padrão alterado para Codex.
 `/agent` não inicia job. `/claude` e `/codex` valem somente para a execução em que são
 usados e não alteram o agente padrão.
 
-## Mensagens sem slash command
+O agente padrão vale para conversas e execuções novas. Uma sessão já aberta mantém o seu
+agente, e a resposta avisa:
 
-Mensagens de texto que não começam com `/` são enviadas ao agente padrão:
+```text
+Agente padrão alterado para Codex.
+A sessão ativa S000001 (Claude, General) continua; envie /session start para conversar com Codex.
+```
+
+## Conversa (mensagens sem slash command)
+
+Mensagens de texto que não começam com `/` são uma conversa com o agente padrão:
 
 ```text
 Explique o padrão Strategy.
 ```
 
-Com Claude como padrão, isso equivale a `/claude Explique o padrão Strategy.`. O alias
-`@alias` no início da mensagem continua selecionando o repositório daquela execução:
+```text
+E o padrão State?
+```
+
+Sem sessão ativa, a primeira mensagem abre uma sessão interativa do agente padrão no
+contexto atual (repositório ativo ou General Mode), com o perfil escolhido em `/permissions`,
+e vira o primeiro turno. As mensagens seguintes são novos turnos da mesma sessão, no mesmo
+processo do agente, que mantém o contexto da conversa. Não é preciso `/session start`.
+
+A resposta mostra essencialmente o texto do agente, com linhas curtas de progresso
+(`→ dotnet test`, arquivos alterados, falha de ferramenta) e o indicador "digitando…"
+enquanto o agente trabalha. A conversa não mostra `Job ID`, nem avisos de início e fim de
+turno: IDs de sessão, turno e entrega ficam em `/status`, `/session list` e nos comandos
+explícitos. Só pedidos que exigem ação — aprovação ou pergunta do agente — mostram IDs,
+porque os comandos de resposta precisam deles. Uma mensagem enviada enquanto o agente ainda
+responde entra na fila e é confirmada com um curto `Recebido`.
+
+Um `@alias` no início da primeira mensagem abre a sessão naquele repositório, sem alterar o
+repositório ativo:
 
 ```text
 @dante revise o README
 ```
 
-Sem alias e sem repositório ativo, a mensagem roda em General Mode. `/claude` e `/codex` seguem disponíveis como
-override pontual. Mensagens iniciadas por `/` com comando desconhecido nunca são enviadas
+Com uma sessão ativa, a mensagem vai para ela como está: agente e contexto da sessão não
+mudam.
+
+A conversa continua até ser encerrada (`/session close`) ou trocada (`/session start`,
+`/session select`). Depois de `/session close` ou `/session select none`, a próxima
+mensagem abre uma sessão nova. Se a sessão falhar — por exemplo, o processo do agente
+encerrar —, o D.A.N.T.E. avisa e recusa as mensagens seguintes até você iniciar outra com
+`/session start`, em vez de abrir silenciosamente uma conversa nova sem o contexto anterior.
+Erros na conversa são curtos; os detalhes ficam em `/status`.
+
+`/claude` e `/codex` seguem disponíveis como execução avulsa (one-shot, com Job ID), sem
+tocar na conversa. Mensagens iniciadas por `/` com comando desconhecido nunca são enviadas
 ao agente: o D.A.N.T.E. responde `Comando desconhecido`.
 
 ## Repositório ativo
@@ -407,7 +454,9 @@ Depois disso, o repositório ativo continua sendo `@fitness_backend`.
 ```
 
 `/use @alias` só aceita repositórios cadastrados e não inicia job. O contexto é por
-usuário e sobrevive a reinícios. `/repo remove` limpa o repositório ativo de quem o usava;
+usuário e sobrevive a reinícios. Como no `/agent set`, uma sessão já aberta continua no
+contexto em que começou, e a resposta indica `/session start` para conversar no novo
+contexto. `/repo remove` limpa o repositório ativo de quem o usava;
 se um repositório ativo deixar de existir por outro motivo, o D.A.N.T.E. recusa a
 execução e pede `/use @alias` ou `/use general`, em vez de cair para General Mode.
 
@@ -415,7 +464,9 @@ execução e pede `/use @alias` ou `/use general`, em vez de cair para General M
 
 # Jobs
 
-Cada chamada a Claude ou Codex gera um job.
+Cada chamada a `/claude` ou `/codex` gera um job: uma execução one-shot, que inicia a CLI,
+espera o resultado final e encerra. Mensagens comuns são conversa em sessão interativa e
+não geram job.
 
 Ao iniciar:
 
@@ -483,7 +534,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/repo env remove @alias KEY` | Remove uma configuração de ambiente |
 | `/agent` | Exibe o agente padrão |
 | `/agent set claude\|codex` | Altera o agente padrão |
-| `<mensagem>` | Inicia um turno na sessão ativa (ou executa o agente padrão no contexto ativo quando não há sessão ativa) |
+| `<mensagem>` | Conversa: novo turno da sessão ativa; sem sessão ativa, abre uma com o agente padrão no contexto ativo |
 | `/use` | Exibe o contexto ativo do usuário |
 | `/use @alias` | Define o repositório ativo |
 | `/use general` | Volta ao General Mode |
@@ -491,7 +542,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/cancel <jobId>` | Solicita cancelamento de um job |
 | `/session start [claude\|codex] [@alias] [manual\|auto\|plan]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e perfil selecionados se omitidos |
 | `/session list` | Lista as suas sessões |
-| `/session select <id\|none>` | Seleciona uma sessão ou volta a mensagens avulsas |
+| `/session select <id\|none>` | Seleciona uma sessão; `none` faz a próxima mensagem abrir uma sessão nova |
 | `/session stop [id]` | Interrompe o turno e descarta a fila, mantendo a sessão |
 | `/session close [id]` | Encerra a sessão e seu processo |
 | `/permissions` | Consulta o perfil para novas sessões (`manual` por padrão) |
@@ -505,9 +556,11 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 
 Durante um turno interativo, mensagens comuns entram na fila. A sessão mantém o mesmo agente e
 repositório até ser encerrada, mesmo que `/agent set` ou `/use` mudem depois. Eventos são
-agrupados antes do envio e cada parte identifica a sessão e o turno. Uma falha de entrega
-aparece em `/status` separadamente do resultado da execução; `/resend` tenta novamente as
-partes ainda não entregues. Resultados recentes ficam em memória enquanto o Worker está vivo.
+agrupados por cerca de 750 ms antes do envio, em mensagens de até 4000 caracteres; a saída da
+sessão ativa chega sem prefixo e a de qualquer outra sessão é identificada por `[S…]`. Uma
+falha de entrega aparece em `/status` separadamente do resultado da execução; `/resend` tenta
+novamente as partes ainda não entregues. Resultados recentes ficam em memória enquanto o Worker
+está vivo.
 
 O perfil `manual` é o padrão recomendado. `auto` opera dentro dos limites da CLI com menos
 interrupções; `plan` restringe alterações. O perfil escolhido por `/permissions` fica em memória
@@ -539,7 +592,35 @@ Confira:
 /repos
 ```
 
-Pergunta geral:
+Conversa no repositório:
+
+```text
+/use @dante
+```
+
+```text
+Leia a issue #68 e me diga por onde começar.
+```
+
+```text
+Pode seguir com o primeiro passo.
+```
+
+Se o agente pedir aprovação, a mensagem traz os comandos prontos:
+
+```text
+Aprovação pendente S000001 T000002 R000001: git push origin feat/issue-68
+/approve S000001 T000002 R000001
+/deny S000001 T000002 R000001 [motivo]
+```
+
+Encerrar a conversa:
+
+```text
+/session close
+```
+
+Pergunta geral avulsa (one-shot):
 
 ```text
 /claude explique arquitetura hexagonal de forma simples
@@ -587,7 +668,11 @@ Principais proteções atuais:
 - General Mode é isolado dos repositórios cadastrados;
 - ambientes de repositórios são aplicados somente ao processo filho;
 - bindings de secrets não armazenam o valor no catálogo;
-- valores de `OPENAI_API_KEY` e `ANTHROPIC_API_KEY`, quando existentes, são mascarados nas respostas do Telegram;
+- valores de `OPENAI_API_KEY` e `ANTHROPIC_API_KEY`, quando existentes, são mascarados nas respostas do Telegram,
+  inclusive em cada evento de sessão interativa e quando o valor chega dividido entre partes do streaming;
+- sessões e jobs com segredos vinculados ao ambiente do repositório omitem a saída do agente;
+- aprovações e respostas de input só são aceitas do dono da sessão, no turno e na solicitação certos, uma vez;
+- o perfil de acesso irrestrito (`full`) não é oferecido;
 - cancelamento encerra a árvore do processo.
 
 Evite enviar qualquer segredo diretamente pelo Telegram.
@@ -607,6 +692,9 @@ Atualmente:
 | Workspace geral | `~/.dante/workspaces/general` |
 | Jobs | somente memória |
 | Histórico de jobs | somente memória |
+| Sessões interativas, turnos, filas e solicitações pendentes | somente memória (perdidas ao reiniciar o Worker) |
+| Perfil escolhido em `/permissions` | somente memória |
+| Saídas recentes para `/resend` | somente memória |
 
 `~/.dante/settings.json` guarda apenas preferências, nunca tokens ou segredos:
 
@@ -643,14 +731,21 @@ Command Parser
                   General Mode
 
 Context resolvido
-   ↓
-JobRegistry
-   ↓
-ClaudeRunner / CodexRunner
-   ↓
-AgentProcessExecutor
-   ↓
-Claude Code / Codex CLI
+   ├─ mensagem comum ──→ SessionRegistry
+   │                        ↓
+   │                   ClaudeSessionDriver (stream-json) / CodexSessionDriver (app-server)
+   │                        ↓
+   │                   InteractiveAgentProcess (um processo vivo por sessão)
+   │                        ↓ eventos
+   │                   TelegramDeliveryService → Telegram
+   │
+   └─ /claude, /codex ──→ JobRegistry
+                            ↓
+                       ClaudeRunner / CodexRunner
+                            ↓
+                       AgentProcessExecutor
+                            ↓
+                       Claude Code / Codex CLI
 ```
 
 Responsabilidades principais:
@@ -659,6 +754,9 @@ Responsabilidades principais:
 - **TelegramUserAuthorizer** — controla usuários permitidos;
 - **RepositoryRegistry** — mantém aliases, paths e ambientes dos projetos;
 - **GeneralWorkspace** — fornece o workspace neutro;
+- **SessionRegistry** — sessões interativas por usuário: dono, contexto fixo, turnos, fila e solicitações;
+- **ClaudeSessionDriver / CodexSessionDriver** — traduzem os protocolos estruturados das CLIs em eventos neutros;
+- **TelegramDeliveryService** — agrupa, redige e entrega eventos e resultados, com retry e `/resend`;
 - **JobRegistry** — controla estado, contexto e cancelamento dos jobs;
 - **ClaudeRunner / CodexRunner** — definem como cada CLI é iniciada;
 - **AgentProcessExecutor** — executa processos sem shell e captura stdout/stderr.
@@ -676,7 +774,11 @@ Ainda não fazem parte do projeto:
 - fila persistente;
 - persistência de jobs em banco de dados;
 - execução concorrente isolada por worktree;
-- comando `/ask` com agente padrão.
+- comando `/ask` com agente padrão;
+- sessões interativas persistentes: reiniciar o Worker encerra as conversas;
+- botões inline para aprovação (os comandos textuais estão disponíveis);
+- perfil de acesso irrestrito (`full`);
+- pergunta do Codex ao usuário (input) fora do perfil `plan`, por limitação do `app-server`.
 
 Esses pontos são candidatos naturais para os próximos MVPs.
 

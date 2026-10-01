@@ -32,14 +32,23 @@ TelegramPollingService ── TelegramUserAuthorizer
    ├─ sem @alias, com /use  → repositório ativo  → Repository Mode
    └─ sem @alias, sem ativo → GeneralWorkspace   → General Mode
    ↓ contexto resolvido (JobExecutionContext)
-JobRegistry
+   ├─ mensagem comum (conversa, AD-23)        ├─ /claude, /codex (one-shot)
+   ↓                                          ↓
+SessionRegistry                            JobRegistry
+   ↓                                          ↓
+ClaudeSessionDriver / CodexSessionDriver   ClaudeRunner / CodexRunner
+   ↓                                          ↓
+InteractiveAgentProcess (stdin/stdout)     AgentProcessExecutor (sem shell, ArgumentList)
+   ↓                                          ↓
+claude stream-json / codex app-server      claude / codex (processo filho)
+   ↓ eventos                                  ↓ resultado
+TelegramDeliveryService ──────────────────────┘
    ↓
-ClaudeRunner / CodexRunner
-   ↓
-AgentProcessExecutor (sem shell, ArgumentList)
-   ↓
-claude / codex (processo filho)
+Telegram
 ```
+
+A conversa é o caminho padrão: uma sessão interativa por conversa, com um processo de agente
+vivo que recebe todos os turnos. O one-shot continua disponível por comando explícito.
 
 ## Componentes
 
@@ -47,13 +56,16 @@ claude / codex (processo filho)
 | --- | --- | --- |
 | Composição | `src/Dante.Worker/Program.cs` | Registro de DI e hosted services. |
 | `TelegramPollingService` | `Telegram/` | Long polling, parsing de comandos, respostas, disparo de jobs. |
-| `TelegramBotApi` | `Telegram/` | Cliente HTTP da Bot API (`getUpdates`, `sendMessage`). |
+| `TelegramBotApi` | `Telegram/` | Cliente HTTP da Bot API (`getUpdates`, `sendMessage`, `sendChatAction`). |
+| `TelegramDeliveryService` | `Telegram/` | Agrupa, formata, redige e entrega eventos de sessão e resultados de jobs, com retry, `/resend` e indicador de digitação. |
 | `TelegramUserAuthorizer` | `Telegram/` | Allowlist por `message.from.id`; fail-closed. |
 | `RepositoryRegistry` | `Repositories/` | Catálogo persistente de aliases, paths, GitHub e ambiente por repositório. |
 | `AssistantSettingsStore` | `Settings/` | Agente padrão e repositório ativo por usuário, persistidos em `~/.dante/settings.json`. |
 | `GeneralWorkspace` | `Agents/` | Diretório neutro para consultas gerais. |
 | `JobRegistry` | `Jobs/` | Estado, contexto e cancelamento dos jobs, em memória. |
 | `SessionRegistry` | `Sessions/` | Sessões interativas em memória: dono, contexto fixo, sessão ativa por usuário e roteamento de turnos aos drivers. |
+| `ClaudeSessionDriver` / `CodexSessionDriver` | `Sessions/` | Traduzem `stream-json` (Claude) e `app-server` (Codex) para o contrato neutro de eventos. |
+| `InteractiveAgentProcessLauncher` | `Agents/` | Processo interativo sem shell: saída incremental limitada, stdin serializado, parada sem órfãos. |
 | `ClaudeRunner` / `CodexRunner` | `Agents/` | Argumentos fixos de cada CLI por modo. |
 | `AgentProcessExecutor` | `Agents/` | Inicia o processo sem shell, filtra ambiente, captura saída, cancela a árvore. |
 | `AgentExecutableResolver` | `Agents/` | Resolve apenas `claude`/`codex` em entradas absolutas do `PATH`. |
@@ -96,6 +108,9 @@ cair para General Mode; nunca há inferência de repositório pelo texto do prom
 - General Mode não herda ambiente nem diretório de projetos;
 - segredos ficam no host e são referenciados (`/repo env bind`), nunca persistidos no
   catálogo nem enviados pelo Telegram; jobs com bindings omitem a saída do agente;
+- eventos de sessão passam pela redaction a cada parte entregue; approvals e input só são
+  aceitos do dono da sessão, no turno e na solicitação certos; acesso irrestrito (`full`) não
+  é oferecido;
 - token do bot não aparece em logs.
 
 ## Limites arquiteturais
