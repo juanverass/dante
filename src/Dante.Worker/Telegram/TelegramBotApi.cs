@@ -10,6 +10,13 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    // Telegram rejects optional fields sent as JSON null ("unsupported parse_mode", "object expected as reply
+    // markup"); an unset option must be omitted from the request.
+    private static readonly JsonSerializerOptions RequestJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
     public async Task<IReadOnlyList<TelegramUpdate>> GetUpdatesAsync(
         long offset,
         CancellationToken cancellationToken)
@@ -56,7 +63,8 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, MethodUrl("sendMessage"))
         {
-            Content = JsonContent.Create(new { chat_id = chatId, text, reply_markup = keyboard, parse_mode = parseMode })
+            Content = JsonContent.Create(new { chat_id = chatId, text, reply_markup = keyboard, parse_mode = parseMode },
+                options: RequestJsonOptions)
         };
 
         using var response = await httpClient.SendAsync(request, cancellationToken);

@@ -595,8 +595,10 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
                     }
                     catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
                     {
-                        logger.LogWarning("Falha de entrega ao Telegram para {DeliveryId} ({ErrorType}).",
-                            record.Id, exception.GetType().Name);
+                        // The status tells a rejected request from an outage; the body may echo content, so it stays out.
+                        logger.LogWarning("Falha de entrega ao Telegram para {DeliveryId} ({ErrorType}, HTTP {StatusCode}).",
+                            record.Id, exception.GetType().Name,
+                            (exception as HttpRequestException)?.StatusCode is { } status ? (int)status : null);
                         break;
                     }
                 }
