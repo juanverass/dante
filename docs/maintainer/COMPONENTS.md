@@ -355,6 +355,22 @@ O mesmo tipo é reutilizado por sessões para descrever contexto, mas isso **nã
 
 ---
 
+## `AgentContextResolver`
+
+Ponto único de decisão de agente e contexto (AD-27), usado por mensagens comuns que abrem sessão,
+`/session start`, `/claude` e `/codex`.
+
+```text
+Agente:       explícito → agente padrão
+Repositório:  @alias explícito → repositório ativo → General Mode
+```
+
+Devolve agente, contexto, ambiente do repositório, prompt sem `@alias` e a origem de cada decisão. Recusas
+(`ContextResolutionFailure`) nunca caem para outro contexto. Não grava nada em settings: overrides valem para uma
+execução.
+
+---
+
 ## `JobRegistry`
 
 Catálogo em memória dos jobs.

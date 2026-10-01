@@ -109,7 +109,7 @@ Não existe.
 
 ## Etapa 4 — resolve contexto
 
-Pode vir de:
+`AgentContextResolver` (AD-27) decide agente e contexto. O contexto pode vir de:
 
 1. `@alias` explícito;
 2. repositório ativo salvo;
@@ -805,7 +805,7 @@ Jobs e sessões não são restaurados na próxima inicialização.
 | `/ping` não responde | `TelegramPollingService.ExecuteAsync`, token, allowlist |
 | bot recebe, mas não envia | `TelegramBotApi.SendMessageCoreAsync` |
 | mensagem comum não abre conversa | `ConverseAsync` |
-| contexto errado | `ResolveSessionContextAsync`, settings, repository registry |
+| contexto errado | `AgentContextResolver`, settings, repository registry |
 | sessão abre e morre | driver + `InteractiveAgentProcess` |
 | resposta fora de ordem | `TelegramDeliveryService` |
 | approval não funciona | callback + `SessionRegistry.RespondAsync` |

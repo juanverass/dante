@@ -246,6 +246,13 @@ Especificam a allowlist fail-closed.
 
 ---
 
+## `AgentContextResolverTests`
+
+Tabela de precedência de agente e contexto (default, override, repo ativo, General) e recusas sem fallback
+(prompt vazio, alias inválido/desconhecido, ativo stale, binding ausente, workspace sobreposto).
+
+---
+
 ## `TelegramAgentRoutingTests`
 
 Testam resolução entre agentes/contextos no caminho de comandos.
