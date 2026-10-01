@@ -157,8 +157,7 @@ Issue/PR. Ver [protocolo de review](../development/review.md#papéis-padrão).
 
 ## MVP 3
 
-As regras de precedência de agente e contexto propostas na Epic #32 entram aqui quando
-forem implementadas.
+As regras de precedência de agente e contexto propostas na Epic #32 estão na AD-27.
 
 ## AD-13 — Configurações do assistente persistidas fora do checkout, fail-closed
 
@@ -198,10 +197,47 @@ manual do catálogo), a execução é **recusada** com instrução para `/use @a
 
 Por quê: o usuário que selecionou um repositório espera que o agente trabalhe nele;
 executar em outro contexto sem aviso seria uma escolha implícita. A precedência completa
-de agente e contexto será centralizada no resolvedor da #37.
+de agente e contexto está centralizada no resolvedor da AD-27.
 
 Código: `Settings/AssistantSettingsStore.cs`, `Telegram/TelegramPollingService.cs`;
 testes em `AssistantSettingsStoreTests` e `TelegramActiveRepositoryTests`.
+
+## AD-27 — Resolvedor único de agente e contexto com precedência determinística
+
+Status: vigente (MVP 3, #37)
+
+Toda execução de agente — mensagem comum que abre sessão, `/session start`, `/claude`,
+`/codex` e o fallback one-shot sem `SessionRegistry` — decide agente e contexto no
+`AgentContextResolver`, e só nele:
+
+```text
+Agente:       /claude | /codex (ou claude|codex no /session start) → agente padrão
+Repositório:  @alias explícito como primeiro token → repositório ativo (/use) → General Mode
+```
+
+O resolvedor devolve agente, contexto (`JobExecutionContext`), ambiente do repositório,
+prompt limpo (sem o comando e sem o `@alias`) e a origem de cada decisão
+(`AgentSource`: `Explicit`/`Default`; `ContextSource`: `Explicit`/`Active`/`General`).
+Overrides valem só para aquela resolução: nada é gravado em settings. Um `@alias` fora do
+primeiro token é texto do prompt; o resolvedor nunca infere agente ou repositório pelo
+conteúdo.
+
+Qualquer recusa (`ContextResolutionFailure`) impede o início de job ou sessão e nunca cai
+para outro contexto: prompt vazio após remover comando/alias (o chamador responde com o
+uso do seu comando), alias malformado, alias explícito desconhecido, repositório ativo
+fora do catálogo (AD-14), binding de ambiente ausente (AD-10) e workspace geral sobreposto
+a um repositório (AD-09).
+
+Mensagem comum com sessão ativa não passa pelo resolvedor: vira turno da sessão, cujo
+agente e contexto foram fixados ao iniciá-la (AD-20, AD-23).
+
+Por quê: as regras estavam duplicadas entre o caminho one-shot e o de sessões, com
+ordens de validação e mensagens divergentes. Um ponto único torna a precedência
+testável por tabela e impede que um caminho novo esqueça uma recusa.
+
+Código: `Jobs/AgentContextResolver.cs`, `Telegram/TelegramPollingService.cs`; testes em
+`AgentContextResolverTests` (tabela de precedência e recusas), `TelegramAgentRoutingTests`,
+`TelegramActiveRepositoryTests` e `TelegramPlainMessageTests`.
 
 ---
 
@@ -464,7 +500,7 @@ Telegram é da #66.
 - **contexto fixo**: agente, contexto (`JobExecutionContext` já resolvido: General ou alias + path), ambiente e
   perfil de permissão são fixados no início e não mudam durante a sessão. `/use` e `/agent set` valem para
   execuções e sessões novas, nunca para uma sessão existente. A resolução de agente e contexto continua fora do
-  registry (hoje no `TelegramPollingService`, amanhã no resolvedor da #37): o registry recebe o contexto pronto;
+  registry (no `AgentContextResolver`, AD-27): o registry recebe o contexto pronto;
 - **sessão ativa**: no máximo uma por usuário. Iniciar uma sessão com sucesso a torna ativa; trocar é
   `Select(usuário, S…)` e limpar é `Select(usuário, null)`. `close` pelo dono limpa a seleção. Sessão que falha
   continua selecionada, para que a próxima mensagem seja **recusada** com o erro em vez de ir para outro lugar

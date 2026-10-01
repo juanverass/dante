@@ -32,7 +32,8 @@ public sealed class TelegramPollingService(
     private readonly HashSet<Task> runningJobs = [];
     // Default modes when no settings store is composed; otherwise they persist in settings.json (#76).
     private readonly Dictionary<long, AgentPermissionProfile> selectedProfiles = [];
-    private readonly GeneralWorkspace generalWorkspace = generalWorkspace ?? new GeneralWorkspace();
+    private readonly AgentContextResolver resolver =
+        new(generalWorkspace ?? new GeneralWorkspace(), repositories, settings);
     private readonly TelegramDeliveryService delivery = delivery ??
         new TelegramDeliveryService(botApi, NullLogger<TelegramDeliveryService>.Instance);
 
@@ -270,9 +271,10 @@ public sealed class TelegramPollingService(
             return;
         }
 
-        var isCodex = string.Equals(command, "/codex", StringComparison.OrdinalIgnoreCase);
-        var isClaude = string.Equals(command, "/claude", StringComparison.OrdinalIgnoreCase);
-        if (!isCodex && !isClaude)
+        AgentKind? explicitAgent = string.Equals(command, "/codex", StringComparison.OrdinalIgnoreCase)
+            ? AgentKind.Codex
+            : string.Equals(command, "/claude", StringComparison.OrdinalIgnoreCase) ? AgentKind.Claude : null;
+        if (explicitAgent is null)
         {
             if (text.StartsWith('/'))
             {
@@ -287,91 +289,24 @@ public sealed class TelegramPollingService(
                 await ConverseAsync(message, text, cancellationToken);
                 return;
             }
-            // Without a session registry, plain messages fall back to one-shot jobs.
-            isCodex = (settings?.Current ?? AssistantSettings.Default).DefaultAgent == AgentKind.Codex;
+            // Without a session registry, plain messages fall back to one-shot jobs of the default agent.
             prompt = text;
         }
 
-        var agent = isCodex ? "Codex" : "Claude";
-        if (prompt.Length == 0)
+        var resolution = resolver.Resolve(message.From!.Id, explicitAgent, prompt);
+        var agent = resolution.Agent.ToString();
+        if (!resolution.Succeeded)
         {
-            await SendReplyAsync(message.Chat.Id, $"Uso: /{agent.ToLowerInvariant()} [@alias] <prompt>",
-                cancellationToken);
-            return;
-        }
-
-        var workingDirectory = generalWorkspace.Path;
-        var generalMode = true;
-        string? repositoryAlias = null;
-        ResolvedRepositoryEnvironment? repositoryEnvironment = null;
-        RepositoryDefinition? repository = null;
-        var firstSpace = prompt.IndexOfAny([' ', '\t', '\r', '\n']);
-        var firstArgument = firstSpace < 0 ? prompt : prompt[..firstSpace];
-        if (firstArgument.StartsWith('@'))
-        {
-            try { repository = repositories?.Get(firstArgument); }
-            catch (ArgumentException)
-            {
-                await SendReplyAsync(message.Chat.Id, "Alias inválido.", cancellationToken);
-                return;
-            }
-
-            if (repository is null)
-            {
-                await SendReplyAsync(message.Chat.Id, $"Repositório {firstArgument} não cadastrado.",
-                    cancellationToken);
-                return;
-            }
-            prompt = firstSpace < 0 ? string.Empty : prompt[(firstSpace + 1)..].Trim();
-            if (prompt.Length == 0)
-            {
-                await SendReplyAsync(message.Chat.Id, $"Uso: /{agent.ToLowerInvariant()} @alias <prompt>",
-                    cancellationToken);
-                return;
-            }
-        }
-        else if (settings?.GetActiveRepository(message.From!.Id) is { } activeAlias)
-        {
-            // A stale active repository requires a new selection instead of silently falling back to General.
-            repository = repositories?.Get(activeAlias);
-            if (repository is null)
-            {
-                await SendReplyAsync(message.Chat.Id,
-                    $"O repositório ativo {activeAlias} não está mais cadastrado. Use /use @alias ou /use general.",
-                    cancellationToken);
-                return;
-            }
-        }
-
-        if (repository is not null)
-        {
-            workingDirectory = repository.Path;
-            generalMode = false;
-            repositoryAlias = repository.Alias;
-            try { repositoryEnvironment = repositories!.ResolveEnvironment(repository.Alias); }
-            catch (InvalidOperationException exception)
-            {
-                await SendReplyAsync(message.Chat.Id, exception.Message, cancellationToken);
-                return;
-            }
-        }
-
-        if (generalMode && repositories?.List().Any(repository =>
-                IsWithin(workingDirectory, repository.Path) ||
-                IsWithin(repository.Path, workingDirectory)) == true)
-        {
-            await SendReplyAsync(message.Chat.Id,
-                "O workspace geral coincide com um repositório cadastrado; configure DANTE_GENERAL_WORKSPACE fora dos projetos.",
-                cancellationToken);
+            await SendReplyAsync(message.Chat.Id, resolution.Failure == ContextResolutionFailure.EmptyPrompt
+                ? $"Uso: /{agent.ToLowerInvariant()} [@alias] <prompt>" : resolution.Error!, cancellationToken);
             return;
         }
 
         // One-shot jobs use the user's default model of the agent they name; an unavailable one stops here (#77).
-        var modelSelection = await ResolveModelAsync(message.From!.Id, isCodex ? AgentKind.Codex : AgentKind.Claude,
-            null, message.Chat.Id, cancellationToken);
+        var modelSelection = await ResolveModelAsync(message.From!.Id, resolution.Agent, null, message.Chat.Id,
+            cancellationToken);
         if (modelSelection is null) return;
-        var context = generalMode ? JobExecutionContext.General(workingDirectory) :
-            JobExecutionContext.Repository(repositoryAlias!, workingDirectory);
+        var context = resolution.Context!;
         var (job, jobToken) = jobs.Create(agent, context, cancellationToken, modelSelection);
         try
         {
@@ -385,8 +320,8 @@ public sealed class TelegramPollingService(
             throw;
         }
 
-        var task = RunJobAsync(job.Id, agent, isCodex, prompt, context,
-            repositoryEnvironment, modelSelection, message.From!.Id, message.Chat.Id, jobToken,
+        var task = RunJobAsync(job.Id, agent, resolution.Agent == AgentKind.Codex, resolution.Prompt, context,
+            resolution.Environment, modelSelection, message.From!.Id, message.Chat.Id, jobToken,
             cancellationToken);
         lock (runningGate)
         {
@@ -477,7 +412,7 @@ public sealed class TelegramPollingService(
 
         if (parts[0].Equals("start", StringComparison.OrdinalIgnoreCase))
         {
-            var agent = (settings?.Current ?? AssistantSettings.Default).DefaultAgent;
+            AgentKind? requestedAgent = null;
             var profile = DefaultMode(userId);
             string? alias = null;
             string? model = null;
@@ -485,8 +420,8 @@ public sealed class TelegramPollingService(
             var profileSpecified = false;
             for (var index = 1; index < parts.Length; index++)
             {
-                if (parts[index].Equals("claude", StringComparison.OrdinalIgnoreCase)) agent = AgentKind.Claude;
-                else if (parts[index].Equals("codex", StringComparison.OrdinalIgnoreCase)) agent = AgentKind.Codex;
+                if (parts[index].Equals("claude", StringComparison.OrdinalIgnoreCase)) requestedAgent = AgentKind.Claude;
+                else if (parts[index].Equals("codex", StringComparison.OrdinalIgnoreCase)) requestedAgent = AgentKind.Codex;
                 else if (parts[index].StartsWith('@') && alias is null) alias = parts[index];
                 else if (parts[index].StartsWith(ModelOption, StringComparison.OrdinalIgnoreCase) && model is null &&
                          parts[index].Length > ModelOption.Length) model = parts[index][ModelOption.Length..];
@@ -503,9 +438,13 @@ public sealed class TelegramPollingService(
                     return;
                 }
             }
-            var resolved = await ResolveSessionContextAsync(userId, alias, message.Chat.Id, cancellationToken);
-            if (resolved is null) return;
-            var (context, environment) = resolved.Value;
+            var resolved = resolver.ResolveContext(userId, requestedAgent, alias);
+            if (!resolved.Succeeded)
+            {
+                await SendReplyAsync(message.Chat.Id, resolved.Error!, cancellationToken);
+                return;
+            }
+            var (agent, context, environment) = (resolved.Agent, resolved.Context!, resolved.Environment);
             // A model given here is for this session only and, like the default, is checked before any process starts.
             var modelSelection = await ResolveModelAsync(userId, agent, model, message.Chat.Id, cancellationToken, effort);
             if (modelSelection is null) return;
@@ -916,23 +855,15 @@ public sealed class TelegramPollingService(
         var sessionId = active?.Id;
         if (sessionId is null)
         {
-            string? alias = null;
-            var firstSpace = text.IndexOfAny([' ', '\t', '\r', '\n']);
-            if (text.StartsWith('@'))
+            var resolved = resolver.Resolve(userId, null, text);
+            if (!resolved.Succeeded)
             {
-                alias = firstSpace < 0 ? text : text[..firstSpace];
-                text = firstSpace < 0 ? string.Empty : text[(firstSpace + 1)..].Trim();
-                if (text.Length == 0)
-                {
-                    await SendReplyAsync(chatId, "Uso: @alias <mensagem>", cancellationToken);
-                    return;
-                }
+                await SendReplyAsync(chatId, resolved.Failure == ContextResolutionFailure.EmptyPrompt
+                    ? "Uso: @alias <mensagem>" : resolved.Error!, cancellationToken);
+                return;
             }
-
-            var resolved = await ResolveSessionContextAsync(userId, alias, chatId, cancellationToken);
-            if (resolved is null) return;
-            var (context, environment) = resolved.Value;
-            var agent = (settings?.Current ?? AssistantSettings.Default).DefaultAgent;
+            var (agent, context, environment) = (resolved.Agent, resolved.Context!, resolved.Environment);
+            text = resolved.Prompt;
             var mode = DefaultMode(userId);
             await SendTypingAsync(chatId, cancellationToken);
             var modelSelection = await ResolveModelAsync(userId, agent, null, chatId, cancellationToken);
@@ -960,52 +891,6 @@ public sealed class TelegramPollingService(
             _ => result.Error ?? "A sessão recusou a mensagem."
         };
         if (reply is not null) await SendReplyAsync(chatId, reply, cancellationToken);
-    }
-
-    private async Task<(JobExecutionContext Context, ResolvedRepositoryEnvironment? Environment)?>
-        ResolveSessionContextAsync(long userId, string? alias, long chatId, CancellationToken cancellationToken)
-    {
-        var fromActive = alias is null;
-        alias ??= settings?.GetActiveRepository(userId);
-        if (alias is null)
-        {
-            var path = generalWorkspace.Path;
-            if (repositories?.List().Any(repository => IsWithin(path, repository.Path) ||
-                IsWithin(repository.Path, path)) == true)
-            {
-                await SendReplyAsync(chatId,
-                    "O workspace geral coincide com um repositório cadastrado; configure DANTE_GENERAL_WORKSPACE fora dos projetos.",
-                    cancellationToken);
-                return null;
-            }
-            return (JobExecutionContext.General(path), null);
-        }
-
-        RepositoryDefinition? repository;
-        try { repository = repositories?.Get(alias); }
-        catch (ArgumentException)
-        {
-            await SendReplyAsync(chatId, "Alias inválido.", cancellationToken);
-            return null;
-        }
-        if (repository is null)
-        {
-            // A stale active repository requires a new selection instead of silently falling back to General.
-            await SendReplyAsync(chatId, fromActive
-                ? $"O repositório ativo {alias} não está mais cadastrado. Use /use @alias ou /use general."
-                : $"Repositório {alias} não cadastrado. Use /use @alias ou /use general.", cancellationToken);
-            return null;
-        }
-        try
-        {
-            return (JobExecutionContext.Repository(repository.Alias, repository.Path),
-                repositories!.ResolveEnvironment(repository.Alias));
-        }
-        catch (InvalidOperationException exception)
-        {
-            await SendReplyAsync(chatId, exception.Message, cancellationToken);
-            return null;
-        }
     }
 
     private async Task SubmitToSessionAsync(TelegramMessage message, string text, MessageDelivery mode,
@@ -1265,13 +1150,6 @@ public sealed class TelegramPollingService(
             }}") +
         $" | modo {AgentSessionModes.Name(session.Profile)} | modelo {session.ModelLabel} | esforço {session.EffortLabel}" +
         $" | criada {session.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
-
-    private static bool IsWithin(string path, string root)
-    {
-        var relative = Path.GetRelativePath(root, path);
-        return relative == "." || (relative != ".." && !relative.StartsWith(".." + Path.DirectorySeparatorChar,
-            StringComparison.Ordinal) && !Path.IsPathFullyQualified(relative));
-    }
 
     private async Task SendTypingAsync(long chatId, CancellationToken cancellationToken)
     {

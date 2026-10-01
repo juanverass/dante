@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-01, com a execução como serviço local (#39).
+Última revisão: 2026-10-01, com o resolvedor unificado de agente e contexto (#37) e a execução como serviço local (#39).
 
 ## Marcos
 
@@ -16,8 +16,8 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | MVP 1 — Telegram → D.A.N.T.E. → Claude/Codex → Telegram (Epic #1) | concluído |
 | MVP 2 — Context-aware orchestration (Epic #18) | concluído |
 | Agent Harness v1 (Epic #40) | concluído |
-| MVP 3 — Conversational Context (Epic #32) | pausado pela Priority Lock da Epic #60, após #33–#36 |
-| Interactive Agent Sessions (Epic #60) | Issues #61–#68 entregues; fechamento da Epic e fim da Priority Lock são decisão humana |
+| MVP 3 — Conversational Context (Epic #32) | retomado: #33–#37 entregues; falta UX (#38) |
+| Interactive Agent Sessions (Epic #60) | concluído |
 
 ## Funcionalidades disponíveis
 
@@ -47,7 +47,11 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   seguem como execução one-shot com Job ID; slash command desconhecido responde erro e não
   inicia agente;
 - `/use @alias`, `/use general` e `/use`: repositório ativo por usuário, persistido em
-  `~/.dante/settings.json` e usado por toda execução sem `@alias` explícito (AD-14).
+  `~/.dante/settings.json` e usado por toda execução sem `@alias` explícito (AD-14);
+- resolvedor único de agente e contexto (AD-27): `/claude`/`/codex` → agente padrão;
+  `@alias` explícito → repositório ativo → General. Overrides valem para uma execução e
+  não alteram preferências; alias desconhecido, ativo inválido e prompt vazio recusam sem
+  iniciar agente.
 - `/session start|list|select|stop|close` e `/steer`, com fila durante o turno e eventos
   agrupados no Telegram em linhas inteiras; `/agent set` e `/use` avisam quando a sessão ativa
   continua com outro agente ou contexto;
@@ -79,7 +83,6 @@ Detalhes de uso: [README](../../README.md).
 
 - jobs e histórico somente em memória (perdidos ao reiniciar);
 - como serviço, o D.A.N.T.E. fica disponível a partir do logon no Windows, não do boot (AD-28);
-- precedência de agente e contexto ainda sem resolvedor único (#37);
 - sem worktrees, fila persistente ou execução concorrente isolada por Issue;
 - sessões interativas e resultados recentes de entrega ficam apenas em memória; ao
   reiniciar o Worker, sessões e saídas pendentes não podem ser recuperadas;
@@ -93,24 +96,19 @@ Detalhes de uso: [README](../../README.md).
 
 ## Em andamento
 
-- **Epic #60 — Interactive Agent Sessions**: todas as Issues filhas entregues — contrato e
-  spikes (#61), processo bidirecional (#62), drivers Claude (#63) e Codex (#64),
-  `SessionRegistry` (#65), interface Telegram (#66), approvals, input e perfis (#67) e conversa
-  session-first com validação end-to-end (#68). A Priority Lock vale até o fechamento da Epic
-  por decisão humana;
-- **Epic #32 — MVP 3 (Conversational Context)**: pausada após #33–#36; #37 e #38
-  bloqueadas pela #60.
+- **Epic #32 — MVP 3 (Conversational Context)**: retomada após o fechamento da Epic #60;
+  #33–#37 entregues, falta a UX de contexto e jobs (#38).
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #39:
+Estado conhecido com #37 e #39:
 
 ```text
-dotnet build Dante.sln   sucesso, sem avisos
-dotnet test Dante.sln    378 testes aprovados
+dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
+dotnet test Dante.sln    401 testes aprovados
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
@@ -121,5 +119,4 @@ intermitente na suíte completa em WSL2 e passa isolado; já falhava assim antes
 
 ## Próximos marcos
 
-1. fechamento da Epic #60 após o dogfooding pelo Telegram real (decisão humana);
-2. retomada do MVP 3 (#32): resolvedor de agente e contexto (#37), UX (#38);
+1. conclusão do MVP 3 (#32): UX de contexto e jobs (#38).

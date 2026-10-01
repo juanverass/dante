@@ -316,7 +316,8 @@ ou
 Repository Mode (@alias)
 ```
 
-A execução recebe um `JobExecutionContext` pronto.
+A execução recebe um `JobExecutionContext` pronto, produzido pelo `AgentContextResolver` (AD-27) com a
+precedência `@alias` explícito → repositório ativo → General Mode, e `/claude`/`/codex` → agente padrão.
 
 Isso reduz risco de:
 
