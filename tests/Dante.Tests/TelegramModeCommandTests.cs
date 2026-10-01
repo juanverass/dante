@@ -62,11 +62,17 @@ public sealed class TelegramModeCommandTests : IAsyncDisposable
             Assert.Equal(AgentPermissionProfile.Manual, new AssistantSettingsStore(file).GetSessionMode(456));
 
             api.Enqueue("olá");
-            Assert.Equal("Nova conversa com Claude (General), modo auto (automático).", await api.NextMessageAsync());
+            await Eventually(() => drivers.Created.Count == 1 && drivers.Created[0].Calls.Contains("turn:olá"));
+            drivers.Created[0].Emit(new MessageCompletedEvent("m1", "Olá!"));
+            drivers.Created[0].Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+            Assert.Equal("Olá!\n", await api.NextMessageAsync());
             Assert.Equal(AgentPermissionProfile.Auto, drivers.Created.Single().StartOptions!.Profile);
 
             api.Enqueue("oi", 456);
-            Assert.Equal("Nova conversa com Claude (General), modo manual (aprovação).", await api.NextMessageAsync());
+            await Eventually(() => drivers.Created.Count == 2 && drivers.Created[1].Calls.Contains("turn:oi"));
+            drivers.Created[1].Emit(new MessageCompletedEvent("m2", "Oi!"));
+            drivers.Created[1].Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+            Assert.Equal("Oi!\n", await api.NextMessageAsync());
             Assert.Equal(AgentPermissionProfile.Manual, drivers.Created[1].StartOptions!.Profile);
         }
         finally { await service.StopAsync(CancellationToken.None); }

@@ -52,8 +52,8 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 - `/mode` consulta e escolhe o modo de trabalho das novas sessões — `manual` (aprovação), `auto`
   (automático) ou `plan` (planejamento) —, com padrão por usuário persistido em
   `~/.dante/settings.json`; `/session start` aceita modo explícito, a sessão mantém o modo até ser
-  encerrada, `/status` e a abertura da conversa o mostram, e modo não suportado pelo agente é
-  recusado antes de iniciar (AD-24). `/permissions` segue como interface de baixo nível do mesmo
+  encerrada, `/status`, `/mode` e `/session start` o mostram, sem aviso na abertura implícita, e
+  modo não suportado pelo agente é recusado antes de iniciar (AD-24). `/permissions` segue como interface de baixo nível do mesmo
   padrão. `/approve`, `/approve-session`, `/deny` e `/input` respondem a
   solicitações correlacionadas por sessão, turno e request, com expiração em cinco minutos
   e estado pendente em `/status` (AD-22).
