@@ -499,6 +499,70 @@ public sealed class TelegramDeliveryServiceTests
         Assert.DoesNotContain("pergunta com segredo", output);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FencedSecretSplitAcrossBatchesIsRedactedBeforeHtmlAndPlainFallback(bool fallback)
+    {
+        const string secret = "dante-secret-<&>-suffix";
+        const string name = "OPENAI_API_KEY";
+        var previous = Environment.GetEnvironmentVariable(name);
+        Environment.SetEnvironmentVariable(name, secret);
+        try
+        {
+            var api = new SecretFormattedApi(fallback);
+            var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance)
+                { PartInterval = TimeSpan.Zero };
+            delivery.RegisterSession("S1", 123, -123, false);
+            var session = Snapshot("S1");
+            await delivery.PublishAsync(session, new MessageDeltaEvent("item", "```python\nprint(1)\ndante-secret-")
+                { SessionId = "S1", TurnId = "T1" }, default);
+            await Eventually(() => api.Output.Count > 0);
+            Assert.DoesNotContain(api.Output, text => text.Contains("dante-secret-"));
+            // A tool flush must also retain the partial secret instead of serializing it into HTML.
+            await delivery.PublishAsync(session, new ToolStartedEvent("cmd", AgentToolKind.Command, "echo one\necho two")
+                { SessionId = "S1", TurnId = "T1" }, default);
+            // Drain the scheduled batch while the secret is still incomplete: the command must remain pending.
+            await Task.Delay(1000);
+            Assert.Single(api.Output);
+            Assert.DoesNotContain(api.Output, text => text.Contains("dante-secret-"));
+            await delivery.PublishAsync(session, new MessageDeltaEvent("item", "<&>-suffix\n```\nFim")
+                { SessionId = "S1", TurnId = "T1" }, default);
+            await delivery.PublishAsync(session, new TurnCompletedEvent(AgentTurnOutcome.Completed)
+                { SessionId = "S1", TurnId = "T1" }, default);
+            await Eventually(() => delivery.Get("S1", 123)?.State == TelegramDeliveryState.Delivered);
+            var output = string.Concat(api.Output);
+            Assert.DoesNotContain(secret, output);
+            Assert.DoesNotContain("dante-secret-", output);
+            Assert.Contains("[segredo omitido]", output);
+            Assert.True(output.IndexOf("[segredo omitido]", StringComparison.Ordinal) <
+                output.IndexOf("→ Executando comando", StringComparison.Ordinal));
+            Assert.True(output.IndexOf("echo two", StringComparison.Ordinal) < output.IndexOf("Fim", StringComparison.Ordinal));
+        }
+        finally { Environment.SetEnvironmentVariable(name, previous); }
+    }
+
+    private sealed class SecretFormattedApi(bool fallback) : ITelegramBotApi
+    {
+        public ConcurrentQueue<string> Output { get; } = new();
+        public Task<IReadOnlyList<TelegramUpdate>> GetUpdatesAsync(long offset, CancellationToken cancellationToken)
+            => throw new NotSupportedException();
+        public Task SendMessageAsync(long chatId, string text, CancellationToken cancellationToken)
+        {
+            Output.Enqueue(text);
+            return Task.CompletedTask;
+        }
+        public Task<long?> SendFormattedMessageAsync(long chatId, TelegramFormattedMessage message,
+            TelegramInlineKeyboard? keyboard, CancellationToken cancellationToken)
+        {
+            Assert.DoesNotContain("dante-secret-", message.Html);
+            if (fallback) throw new TelegramMarkupException();
+            TelegramMessageFormatterTests.AssertValid(message);
+            Output.Enqueue(message.PlainText);
+            return Task.FromResult<long?>(null);
+        }
+    }
+
     private static AgentSessionSnapshot Snapshot(string id, bool active = true,
         AgentSessionState state = AgentSessionState.Running) => new(id, AgentKind.Codex, 123,
         JobExecutionContext.General("/tmp/general"), AgentPermissionProfile.Manual,

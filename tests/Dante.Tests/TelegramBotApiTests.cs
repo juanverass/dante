@@ -101,6 +101,55 @@ public sealed class TelegramBotApiTests
         Assert.Empty(requests[3].Body.GetProperty("reply_markup").GetProperty("inline_keyboard").EnumerateArray());
     }
 
+    [Theory]
+    [InlineData("Bad Request: can't parse entities: secret diagnostic", true)]
+    [InlineData("Bad Request: Unsupported start tag echoed-content", true)]
+    [InlineData("Bad Request: chat not found", false)]
+    public async Task OnlyMarkupErrorsAreClassifiedForSafeFallback(string description, bool markupError)
+    {
+        JsonElement sent = default;
+        using var http = new HttpClient(new StubHandler(async request =>
+        {
+            sent = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()).RootElement.Clone();
+            return new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new { ok = false, description }))
+            };
+        }));
+        var api = new TelegramBotApi(http, Options.Create(new TelegramOptions { BotToken = "test" }));
+        var message = Assert.Single(new TelegramMessageFormatter().Format("```python\nprint('<b>')\n```"));
+        var error = await Assert.ThrowsAnyAsync<HttpRequestException>(() =>
+            api.SendFormattedMessageAsync(-123, message, null, default));
+        Assert.Equal(markupError, error is TelegramMarkupException);
+        Assert.DoesNotContain(description, error.Message);
+        Assert.Equal("HTML", sent.GetProperty("parse_mode").GetString());
+        Assert.Equal(message.Html, sent.GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public async Task HttpMarkupRejectionDeliversPlainFallbackWithoutParseMode()
+    {
+        var requests = new List<JsonElement>();
+        using var http = new HttpClient(new StubHandler(async request =>
+        {
+            requests.Add(JsonDocument.Parse(await request.Content!.ReadAsStringAsync()).RootElement.Clone());
+            return requests.Count == 1
+                ? new HttpResponseMessage(HttpStatusCode.BadRequest)
+                  { Content = new StringContent("""{"ok":false,"description":"Bad Request: can't parse entities"}""") }
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                  { Content = new StringContent("""{"ok":true,"result":{"message_id":5}}""") };
+        }));
+        var api = new TelegramBotApi(http, Options.Create(new TelegramOptions { BotToken = "test" }));
+        var delivery = new TelegramDeliveryService(api,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<TelegramDeliveryService>.Instance);
+        await delivery.DeliverJobAsync("J1", 123, -123, "```diff\n-a < b\n+c > d\n```", default);
+        Assert.Equal(TelegramDeliveryState.Delivered, delivery.Get("J1", 123)!.State);
+        Assert.Equal(2, requests.Count);
+        Assert.Equal("HTML", requests[0].GetProperty("parse_mode").GetString());
+        Assert.Equal(JsonValueKind.Null, requests[1].GetProperty("parse_mode").ValueKind);
+        Assert.Equal("-a < b\n+c > d\n", requests[1].GetProperty("text").GetString());
+    }
+
     private sealed class StubHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handle) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
