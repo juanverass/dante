@@ -1069,9 +1069,11 @@ Converte conteúdo técnico para HTML seguro.
 
 Suporta fenced code:
 
-``````csharp
+````markdown
+```csharp
 var x = 1;
-``````
+```
+````
 
 O conteúdo do modelo nunca é confiado como HTML.
 
