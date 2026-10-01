@@ -66,9 +66,9 @@ public sealed class TelegramDeliveryServiceTests
             Assert.Contains("Sessão S000001 iniciada", await api.NextMessageAsync());
             var driver = Assert.Single(drivers.Created);
             api.Enqueue("primeira tarefa");
-            Assert.Contains("Turno T000001 iniciado", await api.NextMessageAsync());
+            await Eventually(() => driver.Calls.Contains("turn:primeira tarefa"));
             api.Enqueue("segunda tarefa");
-            Assert.Contains("enfileirada", await api.NextMessageAsync());
+            Assert.Contains("Recebido", await api.NextMessageAsync());
             api.Enqueue("/steer mude o foco");
             Assert.Contains("Orientação enviada", await api.NextMessageAsync());
             api.Enqueue("/ping");
@@ -155,7 +155,7 @@ public sealed class TelegramDeliveryServiceTests
             var driver = Assert.Single(drivers.Created);
             Assert.Equal(AgentPermissionProfile.Auto, driver.StartOptions!.Profile);
             api.Enqueue("tarefa");
-            Assert.Contains("Turno T000001 iniciado", await api.NextMessageAsync());
+            await Eventually(() => driver.Calls.Contains("turn:tarefa"));
             driver.Emit(new ApprovalRequestedEvent("upstream-approval", AgentToolKind.Command, "git push")
             { CanApproveForSession = true });
             await Eventually(() => sessions.GetActive(123)!.PendingRequestIds.Count == 1);
@@ -249,43 +249,165 @@ public sealed class TelegramDeliveryServiceTests
         var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance);
         delivery.RegisterSession("S1", 123, -123, false);
         delivery.RegisterSession("S2", 123, -123, false);
-        var first = Snapshot("S1");
-        var second = Snapshot("S2");
+        var first = Snapshot("S1", active: false);
+        var second = Snapshot("S2", active: false);
 
         await delivery.PublishAsync(first, new TurnStartedEvent { SessionId = "S1", TurnId = "T1" }, default);
         await delivery.PublishAsync(second, new TurnStartedEvent { SessionId = "S2", TurnId = "T2" }, default);
         for (var index = 0; index < 200; index++)
         {
-            await delivery.PublishAsync(first, new MessageDeltaEvent("item", "a")
+            await delivery.PublishAsync(first, new MessageDeltaEvent("item", "a\n")
                 { SessionId = "S1", TurnId = "T1" }, default);
-            await delivery.PublishAsync(second, new MessageDeltaEvent("item", "b")
+            await delivery.PublishAsync(second, new MessageDeltaEvent("item", "b\n")
                 { SessionId = "S2", TurnId = "T2" }, default);
         }
         await Eventually(() => api.Messages.Count >= 2);
 
         Assert.All(api.Messages, message => Assert.InRange(message.Text.Length, 1, 4000));
-        Assert.All(api.Messages, message => Assert.True(message.Text.StartsWith("[S1 T1] ") ||
-            message.Text.StartsWith("[S2 T2] ")));
-        await Eventually(() => api.Messages.Any(message => message.Text.Contains(new string('a', 20))) &&
-            api.Messages.Any(message => message.Text.Contains(new string('b', 20))));
+        Assert.All(api.Messages, message => Assert.True(message.Text.StartsWith("[S1] ") ||
+            message.Text.StartsWith("[S2] ")));
+        var lines = (string text) => string.Concat(Enumerable.Repeat(text + "\n", 20));
+        await Eventually(() => api.Messages.Any(message => message.Text.Contains(lines("a"))) &&
+            api.Messages.Any(message => message.Text.Contains(lines("b"))));
         Assert.True(api.Messages.Count < 20);
-        Assert.DoesNotContain(api.Messages, message => message.Text.Contains(new string('a', 20)) &&
-            message.Text.Contains(new string('b', 20)));
-        var firstOutput = string.Concat(api.Messages.Where(message => message.Text.StartsWith("[S1 T1] "))
-            .Select(message => message.Text));
-        var secondOutput = string.Concat(api.Messages.Where(message => message.Text.StartsWith("[S2 T2] "))
-            .Select(message => message.Text));
-        Assert.Contains("Turno iniciado", firstOutput);
-        Assert.Contains("Turno iniciado", secondOutput);
-        Assert.True(firstOutput.IndexOf("Turno iniciado", StringComparison.Ordinal) <
-            firstOutput.IndexOf(new string('a', 20), StringComparison.Ordinal));
-        Assert.True(secondOutput.IndexOf("Turno iniciado", StringComparison.Ordinal) <
-            secondOutput.IndexOf(new string('b', 20), StringComparison.Ordinal));
-
+        Assert.DoesNotContain(api.Messages, message => message.Text.Contains('a') && message.Text.Contains('b'));
         await delivery.PublishAsync(first, new TurnCompletedEvent(AgentTurnOutcome.Completed)
             { SessionId = "S1", TurnId = "T1" }, default);
-        await Eventually(() => api.Messages.Any(message => message.Text.Contains("Turno concluído")));
-        Assert.Equal(TelegramDeliveryState.Delivered, delivery.Get("S1", 123)!.State);
+        await Eventually(() => delivery.Get("S1", 123)?.State == TelegramDeliveryState.Delivered);
+        var firstOutput = string.Concat(api.Messages.Where(message => message.Text.StartsWith("[S1] "))
+            .Select(message => message.Text["[S1] ".Length..]));
+        Assert.Equal(string.Concat(Enumerable.Repeat("a\n", 200)), firstOutput);
+    }
+
+    [Fact]
+    public async Task ActiveSessionReadsLikeAConversationAndShowsTypingOnlyWhileTheAgentWorks()
+    {
+        var api = new RecordingApi();
+        var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance)
+        {
+            TypingInterval = TimeSpan.FromMilliseconds(50)
+        };
+        delivery.RegisterSession("S1", 123, -123, false);
+        delivery.SetActiveSession(123, "S1");
+        var session = Snapshot("S1");
+        Task Publish(AgentEvent agentEvent, string? turn = "T1", AgentSessionSnapshot? snapshot = null) =>
+            delivery.PublishAsync(snapshot ?? session, agentEvent with { SessionId = "S1", TurnId = turn }, default);
+
+        await Publish(new TurnStartedEvent());
+        await Eventually(() => api.ChatActions > 0);
+        await Publish(new MessageDeltaEvent("m1", "Vou rodar os testes"));
+        await Publish(new ToolStartedEvent("c1", AgentToolKind.Command, "dotnet test /tmp/general/tests/A.csproj"));
+        await Publish(new ToolCompletedEvent("c1", AgentToolKind.Command, false));
+        await Publish(new FileChangeEvent(["/tmp/general/src/A.cs", "/outside/B.cs"]));
+        await Publish(new MessageCompletedEvent("blank", "\n"));
+        await Eventually(() => api.Messages.Count > 0);
+        await Publish(new MessageCompletedEvent("leading", "\n\nDepois de uma linha em branco."));
+        await Publish(new ToolStartedEvent("c2", AgentToolKind.Command, "/bin/bash -lc 'git status --short'"));
+        await Publish(new ApprovalRequestedEvent("upstream", AgentToolKind.Command, "git push")
+            { RequestId = "R1" });
+        // Waiting for the user is not "typing".
+        await Task.Delay(200);
+        var whileWaiting = api.ChatActions;
+        await Task.Delay(300);
+        Assert.Equal(whileWaiting, api.ChatActions);
+        await Publish(new MessageCompletedEvent("m2", "Testes falharam."));
+        await Eventually(() => api.ChatActions > whileWaiting);
+        await Publish(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        await Eventually(() => delivery.Get("S1", 123)?.State == TelegramDeliveryState.Delivered);
+        var afterTurn = api.ChatActions;
+        await Task.Delay(300);
+        Assert.Equal(afterTurn, api.ChatActions);
+
+        await Publish(new TurnStartedEvent(), "T2");
+        await Publish(new MessageCompletedEvent("only-blank", " \n"), "T2");
+        await Publish(new TurnCompletedEvent(AgentTurnOutcome.Completed), "T2");
+        await Publish(new TurnStartedEvent(), "T3");
+        await Publish(new TurnCompletedEvent(AgentTurnOutcome.Failed, "boom"), "T3");
+        await Publish(new ErrorEvent("O processo do agente encerrou inesperadamente."), null,
+            Snapshot("S1", state: AgentSessionState.Failed));
+        await Eventually(() => api.Messages.Any(message => message.Text.Contains("/session start")) &&
+            api.Messages.Any(message => message.Text.Contains("boom")) &&
+            api.Messages.Any(message => message.Text.Contains("sem resposta")));
+
+        var output = string.Join("\n---\n", api.Messages.Select(message => message.Text));
+        Assert.Contains("Vou rodar os testes\n→ dotnet test tests/A.csproj\n✗ dotnet test tests/A.csproj falhou.\n" +
+            "Arquivos alterados: src/A.cs, /outside/B.cs\n", output);
+        Assert.Contains("→ git status --short\n", output);
+        Assert.Contains("Depois de uma linha em branco.", output);
+        Assert.DoesNotContain(api.Messages, message => string.IsNullOrWhiteSpace(message.Text));
+        Assert.DoesNotContain(api.Messages, message => message.Text.StartsWith('\n'));
+        Assert.Contains("Aprovação pendente S1 T1 R1", output);
+        Assert.Contains("Testes falharam.", output);
+        Assert.Contains("(sem resposta do agente)", output);
+        Assert.Contains("A resposta falhou: boom", output);
+        Assert.Contains("A sessão S1 foi encerrada: O processo do agente encerrou inesperadamente.", output);
+        Assert.DoesNotContain("Turno", output);
+        Assert.DoesNotContain("[S1", output);
+        Assert.DoesNotContain("Job", output);
+    }
+
+    [Fact]
+    public async Task SessionThatStopsBeingActiveMidTurnIsIdentifiedAndStopsTyping()
+    {
+        var api = new RecordingApi();
+        var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance)
+        {
+            TypingInterval = TimeSpan.FromMilliseconds(50),
+            PartInterval = TimeSpan.FromMilliseconds(50)
+        };
+        delivery.RegisterSession("S1", 123, -123, false);
+        delivery.RegisterSession("S2", 123, -123, false);
+        delivery.SetActiveSession(123, "S1");
+        Task Publish(string sessionId, AgentEvent agentEvent) => delivery.PublishAsync(Snapshot(sessionId),
+            agentEvent with { SessionId = sessionId, TurnId = "T1" }, default);
+
+        await Publish("S1", new TurnStartedEvent());
+        await Publish("S1", new MessageDeltaEvent("m1", "primeira parte\n"));
+        await Eventually(() => api.Messages.Any(message => message.Text == "primeira parte\n"));
+        Assert.True(api.ChatActions > 0);
+
+        // /session start or /session select moves the conversation to S2 while S1's turn is still running.
+        delivery.SetActiveSession(123, "S2");
+        await Task.Delay(200);
+        var afterSwitch = api.ChatActions;
+        await Task.Delay(300);
+        Assert.Equal(afterSwitch, api.ChatActions);
+
+        await Publish("S1", new MessageDeltaEvent("m1", "segunda parte\n"));
+        await Eventually(() => api.Messages.Any(message => message.Text == "[S1] segunda parte\n"));
+        await Task.Delay(300);
+        Assert.Equal(afterSwitch, api.ChatActions);
+
+        await Publish("S2", new TurnStartedEvent());
+        await Publish("S2", new MessageCompletedEvent("m2", "resposta de S2"));
+        await Eventually(() => api.Messages.Any(message => message.Text == "resposta de S2\n"));
+        await Eventually(() => api.ChatActions > afterSwitch);
+        await Publish("S1", new TurnCompletedEvent(AgentTurnOutcome.Failed, "boom"));
+        await Eventually(() => api.Messages.Any(message => message.Text == "[S1] A resposta falhou: boom\n"));
+        Assert.DoesNotContain(api.Messages, message => message.Text.StartsWith("[S2]"));
+    }
+
+    [Fact]
+    public async Task ConsecutivePartsOfATurnAreSpacedEvenWhenOneFlushProducesSeveral()
+    {
+        var api = new RecordingApi();
+        var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance)
+        {
+            PartInterval = TimeSpan.FromMilliseconds(400)
+        };
+        delivery.RegisterSession("S1", 123, -123, false);
+        delivery.SetActiveSession(123, "S1");
+        var session = Snapshot("S1");
+        await delivery.PublishAsync(session, new MessageCompletedEvent("m1", new string('x', 9000))
+            { SessionId = "S1", TurnId = "T1" }, default);
+        await delivery.PublishAsync(session, new TurnCompletedEvent(AgentTurnOutcome.Completed)
+            { SessionId = "S1", TurnId = "T1" }, default);
+
+        await Eventually(() => delivery.Get("S1", 123)?.State == TelegramDeliveryState.Delivered);
+        var sent = api.Sent;
+        Assert.Equal(3, sent.Count);
+        Assert.All(sent.Zip(sent.Skip(1)), pair =>
+            Assert.True(pair.Second - pair.First >= TimeSpan.FromMilliseconds(380), $"{pair.Second - pair.First}"));
     }
 
     [Fact]
@@ -304,15 +426,17 @@ public sealed class TelegramDeliveryServiceTests
         var session = Snapshot("S1");
 
         await delivery.PublishAsync(session, new TurnStartedEvent { SessionId = "S1", TurnId = "T1" }, default);
+        await delivery.PublishAsync(session, new MessageCompletedEvent("item", "parcial")
+            { SessionId = "S1", TurnId = "T1" }, default);
         await drained.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(TelegramDeliveryState.Delivered, delivery.Get("S1", 123)!.State);
-        await delivery.PublishAsync(session, new TurnCompletedEvent(AgentTurnOutcome.Completed)
+        await delivery.PublishAsync(session, new TurnCompletedEvent(AgentTurnOutcome.Interrupted)
             { SessionId = "S1", TurnId = "T1" }, default);
         Assert.Equal(TelegramDeliveryState.Pending, delivery.Get("S1", 123)!.State);
 
         finishCleanup.SetResult();
         await Eventually(() => delivery.Get("S1", 123)?.State == TelegramDeliveryState.Delivered &&
-            api.Messages.Any(message => message.Text.Contains("Turno concluído")));
+            api.Messages.Any(message => message.Text.Contains("Resposta interrompida")));
         Assert.Equal(2, api.Messages.Count);
     }
 
@@ -330,9 +454,15 @@ public sealed class TelegramDeliveryServiceTests
             delivery.RegisterSession("S1", 123, -123, false);
             var session = Snapshot("S1");
             await delivery.PublishAsync(session, new TurnStartedEvent { SessionId = "S1", TurnId = "T1" }, default);
-            await delivery.PublishAsync(session, new MessageDeltaEvent("item", new string('x', 100) + "dante-cross-")
+            // A short progress line cannot complete the secret: it is not held back until the turn ends.
+            await delivery.PublishAsync(session, new ToolStartedEvent("c1", AgentToolKind.Command, "dotnet test")
                 { SessionId = "S1", TurnId = "T1" }, default);
-            await Eventually(() => api.Messages.Count > 0);
+            await Eventually(() => api.Messages.Any(message => message.Text.Contains("→ dotnet test")));
+            await delivery.PublishAsync(session, new MessageDeltaEvent("item",
+                new string('x', 100) + "\n" + new string('z', 40) + "dante-cross-")
+                { SessionId = "S1", TurnId = "T1" }, default);
+            await Eventually(() => api.Messages.Count > 1);
+            Assert.DoesNotContain(api.Messages, message => message.Text.Contains("dante-cross-"));
             await delivery.PublishAsync(session, new MessageDeltaEvent("item", "boundary-secret" + new string('y', 100))
                 { SessionId = "S1", TurnId = "T1" }, default);
             await delivery.PublishAsync(session, new TurnCompletedEvent(AgentTurnOutcome.Completed)
@@ -369,9 +499,10 @@ public sealed class TelegramDeliveryServiceTests
         Assert.DoesNotContain("pergunta com segredo", output);
     }
 
-    private static AgentSessionSnapshot Snapshot(string id) => new(id, AgentKind.Codex, 123,
+    private static AgentSessionSnapshot Snapshot(string id, bool active = true,
+        AgentSessionState state = AgentSessionState.Running) => new(id, AgentKind.Codex, 123,
         JobExecutionContext.General("/tmp/general"), AgentPermissionProfile.Manual,
-        AgentSessionState.Running, "T1", 0, [], true, DateTimeOffset.UtcNow, null, null);
+        state, "T1", 0, [], active, DateTimeOffset.UtcNow, null, null);
 
     private static async Task Eventually(Func<bool> condition)
     {
@@ -388,6 +519,17 @@ public sealed class TelegramDeliveryServiceTests
         public HttpStatusCode FailureStatus { get; set; }
         public int Attempts => attempts;
         public IReadOnlyList<(long ChatId, string Text)> Messages => messages.ToArray();
+        public IReadOnlyList<DateTimeOffset> Sent => sent.ToArray();
+        private readonly ConcurrentQueue<DateTimeOffset> sent = new();
+        public int ChatActions => chatActions;
+        private int chatActions;
+
+        public Task SendChatActionAsync(long chatId, string action, CancellationToken cancellationToken)
+        {
+            Assert.Equal("typing", action);
+            Interlocked.Increment(ref chatActions);
+            return Task.CompletedTask;
+        }
 
         public Task<IReadOnlyList<TelegramUpdate>> GetUpdatesAsync(long offset, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
@@ -398,6 +540,7 @@ public sealed class TelegramDeliveryServiceTests
             if (attempt <= Failures || attempt == FailOnAttempt)
                 throw new HttpRequestException("falha simulada", null, FailureStatus);
             messages.Enqueue((chatId, text));
+            sent.Enqueue(DateTimeOffset.UtcNow);
             return Task.CompletedTask;
         }
     }

@@ -61,3 +61,23 @@ Epic #40 · em andamento desde 2026-09-28
 | #46 | Protocolo implementador → revisor → correção | #53 |
 
 PRs empilhados na ordem acima. Pendente: validação zero-chat em cenário real (#47).
+
+## Interactive Agent Sessions
+
+Epic #60 · Issues entregues em 2026-10-01; fechamento da Epic por decisão humana
+
+| Issue | Entrega | PR |
+| --- | --- | --- |
+| #61 | Contrato de sessões interativas e spikes de protocolo | #69 |
+| #62 | Infraestrutura de processo bidirecional | #70 |
+| #63 | Driver interativo do Claude Code com `stream-json` | #71 |
+| #64 | Driver interativo do Codex com `app-server` | #72 |
+| #65 | `SessionRegistry` por usuário e contexto | #73 |
+| #66 | Sessões no Telegram e entrega recuperável | #74 |
+| #67 | Approvals, input e perfis de permissão no Telegram | #75 |
+| #68 | Conversa session-first, validação end-to-end e documentação | #79 |
+
+Resultado: mensagens comuns no Telegram são uma conversa com uma sessão interativa de Claude
+ou Codex, com streaming, fila e steer, aprovação e input humanos, perfis `manual`/`auto`/`plan`,
+interrupção e encerramento previsíveis; o one-shot continua disponível por `/claude` e
+`/codex`.

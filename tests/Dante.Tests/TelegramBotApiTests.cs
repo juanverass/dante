@@ -25,6 +25,7 @@ public sealed class TelegramBotApiTests
 
         var updates = await api.GetUpdatesAsync(41, CancellationToken.None);
         await api.SendMessageAsync(updates[0].Message!.Chat.Id, "pong", CancellationToken.None);
+        await api.SendChatActionAsync(updates[0].Message!.Chat.Id, "typing", CancellationToken.None);
 
         Assert.Equal(42, updates[0].UpdateId);
         Assert.Equal("/ping", updates[0].Message!.Text);
@@ -34,6 +35,9 @@ public sealed class TelegramBotApiTests
         Assert.Equal(25, requests[0].Body.GetProperty("timeout").GetInt32());
         Assert.Equal(-123, requests[1].Body.GetProperty("chat_id").GetInt64());
         Assert.Equal("pong", requests[1].Body.GetProperty("text").GetString());
+        Assert.Equal("/bottest-token/sendChatAction", requests[2].Path);
+        Assert.Equal(-123, requests[2].Body.GetProperty("chat_id").GetInt64());
+        Assert.Equal("typing", requests[2].Body.GetProperty("action").GetString());
     }
 
     [Fact]

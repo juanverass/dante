@@ -76,6 +76,17 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
         }
     }
 
+    public async Task SendChatActionAsync(long chatId, string action, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, MethodUrl("sendChatAction"))
+        {
+            Content = JsonContent.Create(new { chat_id = chatId, action })
+        };
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
     private Uri MethodUrl(string method)
     {
         var token = options.Value.BotToken;

@@ -120,7 +120,7 @@ public sealed class TelegramPollingService(
 
         if (string.Equals(command, "/agent", StringComparison.OrdinalIgnoreCase))
         {
-            await SendReplyAsync(message.Chat.Id, HandleAgentCommand(prompt), cancellationToken);
+            await SendReplyAsync(message.Chat.Id, HandleAgentCommand(message.From!.Id, prompt), cancellationToken);
             return;
         }
 
@@ -141,7 +141,9 @@ public sealed class TelegramPollingService(
             var ownSessions = sessions?.List(message.From!.Id) ?? [];
             if (ownSessions.Count > 0)
             {
-                response += "\n\nSessões:\n" + string.Join('\n', ownSessions.Select(FormatSession));
+                response += "\n\nSessões:\n" + string.Join('\n', ownSessions.Select(session =>
+                    FormatSession(session) + (session.Error is null || delivery.HidesOutput(session.Id)
+                        ? string.Empty : $" | erro: {session.Error}")));
             }
             var deliveries = visible.Select(job => delivery.Get(job.Id, message.From!.Id))
                 .Concat(ownSessions.Select(session => delivery.Get(session.Id, message.From!.Id)))
@@ -223,11 +225,12 @@ public sealed class TelegramPollingService(
             }
 
             if (text.Length == 0) return;
-            if (sessions?.GetActive(message.From!.Id) is not null)
+            if (sessions is not null)
             {
-                await SubmitToSessionAsync(message, text, MessageDelivery.Queue, cancellationToken);
+                await ConverseAsync(message, text, cancellationToken);
                 return;
             }
+            // Without a session registry, plain messages fall back to one-shot jobs.
             isCodex = (settings?.Current ?? AssistantSettings.Default).DefaultAgent == AgentKind.Codex;
             prompt = text;
         }
@@ -441,6 +444,7 @@ public sealed class TelegramPollingService(
             {
                 delivery.RegisterSession(started.Session!.Id, userId, message.Chat.Id,
                     environment?.HasSecrets == true);
+                SyncActiveSession(userId);
                 await SendReplyAsync(message.Chat.Id,
                     $"Sessão {started.Session.Id} iniciada com {agent} ({context.Label}), perfil {profile.ToString().ToLowerInvariant()}. Envie uma mensagem para iniciar o turno.",
                     cancellationToken);
@@ -455,6 +459,7 @@ public sealed class TelegramPollingService(
         {
             var selected = sessions.Select(userId, parts[1].Equals("none", StringComparison.OrdinalIgnoreCase)
                 ? null : parts[1]);
+            SyncActiveSession(userId);
             await SendReplyAsync(message.Chat.Id, selected.Accepted
                 ? selected.Session is null ? "Nenhuma sessão ativa." : $"Sessão ativa: {selected.Session.Id}."
                 : selected.Error!, cancellationToken);
@@ -465,7 +470,8 @@ public sealed class TelegramPollingService(
         {
             var stopped = await sessions.InterruptAsync(userId, parts.ElementAtOrDefault(1), cancellationToken);
             await SendReplyAsync(message.Chat.Id, stopped.Accepted
-                ? $"Interrupção solicitada para {stopped.Session!.Id}; {stopped.DiscardedMessages} mensagem(ns) removida(s) da fila."
+                ? $"Interrupção solicitada para {stopped.Session!.Id}" + (stopped.DiscardedMessages == 0 ? "."
+                    : $"; {stopped.DiscardedMessages} mensagem(ns) removida(s) da fila.")
                 : stopped.Error!, cancellationToken);
             return;
         }
@@ -473,6 +479,7 @@ public sealed class TelegramPollingService(
         if (parts[0].Equals("close", StringComparison.OrdinalIgnoreCase) && parts.Length <= 2)
         {
             var closed = await sessions.CloseAsync(userId, parts.ElementAtOrDefault(1), cancellationToken);
+            SyncActiveSession(userId);
             await SendReplyAsync(message.Chat.Id, closed.Accepted
                 ? $"Sessão {closed.Session!.Id} encerrada." : closed.Error!, cancellationToken);
             return;
@@ -586,9 +593,72 @@ public sealed class TelegramPollingService(
             : result.Error!, cancellationToken);
     }
 
+    // Session-first conversation (AD-23): a plain message goes to the active session or, without one, opens a session
+    // with the default agent in the current context and becomes its first turn. The reply is the agent's output;
+    // session, turn and delivery ids stay in /status and in the explicit commands.
+    private async Task ConverseAsync(TelegramMessage message, string text, CancellationToken cancellationToken)
+    {
+        var userId = message.From!.Id;
+        var chatId = message.Chat.Id;
+        var active = sessions!.GetActive(userId);
+        if (active is { State: AgentSessionState.Failed or AgentSessionState.Closing or AgentSessionState.Closed })
+        {
+            // AD-20: an ended session stays selected so the message is refused instead of going somewhere else.
+            await SendReplyAsync(chatId,
+                $"A sessão {active.Id} foi encerrada. Envie /session start para começar outra conversa.",
+                cancellationToken);
+            return;
+        }
+
+        var sessionId = active?.Id;
+        if (sessionId is null)
+        {
+            string? alias = null;
+            var firstSpace = text.IndexOfAny([' ', '\t', '\r', '\n']);
+            if (text.StartsWith('@'))
+            {
+                alias = firstSpace < 0 ? text : text[..firstSpace];
+                text = firstSpace < 0 ? string.Empty : text[(firstSpace + 1)..].Trim();
+                if (text.Length == 0)
+                {
+                    await SendReplyAsync(chatId, "Uso: @alias <mensagem>", cancellationToken);
+                    return;
+                }
+            }
+
+            var resolved = await ResolveSessionContextAsync(userId, alias, chatId, cancellationToken);
+            if (resolved is null) return;
+            var (context, environment) = resolved.Value;
+            var agent = (settings?.Current ?? AssistantSettings.Default).DefaultAgent;
+            await SendTypingAsync(chatId, cancellationToken);
+            var started = await sessions.StartAsync(new SessionStartRequest(userId, agent, context,
+                environment?.Values, selectedProfiles.GetValueOrDefault(userId, AgentPermissionProfile.Manual)),
+                cancellationToken);
+            if (!started.Accepted)
+            {
+                await SendReplyAsync(chatId, $"Não foi possível iniciar a conversa com {agent}. Detalhes em /status.",
+                    cancellationToken);
+                return;
+            }
+            delivery.RegisterSession(started.Session!.Id, userId, chatId, environment?.HasSecrets == true);
+            SyncActiveSession(userId);
+            sessionId = started.Session.Id;
+        }
+
+        var result = await sessions.SubmitAsync(userId, sessionId, text, MessageDelivery.Queue, cancellationToken);
+        var reply = result.Outcome switch
+        {
+            SubmitOutcome.TurnStarted => null,
+            SubmitOutcome.Queued => "Recebido; envio ao agente quando a resposta atual terminar.",
+            _ => result.Error ?? "A sessão recusou a mensagem."
+        };
+        if (reply is not null) await SendReplyAsync(chatId, reply, cancellationToken);
+    }
+
     private async Task<(JobExecutionContext Context, ResolvedRepositoryEnvironment? Environment)?>
         ResolveSessionContextAsync(long userId, string? alias, long chatId, CancellationToken cancellationToken)
     {
+        var fromActive = alias is null;
         alias ??= settings?.GetActiveRepository(userId);
         if (alias is null)
         {
@@ -613,8 +683,10 @@ public sealed class TelegramPollingService(
         }
         if (repository is null)
         {
-            await SendReplyAsync(chatId,
-                $"Repositório {alias} não cadastrado. Use /use @alias ou /use general.", cancellationToken);
+            // A stale active repository requires a new selection instead of silently falling back to General.
+            await SendReplyAsync(chatId, fromActive
+                ? $"O repositório ativo {alias} não está mais cadastrado. Use /use @alias ou /use general."
+                : $"Repositório {alias} não cadastrado. Use /use @alias ou /use general.", cancellationToken);
             return null;
         }
         try
@@ -651,7 +723,7 @@ public sealed class TelegramPollingService(
         await SendReplyAsync(message.Chat.Id, response, cancellationToken);
     }
 
-    private string HandleAgentCommand(string prompt)
+    private string HandleAgentCommand(long userId, string prompt)
     {
         const string usage = "Uso: /agent | /agent set claude|codex";
         if (settings is null) return "Configurações do assistente indisponíveis.";
@@ -660,7 +732,12 @@ public sealed class TelegramPollingService(
         if (parts.Length != 2 || !parts[0].Equals("set", StringComparison.OrdinalIgnoreCase)) return usage;
         if (!AssistantSettingsStore.TryParseAgent(parts[1], out var agent))
             return $"Agente desconhecido: {parts[1]}. Use claude ou codex.";
-        try { return $"Agente padrão alterado para {settings.SetDefaultAgent(agent).DefaultAgent}."; }
+        try
+        {
+            var changed = settings.SetDefaultAgent(agent).DefaultAgent;
+            return $"Agente padrão alterado para {changed}." +
+                KeptSessionNotice(userId, session => session.Agent != changed, $"conversar com {changed}");
+        }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             return "Não foi possível salvar as configurações do assistente.";
@@ -686,7 +763,8 @@ public sealed class TelegramPollingService(
             if (parts[0].Equals("general", StringComparison.OrdinalIgnoreCase))
             {
                 settings.SetActiveRepository(userId, null);
-                return "Contexto ativo: General";
+                return "Contexto ativo: General" + KeptSessionNotice(userId,
+                    session => session.Context.Mode != JobExecutionMode.General, "conversar em General");
             }
             if (!parts[0].StartsWith('@')) return usage;
 
@@ -695,13 +773,24 @@ public sealed class TelegramPollingService(
             catch (ArgumentException) { return "Alias inválido."; }
             if (repository is null) return $"Repositório {parts[0]} não cadastrado.";
             settings.SetActiveRepository(userId, repository.Alias);
-            return $"Contexto ativo: {repository.Alias}";
+            return $"Contexto ativo: {repository.Alias}" + KeptSessionNotice(userId,
+                session => session.Context.RepositoryAlias != repository.Alias, $"conversar em {repository.Alias}");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             return "Não foi possível salvar as configurações do assistente.";
         }
     }
+
+    // The delivery identifies output of every session other than the one selected here (AD-23).
+    private void SyncActiveSession(long userId) => delivery.SetActiveSession(userId, sessions?.GetActive(userId)?.Id);
+
+    // AD-20: preferences apply to new sessions only; say that the active one is kept instead of switching silently.
+    private string KeptSessionNotice(long userId, Func<AgentSessionSnapshot, bool> differs, string purpose) =>
+        sessions?.GetActive(userId) is { State: not (AgentSessionState.Failed or AgentSessionState.Closing or
+            AgentSessionState.Closed) } active && differs(active)
+            ? $"\nA sessão ativa {active.Id} ({active.Agent}, {active.Context.Label}) continua; envie /session start para {purpose}."
+            : string.Empty;
 
     private void ClearActiveRepository(string alias)
     {
@@ -872,6 +961,17 @@ public sealed class TelegramPollingService(
         var relative = Path.GetRelativePath(root, path);
         return relative == "." || (relative != ".." && !relative.StartsWith(".." + Path.DirectorySeparatorChar,
             StringComparison.Ordinal) && !Path.IsPathFullyQualified(relative));
+    }
+
+    private async Task SendTypingAsync(long chatId, CancellationToken cancellationToken)
+    {
+        try { await botApi.SendChatActionAsync(chatId, "typing", cancellationToken); }
+        catch (Exception exception) when (exception is not OperationCanceledException ||
+                                          !cancellationToken.IsCancellationRequested)
+        {
+            // Presence is cosmetic; the conversation continues without it.
+            logger.LogDebug("Falha ao indicar digitação ({ErrorType}).", exception.GetType().Name);
+        }
     }
 
     private async Task SendLongMessageAsync(long chatId, string text, CancellationToken cancellationToken)
