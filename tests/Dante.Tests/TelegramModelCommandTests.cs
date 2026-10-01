@@ -83,7 +83,7 @@ public sealed class TelegramModelCommandTests : IAsyncDisposable
             await api.NextMessageAsync();
             Assert.Null(drivers.Created[2].StartOptions!.ModelSelection!.Model);
             api.Enqueue("olá", 456);
-            Assert.Contains("Nova conversa com Claude", await api.NextMessageAsync());
+            await Eventually(() => drivers.Created.Count == 4 && drivers.Created[3].Calls.Contains("turn:olá"));
             Assert.Null(drivers.Created[3].StartOptions!.ModelSelection!.Model);
         }
         finally { await service.StopAsync(CancellationToken.None); }

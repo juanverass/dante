@@ -568,8 +568,8 @@ Código: `Sessions/AgentSession.cs`, `Sessions/SessionRegistry.cs`,
 
 ## AD-23 — Conversa session-first no Telegram; one-shot só por comando explícito
 
-Status: vigente (Epic #60, #68), com o aviso único de abertura da conversa (agente, contexto e modo) e o modo
-padrão persistido acrescentados pela AD-24
+Status: vigente (Epic #60, #68), com o modo padrão persistido acrescentado pela AD-24.
+A abertura implícita permanece sem aviso de ciclo de vida (correção do review da PR #82).
 
 Mensagem comum é conversa com uma sessão interativa, não um job:
 
@@ -597,8 +597,8 @@ Apresentação no Telegram:
 - a sessão ativa fala como conversa: texto do agente, linhas curtas de progresso (`→ comando`,
   arquivos alterados, `✗ … falhou`), `Resposta interrompida.`, `A resposta falhou: …` e
   `(sem resposta do agente)` quando o turno termina sem texto visível. Não há `Job ID` nem
-  `Turno iniciado/concluído`. Saída de outra sessão leva o prefixo `[S…]`. A identificação é
-  decidida no envio de cada parte, contra a sessão ativa do usuário no momento: o
+  aviso de abertura de conversa nem `Turno iniciado/concluído`. Saída de outra sessão leva o
+  prefixo `[S…]`. A identificação é decidida no envio de cada parte, contra a sessão ativa do usuário no momento: o
   `TelegramDeliveryService` acompanha a seleção do `SessionRegistry` (atualizada pelo
   `TelegramPollingService` a cada abertura implícita, `/session start`, `select` e `close`), então
   a saída de uma sessão que deixa de ser ativa no meio de um turno passa a chegar como `[S…]` e a
@@ -654,9 +654,9 @@ mapeamentos para cada CLI continuam os das AD-18 e AD-19.
 - **imutável na sessão**: o modo é fixado quando a sessão começa (AD-20). Mudar o padrão vale só
   para sessões futuras, e a resposta avisa quando a sessão ativa continua no modo anterior. Um modo
   em `/session start` vale só para aquela sessão e não altera o padrão;
-- **visível**: `/status` mostra o modo de cada sessão, `/session start` o informa, e a conversa
-  session-first (AD-23) diz uma única vez, ao abrir a sessão, com qual agente, contexto e modo ela
-  começou — a resposta do agente vem em seguida;
+- **visível**: `/status` mostra o modo de cada sessão, `/mode` mostra o padrão e o modo da sessão
+  ativa, e `/session start` o informa na abertura explícita. A abertura implícita por mensagem
+  comum não envia aviso adicional de ciclo de vida, preservando a conversa direta da AD-23;
 - **capacidade por agente**: `AgentDriverCapabilities.Modes` declara os modos que cada driver
   mapeia. O `SessionRegistry` recusa um modo fora dessa lista antes de iniciar o processo e sem
   registrar sessão, com erro que lista os modos disponíveis. Hoje Claude e Codex declaram os três;

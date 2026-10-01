@@ -394,14 +394,10 @@ E o padrão State?
 
 Sem sessão ativa, a primeira mensagem abre uma sessão interativa do agente padrão no
 contexto atual (repositório ativo ou General Mode), com o modo escolhido em `/mode`,
-e vira o primeiro turno. Ao abrir, o D.A.N.T.E. avisa uma vez com qual agente, contexto e modo
-a conversa começou:
-
-```text
-Nova conversa com Claude (General), modo manual (aprovação).
-```
- As mensagens seguintes são novos turnos da mesma sessão, no mesmo
+e vira o primeiro turno. As mensagens seguintes são novos turnos da mesma sessão, no mesmo
 processo do agente, que mantém o contexto da conversa. Não é preciso `/session start`.
+A abertura implícita não envia aviso adicional; o modo pode ser consultado em `/mode` e
+`/status`, e é informado ao iniciar uma sessão explicitamente com `/session start`.
 
 Em seguida, a resposta mostra essencialmente o texto do agente, com linhas curtas de progresso
 (`→ dotnet test`, arquivos alterados, falha de ferramenta) e o indicador "digitando…"
