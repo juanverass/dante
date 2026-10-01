@@ -119,7 +119,7 @@ public sealed class TelegramJobCommandTests
             api.Enqueue("/status");
             var status = await api.NextMessageAsync();
             Assert.StartsWith("Nenhum job registrado.\n\nSessões:\n", status);
-            Assert.Contains("S000002 Codex @dante: Running (ativa) | turno T000001 | 1 na fila | perfil Plan", status);
+            Assert.Contains("S000002 Codex @dante: Running (ativa) | turno T000001 | 1 na fila | modo plan", status);
             Assert.DoesNotContain("S000001", status);
         }
         finally

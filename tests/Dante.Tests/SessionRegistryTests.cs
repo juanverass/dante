@@ -37,6 +37,32 @@ public sealed class SessionRegistryTests
     }
 
     [Fact]
+    public async Task ModeTheAgentDoesNotSupportIsRefusedBeforeTheProcessStarts()
+    {
+        drivers.Configure = driver => driver.Capabilities = AgentDriverCapabilities.Codex with
+        {
+            Modes = [AgentPermissionProfile.Manual, AgentPermissionProfile.Auto]
+        };
+        await using var registry = CreateRegistry();
+
+        var result = await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository,
+            Profile: AgentPermissionProfile.Plan));
+
+        Assert.False(result.Accepted);
+        Assert.Null(result.Session);
+        Assert.Equal("O modo plan não é suportado pelo Codex. Modos disponíveis: manual, auto.", result.Error);
+        var driver = drivers.Created.Single();
+        Assert.Empty(driver.Calls);
+        Assert.True(driver.Disposed);
+        Assert.Empty(registry.List(Owner));
+        Assert.Null(registry.GetActive(Owner));
+
+        var supported = await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository,
+            Profile: AgentPermissionProfile.Auto));
+        Assert.Equal(("S000001", AgentPermissionProfile.Auto), (supported.Session!.Id, supported.Session.Profile));
+    }
+
+    [Fact]
     public async Task GeneralSessionStartsInGeneralMode()
     {
         await using var registry = CreateRegistry();

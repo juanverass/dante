@@ -27,6 +27,7 @@ public sealed class TelegramPollingService(
     private const int MaxMessageLength = 4000;
     private readonly object runningGate = new();
     private readonly HashSet<Task> runningJobs = [];
+    // Default modes when no settings store is composed; otherwise they persist in settings.json (#76).
     private readonly Dictionary<long, AgentPermissionProfile> selectedProfiles = [];
     private readonly GeneralWorkspace generalWorkspace = generalWorkspace ?? new GeneralWorkspace();
     private readonly TelegramDeliveryService delivery = delivery ??
@@ -158,6 +159,12 @@ public sealed class TelegramPollingService(
         if (string.Equals(command, "/session", StringComparison.OrdinalIgnoreCase))
         {
             await HandleSessionCommandAsync(message, prompt, cancellationToken);
+            return;
+        }
+
+        if (string.Equals(command, "/mode", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendReplyAsync(message.Chat.Id, HandleModeCommand(message.From!.Id, prompt), cancellationToken);
             return;
         }
 
@@ -416,7 +423,7 @@ public sealed class TelegramPollingService(
         if (parts[0].Equals("start", StringComparison.OrdinalIgnoreCase))
         {
             var agent = (settings?.Current ?? AssistantSettings.Default).DefaultAgent;
-            var profile = selectedProfiles.GetValueOrDefault(userId, AgentPermissionProfile.Manual);
+            var profile = DefaultMode(userId);
             string? alias = null;
             var profileSpecified = false;
             for (var index = 1; index < parts.Length; index++)
@@ -424,7 +431,7 @@ public sealed class TelegramPollingService(
                 if (parts[index].Equals("claude", StringComparison.OrdinalIgnoreCase)) agent = AgentKind.Claude;
                 else if (parts[index].Equals("codex", StringComparison.OrdinalIgnoreCase)) agent = AgentKind.Codex;
                 else if (parts[index].StartsWith('@') && alias is null) alias = parts[index];
-                else if (TryParseProfile(parts[index], out var requested) && !profileSpecified)
+                else if (AgentSessionModes.TryParse(parts[index], out var requested) && !profileSpecified)
                 {
                     profile = requested;
                     profileSpecified = true;
@@ -446,11 +453,12 @@ public sealed class TelegramPollingService(
                     environment?.HasSecrets == true);
                 SyncActiveSession(userId);
                 await SendReplyAsync(message.Chat.Id,
-                    $"Sessão {started.Session.Id} iniciada com {agent} ({context.Label}), perfil {profile.ToString().ToLowerInvariant()}. Envie uma mensagem para iniciar o turno.",
+                    $"Sessão {started.Session.Id} iniciada com {agent} ({context.Label}), modo {AgentSessionModes.Label(profile)}. Envie uma mensagem para iniciar o turno.",
                     cancellationToken);
             }
+            // Without a session the request was refused before any process started (e.g. unsupported mode).
             else await SendReplyAsync(message.Chat.Id,
-                environment?.HasSecrets == true ? "Falha ao iniciar sessão." :
+                environment?.HasSecrets == true && started.Session is not null ? "Falha ao iniciar sessão." :
                     started.Error ?? "Falha ao iniciar sessão.", cancellationToken);
             return;
         }
@@ -488,34 +496,73 @@ public sealed class TelegramPollingService(
         await SendReplyAsync(message.Chat.Id, usage, cancellationToken);
     }
 
+    // Modes are the user-facing permission profiles (#76): the default applies to new sessions only, and a session
+    // keeps the mode it started with until it is closed (AD-20).
+    private string HandleModeCommand(long userId, string prompt)
+    {
+        const string usage = "Uso: /mode | /mode manual|auto|plan";
+        var parts = prompt.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 2 && parts[0].Equals("set", StringComparison.OrdinalIgnoreCase)) parts = [parts[1]];
+        if (parts.Length == 0)
+        {
+            var lines = new List<string>
+            {
+                $"Modo padrão para novas sessões: {AgentSessionModes.Label(DefaultMode(userId))}.",
+                "Modos:"
+            };
+            lines.AddRange(AgentSessionModes.All.Select(mode =>
+                $"- {AgentSessionModes.Label(mode)}: {AgentSessionModes.Description(mode)}"));
+            lines.Add("Suporte: " + string.Join(" | ", new[] { AgentKind.Claude, AgentKind.Codex }.Select(agent =>
+                $"{agent} {string.Join(", ", AgentDriverCapabilities.For(agent).Modes.Select(AgentSessionModes.Name))}")));
+            if (sessions?.GetActive(userId) is { State: not (AgentSessionState.Failed or AgentSessionState.Closing or
+                    AgentSessionState.Closed) } active)
+                lines.Add($"Sessão ativa {active.Id}: modo {AgentSessionModes.Name(active.Profile)}, fixo até ela ser encerrada.");
+            lines.Add("Use /mode <modo> para novas sessões ou /session start [claude|codex] [@alias] <modo>. " +
+                "Acesso irrestrito (full) não é oferecido.");
+            return string.Join('\n', lines);
+        }
+        if (parts.Length != 1) return usage;
+        if (!AgentSessionModes.TryParse(parts[0], out var selected))
+            return $"Modo indisponível: {parts[0]}. Use /mode manual|auto|plan. Acesso irrestrito (full) não é oferecido.";
+        if (!TrySetDefaultMode(userId, selected)) return "Não foi possível salvar as configurações do assistente.";
+        return $"Modo padrão para novas sessões: {AgentSessionModes.Label(selected)}. Sessões existentes mantêm o modo original." +
+            KeptSessionNotice(userId, session => session.Profile != selected,
+                $"usar o modo {AgentSessionModes.Name(selected)}");
+    }
+
+    // Low-level alias of /mode kept from #67.
     private string HandlePermissionsCommand(long userId, string prompt)
     {
         if (prompt.Length == 0)
         {
-            var profile = selectedProfiles.GetValueOrDefault(userId, AgentPermissionProfile.Manual);
-            return $"Perfil para novas sessões: {profile.ToString().ToLowerInvariant()}. Opções: manual (recomendado), auto, plan. Use /permissions <perfil>.";
+            var profile = DefaultMode(userId);
+            return $"Perfil para novas sessões: {AgentSessionModes.Name(profile)}. Opções: manual (recomendado), auto, plan. Use /permissions <perfil> ou /mode.";
         }
-        if (!TryParseProfile(prompt, out var selected))
+        if (!AgentSessionModes.TryParse(prompt, out var selected))
             return "Perfil indisponível. Use /permissions manual|auto|plan. Acesso full não é oferecido.";
-        selectedProfiles[userId] = selected;
-        return $"Perfil para novas sessões: {selected.ToString().ToLowerInvariant()}. Sessões existentes mantêm o perfil original.";
+        if (!TrySetDefaultMode(userId, selected)) return "Não foi possível salvar as configurações do assistente.";
+        return $"Perfil para novas sessões: {AgentSessionModes.Name(selected)}. Sessões existentes mantêm o perfil original.";
     }
 
-    private static bool TryParseProfile(string text, out AgentPermissionProfile profile)
+    private AgentPermissionProfile DefaultMode(long userId) =>
+        settings?.GetSessionMode(userId) ?? selectedProfiles.GetValueOrDefault(userId, AgentPermissionProfile.Manual);
+
+    private bool TrySetDefaultMode(long userId, AgentPermissionProfile mode)
     {
-        profile = AgentPermissionProfile.Manual;
-        if (text.Equals("manual", StringComparison.OrdinalIgnoreCase)) return true;
-        if (text.Equals("auto", StringComparison.OrdinalIgnoreCase))
+        if (settings is null)
         {
-            profile = AgentPermissionProfile.Auto;
+            selectedProfiles[userId] = mode;
             return true;
         }
-        if (text.Equals("plan", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            profile = AgentPermissionProfile.Plan;
+            settings.SetSessionMode(userId, mode);
             return true;
         }
-        return false;
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private async Task HandleRequestCommandAsync(TelegramMessage message, string command, string prompt,
@@ -630,14 +677,16 @@ public sealed class TelegramPollingService(
             if (resolved is null) return;
             var (context, environment) = resolved.Value;
             var agent = (settings?.Current ?? AssistantSettings.Default).DefaultAgent;
+            var mode = DefaultMode(userId);
             await SendTypingAsync(chatId, cancellationToken);
             var started = await sessions.StartAsync(new SessionStartRequest(userId, agent, context,
-                environment?.Values, selectedProfiles.GetValueOrDefault(userId, AgentPermissionProfile.Manual)),
-                cancellationToken);
+                environment?.Values, mode), cancellationToken);
             if (!started.Accepted)
             {
-                await SendReplyAsync(chatId, $"Não foi possível iniciar a conversa com {agent}. Detalhes em /status.",
-                    cancellationToken);
+                // Without a session the request was refused before any process started (e.g. unsupported mode).
+                await SendReplyAsync(chatId, started.Session is null
+                    ? $"Não foi possível iniciar a conversa com {agent}: {started.Error}"
+                    : $"Não foi possível iniciar a conversa com {agent}. Detalhes em /status.", cancellationToken);
                 return;
             }
             delivery.RegisterSession(started.Session!.Id, userId, chatId, environment?.HasSecrets == true);
@@ -954,7 +1003,7 @@ public sealed class TelegramPollingService(
                 AgentTurnOutcome.Interrupted => "interrompido",
                 _ => "falhou"
             }}") +
-        $" | perfil {session.Profile} | criada {session.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
+        $" | modo {AgentSessionModes.Name(session.Profile)} | criada {session.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
 
     private static bool IsWithin(string path, string root)
     {

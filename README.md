@@ -393,9 +393,11 @@ E o padrão State?
 ```
 
 Sem sessão ativa, a primeira mensagem abre uma sessão interativa do agente padrão no
-contexto atual (repositório ativo ou General Mode), com o perfil escolhido em `/permissions`,
+contexto atual (repositório ativo ou General Mode), com o modo escolhido em `/mode`,
 e vira o primeiro turno. As mensagens seguintes são novos turnos da mesma sessão, no mesmo
 processo do agente, que mantém o contexto da conversa. Não é preciso `/session start`.
+A abertura implícita não envia aviso adicional; o modo pode ser consultado em `/mode` e
+`/status`, e é informado ao iniciar uma sessão explicitamente com `/session start`.
 
 A resposta mostra essencialmente o texto do agente, com linhas curtas de progresso
 (`→ dotnet test`, arquivos alterados, falha de ferramenta) e o indicador "digitando…"
@@ -425,6 +427,42 @@ Erros na conversa são curtos; os detalhes ficam em `/status`.
 `/claude` e `/codex` seguem disponíveis como execução avulsa (one-shot, com Job ID), sem
 tocar na conversa. Mensagens iniciadas por `/` com comando desconhecido nunca são enviadas
 ao agente: o D.A.N.T.E. responde `Comando desconhecido`.
+
+## Modos de trabalho
+
+O modo define quanta autonomia o agente tem numa sessão:
+
+| Modo | Nome | Comportamento |
+| --- | --- | --- |
+| `manual` (ou `approval`) | aprovação | pede sua aprovação antes de ações fora dos limites da CLI (padrão recomendado) |
+| `auto` | automático | a CLI decide sozinha dentro do sandbox, com menos interrupções |
+| `plan` | planejamento | analisa e planeja sem alterar arquivos |
+
+```text
+/mode           consulta o modo padrão, as opções e o suporte de cada agente
+/mode auto      escolhe o modo padrão para as próximas sessões
+/session start codex @dante plan    inicia uma sessão num modo específico
+```
+
+O modo padrão é por usuário, sobrevive a reinícios e vale só para sessões novas: uma
+sessão mantém o modo com que começou até ser encerrada, e a resposta do `/mode` avisa
+quando a sessão ativa continua no modo anterior. Um modo informado em `/session start`
+vale somente para aquela sessão. `/status` e `/mode` mostram o modo de cada sessão.
+
+Cada agente declara os modos que suporta; pedir um modo não suportado é recusado com erro
+claro antes de iniciar a sessão. Hoje Claude e Codex suportam os três, com mapeamentos
+diferentes:
+
+| Modo | Claude Code | Codex |
+| --- | --- | --- |
+| `manual` | `--permission-mode manual` | aprovação `on-request`, sandbox `workspace-write` |
+| `auto` | `--permission-mode auto` | aprovação `never`, sandbox `workspace-write` |
+| `plan` | `--permission-mode plan` | aprovação `on-request`, sandbox `read-only` e modo de colaboração `plan` |
+
+No Codex, perguntas do agente ao usuário (input) só aparecem no modo `plan`. Nenhum modo
+concede acesso irrestrito (`full`), e o D.A.N.T.E. nunca escolhe um modo por inferência.
+`/permissions` continua disponível como interface de baixo nível e lê e grava o mesmo
+padrão do `/mode`. As execuções one-shot (`/claude`, `/codex`) não usam modos.
 
 ## Repositório ativo
 
@@ -540,13 +578,14 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/use general` | Volta ao General Mode |
 | `/status` | Exibe jobs, sessões próprias e estado da entrega recente ao Telegram |
 | `/cancel <jobId>` | Solicita cancelamento de um job |
-| `/session start [claude\|codex] [@alias] [manual\|auto\|plan]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e perfil selecionados se omitidos |
+| `/session start [claude\|codex] [@alias] [manual\|auto\|plan]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e modo selecionados se omitidos |
 | `/session list` | Lista as suas sessões |
 | `/session select <id\|none>` | Seleciona uma sessão; `none` faz a próxima mensagem abrir uma sessão nova |
 | `/session stop [id]` | Interrompe o turno e descarta a fila, mantendo a sessão |
 | `/session close [id]` | Encerra a sessão e seu processo |
-| `/permissions` | Consulta o perfil para novas sessões (`manual` por padrão) |
-| `/permissions manual\|auto\|plan` | Escolhe o perfil para novas sessões do usuário |
+| `/mode` | Consulta o modo padrão, as opções e o suporte de cada agente |
+| `/mode manual\|auto\|plan` | Escolhe o modo padrão para novas sessões do usuário (`approval` = `manual`) |
+| `/permissions [manual\|auto\|plan]` | Interface de baixo nível do `/mode`: consulta ou escolhe o mesmo padrão |
 | `/approve <sessionId> <turnId> <requestId>` | Aprova a ação solicitada uma vez |
 | `/approve-session <sessionId> <turnId> <requestId>` | Aprova para a sessão quando o agente oferece essa opção |
 | `/deny <sessionId> <turnId> <requestId> [motivo]` | Nega a ação solicitada |
@@ -564,11 +603,9 @@ falha de entrega aparece em `/status` separadamente do resultado da execução; 
 novamente as partes ainda não entregues. Resultados recentes ficam em memória enquanto o Worker
 está vivo.
 
-O perfil `manual` é o padrão recomendado. `auto` opera dentro dos limites da CLI com menos
-interrupções; `plan` restringe alterações. O perfil escolhido por `/permissions` fica em memória
-até o reinício do Worker e vale apenas para sessões novas; um perfil informado em `/session start`
-vale somente para aquela sessão. O acesso `full` não é oferecido. Os drivers mantêm os mapeamentos
-específicos de Claude e Codex; o fluxo one-shot continua independente dessas escolhas.
+O modo `manual` é o padrão recomendado; os modos estão descritos em
+[Modos de trabalho](#modos-de-trabalho). O acesso `full` não é oferecido, e o fluxo one-shot
+continua independente dessas escolhas.
 
 Pedidos de aprovação e input mostram os IDs da sessão, turno e solicitação, com comandos prontos
 para responder. Uma solicitação pendente aparece em `/status` e expira após cinco minutos; a
@@ -687,7 +724,7 @@ Atualmente:
 
 | Informação | Persistência |
 | --- | --- |
-| Configurações do assistente (agente padrão, repositório ativo por usuário) | `~/.dante/settings.json` |
+| Configurações do assistente (agente padrão, repositório ativo e modo padrão por usuário) | `~/.dante/settings.json` |
 | Repositórios cadastrados | `~/.dante/repositories.json` |
 | Perfis de ambiente | `~/.dante/repositories.json` |
 | Valores de bindings secretos | não são persistidos |
@@ -695,7 +732,6 @@ Atualmente:
 | Jobs | somente memória |
 | Histórico de jobs | somente memória |
 | Sessões interativas, turnos, filas e solicitações pendentes | somente memória (perdidas ao reiniciar o Worker) |
-| Perfil escolhido em `/permissions` | somente memória |
 | Saídas recentes para `/resend` | somente memória |
 
 `~/.dante/settings.json` guarda apenas preferências, nunca tokens ou segredos:
@@ -705,13 +741,17 @@ Atualmente:
   "DefaultAgent": "Claude",
   "ActiveRepositories": {
     "123456789": "@fitness_backend"
+  },
+  "SessionModes": {
+    "123456789": "auto"
   }
 }
 ```
 
 Enquanto o arquivo não existe, o agente padrão é **Claude**; o arquivo é criado na
 primeira alteração, com escrita atômica. `DefaultAgent` aceita somente `Claude` ou
-`Codex`; `ActiveRepositories` associa Telegram User IDs a aliases. Arquivo corrompido ou com valor desconhecido impede o Worker de iniciar com
+`Codex`; `ActiveRepositories` associa Telegram User IDs a aliases; `SessionModes`, quando
+existe, associa Telegram User IDs ao modo padrão (`manual`, `auto` ou `plan`). Arquivo corrompido ou com valor desconhecido impede o Worker de iniciar com
 erro claro, em vez de escolher um agente por conta própria.
 
 ---

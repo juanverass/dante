@@ -13,7 +13,7 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
     private readonly ConcurrentQueue<(string RequestId, AgentUserResponse Response)> responses = new();
     private volatile bool interrupted;
 
-    public AgentDriverCapabilities Capabilities { get; } = capabilities;
+    public AgentDriverCapabilities Capabilities { get; set; } = capabilities;
     public AgentSessionStartOptions? StartOptions { get; private set; }
     public Exception? StartFailure { get; set; }
     public Exception? TurnFailure { get; set; }

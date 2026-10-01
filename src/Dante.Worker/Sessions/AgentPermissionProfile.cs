@@ -1,7 +1,8 @@
 namespace Dante.Worker.Sessions;
 
 // D.A.N.T.E. permission profiles; each driver maps them to its CLI. Manual is the conservative default. Choosing a
-// profile (and whether a full-access profile exists) is the Telegram UX of #67; drivers never infer one.
+// profile (and whether a full-access profile exists) is the Telegram UX of #67, presented as modes since #76
+// (AgentSessionModes); drivers never infer one.
 public enum AgentPermissionProfile
 {
     // Works within the CLI's normal limits and forwards every escalation to the user.

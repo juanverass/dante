@@ -60,7 +60,7 @@ vivo que recebe todos os turnos. O one-shot continua disponível por comando exp
 | `TelegramDeliveryService` | `Telegram/` | Agrupa, formata, redige e entrega eventos de sessão e resultados de jobs, com retry, `/resend` e indicador de digitação. |
 | `TelegramUserAuthorizer` | `Telegram/` | Allowlist por `message.from.id`; fail-closed. |
 | `RepositoryRegistry` | `Repositories/` | Catálogo persistente de aliases, paths, GitHub e ambiente por repositório. |
-| `AssistantSettingsStore` | `Settings/` | Agente padrão e repositório ativo por usuário, persistidos em `~/.dante/settings.json`. |
+| `AssistantSettingsStore` | `Settings/` | Agente padrão, repositório ativo e modo padrão por usuário, persistidos em `~/.dante/settings.json`. |
 | `GeneralWorkspace` | `Agents/` | Diretório neutro para consultas gerais. |
 | `JobRegistry` | `Jobs/` | Estado, contexto e cancelamento dos jobs, em memória. |
 | `SessionRegistry` | `Sessions/` | Sessões interativas em memória: dono, contexto fixo, sessão ativa por usuário e roteamento de turnos aos drivers. |

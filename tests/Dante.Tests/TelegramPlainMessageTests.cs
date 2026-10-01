@@ -38,6 +38,7 @@ public sealed class TelegramPlainMessageTests : IAsyncDisposable
             api.Enqueue("  Explique o padrão Strategy.\n");
             var driver = await SingleDriverAsync();
             await Eventually(() => driver.Calls.Contains("turn:Explique o padrão Strategy."));
+            // The first delivered message must be the agent response, without a lifecycle notice (AD-23).
             Assert.Equal(general.Path, driver.StartOptions!.WorkingDirectory);
             Assert.True(driver.StartOptions.IsGeneral);
             Assert.Equal(AgentPermissionProfile.Manual, driver.StartOptions.Profile);
@@ -257,7 +258,7 @@ public sealed class TelegramPlainMessageTests : IAsyncDisposable
             Assert.Null(sessions!.GetActive(123));
             api.Enqueue("/status");
             var status = await api.NextMessageAsync();
-            Assert.Contains("S000001 Claude General: Failed | perfil Manual", status);
+            Assert.Contains("S000001 Claude General: Failed | modo manual", status);
             Assert.Contains("erro: O Claude recusou o initialize.", status);
 
             // The next message tries again with a new session.

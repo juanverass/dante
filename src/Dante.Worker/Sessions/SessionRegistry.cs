@@ -29,7 +29,8 @@ public sealed class SessionRegistry(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        Entry entry;
+        Entry? entry = null;
+        IAgentSessionDriver driver;
         lock (gate)
         {
             if (disposed)
@@ -37,11 +38,23 @@ public sealed class SessionRegistry(
                 return SessionResult.Reject("O Worker está sendo encerrado; não é possível iniciar sessões.");
             }
 
-            var driver = drivers.Create(request.Agent);
-            var session = new AgentSession(ids.NextSessionId(), request.Agent, request.OwnerUserId, request.Context,
-                driver.Capabilities, ids, requestTimeout);
-            entry = new Entry(session, driver, request.Profile);
-            sessions.Add(session.Id, entry);
+            driver = drivers.Create(request.Agent);
+            // A mode the agent cannot map is refused before any process starts (#76).
+            if (driver.Capabilities.Modes.Contains(request.Profile))
+            {
+                var session = new AgentSession(ids.NextSessionId(), request.Agent, request.OwnerUserId,
+                    request.Context, driver.Capabilities, ids, requestTimeout);
+                entry = new Entry(session, driver, request.Profile);
+                sessions.Add(session.Id, entry);
+            }
+        }
+
+        if (entry is null)
+        {
+            await driver.DisposeAsync();
+            return SessionResult.Reject(
+                $"O modo {AgentSessionModes.Name(request.Profile)} não é suportado pelo {request.Agent}. " +
+                $"Modos disponíveis: {string.Join(", ", driver.Capabilities.Modes.Select(AgentSessionModes.Name))}.");
         }
 
         try
