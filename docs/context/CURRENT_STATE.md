@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-01, com o spike de capacidades multimodais (#93).
+Última revisão: 2026-10-02, com o recebimento de mídias do Telegram (#94).
 
 ## Marcos
 
@@ -18,7 +18,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | Agent Harness v1 (Epic #40) | concluído |
 | MVP 3 — Conversational Context (Epic #32) | retomado: #33–#37 entregues; falta UX (#38) |
 | Interactive Agent Sessions (Epic #60) | concluído |
-| Mídias no Telegram (Epic #92) | em andamento: spike #93 entregue; #94–#99 pendentes |
+| Mídias no Telegram (Epic #92) | em andamento: spike #93 e recebimento #94 entregues; #95–#99 pendentes |
 
 ## Funcionalidades disponíveis
 
@@ -47,6 +47,11 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   resposta do agente, com progresso curto e indicador "digitando…"; `/claude` e `/codex`
   seguem como execução one-shot com Job ID; slash command desconhecido responde erro e não
   inicia agente;
+- recebimento de imagens (#94, AD-29): fotos, prints como arquivo e álbuns de usuários autorizados são
+  baixados com limite de tamanho e tempo, validados pelo conteúdo (JPEG/PNG/GIF/WebP, 7 MB, 8000 px) e guardados
+  como pendentes em `~/.dante/attachments`, por usuário e contexto, com uma confirmação por álbum, linha em
+  `/status`, descarte na troca de contexto, expiração em 10 min e limpeza de sobras na inicialização; áudio,
+  vídeo e outros arquivos são recusados sem download;
 - `/use @alias`, `/use general` e `/use`: repositório ativo por usuário, persistido em
   `~/.dante/settings.json` e usado por toda execução sem `@alias` explícito (AD-14);
 - resolvedor único de agente e contexto (AD-27): `/claude`/`/codex` → agente padrão;
@@ -94,26 +99,25 @@ Detalhes de uso: [README](../../README.md).
 - a validação real foi feita contra as CLIs instaladas com a API do Telegram simulada; o
   dogfooding pelo Telegram real depende do bot do usuário;
 - sem CI no GitHub: validação é local;
-- mídias do Telegram (fotos, áudios, vídeos, arquivos) ainda são ignoradas e o bot só envia texto; capacidades e
-  contrato validados na AD-29 (#93), implementação nas #94–#99.
+- imagens recebidas ficam pendentes, mas ainda não chegam aos agentes (#95); áudio e vídeo são recusados até
+  haver ferramenta aprovada (#96); o bot só envia texto (#97).
 
 ## Em andamento
 
 - **Epic #32 — MVP 3 (Conversational Context)**: retomada após o fechamento da Epic #60;
   #33–#37 entregues, falta a UX de contexto e jobs (#38).
-- **Epic #92 — Mídias no Telegram**: spike #93 com matriz de capacidades e contrato de anexos
-  (AD-29); áudio/vídeo (#96) e a imagem para LinkedIn (#98) dependem de decisão humana sobre ferramentas.
+- **Epic #92 — Mídias no Telegram**: spike #93 (AD-29) e recebimento de imagens (#94) entregues; áudio/vídeo (#96) e a imagem para LinkedIn (#98) dependem de decisão humana sobre ferramentas.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #37 e #39:
+Estado conhecido com #94:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    401 testes aprovados
+dotnet test Dante.sln    444 testes aprovados
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
@@ -121,8 +125,10 @@ dotnet test Dante.sln    401 testes aprovados
 
 `InteractiveAgentProcessTests.GracefulExitDoesNotLeaveOrphanedChildProcess` (#62) pode ser
 intermitente na suíte completa em WSL2 e passa isolado; já falhava assim antes da #63.
+`TelegramBotApiTests.OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard` também falhou uma vez na suíte
+completa durante a #94 e passa isolado e nas execuções seguintes.
 
 ## Próximos marcos
 
 1. conclusão do MVP 3 (#32): UX de contexto e jobs (#38);
-2. mídias no Telegram (#92): receber e armazenar (#94), imagens para os agentes (#95), artefatos (#97).
+2. mídias no Telegram (#92): imagens para os agentes (#95), artefatos (#97).

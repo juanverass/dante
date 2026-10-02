@@ -142,7 +142,53 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
         response.EnsureSuccessStatusCode();
     }
 
-    private Uri MethodUrl(string method)
+    public async Task<long> DownloadFileAsync(string fileId, Stream destination, long maxBytes,
+        CancellationToken cancellationToken)
+    {
+        TelegramFile file;
+        using (var response = await httpClient.PostAsJsonAsync(MethodUrl("getFile"), new { file_id = fileId },
+                   cancellationToken))
+        {
+            response.EnsureSuccessStatusCode();
+            var envelope = await response.Content.ReadFromJsonAsync<TelegramEnvelope<TelegramFile>>(
+                JsonOptions, cancellationToken);
+            if (envelope is not { Ok: true, Result.FilePath: not null }) throw new JsonException("Resposta inválida da API do Telegram.");
+            file = envelope.Result;
+        }
+        if (file.FileSize > maxBytes) throw new TelegramFileTooLargeException();
+
+        // The download URL carries the token: it is built here only, and never logged or put in an exception.
+        using var request = new HttpRequestMessage(HttpMethod.Get, FileUrl(file.FilePath!));
+        using var download = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        download.EnsureSuccessStatusCode();
+        if (download.Content.Headers.ContentLength > maxBytes) throw new TelegramFileTooLargeException();
+
+        await using var source = await download.Content.ReadAsStreamAsync(cancellationToken);
+        var buffer = new byte[81920];
+        long total = 0;
+        int read;
+        while ((read = await source.ReadAsync(buffer, cancellationToken)) > 0)
+        {
+            total += read;
+            if (total > maxBytes) throw new TelegramFileTooLargeException();
+            await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+        }
+        return total;
+    }
+
+    // file_path comes from Telegram, but it still only becomes path segments of the file endpoint.
+    private Uri FileUrl(string filePath)
+    {
+        var segments = filePath.Split('/');
+        if (filePath.Length == 0 || segments.Any(segment => segment is "" or "." or ".." ||
+                segment.IndexOfAny(['\\', '?', '#', '%']) >= 0))
+            throw new JsonException("Caminho de arquivo inválido na resposta do Telegram.");
+        return new Uri($"https://api.telegram.org/file/bot{Token()}/{string.Join('/', segments.Select(Uri.EscapeDataString))}");
+    }
+
+    private Uri MethodUrl(string method) => new($"https://api.telegram.org/bot{Token()}/{method}");
+
+    private string Token()
     {
         var token = options.Value.BotToken;
         if (string.IsNullOrWhiteSpace(token))
@@ -150,8 +196,13 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
             throw new InvalidOperationException("Telegram__BotToken não configurado.");
         }
 
-        return new Uri($"https://api.telegram.org/bot{token}/{method}");
+        return token;
     }
+
+    private sealed record TelegramFile(
+        [property: JsonPropertyName("file_id")] string FileId,
+        [property: JsonPropertyName("file_size")] long? FileSize,
+        [property: JsonPropertyName("file_path")] string? FilePath);
 
     private sealed record TelegramEnvelope<T>(
         [property: JsonPropertyName("ok")] bool Ok,

@@ -622,6 +622,28 @@ execução e pede `/use @alias` ou `/use general`, em vez de cair para General M
 
 ---
 
+## Imagens e prints
+
+Fotos e prints enviados ao bot, inclusive como arquivo e em álbum, são baixados e guardados como
+**pendentes** do usuário, no contexto atual da conversa:
+
+```text
+Recebi 2 imagens.
+Ainda não encaminho imagens aos agentes: elas ficam guardadas por 10 min e depois são apagadas.
+```
+
+- formatos: JPEG, PNG, GIF e WebP, conferidos pelo conteúdo do arquivo; até 7 MB e 8000 px por lado;
+- até 10 imagens e 20 MB pendentes por usuário; um álbum recebe uma única confirmação;
+- áudio, voz, vídeo e outros tipos de arquivo são recusados com aviso, sem download;
+- `/status` mostra as imagens pendentes; trocar de contexto (`/use`, `/agent set`, `/session`) as descarta com
+  aviso, e após 10 min sem pedido elas são apagadas;
+- os arquivos ficam em `~/.dante/attachments/<usuário>/`, com acesso só do dono, e sobras com mais de 24 h são
+  removidas quando o Worker inicia.
+
+O encaminhamento das imagens aos agentes chega na #95.
+
+---
+
 # Jobs
 
 Cada chamada a `/claude` ou `/codex` gera um job: uma execução one-shot, que inicia a CLI,
@@ -859,6 +881,7 @@ Atualmente:
 | Histórico de jobs | somente memória |
 | Sessões interativas, turnos, filas e solicitações pendentes | somente memória (perdidas ao reiniciar o Worker) |
 | Saídas recentes para `/resend` | somente memória |
+| Imagens recebidas (pendentes) | `~/.dante/attachments/<usuário>/` enquanto pendentes; registro somente em memória |
 
 A seleção de modelo é independente por usuário e agente:
 
@@ -1016,7 +1039,8 @@ Ainda não fazem parte do projeto:
 - sessões interativas persistentes: reiniciar o Worker encerra as conversas;
 - botões inline para aprovação (os comandos textuais estão disponíveis);
 - perfil de acesso irrestrito (`full`);
-- pergunta do Codex ao usuário (input) fora do perfil `plan`, por limitação do `app-server`.
+- pergunta do Codex ao usuário (input) fora do perfil `plan`, por limitação do `app-server`;
+- imagens recebidas ainda não chegam aos agentes, e áudio/vídeo não são processados (Epic #92).
 
 Esses pontos são candidatos naturais para os próximos MVPs.
 

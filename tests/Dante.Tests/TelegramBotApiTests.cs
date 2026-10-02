@@ -285,6 +285,118 @@ public sealed class TelegramBotApiTests
         }
     }
 
+    [Fact]
+    public async Task DownloadsAFileThroughGetFileAndTheFileEndpoint()
+    {
+        var paths = new List<string>();
+        var api = FileApi(paths, """{"ok":true,"result":{"file_id":"F1","file_size":5,"file_path":"photos/file_7.jpg"}}""",
+            () => new ByteArrayContent([1, 2, 3, 4, 5]));
+        using var destination = new MemoryStream();
+
+        Assert.Equal(5, await api.DownloadFileAsync("F1", destination, 10, CancellationToken.None));
+
+        Assert.Equal([1, 2, 3, 4, 5], destination.ToArray());
+        Assert.Equal(["/bottest-token/getFile", "/file/bottest-token/photos/file_7.jpg"], paths);
+    }
+
+    [Fact]
+    public async Task DeclaredSizeOverTheLimitIsRefusedWithoutDownloading()
+    {
+        var paths = new List<string>();
+        var api = FileApi(paths, """{"ok":true,"result":{"file_id":"F1","file_size":11,"file_path":"photos/a.jpg"}}""",
+            () => new ByteArrayContent(new byte[11]));
+
+        await Assert.ThrowsAsync<TelegramFileTooLargeException>(() =>
+            api.DownloadFileAsync("F1", new MemoryStream(), 10, CancellationToken.None));
+        Assert.Equal(["/bottest-token/getFile"], paths);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RealSizeOverTheLimitIsRefusedEvenWhenUndeclaredOrUnderstated(bool contentLength)
+    {
+        // Telegram may omit file_size; the body itself is counted, with or without Content-Length.
+        var api = FileApi([], """{"ok":true,"result":{"file_id":"F1","file_size":3,"file_path":"documents/a.png"}}""",
+            () => contentLength ? new ByteArrayContent(new byte[50]) : new StreamContent(new UnseekableStream(new byte[50])));
+        using var destination = new MemoryStream();
+
+        await Assert.ThrowsAsync<TelegramFileTooLargeException>(() =>
+            api.DownloadFileAsync("F1", destination, 10, CancellationToken.None));
+        Assert.True(destination.Length <= 10);
+    }
+
+    [Theory]
+    [InlineData("../../etc/passwd")]
+    [InlineData("photos/../../x")]
+    [InlineData("/etc/passwd")]
+    [InlineData("photos/a.jpg?x=1")]
+    [InlineData("photos\\a.jpg")]
+    [InlineData("photos/%2e%2e/a")]
+    [InlineData("")]
+    public async Task MaliciousFilePathsNeverReachTheFileEndpoint(string filePath)
+    {
+        var paths = new List<string>();
+        var api = FileApi(paths, """{"ok":true,"result":{"file_id":"F1","file_path":""" + JsonSerializer.Serialize(filePath) + "}}",
+            () => new ByteArrayContent([1]));
+
+        await Assert.ThrowsAsync<JsonException>(() => api.DownloadFileAsync("F1", new MemoryStream(), 10, CancellationToken.None));
+        Assert.Equal(["/bottest-token/getFile"], paths);
+    }
+
+    [Fact]
+    public async Task DownloadErrorsDoNotExposeTheTokenAndCancellationStopsTheCopy()
+    {
+        using var failing = new HttpClient(new StubHandler(request => Task.FromResult(
+            request.RequestUri!.AbsolutePath.EndsWith("getFile", StringComparison.Ordinal)
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(
+                    """{"ok":true,"result":{"file_id":"F1","file_path":"photos/a.jpg"}}""") }
+                : new HttpResponseMessage(HttpStatusCode.NotFound))));
+        var error = await Assert.ThrowsAsync<HttpRequestException>(() =>
+            new TelegramBotApi(failing, Options.Create(new TelegramOptions { BotToken = "test-token" }))
+                .DownloadFileAsync("F1", new MemoryStream(), 10, CancellationToken.None));
+        Assert.DoesNotContain("test-token", error.ToString());
+
+        using var cancellation = new CancellationTokenSource();
+        var api = FileApi([], """{"ok":true,"result":{"file_id":"F1","file_path":"photos/a.jpg"}}""",
+            () => new StreamContent(new UnseekableStream(new byte[1_000_000], cancellation.Cancel)));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            api.DownloadFileAsync("F1", new MemoryStream(), 2_000_000, cancellation.Token));
+    }
+
+    private static TelegramBotApi FileApi(List<string> paths, string getFile, Func<HttpContent> content) =>
+        new(new HttpClient(new StubHandler(request =>
+        {
+            paths.Add(request.RequestUri!.AbsolutePath);
+            return Task.FromResult(request.RequestUri.AbsolutePath.EndsWith("getFile", StringComparison.Ordinal)
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(getFile) }
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = content() });
+        })), Options.Create(new TelegramOptions { BotToken = "test-token" }));
+
+    // A body without a known length, served in small reads; onRead lets a test act in the middle of the copy.
+    private sealed class UnseekableStream(byte[] content, Action? onRead = null) : Stream
+    {
+        private int position;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => position; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            onRead?.Invoke();
+            var read = Math.Min(Math.Min(count, 4), content.Length - position);
+            Array.Copy(content, position, buffer, offset, read);
+            position += read;
+            return read;
+        }
+    }
+
     private sealed class StubHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handle) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
