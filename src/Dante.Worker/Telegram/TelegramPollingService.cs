@@ -28,7 +28,8 @@ public sealed partial class TelegramPollingService(
     IAgentModelCatalog? models = null,
     AttachmentStore? attachments = null,
     PendingAttachments? pendingAttachments = null,
-    ArtifactStore? artifacts = null) : BackgroundService
+    ArtifactStore? artifacts = null,
+    TelegramShowcase? showcase = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private const string EffortOption = "effort=";
@@ -179,14 +180,15 @@ public sealed partial class TelegramPollingService(
         finally { updateGate.Release(); }
     }
 
-    // A caption is the request of its images (AD-29): a conversation message or a /claude or /codex one-shot. Any other
-    // command is refused and the images stay pending for the next text.
+    // A caption is the request of its images (AD-29): a conversation message, a /claude or /codex one-shot, or a
+    // /vitrine (#98). Any other command is refused and the images stay pending for the next text.
     private async Task HandleCaptionAsync(TelegramMessage message, string caption, CancellationToken cancellationToken)
     {
         var separator = caption.IndexOfAny([' ', '\t', '\r', '\n']);
         var command = separator < 0 ? caption : caption[..separator];
         if (caption.StartsWith('/') && !command.Equals("/claude", StringComparison.OrdinalIgnoreCase) &&
-            !command.Equals("/codex", StringComparison.OrdinalIgnoreCase))
+            !command.Equals("/codex", StringComparison.OrdinalIgnoreCase) &&
+            !command.Equals("/vitrine", StringComparison.OrdinalIgnoreCase))
         {
             await SendReplyAsync(message.Chat.Id, $"Comando desconhecido na legenda: {command}. As imagens continuam " +
                 "pendentes; envie o pedido em texto. Use /help para ver os comandos.", cancellationToken);
@@ -334,6 +336,12 @@ public sealed partial class TelegramPollingService(
                 : $"Entrega {recovered.Id}: {recovered.State} ({recovered.DeliveredChunks}/{recovered.TotalChunks} partes)" +
                   (recovered.Problem is null ? "." : $": {recovered.Problem}."),
                 cancellationToken);
+            return;
+        }
+
+        if (string.Equals(command, "/vitrine", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleShowcaseAsync(message, prompt, cancellationToken);
             return;
         }
 
@@ -965,32 +973,8 @@ public sealed partial class TelegramPollingService(
         var sessionId = active?.Id;
         if (sessionId is null)
         {
-            var resolved = resolver.Resolve(userId, null, text);
-            if (!resolved.Succeeded)
-            {
-                await SendReplyAsync(chatId, resolved.Failure == ContextResolutionFailure.EmptyPrompt
-                    ? "Uso: @alias <mensagem>" : resolved.Error!, cancellationToken);
-                return;
-            }
-            var (agent, context, environment) = (resolved.Agent, resolved.Context!, resolved.Environment);
-            text = resolved.Prompt;
-            var mode = DefaultMode(userId);
-            await SendTypingAsync(chatId, cancellationToken);
-            var modelSelection = await ResolveModelAsync(userId, agent, null, chatId, cancellationToken);
-            if (modelSelection is null) return;
-            var started = await sessions.StartAsync(new SessionStartRequest(userId, agent, context,
-                environment?.Values, mode, modelSelection), cancellationToken);
-            if (!started.Accepted)
-            {
-                // Without a session the request was refused before any process started (e.g. unsupported mode).
-                await SendReplyAsync(chatId, started.Session is null
-                    ? $"Não foi possível iniciar a conversa com {agent}: {started.Error}"
-                    : $"Não foi possível iniciar a conversa com {agent}. Detalhes em /status.", cancellationToken);
-                return;
-            }
-            delivery.RegisterSession(started.Session!.Id, userId, chatId, environment?.HasSecrets == true);
-            SyncActiveSession(userId);
-            sessionId = started.Session.Id;
+            if (await OpenConversationAsync(userId, chatId, text, cancellationToken) is not { } opened) return;
+            (sessionId, text) = opened;
         }
 
         var images = Adopt(userId, pendingKey, sessionId);
@@ -1008,6 +992,123 @@ public sealed partial class TelegramPollingService(
             _ => result.Error ?? "A sessão recusou a mensagem."
         };
         if (reply is not null) await SendReplyAsync(chatId, reply, cancellationToken);
+    }
+
+    // Without an active session, a conversation opens one with the default agent in the current context (AD-23) and
+    // the text, without a leading @alias, becomes its request. Null: it could not start, and the reason was sent.
+    private async Task<(string SessionId, string Text)?> OpenConversationAsync(long userId, long chatId, string text,
+        CancellationToken cancellationToken)
+    {
+        var resolved = resolver.Resolve(userId, null, text);
+        if (!resolved.Succeeded)
+        {
+            await SendReplyAsync(chatId, resolved.Failure == ContextResolutionFailure.EmptyPrompt
+                ? "Uso: @alias <mensagem>" : resolved.Error!, cancellationToken);
+            return null;
+        }
+        var (agent, context, environment) = (resolved.Agent, resolved.Context!, resolved.Environment);
+        var mode = DefaultMode(userId);
+        await SendTypingAsync(chatId, cancellationToken);
+        var modelSelection = await ResolveModelAsync(userId, agent, null, chatId, cancellationToken);
+        if (modelSelection is null) return null;
+        var started = await sessions!.StartAsync(new SessionStartRequest(userId, agent, context,
+            environment?.Values, mode, modelSelection), cancellationToken);
+        if (!started.Accepted)
+        {
+            // Without a session the request was refused before any process started (e.g. unsupported mode).
+            await SendReplyAsync(chatId, started.Session is null
+                ? $"Não foi possível iniciar a conversa com {agent}: {started.Error}"
+                : $"Não foi possível iniciar a conversa com {agent}. Detalhes em /status.", cancellationToken);
+            return null;
+        }
+        delivery.RegisterSession(started.Session!.Id, userId, chatId, environment?.HasSecrets == true);
+        SyncActiveSession(userId);
+        return (started.Session.Id, resolved.Prompt);
+    }
+
+    private const string NoPrints = "Nenhum print nesta conversa: envie as imagens (foto ou arquivo) e depois " +
+        "/vitrine <pedido>, ou use /vitrine como legenda delas.";
+
+    // /vitrine <pedido|ajuste> (#98): a turn of the conversation that asks the agent only for the texts and arrangement
+    // of a showcase image; TelegramShowcase renders it from the prints of the conversation, unchanged, and sends it.
+    // The pending prints go with the request. A busy session refuses, so the next turn is certainly this one.
+    private async Task HandleShowcaseAsync(TelegramMessage message, string request, CancellationToken cancellationToken)
+    {
+        var userId = message.From!.Id;
+        var chatId = message.Chat.Id;
+        if (showcase is null || sessions is null || attachments is null)
+        {
+            await SendReplyAsync(chatId, "Vitrine indisponível.", cancellationToken);
+            return;
+        }
+        if (request.Length == 0)
+        {
+            await SendReplyAsync(chatId, "Uso: /vitrine <pedido ou ajuste>. Envie os prints antes ou use /vitrine como " +
+                "legenda deles.", cancellationToken);
+            return;
+        }
+        if (showcase.Unavailable() is { } missing)
+        {
+            await SendReplyAsync(chatId, $"Vitrine indisponível: {missing}.", cancellationToken);
+            return;
+        }
+
+        var pendingKey = AttachmentContext(userId);
+        var active = sessions.GetActive(userId);
+        if (active is { State: AgentSessionState.Failed or AgentSessionState.Closing or AgentSessionState.Closed })
+        {
+            await SendReplyAsync(chatId,
+                $"A sessão {active.Id} foi encerrada. Envie /session start para começar outra conversa.",
+                cancellationToken);
+            return;
+        }
+        if (active is not null && (active.State != AgentSessionState.Idle || active.QueuedCount > 0))
+        {
+            await SendReplyAsync(chatId, $"A sessão {active.Id} ainda está respondendo. Aguarde terminar (ou use " +
+                "/session stop) e peça a vitrine de novo; os prints pendentes continuam guardados.", cancellationToken);
+            return;
+        }
+        // Prints are the pending images of this context or the images the session already has; without any, nothing starts.
+        if (pending?.Get(userId) is not { } waiting || waiting.ContextKey != pendingKey ||
+            !waiting.Items.Any(item => item.Kind == AttachmentKind.Image))
+        {
+            if (active is null || attachments.Images(userId, active.Id).Count == 0)
+            {
+                await SendReplyAsync(chatId, NoPrints, cancellationToken);
+                return;
+            }
+        }
+        string sessionId;
+        if (active is null)
+        {
+            if (await OpenConversationAsync(userId, chatId, request, cancellationToken) is not { } opened) return;
+            (sessionId, request) = opened;
+        }
+        else sessionId = active.Id;
+
+        var images = Adopt(userId, pendingKey, sessionId);
+        if (images is null)
+        {
+            await SendReplyAsync(chatId, ImagesUnavailable, cancellationToken);
+            return;
+        }
+        var prints = attachments.Images(userId, sessionId);
+        if (prints.Count == 0)
+        {
+            await SendReplyAsync(chatId, NoPrints, cancellationToken);
+            return;
+        }
+
+        showcase.Expect(sessionId, userId, chatId);
+        var text = TelegramShowcase.RequestText(request, prints,
+            images.ToDictionary(image => image.Id, image => image.Name));
+        var result = await SessionSubmitAsync(userId, sessionId, new AgentInput(text, images), MessageDelivery.Queue,
+            cancellationToken);
+        if (result.Outcome == SubmitOutcome.Rejected)
+        {
+            showcase.Forget(sessionId);
+            await SendReplyAsync(chatId, result.Error ?? "A sessão recusou o pedido.", cancellationToken);
+        }
     }
 
     private async Task SubmitToSessionAsync(TelegramMessage message, string text, MessageDelivery mode,

@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-02, com approvals inline (#104), respostas por botões e Reply (#105), ajuda de comandos (#106) e troca de modo da sessão ociosa (#108).
+Última revisão: 2026-10-02, com approvals inline (#104), respostas por botões e Reply (#105), ajuda de comandos (#106), troca de modo da sessão ociosa (#108) e imagem para LinkedIn (#98).
 
 ## Marcos
 
@@ -18,7 +18,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | Agent Harness v1 (Epic #40) | concluído |
 | MVP 3 — Conversational Context (Epic #32) | concluído (#33–#38); fechamento da Epic por decisão humana |
 | Interactive Agent Sessions (Epic #60) | concluído |
-| Mídias no Telegram (Epic #92) | em andamento: spike #93, recebimento #94, imagens aos agentes #95 e artefatos #97 entregues; #96, #98 e #99 pendentes |
+| Mídias no Telegram (Epic #92) | em andamento: spike #93, recebimento #94, imagens aos agentes #95, artefatos #97 e imagem para LinkedIn #98 entregues; #96 e #99 pendentes |
 
 ## Funcionalidades disponíveis
 
@@ -65,6 +65,12 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   e `/send <caminho>` envia um arquivo do diretório da sessão ativa; caminho real validado contra a raiz do canal
   (symlinks resolvidos), até 50 MB, sem nomes de credencial, e nunca de sessão com segredos vinculados; imagem vai
   como foto e documento original, o resto como documento; cópia privada para retry, `/resend F000001` e `/status`;
+- imagem para LinkedIn (#98, AD-29): `/vitrine <pedido>` (ou como legenda dos prints) abre um turno da conversa em que o
+  agente responde só textos e arranjo num JSON validado (formato, título, subtítulo, cor, etiquetas, destaque, rodapé); o
+  D.A.N.T.E. monta o PNG localmente com `ffmpeg`, colando os prints sem alteração (cantos arredondados, sombra,
+  etiquetas), e o envia pelo canal de arquivos da #97. Ajustes são novos `/vitrine` na mesma conversa e geram versões
+  `vitrine-T…-vN.png`; exige sessão ociosa; sem `ffmpeg`, recusa antes do agente; fonte Inter quando instalada, senão
+  DejaVu Sans;
 - `/use @alias`, `/use general` e `/use`: repositório ativo por usuário, persistido em
   `~/.dante/settings.json` e usado por toda execução sem `@alias` explícito (AD-14);
 - resolvedor único de agente e contexto (AD-27): `/claude`/`/codex` → agente padrão;
@@ -133,6 +139,10 @@ Detalhes de uso: [README](../../README.md).
 - áudio e vídeo enviados ao bot são recusados até haver ferramenta aprovada (#96);
 - one-shot (`/claude`, `/codex`) não envia arquivos gerados: o `codex exec` não informa onde salvou a imagem;
   registros e cópias de arquivos enviados não sobrevivem ao reinício do Worker;
+- a evidência da `/vitrine` com as ferramentas reais é o `LiveShowcaseEvidenceTests`, opt-in por `DANTE_LIVE_MEDIA=1`
+  (e `DANTE_LIVE_CLI=1` para os agentes), executado em 2026-10-02 com ffmpeg 8.0.1, Claude Code 2.1.287 e codex-cli
+  0.159.3: prints sintéticos viraram PNGs de celular e desktop, e as sessões dos dois agentes responderam o JSON
+  válido destacando o print de alto contraste; o bot do Telegram real não foi exercitado;
 - a interpretação de imagens pelas CLIs reais foi validada no spike #93; na #95, os testes automáticos usam as CLIs
   simuladas do `Dante.ProcessProbe`, e a evidência com as CLIs reais é o `LiveImageEvidenceTests`, opt-in por
   `DANTE_LIVE_CLI=1`, executado em 2026-10-02 com Claude Code 2.1.287 e codex-cli 0.159.3: os quatro caminhos
@@ -140,18 +150,18 @@ Detalhes de uso: [README](../../README.md).
 
 ## Em andamento
 
-- **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94), imagens aos agentes (#95) e artefatos (#97) entregues; áudio/vídeo (#96) e a imagem para LinkedIn (#98) dependem de decisão humana sobre ferramentas.
+- **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94), imagens aos agentes (#95), artefatos (#97) e imagem para LinkedIn (#98) entregues; áudio/vídeo (#96) segue em PR próprio.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #104, #105, #106 e #108:
+Estado conhecido com #104, #105, #106, #108 e #98:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    575 testes aprovados, 7 pulados (evidência com CLIs reais, opt-in)
+dotnet test Dante.sln    599 testes aprovados, 10 pulados (evidência com CLIs e ffmpeg reais, opt-in)
 ```
 
 `LiveSessionModeEvidenceTests` (#108), opt-in com `DANTE_LIVE_CLI=1`, passou para Claude Code
@@ -168,4 +178,4 @@ completa durante a #94 e de novo no baseline da #95; passa isolado e nas execuç
 
 ## Próximos marcos
 
-1. mídias no Telegram (#92): áudio e vídeo (#96), imagem para LinkedIn (#98) e validação final (#99).
+1. mídias no Telegram (#92): áudio e vídeo (#96) e validação final (#99).

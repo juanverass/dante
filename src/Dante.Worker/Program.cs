@@ -19,7 +19,13 @@ builder.Services.AddSingleton<IAgentModelCatalog, AgentModelCatalog>();
 builder.Services.AddSingleton<JobRegistry>();
 builder.Services.AddSingleton<IAgentSessionDriverFactory, AgentSessionDriverFactory>();
 builder.Services.AddSingleton<TelegramDeliveryService>();
-builder.Services.AddSingleton<IAgentSessionEventSink>(provider => provider.GetRequiredService<TelegramDeliveryService>());
+builder.Services.AddSingleton<IShowcaseRenderer, ShowcaseRenderer>();
+// Showcase turns (#98) are intercepted before the delivery; everything else passes through to it.
+builder.Services.AddSingleton<TelegramShowcase>(provider => new TelegramShowcase(
+    provider.GetRequiredService<TelegramDeliveryService>(), provider.GetRequiredService<TelegramDeliveryService>(),
+    provider.GetRequiredService<IShowcaseRenderer>(), provider.GetRequiredService<AttachmentStore>(),
+    provider.GetRequiredService<ILogger<TelegramShowcase>>()));
+builder.Services.AddSingleton<IAgentSessionEventSink>(provider => provider.GetRequiredService<TelegramShowcase>());
 builder.Services.AddSingleton<SessionRegistry>();
 builder.Services.AddSingleton<RepositoryRegistry>();
 builder.Services.AddSingleton<AssistantSettingsStore>();
