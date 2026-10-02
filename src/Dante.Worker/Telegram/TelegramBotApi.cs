@@ -45,6 +45,8 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
         return envelope.Result;
     }
 
+    public bool SupportsInputMessages => true;
+
     public bool SupportsInlineKeyboards => true;
 
     public async Task SendMessageAsync(long chatId, string text, CancellationToken cancellationToken)

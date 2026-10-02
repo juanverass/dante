@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Dante.Worker.Telegram;
 
-public sealed class TelegramPollingService(
+public sealed partial class TelegramPollingService(
     ITelegramBotApi botApi,
     IOptions<TelegramOptions> options,
     TelegramUserAuthorizer authorizer,
@@ -132,6 +132,9 @@ public sealed class TelegramPollingService(
                     if (result.Accepted) reply = TelegramApprovalCallback.DecisionText(action.Decision);
                 }
             }
+            else if (authorizer.IsAuthorized(callback.From) && sessions is not null && callback.Message is not null &&
+                     TelegramInputCallback.TryParse(callback.Data, out var input))
+                reply = await HandleInputCallbackAsync(callback, input, cancellationToken);
         }
         finally
         {
@@ -147,6 +150,11 @@ public sealed class TelegramPollingService(
     {
         // An album still open completes before anything its sender sent after it, so requests keep their order (#95).
         if (mediaReceiver is not null) await mediaReceiver.CompleteAlbumsAsync(message.From!.Id, message.MediaGroupId);
+        if (message.ReplyToMessage is not null)
+        {
+            await HandleInputReplyAsync(message, cancellationToken);
+            return;
+        }
         if (message.Text is null)
         {
             if (pending is null)
@@ -882,17 +890,12 @@ public sealed class TelegramPollingService(
                 await SendReplyAsync(message.Chat.Id, "Esta solicitação espera aprovação ou negação.", cancellationToken);
                 return;
             }
-            string[] answers = request.Questions.Count == 1 ? [parts[3]] :
-                parts[3].Split('|', StringSplitOptions.TrimEntries);
-            if (answers.Length != request.Questions.Count || answers.Any(string.IsNullOrWhiteSpace))
+            if (!TryInputResponse(request, parts[3], out var inputResponse, out var error))
             {
-                await SendReplyAsync(message.Chat.Id,
-                    $"Informe {request.Questions.Count} resposta(s) na ordem das perguntas, separadas por |.",
-                    cancellationToken);
+                await SendReplyAsync(message.Chat.Id, error, cancellationToken);
                 return;
             }
-            response = new AgentInputResponse(request.Questions.Select((question, index) =>
-                (question.Id, Answer: answers[index])).ToDictionary(item => item.Id, item => item.Answer));
+            response = inputResponse;
         }
         else
         {

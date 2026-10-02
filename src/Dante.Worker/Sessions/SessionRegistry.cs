@@ -208,10 +208,13 @@ public sealed class SessionRegistry(
 
     private async Task<SessionResult> InterruptLockedAsync(Entry entry, CancellationToken cancellationToken)
     {
+        var inputs = PendingInputs(entry);
         if (!entry.Session.TryInterrupt(out var discarded))
         {
             return SessionResult.Reject($"A sessão {entry.Session.Id} não tem turno em andamento para interromper.");
         }
+
+        await PublishClosedInputsAsync(entry, inputs);
 
         try
         {
@@ -254,10 +257,13 @@ public sealed class SessionRegistry(
     {
         var session = entry.Session;
         var hadTurn = session.ActiveTurnId is not null;
+        var inputs = PendingInputs(entry);
         if (!session.TryClose())
         {
             return SessionResult.Reject($"A sessão {session.Id} já está sendo encerrada.");
         }
+
+        await PublishClosedInputsAsync(entry, inputs);
 
         lock (gate)
         {
@@ -343,13 +349,14 @@ public sealed class SessionRegistry(
         try
         {
             await entry.Driver.RespondAsync(resolution.UpstreamRequestId!, response, cancellationToken);
-            if (response is AgentApprovalResponse approval)
-                await PublishAsync(entry, new RequestResolvedEvent(requestId, approval.Decision)
-                {
-                    SessionId = entry.Session.Id,
-                    TurnId = resolution.TurnId,
-                    TimestampUtc = DateTimeOffset.UtcNow
-                });
+            AgentEvent resolved = response is AgentApprovalResponse approval
+                ? new RequestResolvedEvent(requestId, approval.Decision) : new InputResolvedEvent(requestId);
+            await PublishAsync(entry, resolved with
+            {
+                SessionId = entry.Session.Id,
+                TurnId = resolution.TurnId,
+                TimestampUtc = DateTimeOffset.UtcNow
+            });
         }
         catch (Exception exception)
         {
@@ -373,6 +380,18 @@ public sealed class SessionRegistry(
                 .Select(candidate => candidate.Session.GetPendingRequest(requestId))
                 .FirstOrDefault(request => request is not null);
         }
+    }
+
+    private static AgentPendingRequest[] PendingInputs(Entry entry) => entry.Session.PendingRequestIds
+        .Select(entry.Session.GetPendingRequest).OfType<AgentPendingRequest>().Where(request => !request.IsApproval).ToArray();
+
+    private async Task PublishClosedInputsAsync(Entry entry, IEnumerable<AgentPendingRequest> inputs)
+    {
+        foreach (var request in inputs)
+            await PublishAsync(entry, new RequestClosedEvent(request.RequestId)
+            {
+                SessionId = request.SessionId, TurnId = request.TurnId, TimestampUtc = DateTimeOffset.UtcNow
+            });
     }
 
     public Task<SessionResult> RespondAsync(long userId, string sessionId, string turnId,

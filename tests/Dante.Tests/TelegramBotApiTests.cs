@@ -137,6 +137,35 @@ public sealed class TelegramBotApiTests
         Assert.Equal(HttpStatusCode.TooManyRequests, error.StatusCode);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task InputDeliveryReturnsMessageIdsWithAndWithoutButtons(bool options)
+    {
+        var telegram = new BotApiLikeHandler();
+        using var http = new HttpClient(telegram);
+        var api = new TelegramBotApi(http, Options.Create(new TelegramOptions { BotToken = "test" }));
+        var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance)
+            { PartInterval = TimeSpan.Zero };
+        var session = new AgentSessionSnapshot("S000001", AgentKind.Codex, 123,
+            JobExecutionContext.General("/tmp/general"), AgentPermissionProfile.Plan,
+            AgentSessionState.WaitingForUser, "T000001", 0, ["R000001"], true, DateTimeOffset.UtcNow, null, null);
+        delivery.RegisterSession(session.Id, 123, -123, false);
+        await delivery.PublishAsync(session, new UserInputRequestedEvent("upstream",
+            [new("q", "Qual ferramenta?", options ? ["A", "B"] : [])])
+            { SessionId = session.Id, TurnId = "T000001", RequestId = "R000001" }, default);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (delivery.FindInputMessage(123, -123, 5) is null) await Task.Delay(10, timeout.Token);
+        var body = Assert.Single(telegram.Accepted);
+        Assert.Equal(options, body.TryGetProperty("reply_markup", out var keyboard));
+        Assert.DoesNotContain("/input", body.GetProperty("text").GetString());
+        Assert.DoesNotContain("S000001", body.GetProperty("text").GetString());
+        if (options)
+            Assert.Equal("in:S000001:T000001:R000001:1", keyboard.GetProperty("inline_keyboard")[1][0]
+                .GetProperty("callback_data").GetString());
+        Assert.Equal("R000001", delivery.FindInputMessage(123, -123, 5)!.RequestId);
+    }
+
     [Fact]
     public async Task InlineApprovalUsesBotApiKeyboardCallbackAndEditContracts()
     {

@@ -59,6 +59,15 @@ responder; cliques duplicados ou tardios são recusados. Os comandos `/approve`,
 `/approve-session` e `/deny` continuam disponíveis como fallback e atualizam a mesma
 mensagem. As instruções textuais só aparecem no pedido quando o transporte não suporta
 botões inline. Sessões com segredos vinculados seguem essa regra com os detalhes omitidos.
+Perguntas do agente oferecem botões quando há uma única pergunta com até dez opções curtas.
+Para texto livre ou outra orientação, use o **Reply** nativo à mensagem da pergunta, sem copiar
+IDs. Se houver várias perguntas no pedido, responda na ordem, separando as respostas por `|`;
+por exemplo, `primeira resposta | segunda resposta`. Opções numerosas ou longas aparecem
+em texto para resposta por Reply. `/input` continua aceito como fallback e suas instruções
+aparecem nos transportes sem suporte a input interativo. Mensagens comuns sem Reply continuam
+na conversa; o bot não adivinha a qual pergunta responder. A pergunta é atualizada após resposta,
+expiração, interrupção ou fechamento, quando o Telegram permite. Detalhes e opções de pedidos
+com segredos vinculados são omitidos, mantendo a resposta por Reply.
 `/claude` e `/codex` continuam disponíveis como execução avulsa (one-shot).
 
 Respostas técnicas com blocos Markdown cercados por três ou mais crases (ou `~~~`)
@@ -844,7 +853,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/approve <sessionId> <turnId> <requestId>` | Aprova a ação solicitada uma vez |
 | `/approve-session <sessionId> <turnId> <requestId>` | Aprova para a sessão quando o agente oferece essa opção |
 | `/deny <sessionId> <turnId> <requestId> [motivo]` | Nega a ação solicitada |
-| `/input <sessionId> <turnId> <requestId> <resposta1> [ \| <resposta2> ...]` | Responde às perguntas na ordem exibida |
+| `/input <sessionId> <turnId> <requestId> <resposta1> [ \| <resposta2> ...]` | Fallback técnico para responder às perguntas; prefira botões ou Reply à mensagem do pedido |
 | `/steer <orientação>` | Orienta imediatamente o turno da sessão ativa; no Claude, interrompe o turno e prioriza a orientação |
 | `/resend <jobId\|sessionId[/turnId]\|arquivo>` | Reenvia as partes pendentes da saída recente ou de um arquivo (`F000001`), sem executar o agente novamente |
 | `/send <caminho>` | Envia um arquivo do diretório da sessão ativa |
@@ -863,12 +872,15 @@ O modo `manual` é o padrão recomendado; os modos estão descritos em
 [Modos de trabalho](#modos-de-trabalho). O acesso `full` não é oferecido, e o fluxo one-shot
 continua independente dessas escolhas.
 
-Pedidos de aprovação e input mostram os IDs da sessão, turno e solicitação, com comandos prontos
-para responder. Uma solicitação pendente aparece em `/status` e expira após cinco minutos; a
+Pedidos de aprovação mostram os IDs da sessão, turno e solicitação. Perguntas de input usam
+botões ou Reply sem exigir esses IDs; nos transportes sem suporte, mostram `/input` com os
+IDs correlacionados. Uma solicitação pendente aparece em `/status` e expira após cinco minutos; a
 aprovação é negada ao expirar e uma resposta de input vazia é enviada ao agente. Respostas de
 outro usuário, duplicadas, tardias ou para outro turno são rejeitadas. Com segredos vinculados ao
-ambiente do repositório, o bot omite detalhes da ação e das perguntas, mas mantém os IDs e os
-comandos para permitir a decisão humana.
+ambiente do repositório, o bot omite detalhes da ação e das perguntas, sem oferecer opções
+que revelem segredos. Reply, botões e `/input` mantêm a validação do dono, turno e request;
+Reply e botões de input também conferem o chat e a mensagem original. Reply a mensagem
+não correlacionada é recusado com orientação, sem resolver um request ou abrir novo turno.
 
 ---
 

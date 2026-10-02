@@ -6,6 +6,10 @@ public interface ITelegramBotApi
 
     Task SendMessageAsync(long chatId, string text, CancellationToken cancellationToken);
 
+    // Input delivery returns message ids, including messages without buttons, and supports inline options.
+    // Lightweight transports retain the /input instructions unless they explicitly provide this contract.
+    bool SupportsInputMessages => false;
+
     // Whether messages are sent with their inline keyboard and return the id that correlates its buttons. Without it
     // the buttons cannot be used, so requests show the textual commands instead (#104).
     bool SupportsInlineKeyboards => false;
