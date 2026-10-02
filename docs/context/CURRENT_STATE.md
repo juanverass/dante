@@ -107,8 +107,9 @@ Detalhes de uso: [README](../../README.md).
   dogfooding pelo Telegram real depende do bot do usuário;
 - sem CI no GitHub: validação é local;
 - áudio e vídeo são recusados até haver ferramenta aprovada (#96); o bot só envia texto (#97);
-- a interpretação de imagens pelas CLIs reais foi validada no spike #93; a #95 foi validada com as CLIs simuladas do
-  `Dante.ProcessProbe`.
+- a interpretação de imagens pelas CLIs reais foi validada no spike #93; na #95, os testes automáticos usam as CLIs
+  simuladas do `Dante.ProcessProbe`, e a evidência com as CLIs reais é o `LiveImageEvidenceTests`, opt-in por
+  `DANTE_LIVE_CLI=1`; o bot do Telegram real não foi exercitado.
 
 ## Em andamento
 
@@ -123,7 +124,7 @@ Estado conhecido com #95:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    463 testes aprovados
+dotnet test Dante.sln    468 testes aprovados, 4 pulados (evidência com CLIs reais, opt-in)
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →

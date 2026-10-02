@@ -21,6 +21,7 @@ public sealed class TelegramImageTurnTests : IAsyncDisposable
     private readonly RecordingRunner runner = new();
     private PendingAttachments? pending;
     private SessionRegistry? sessions;
+    private AssistantSettingsStore? settings;
     private TelegramPollingService? service;
 
     private string Attachments => Path.Combine(root, "attachments");
@@ -90,6 +91,86 @@ public sealed class TelegramImageTurnTests : IAsyncDisposable
         await Eventually(() => driver.Calls.Contains("turn:monte um post com estes prints [A000001,A000002]"));
         Assert.Equal(["start", "turn:monte um post com estes prints [A000001,A000002]"], driver.Calls);
         Assert.False(api.HasMessage);
+    }
+
+    // Review of #103: an album and its caption are one batch that keeps its place before what the sender sent next.
+    [Fact]
+    public async Task AlbumKeepsItsCaptionAndImagesTogetherBeforeALaterText()
+    {
+        api.Files["a"] = TestImages.Png(10, 10);
+        await StartAsync();
+
+        api.Enqueue(Photo("a", group: "G1", id: 1, caption: "pedido do album"));
+        api.Enqueue(Text("pedido seguinte"));
+
+        var driver = await SingleDriverAsync();
+        await Eventually(() => driver.Calls.Contains("turn:pedido do album [A000001]"));
+        Assert.Equal("Recebido; envio ao agente quando a resposta atual terminar.", await api.NextMessageAsync());
+        driver.Emit(new TurnStartedEvent());
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        await Eventually(() => driver.Calls.Contains("turn:pedido seguinte"));
+        Assert.Equal(["start", "turn:pedido do album [A000001]", "turn:pedido seguinte"], driver.Calls);
+    }
+
+    [Fact]
+    public async Task ConsecutiveAlbumsKeepTheirOwnCaptionsAndImages()
+    {
+        api.Files["a"] = TestImages.Png(10, 10);
+        api.Files["b"] = TestImages.Png(20, 20);
+        api.Files["c"] = TestImages.Png(30, 30);
+        await StartAsync();
+
+        api.Enqueue(Photo("a", group: "G1", id: 1, caption: "primeiro"));
+        api.Enqueue(Photo("b", group: "G1", id: 2));
+        api.Enqueue(Photo("c", group: "G2", id: 3, caption: "segundo"));
+
+        var driver = await SingleDriverAsync();
+        await Eventually(() => driver.Calls.Contains("turn:primeiro [A000001,A000002]"));
+        Assert.Equal("Recebido; envio ao agente quando a resposta atual terminar.", await api.NextMessageAsync());
+        driver.Emit(new TurnStartedEvent());
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        await Eventually(() => driver.Calls.Contains("turn:segundo [A000003]"));
+    }
+
+    // Review of #103: a context command sent after an album runs after it, so the caption never runs elsewhere
+    // without its images.
+    [Theory]
+    [InlineData("/agent set codex", "Agente padrão alterado para Codex.")]
+    [InlineData("/session start codex", "Sessão S000002 iniciada com Codex")]
+    public async Task ContextCommandAfterAnAlbumRunsAfterItsRequest(string command, string reply)
+    {
+        api.Files["a"] = TestImages.Png(10, 10);
+        await StartAsync();
+
+        api.Enqueue(Photo("a", group: "G1", id: 1, caption: "analise esta imagem"));
+        api.Enqueue(Text(command));
+
+        Assert.StartsWith(reply, await api.NextMessageAsync());
+        var first = drivers.Created[0];
+        Assert.Equal(["start", "turn:analise esta imagem [A000001]"], first.Calls);
+        Assert.Equal(AgentKind.Claude, sessions!.List(123).Single(session => session.Id == "S000001").Agent);
+        await Task.Delay(2200);
+        Assert.DoesNotContain(drivers.Created, driver => driver.Calls.Contains("turn:analise esta imagem"));
+        Assert.Null(pending!.Get(123));
+    }
+
+    // A context that changes by other means before the album window closes drops the images and the caption together.
+    [Fact]
+    public async Task AlbumWhoseContextChangedIsDroppedWithItsCaption()
+    {
+        api.Files["a"] = TestImages.Png(10, 10);
+        await StartAsync();
+
+        api.Enqueue(Photo("a", group: "G1", id: 1, caption: "analise esta imagem"));
+        await Eventually(() => Directory.Exists(Attachments) &&
+            Directory.GetFiles(Attachments, "*.png", SearchOption.AllDirectories).Length == 1);
+        settings!.SetDefaultAgent(AgentKind.Codex);
+
+        Assert.Equal("1 imagem descartada com a legenda: o contexto da conversa mudou antes de o álbum terminar.",
+            await api.NextMessageAsync());
+        Assert.Empty(drivers.Created);
+        Assert.Null(pending!.Get(123));
+        Assert.Empty(Directory.GetFiles(Attachments, "*", SearchOption.AllDirectories));
     }
 
     [Fact]
@@ -194,7 +275,7 @@ public sealed class TelegramImageTurnTests : IAsyncDisposable
         var options = Options.Create(new TelegramOptions { BotToken = "test", AllowedUserIds = "123,456" });
         var store = new AttachmentStore(Attachments);
         pending = new PendingAttachments(store);
-        var settings = new AssistantSettingsStore(Path.Combine(root, "settings.json"));
+        settings = new AssistantSettingsStore(Path.Combine(root, "settings.json"));
         settings.SetDefaultAgent(defaultAgent);
         var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance);
         sessions = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance, delivery, attachments: store);

@@ -1040,8 +1040,11 @@ Recebimento de mídias (#94, AD-29). Para uma mensagem com mídia de usuário au
 Álbuns (`media_group_id`) recebem uma única resposta após a janela de 1,5 s.
 
 Com legenda (#95), a legenda é o pedido: depois de guardar as imagens, o receptor a despacha como o texto que as
-consome, e a confirmação só traz recusas. O álbum termina fora do loop de updates; resposta e despacho passam pelo
-mesmo semáforo do `TelegramPollingService`, que trata um update por vez.
+consome, e a confirmação só traz recusas. O álbum é um lote: as imagens só entram nos pendentes quando ele termina,
+junto com a legenda e no contexto em que chegou. Qualquer update posterior do mesmo usuário conclui antes os álbuns
+abertos dele (`CompleteAlbumsAsync`), preservando a ordem dos pedidos; pela janela de 1,5 s, a conclusão passa pelo
+mesmo semáforo do `TelegramPollingService`, que trata um update por vez. Se o contexto mudou por outro meio, imagens e
+legenda são descartadas juntas.
 
 O próximo texto que chega a um agente (conversa, `/steer`, `/claude`, `/codex`) faz `Take` dos pendentes do
 contexto atual e os move para o diretório da sessão ou do job (`AttachmentStore.MoveTo`). A entrada vira um

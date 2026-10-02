@@ -5,10 +5,13 @@ namespace Dante.Worker.Telegram;
 // Media messages become pending attachments of their sender (#94, AD-29). Images are downloaded with size and time
 // limits and checked by content; audio, video and other files are refused without downloading. The items of an album
 // arrive as separate messages and get a single reply once no new item came for the album window. A caption is the
-// request (#95): once the images are pending, it is dispatched as the text that consumes them. An album completes
-// outside the update loop, so its reply and dispatch run through exclusive, which serializes them with the updates.
+// request (#95): once the images are pending, it is dispatched as the text that consumes them.
+// An album is one indivisible batch: its images become pending only when it completes, together with its caption, in
+// the context it arrived in. Anything its sender sends next completes it first, so it keeps its place before later
+// requests; when the window closes instead, completion runs through exclusive, serialized with the updates.
 public sealed class TelegramMediaReceiver(ITelegramBotApi botApi, AttachmentStore store, PendingAttachments pending,
-    ILogger logger, Func<Func<Task>, CancellationToken, Task> exclusive, TimeSpan? albumWindow = null)
+    ILogger logger, Func<long, string> contextOf, Func<Func<Task>, CancellationToken, Task> exclusive,
+    TimeSpan? albumWindow = null)
 {
     private const string PendingScope = "pending";
     private static readonly TimeSpan DownloadTimeout = TimeSpan.FromSeconds(60);
@@ -16,62 +19,110 @@ public sealed class TelegramMediaReceiver(ITelegramBotApi botApi, AttachmentStor
     private readonly TimeSpan albumWindow = albumWindow ?? TimeSpan.FromSeconds(1.5);
     private readonly object gate = new();
     private readonly Dictionary<(long Owner, string Group), Album> albums = [];
+    private long nextAlbum;
 
-    public async Task ReceiveAsync(TelegramMessage message, string contextKey,
-        Func<string, CancellationToken, Task> reply, Func<string, CancellationToken, Task> dispatch,
-        CancellationToken cancellationToken)
+    public async Task ReceiveAsync(TelegramMessage message, Func<string, CancellationToken, Task> reply,
+        Func<string, CancellationToken, Task> dispatch, CancellationToken cancellationToken)
     {
         var owner = message.From!.Id;
+        var contextKey = contextOf(owner);
         if (message.MediaGroupId is not { } group)
         {
-            await CompleteAsync([await StoreAsync(message, owner, contextKey, cancellationToken)], reply, dispatch,
-                cancellationToken);
+            var outcome = await StoreAsync(message, owner, contextKey, 0, cancellationToken);
+            await CompleteAsync(owner, message.Chat.Id, contextKey, [outcome], reply, dispatch, cancellationToken);
             return;
         }
 
+        Album album;
         lock (gate)
         {
-            if (!albums.TryGetValue((owner, group), out var album))
-                albums[(owner, group)] = album = new Album(reply, dispatch, cancellationToken);
+            if (!albums.TryGetValue((owner, group), out album!))
+                albums[(owner, group)] = album = new Album(owner, group, message.Chat.Id, contextKey,
+                    Interlocked.Increment(ref nextAlbum), reply, dispatch, cancellationToken);
             // The same message is never stored twice, even if Telegram delivers it again.
             if (!album.MessageIds.Add(message.MessageId)) return;
             album.Timer?.Cancel();
             album.Timer = null;
         }
-        var outcome = await StoreAsync(message, owner, contextKey, cancellationToken);
+        var stored = await StoreAsync(message, owner, album.ContextKey,
+            album.Outcomes.Count(item => item.Attachment is not null), cancellationToken);
         lock (gate)
         {
-            var album = albums[(owner, group)];
-            album.Outcomes.Add(outcome);
+            album.Outcomes.Add(stored);
             album.Timer?.Cancel();
             album.Timer = new CancellationTokenSource();
-            _ = FlushLaterAsync((owner, group), album, album.Timer.Token);
+            _ = FlushLaterAsync(album, album.Timer.Token);
         }
     }
 
-    private async Task FlushLaterAsync((long, string) key, Album album, CancellationToken timer)
+    // Called before any other update of the owner is handled: the open albums complete first, oldest first. An item of
+    // keepGroup is a continuation of that album, which stays open.
+    public async Task CompleteAlbumsAsync(long owner, string? keepGroup)
+    {
+        List<Album> open;
+        lock (gate)
+        {
+            open = albums.Values.Where(album => album.Owner == owner && album.Group != keepGroup)
+                .OrderBy(album => album.Sequence).ToList();
+            foreach (var album in open)
+            {
+                albums.Remove((owner, album.Group));
+                album.Timer?.Cancel();
+            }
+        }
+        foreach (var album in open) await CompleteAlbumAsync(album);
+    }
+
+    private async Task FlushLaterAsync(Album album, CancellationToken timer)
     {
         try
         {
             await Task.Delay(albumWindow, timer);
-            lock (gate)
+            // Removed only once exclusive: an update that got there first already completed it.
+            await exclusive(async () =>
             {
-                if (timer.IsCancellationRequested || !albums.Remove(key)) return;
-            }
-            await exclusive(() => CompleteAsync(album.Outcomes, album.Reply, album.Dispatch, album.Stopping),
-                album.Stopping);
+                lock (gate)
+                {
+                    if (timer.IsCancellationRequested || !albums.Remove((album.Owner, album.Group))) return;
+                }
+                await CompleteAlbumAsync(album);
+            }, album.Stopping);
         }
         catch (OperationCanceledException) { /* A newer item restarted the window, or the worker is stopping. */ }
+    }
+
+    private async Task CompleteAlbumAsync(Album album)
+    {
+        try
+        {
+            await CompleteAsync(album.Owner, album.ChatId, album.ContextKey, album.Outcomes, album.Reply, album.Dispatch,
+                album.Stopping);
+        }
+        catch (OperationCanceledException) when (album.Stopping.IsCancellationRequested) { }
         catch (Exception exception)
         {
             logger.LogWarning("Falha ao confirmar o recebimento de um álbum ({ErrorType}).", exception.GetType().Name);
         }
     }
 
-    // With a caption and at least one image kept, the caption runs as the request and only problems are reported.
-    private async Task CompleteAsync(IReadOnlyList<Outcome> outcomes, Func<string, CancellationToken, Task> reply,
-        Func<string, CancellationToken, Task> dispatch, CancellationToken cancellationToken)
+    // The images become pending in the context they arrived in, or are dropped with their caption if it changed. With a
+    // caption and at least one image kept, the caption runs as the request and only problems are reported.
+    private async Task CompleteAsync(long owner, long chatId, string contextKey, IReadOnlyList<Outcome> stored,
+        Func<string, CancellationToken, Task> reply, Func<string, CancellationToken, Task> dispatch,
+        CancellationToken cancellationToken)
     {
+        if (contextOf(owner) != contextKey)
+        {
+            var dropped = stored.Where(outcome => outcome.Attachment is not null).ToArray();
+            foreach (var outcome in dropped) store.Delete(outcome.Attachment!);
+            if (dropped.Length > 0)
+                await reply($"{Count(dropped.Length, "imagem descartada", "imagens descartadas")} com a legenda: o " +
+                    "contexto da conversa mudou antes de o álbum terminar.", cancellationToken);
+            return;
+        }
+
+        var outcomes = stored.Select(outcome => outcome.Attachment is null ? outcome
+            : Register(owner, chatId, contextKey, outcome)).ToArray();
         var caption = outcomes.Select(outcome => outcome.Caption).FirstOrDefault(text => !string.IsNullOrWhiteSpace(text));
         var request = caption is not null && outcomes.Any(outcome => outcome.Attachment is not null);
         var summary = Summary(outcomes, request);
@@ -79,7 +130,23 @@ public sealed class TelegramMediaReceiver(ITelegramBotApi botApi, AttachmentStor
         if (request) await dispatch(caption!.Trim(), cancellationToken);
     }
 
-    private async Task<Outcome> StoreAsync(TelegramMessage message, long owner, string contextKey,
+    private Outcome Register(long owner, long chatId, string contextKey, Outcome outcome)
+    {
+        try
+        {
+            return outcome with
+            {
+                Replaced = pending.Add(owner, chatId, contextKey, outcome.Attachment!, outcome.Caption)
+            };
+        }
+        catch (AttachmentRejectedException exception)
+        {
+            return Outcome.Rejected(exception.Message, outcome.Caption);
+        }
+    }
+
+    // queued: images of the same album already stored but not pending yet, counted against the limit.
+    private async Task<Outcome> StoreAsync(TelegramMessage message, long owner, string contextKey, int queued,
         CancellationToken cancellationToken)
     {
         if ((message.Voice ?? message.Audio ?? message.Video ?? message.VideoNote ?? message.Animation) is not null)
@@ -105,7 +172,7 @@ public sealed class TelegramMediaReceiver(ITelegramBotApi botApi, AttachmentStor
         }
         else return Outcome.Rejected("formato não suportado; envie JPEG, PNG, GIF ou WebP", message.Caption);
 
-        if (pending.IsFull(owner, contextKey))
+        if (pending.IsFull(owner, contextKey, queued))
             return Outcome.Rejected($"limite de {PendingAttachments.MaxItems} imagens pendentes atingido", message.Caption);
         try
         {
@@ -113,8 +180,7 @@ public sealed class TelegramMediaReceiver(ITelegramBotApi botApi, AttachmentStor
             timeout.CancelAfter(DownloadTimeout);
             var attachment = await store.SaveImageAsync(owner, PendingScope, name, (destination, token) =>
                 botApi.DownloadFileAsync(fileId, destination, AttachmentStore.MaxImageBytes, token), timeout.Token);
-            var replaced = pending.Add(owner, message.Chat.Id, contextKey, attachment, message.Caption);
-            return new Outcome(attachment, null, replaced, message.Caption);
+            return new Outcome(attachment, null, null, message.Caption);
         }
         catch (TelegramFileTooLargeException) { return Outcome.Rejected(TooLarge, message.Caption); }
         catch (AttachmentRejectedException exception) { return Outcome.Rejected(exception.Message, message.Caption); }
@@ -169,9 +235,15 @@ public sealed class TelegramMediaReceiver(ITelegramBotApi botApi, AttachmentStor
         public static Outcome Rejected(string reason, string? caption) => new(null, reason, null, caption);
     }
 
-    private sealed class Album(Func<string, CancellationToken, Task> reply, Func<string, CancellationToken, Task> dispatch,
+    private sealed class Album(long owner, string group, long chatId, string contextKey, long sequence,
+        Func<string, CancellationToken, Task> reply, Func<string, CancellationToken, Task> dispatch,
         CancellationToken stopping)
     {
+        public long Owner { get; } = owner;
+        public string Group { get; } = group;
+        public long ChatId { get; } = chatId;
+        public string ContextKey { get; } = contextKey;
+        public long Sequence { get; } = sequence;
         public Func<string, CancellationToken, Task> Reply { get; } = reply;
         public Func<string, CancellationToken, Task> Dispatch { get; } = dispatch;
         public CancellationToken Stopping { get; } = stopping;

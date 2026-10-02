@@ -906,7 +906,11 @@ Implementação do encaminhamento (#95):
   apagados;
 - os consumidos vão para `<usuário>/<sessão|job>/` (`AttachmentStore.MoveTo`); o diretório é apagado quando a sessão
   termina (fechada ou falha) ou o job termina, e limpo antes do uso se sobrou de uma execução anterior com o mesmo id;
-- o álbum completa fora do loop de updates; resposta e despacho são serializados com os updates.
+- o álbum é um lote indivisível: as imagens só entram nos pendentes quando ele termina, junto com a legenda e no
+  contexto em que chegou. Qualquer update posterior do mesmo usuário (texto, comando, outro álbum) conclui antes os
+  álbuns abertos dele, então o pedido do álbum mantém o lugar antes do que veio depois; se o contexto mudou por
+  outro meio até a janela fechar, imagens e legenda são descartadas juntas, com aviso. A conclusão pela janela é
+  serializada com os updates.
 
 Código: `Attachments/`, `Sessions/AgentInput.cs`, `Sessions/SessionRegistry.cs`, drivers e runners,
 `Telegram/TelegramMediaReceiver.cs`, `Telegram/TelegramBotApi.cs`, `Telegram/TelegramPollingService.cs`; testes em

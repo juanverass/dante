@@ -143,6 +143,8 @@ public sealed class TelegramPollingService(
 
     private async Task HandleMessageAsync(TelegramMessage message, CancellationToken cancellationToken)
     {
+        // An album still open completes before anything its sender sent after it, so requests keep their order (#95).
+        if (mediaReceiver is not null) await mediaReceiver.CompleteAlbumsAsync(message.From!.Id, message.MediaGroupId);
         if (message.Text is null)
         {
             if (pending is null)
@@ -150,9 +152,9 @@ public sealed class TelegramPollingService(
                 await SendReplyAsync(message.Chat.Id, "Recebimento de mídias indisponível.", cancellationToken);
                 return;
             }
-            mediaReceiver ??= new TelegramMediaReceiver(botApi, attachments!, pending, logger, ExclusiveAsync);
-            await mediaReceiver.ReceiveAsync(message, AttachmentContext(message.From!.Id),
-                (reply, token) => SendReplyAsync(message.Chat.Id, reply, token),
+            mediaReceiver ??= new TelegramMediaReceiver(botApi, attachments!, pending, logger, AttachmentContext,
+                ExclusiveAsync);
+            await mediaReceiver.ReceiveAsync(message, (reply, token) => SendReplyAsync(message.Chat.Id, reply, token),
                 (caption, token) => HandleCaptionAsync(message, caption, token), cancellationToken);
             return;
         }
