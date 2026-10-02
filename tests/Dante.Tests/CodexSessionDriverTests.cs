@@ -50,9 +50,9 @@ public sealed class CodexSessionDriverTests
     }
 
     [Theory]
-    [InlineData(AgentPermissionProfile.Manual, false, "on-request/workspace-write/default//true")]
-    [InlineData(AgentPermissionProfile.Auto, false, "never/workspace-write/default//true")]
-    [InlineData(AgentPermissionProfile.Plan, true, "on-request/read-only/plan/fake-model/true")]
+    [InlineData(AgentPermissionProfile.Manual, false, "on-request/workspace-write/default//true/user")]
+    [InlineData(AgentPermissionProfile.Auto, false, "on-request/workspace-write/default//true/auto_review")]
+    [InlineData(AgentPermissionProfile.Plan, true, "on-request/read-only/plan/fake-model/true/user")]
     public async Task MapsPermissionProfilesToApprovalPolicyAndSandbox(
         AgentPermissionProfile profile, bool general, string expected)
     {
@@ -87,7 +87,7 @@ public sealed class CodexSessionDriverTests
         Assert.Equal(["app-server", "--listen", "stdio://"], Assert.Single(launcher.Requests).Arguments);
         Assert.Equal("fake-mini", started.Model);
         Assert.Equal("model:fake-mini", first.OfType<MessageCompletedEvent>().Single().Text);
-        Assert.Equal("on-request/read-only/plan/fake-mini/true", second.OfType<MessageCompletedEvent>().Single().Text);
+        Assert.Equal("on-request/read-only/plan/fake-mini/true/user", second.OfType<MessageCompletedEvent>().Single().Text);
 
         // Without a selection thread/start carries no model and the CLI reports its own default.
         await using var cliDefault = new CodexSessionDriver(new ProbeLauncher());
@@ -349,6 +349,21 @@ public sealed class CodexSessionDriverTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => driver.InterruptTurnAsync());
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory)));
+    }
+
+    [Theory]
+    [InlineData("wrong-reviewer")]
+    [InlineData("missing-reviewer")]
+    public async Task AutoRequiresConfirmationOfTheAutomaticReviewer(string scenario)
+    {
+        var launcher = new ProbeLauncher(scenario);
+        await using var driver = new CodexSessionDriver(launcher);
+
+        var error = await Assert.ThrowsAsync<AgentProtocolException>(() => driver.StartAsync(
+            new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Auto)));
+
+        Assert.Contains("não confirmou", error.Message);
+        await WaitUntilExitedAsync(launcher.Started.Single().ProcessId);
     }
 
     [Fact]

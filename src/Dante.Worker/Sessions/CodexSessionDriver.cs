@@ -47,6 +47,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
         }
 
         var (approvalPolicy, sandbox) = Policy(options.Profile);
+        var approvalsReviewer = options.Profile == AgentPermissionProfile.Auto ? "auto_review" : "user";
         // The prompt never goes on the command line: turns are JSON-RPC requests on stdin.
         var request = new AgentProcessRequest(
             AgentKind.Codex,
@@ -77,6 +78,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
             {
                 ["cwd"] = options.WorkingDirectory,
                 ["approvalPolicy"] = approvalPolicy,
+                ["approvalsReviewer"] = approvalsReviewer,
                 ["sandbox"] = sandbox,
                 // D.A.N.T.E. sessions live only while the Worker runs (Epic #60).
                 ["ephemeral"] = true
@@ -84,6 +86,11 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
             // Without a selection the CLI picks its own default model (#77); thread/start reports it either way.
             if (options.ModelSelection?.Model is { } selectedModel) threadParameters["model"] = selectedModel;
             var thread = await SendRequestAsync("thread/start", threadParameters, cancellationToken);
+            // Do not silently run auto without the reviewer requested by the user.
+            if (options.Profile == AgentPermissionProfile.Auto &&
+                (GetString(thread, "approvalPolicy") != approvalPolicy ||
+                 GetString(thread, "approvalsReviewer") != approvalsReviewer))
+                throw new AgentProtocolException("O Codex não confirmou a revisão automática de aprovações. Atualize a CLI ou use uma sessão manual.");
             var id = GetString(thread["thread"] as JsonObject, "id")
                      ?? throw new AgentProtocolException("O Codex iniciou a thread sem id.");
             lock (gate)
@@ -289,7 +296,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
     private static (string ApprovalPolicy, string Sandbox) Policy(AgentPermissionProfile profile) => profile switch
     {
         AgentPermissionProfile.Manual => ("on-request", "workspace-write"),
-        AgentPermissionProfile.Auto => ("never", "workspace-write"),
+        AgentPermissionProfile.Auto => ("on-request", "workspace-write"),
         AgentPermissionProfile.Plan => ("on-request", "read-only"),
         _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Perfil de permissão desconhecido.")
     };

@@ -142,6 +142,9 @@ internal static class FakeCodex
                     Reply(new JsonObject
                     {
                         ["thread"] = new JsonObject { ["id"] = ThreadId, ["cwd"] = (string?)parameters!["cwd"] },
+                        ["approvalPolicy"] = (string?)parameters["approvalPolicy"],
+                        ["approvalsReviewer"] = args.Contains("wrong-reviewer") ? "user" :
+                            args.Contains("missing-reviewer") ? null : (string?)parameters["approvalsReviewer"],
                         ["model"] = (string?)parameters["model"] ?? "fake-model"
                     });
                     break;
@@ -229,7 +232,7 @@ internal static class FakeCodex
                             var mode = turnParams["collaborationMode"] as JsonObject;
                             Message($"{threadParams!["approvalPolicy"]}/{threadParams["sandbox"]}/" +
                                     $"{(string?)mode?["mode"] ?? "default"}/{(string?)mode?["settings"]?["model"]}/" +
-                                    $"{threadParams["ephemeral"]}");
+                                    $"{threadParams["ephemeral"]}/{threadParams["approvalsReviewer"]}");
                             Complete("completed");
                             break;
                         case "command":

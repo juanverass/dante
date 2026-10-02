@@ -469,8 +469,14 @@ Perfis (`AgentPermissionProfile`, padrão `Manual`) mapeiam para `thread/start`:
 | Perfil | `approvalPolicy` | `sandbox` | `turn/start` |
 | --- | --- | --- | --- |
 | `Manual` | `on-request` | `workspace-write` | — |
-| `Auto` | `never` | `workspace-write` | — |
+| `Auto` | `on-request` | `workspace-write` | — |
 | `Plan` | `on-request` | `read-only` | `collaborationMode` `plan` com o modelo da thread |
+
+Evolução do perfil `Auto`: `thread/start` recebe `approvalsReviewer=auto_review`, validado na
+CLI 0.159.3. A política anterior `never` impedia solicitar exceções ao sandbox. Agora o
+revisor da CLI avalia pedidos de acesso automaticamente, podendo aprovar ou negar; `Manual`
+e `Plan` recebem `approvalsReviewer=user`. O driver exige confirmação da política e do
+revisor no retorno de `thread/start` em `Auto`, recusando suporte ausente ou divergente.
 
 Nenhum perfil chega a `danger-full-access`; a escolha pelo usuário é descrita na AD-22.
 Input humano do Codex continua **experimental** e, na 0.157.1, só aparece no

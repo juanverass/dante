@@ -85,6 +85,10 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   padrão. `/approve`, `/approve-session`, `/deny` e `/input` respondem a
   solicitações correlacionadas por sessão, turno e request, com expiração em cinco minutos
   e estado pendente em `/status` (AD-22).
+- Codex em sessão `auto` usa `on-request` + `auto_review`: pedidos de acesso são avaliados
+  automaticamente pela CLI, como no `/codex`; recusas continuam possíveis. O driver exige
+  confirmação do revisor pela CLI e a configuração vale para novas sessões; evidência real
+  na CLI 0.159.3 criou uma branch Git e consultou o GitHub sem aprovação humana.
 - input humano por botões e Reply (#105, AD-30): uma pergunta com até dez opções curtas
   oferece botões; texto livre, opções extensas e múltiplas perguntas usam Reply à mensagem
   original, correlacionada por usuário/chat/message_id e validada pelo registry; várias respostas
@@ -143,7 +147,7 @@ Estado conhecido com #104, #105 e #106:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    547 testes aprovados, 4 pulados (evidência com CLIs reais, opt-in)
+dotnet test Dante.sln    549 testes aprovados, 5 pulados (evidência com CLIs reais, opt-in)
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
