@@ -109,7 +109,8 @@ Detalhes de uso: [README](../../README.md).
 - áudio e vídeo são recusados até haver ferramenta aprovada (#96); o bot só envia texto (#97);
 - a interpretação de imagens pelas CLIs reais foi validada no spike #93; na #95, os testes automáticos usam as CLIs
   simuladas do `Dante.ProcessProbe`, e a evidência com as CLIs reais é o `LiveImageEvidenceTests`, opt-in por
-  `DANTE_LIVE_CLI=1`; o bot do Telegram real não foi exercitado.
+  `DANTE_LIVE_CLI=1`, executado em 2026-10-02 com Claude Code 2.1.287 e codex-cli 0.159.3: os quatro caminhos
+  (sessão e one-shot de cada CLI) identificaram a imagem sintética; o bot do Telegram real não foi exercitado.
 
 ## Em andamento
 
