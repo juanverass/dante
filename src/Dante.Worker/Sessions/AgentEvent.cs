@@ -28,6 +28,10 @@ public sealed record ToolCompletedEvent(string ItemId, AgentToolKind Kind, bool 
 
 public sealed record FileChangeEvent(IReadOnlyList<string> Paths, string? Diff = null) : AgentEvent;
 
+// A file the CLI reports through a structured channel (Codex imageGeneration.savedPath), never a path read in prose
+// (AD-29). Delivery still validates the path against the root of that channel.
+public sealed record ArtifactProducedEvent(string ItemId, string Path) : AgentEvent;
+
 // Warnings and errors may also be session-level (no active turn), e.g. configuration warnings.
 public sealed record WarningEvent(string Message) : AgentEvent;
 

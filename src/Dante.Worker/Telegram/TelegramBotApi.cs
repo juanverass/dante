@@ -68,25 +68,7 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
         };
 
         using var response = await httpClient.SendAsync(request, cancellationToken);
-        if (response.StatusCode == HttpStatusCode.TooManyRequests)
-        {
-            var delay = response.Headers.RetryAfter?.Delta;
-            if (response.Headers.RetryAfter?.Date is { } retryAt)
-                delay = retryAt - DateTimeOffset.UtcNow;
-            try
-            {
-                if (response.Content is not null)
-                {
-                    using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-                    if (document.RootElement.TryGetProperty("parameters", out var parameters) &&
-                        parameters.TryGetProperty("retry_after", out var seconds) &&
-                        seconds.TryGetInt32(out var value))
-                        delay = TimeSpan.FromSeconds(value);
-                }
-            }
-            catch (JsonException) { /* Back off even if Telegram returned an invalid body. */ }
-            throw new TelegramRateLimitException(delay);
-        }
+        await ThrowIfRateLimitedAsync(response, cancellationToken);
         if (parseMode is not null && response.StatusCode == HttpStatusCode.BadRequest)
         {
             // Read Telegram's diagnostic only to classify the error; never log or propagate it (it may echo content).
@@ -113,6 +95,54 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
         }
         return envelope.Result.ValueKind == JsonValueKind.Object &&
             envelope.Result.TryGetProperty("message_id", out var messageId) ? messageId.GetInt64() : null;
+    }
+
+    public async Task SendFileAsync(long chatId, TelegramFileUpload upload, CancellationToken cancellationToken)
+    {
+        var field = upload.AsPhoto ? "photo" : "document";
+        await using var file = new FileStream(upload.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var content = new MultipartFormDataContent
+        {
+            { new StringContent(chatId.ToString(System.Globalization.CultureInfo.InvariantCulture)), "chat_id" }
+        };
+        if (upload.Caption is { Length: > 0 } caption) content.Add(new StringContent(caption), "caption");
+        // Telegram would otherwise turn an image sent as document into a photo; the original must stay as sent.
+        if (!upload.AsPhoto) content.Add(new StringContent("true"), "disable_content_type_detection");
+        var stream = new StreamContent(file);
+        stream.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(upload.MediaType);
+        content.Add(stream, field, upload.FileName);
+        using var request = new HttpRequestMessage(HttpMethod.Post, MethodUrl(upload.AsPhoto ? "sendPhoto" : "sendDocument"))
+        {
+            Content = content
+        };
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        await ThrowIfRateLimitedAsync(response, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var envelope = await response.Content.ReadFromJsonAsync<TelegramEnvelope<JsonElement>>(
+            JsonOptions, cancellationToken);
+        if (envelope is not { Ok: true }) throw new JsonException("Resposta inválida da API do Telegram.");
+    }
+
+    private static async Task ThrowIfRateLimitedAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if (response.StatusCode != HttpStatusCode.TooManyRequests) return;
+        var delay = response.Headers.RetryAfter?.Delta;
+        if (response.Headers.RetryAfter?.Date is { } retryAt)
+            delay = retryAt - DateTimeOffset.UtcNow;
+        try
+        {
+            if (response.Content is not null)
+            {
+                using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                if (document.RootElement.TryGetProperty("parameters", out var parameters) &&
+                    parameters.TryGetProperty("retry_after", out var seconds) &&
+                    seconds.TryGetInt32(out var value))
+                    delay = TimeSpan.FromSeconds(value);
+            }
+        }
+        catch (JsonException) { /* Back off even if Telegram returned an invalid body. */ }
+        throw new TelegramRateLimitException(delay);
     }
 
     public Task EditApprovalAsync(long chatId, long messageId, string text, CancellationToken cancellationToken)

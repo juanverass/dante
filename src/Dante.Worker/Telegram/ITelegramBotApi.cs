@@ -35,6 +35,13 @@ public interface ITelegramBotApi
     // real, throws TelegramFileTooLargeException before or while downloading.
     Task<long> DownloadFileAsync(string fileId, Stream destination, long maxBytes, CancellationToken cancellationToken)
         => throw new NotSupportedException("Download de arquivos indisponível.");
+
+    // Uploads a local file by multipart: as a photo (Telegram shows a compressed preview) or as a document (the
+    // original bytes, downloadable).
+    Task SendFileAsync(long chatId, TelegramFileUpload upload, CancellationToken cancellationToken)
+        => throw new NotSupportedException("Envio de arquivos indisponível.");
 }
+
+public sealed record TelegramFileUpload(string Path, string FileName, string MediaType, bool AsPhoto, string? Caption);
 
 public sealed class TelegramFileTooLargeException() : IOException("Arquivo acima do limite de tamanho.");

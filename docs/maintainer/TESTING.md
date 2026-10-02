@@ -381,6 +381,14 @@ Recebimento de mídias (#94):
 
 `TelegramBotApiTests` cobre o download: limite declarado e real, path malicioso, erro sem token e cancelamento.
 
+## `ArtifactStoreTests` e `TelegramArtifactDeliveryTests`
+
+Arquivos produzidos (#97): cópia privada, imagem como foto e documento, traversal, path absoluto externo, symlink de
+arquivo e de diretório saindo da raiz, credenciais, limites, canal só de imagem; no fluxo, imagem gerada como prévia e
+original, path em prosa sem upload, path gerado fora da raiz, `/send` e suas recusas, falha com aviso e `/resend`, retry
+transitório, cópia removida e sessão com segredos sem upload. `TelegramBotApiTests` verifica o multipart de `sendPhoto`
+e `sendDocument` e o rate limit.
+
 ## `TelegramImageTurnTests`
 
 Imagens até os agentes (#95): foto com legenda abrindo sessão, prints seguidos de pedido em texto, álbum com legenda
