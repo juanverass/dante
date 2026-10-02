@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-02, com approvals inline (#104), respostas por botões e Reply (#105), ajuda de comandos (#106) e troca de modo da sessão ociosa (#108).
+Última revisão: 2026-10-02, com approvals inline (#104), respostas por botões e Reply (#105), ajuda de comandos (#106), troca de modo da sessão ociosa (#108) e áudio e vídeo aos agentes (#96).
 
 ## Marcos
 
@@ -18,7 +18,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | Agent Harness v1 (Epic #40) | concluído |
 | MVP 3 — Conversational Context (Epic #32) | concluído (#33–#38); fechamento da Epic por decisão humana |
 | Interactive Agent Sessions (Epic #60) | concluído |
-| Mídias no Telegram (Epic #92) | em andamento: spike #93, recebimento #94, imagens aos agentes #95 e artefatos #97 entregues; #96, #98 e #99 pendentes |
+| Mídias no Telegram (Epic #92) | em andamento: spike #93, recebimento #94, imagens aos agentes #95, áudio e vídeo #96 e artefatos #97 entregues; #98 e #99 pendentes |
 
 ## Funcionalidades disponíveis
 
@@ -61,6 +61,14 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   pendentes, na ordem; Claude recebe blocos `image` na sessão e `Read` + `--add-dir` no one-shot, Codex recebe
   `localImage` no turno e no steer e `-i` no one-shot; anexos sem suporte são recusados antes do agente; os arquivos
   ficam no diretório da sessão ou do job e são apagados quando ela ou ele termina;
+- áudio e vídeo aos agentes (#96, AD-29): voz, áudio, vídeo e video note são baixados (até 20 MB, contêiner conferido
+  pelo conteúdo) e ficam pendentes como as imagens, ou são recusados antes do download quando faltam as ferramentas
+  locais (`ffmpeg`/`ffprobe`, `whisper-cli` e o modelo `~/.dante/models/ggml-small.bin` ou `DANTE_WHISPER_MODEL`).
+  Antes de o turno chegar ao agente, o D.A.N.T.E. transcreve a fala com timestamps (whisper.cpp) e amostra até 6
+  quadros por vídeo, enviados como imagens; o texto declara a proveniência e o que não foi analisado (além de 10 min,
+  entre quadros, sem trilha de áudio). Na sessão, a preparação roda dentro do turno já aberto: a fila mantém a ordem,
+  `/session stop` cancela as ferramentas e falha encerra só aquele turno; no one-shot, roda dentro do job, e `/cancel`
+  a interrompe. `/steer` não leva áudio nem vídeo; limite de 10 min de processamento por mensagem;
 - arquivos produzidos (#97, AD-29): imagem gerada pela sessão do Codex (`imageGeneration.savedPath`) é enviada sozinha,
   e `/send <caminho>` envia um arquivo do diretório da sessão ativa; caminho real validado contra a raiz do canal
   (symlinks resolvidos), até 50 MB, sem nomes de credencial, e nunca de sessão com segredos vinculados; imagem vai
@@ -130,9 +138,15 @@ Detalhes de uso: [README](../../README.md).
 - a validação real foi feita contra as CLIs instaladas com a API do Telegram simulada; o
   dogfooding pelo Telegram real depende do bot do usuário;
 - sem CI no GitHub: validação é local;
-- áudio e vídeo enviados ao bot são recusados até haver ferramenta aprovada (#96);
+- áudio e vídeo chegam ao agente só como transcrição e quadros amostrados (nenhuma CLI recebe o arquivo); a
+  transcrição é automática e local, e o vídeo é visto só nos quadros amostrados; animações (GIF) são recusadas;
 - one-shot (`/claude`, `/codex`) não envia arquivos gerados: o `codex exec` não informa onde salvou a imagem;
   registros e cópias de arquivos enviados não sobrevivem ao reinício do Worker;
+- a evidência de áudio e vídeo com as ferramentas reais é o `LiveMediaEvidenceTests`, opt-in por `DANTE_LIVE_MEDIA=1`
+  (e `DANTE_LIVE_CLI=1` para os agentes), executado em 2026-10-02 com ffmpeg 8.0.1, whisper.cpp 1.8.3 (modelo
+  `small`), Claude Code 2.1.287 e codex-cli 0.159.3: voz sintética (TTS do Windows, en-US, em OGG/Opus) transcrita
+  e respondida pela sessão do Claude, e vídeo sintético (vermelho, depois azul) amostrado e descrito na ordem pela
+  sessão do Codex; o bot do Telegram real não foi exercitado;
 - a interpretação de imagens pelas CLIs reais foi validada no spike #93; na #95, os testes automáticos usam as CLIs
   simuladas do `Dante.ProcessProbe`, e a evidência com as CLIs reais é o `LiveImageEvidenceTests`, opt-in por
   `DANTE_LIVE_CLI=1`, executado em 2026-10-02 com Claude Code 2.1.287 e codex-cli 0.159.3: os quatro caminhos
@@ -140,18 +154,18 @@ Detalhes de uso: [README](../../README.md).
 
 ## Em andamento
 
-- **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94), imagens aos agentes (#95) e artefatos (#97) entregues; áudio/vídeo (#96) e a imagem para LinkedIn (#98) dependem de decisão humana sobre ferramentas.
+- **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94), imagens aos agentes (#95), áudio e vídeo (#96) e artefatos (#97) entregues; a imagem para LinkedIn (#98) depende de decisão humana sobre a rota.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #104, #105, #106 e #108:
+Estado conhecido com #104, #105, #106, #108 e #96:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    575 testes aprovados, 7 pulados (evidência com CLIs reais, opt-in)
+dotnet test Dante.sln    618 testes aprovados, 11 pulados (evidência com CLIs e ferramentas reais, opt-in)
 ```
 
 `LiveSessionModeEvidenceTests` (#108), opt-in com `DANTE_LIVE_CLI=1`, passou para Claude Code
@@ -164,8 +178,9 @@ dotnet test Dante.sln    575 testes aprovados, 7 pulados (evidência com CLIs re
 `InteractiveAgentProcessTests.GracefulExitDoesNotLeaveOrphanedChildProcess` (#62) pode ser
 intermitente na suíte completa em WSL2 e passa isolado; já falhava assim antes da #63.
 `TelegramBotApiTests.OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard` também falhou uma vez na suíte
-completa durante a #94 e de novo no baseline da #95; passa isolado e nas execuções seguintes.
+completa durante a #94 e de novo no baseline da #95; passa isolado e nas execuções seguintes. Na #96 falhou no baseline
+(antes de qualquer mudança) e em duas de três execuções completas, sempre passando isolado.
 
 ## Próximos marcos
 
-1. mídias no Telegram (#92): áudio e vídeo (#96), imagem para LinkedIn (#98) e validação final (#99).
+1. mídias no Telegram (#92): imagem para LinkedIn (#98) e validação final (#99).

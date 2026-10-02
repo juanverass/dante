@@ -13,12 +13,14 @@ namespace Dante.Tests;
 
 // Images reach the agents (#95, AD-29): a caption or the next text takes the pending images of the conversation's
 // context into one turn, queue item, steer or one-shot, and their files live with the session or job that uses them.
+// Audio and video (#96) follow the same path and are prepared inside the turn or job, never in a steer.
 public sealed class TelegramImageTurnTests : IAsyncDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "dante-image-turns-" + Guid.NewGuid().ToString("N"));
     private readonly FakeSessionDriverFactory drivers = new();
     private readonly BotApi api = new();
     private readonly RecordingRunner runner = new();
+    private readonly FakeMediaTools tools = new();
     private PendingAttachments? pending;
     private SessionRegistry? sessions;
     private AssistantSettingsStore? settings;
@@ -229,6 +231,100 @@ public sealed class TelegramImageTurnTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task VoiceWithAOneShotCaptionRunsWithItsTranscriptInsideTheJob()
+    {
+        api.Files["v"] = TestMedia.Ogg();
+        await StartAsync(media: true);
+
+        api.Enqueue(Voice("v", caption: "/codex resuma o áudio"));
+        Assert.StartsWith("Codex iniciado. Job ID: J000001 (General), 1 áudio.", await api.NextMessageAsync());
+        Assert.Contains("Codex concluído", await api.NextMessageAsync());
+
+        var run = Assert.Single(runner.Runs);
+        Assert.StartsWith("resuma o áudio\n\n[Anexos processados localmente pelo D.A.N.T.E.", run.Prompt);
+        Assert.Contains("Áudio 1, duração 0:42. Transcrição (whisper.cpp, idioma detectado: pt):\n" +
+            "[0:00–0:04] A palavra secreta é girassol.", run.Prompt);
+        Assert.Empty(run.Attachments);
+        Assert.Equal(["probe:A000001.ogg", "audio:A000001.ogg:42", "transcribe:A000001-audio.wav"], tools.Calls);
+        Assert.False(Directory.Exists(Path.Combine(Attachments, "123", "J000001")));
+    }
+
+    [Fact]
+    public async Task CancellingTheJobStopsTheTranscriptionAndTheAgentNeverRuns()
+    {
+        api.Files["v"] = TestMedia.Ogg();
+        tools.Gate = new TaskCompletionSource();
+        await StartAsync(media: true);
+
+        api.Enqueue(Voice("v", caption: "/claude resuma"));
+        Assert.StartsWith("Claude iniciado. Job ID: J000001 (General), 1 áudio.", await api.NextMessageAsync());
+        await Eventually(() => tools.Calls.Count > 0);
+        api.Enqueue(Text("/cancel J000001"));
+
+        var replies = new[] { await api.NextMessageAsync(), await api.NextMessageAsync() };
+        Assert.Contains(replies, reply => reply.StartsWith("Claude cancelado. Job J000001"));
+        Assert.Empty(runner.Runs);
+        Assert.False(Directory.Exists(Path.Combine(Attachments, "123", "J000001")));
+    }
+
+    [Fact]
+    public async Task AMissingToolFailsTheJobWithTheInstallHint()
+    {
+        api.Files["v"] = TestMedia.Ogg();
+        await StartAsync(media: true);
+        api.Enqueue(Voice("v"));
+        Assert.StartsWith("Recebi 1 áudio.", await api.NextMessageAsync());
+        // Installed when it arrived, missing when the request came.
+        tools.Missing[AttachmentKind.Audio] = "whisper-cli não encontrado no PATH; instale o whisper.cpp";
+
+        api.Enqueue(Text("/codex resuma"));
+        await api.NextMessageAsync();
+        var result = await api.NextMessageAsync();
+
+        Assert.StartsWith("Codex falhou. Job J000001 (General).", result);
+        Assert.Contains("Não processei o áudio: whisper-cli não encontrado no PATH; instale o whisper.cpp.", result);
+        Assert.Empty(runner.Runs);
+    }
+
+    [Fact]
+    public async Task VoiceWithoutCaptionWaitsAndTheNextMessageTakesItIntoAPreparedTurn()
+    {
+        api.Files["v"] = TestMedia.Ogg();
+        await StartAsync(media: true);
+
+        api.Enqueue(Voice("v"));
+        var receipt = await api.NextMessageAsync();
+        Assert.StartsWith("Recebi 1 áudio.\nEnvie o pedido em texto: os arquivos vão junto com a próxima mensagem", receipt);
+        Assert.Equal(AttachmentKind.Audio, Assert.Single(pending!.Get(123)!.Items).Kind);
+
+        api.Enqueue(Text("o que eu disse?"));
+        var driver = await SingleDriverAsync();
+        await Eventually(() => driver.Calls.Any(call => call.StartsWith("turn:o que eu disse?\n\n[Anexos processados")));
+        Assert.True(File.Exists(Path.Combine(Attachments, "123", "S000001", "A000001.ogg")));
+        Assert.False(File.Exists(Path.Combine(Attachments, "123", "S000001", "A000001-audio.wav")));
+        Assert.Contains("→ Processando 1 áudio localmente (transcrição)\n", await api.NextMessageAsync());
+    }
+
+    [Fact]
+    public async Task SteerWithPendingAudioIsRefusedAndTheAudioStaysPending()
+    {
+        api.Files["v"] = TestMedia.Ogg();
+        await StartAsync(AgentKind.Codex, media: true);
+        api.Enqueue(Text("tarefa longa"));
+        var driver = await SingleDriverAsync();
+        await Eventually(() => driver.Calls.Contains("turn:tarefa longa"));
+
+        api.Enqueue(Voice("v"));
+        Assert.StartsWith("Recebi 1 áudio.", await api.NextMessageAsync());
+        api.Enqueue(Text("/steer use isto"));
+
+        Assert.Equal("Orientação não enviada: há áudio ou vídeo pendente, que vai ao agente só como mensagem comum " +
+            "(entra na fila da sessão). Envie o pedido sem /steer.", await api.NextMessageAsync());
+        Assert.DoesNotContain(driver.Calls, call => call.StartsWith("steer:"));
+        Assert.Single(pending!.Get(123)!.Items);
+    }
+
+    [Fact]
     public async Task CaptionWithAnotherCommandKeepsTheImagesPending()
     {
         api.Files["a"] = TestImages.Png(10, 10);
@@ -270,8 +366,10 @@ public sealed class TelegramImageTurnTests : IAsyncDisposable
         Assert.Single(pending!.Get(123)!.Items);
     }
 
-    private async Task StartAsync(AgentKind defaultAgent = AgentKind.Claude)
+    private async Task StartAsync(AgentKind defaultAgent = AgentKind.Claude, bool media = false)
     {
+        var preparer = media ? new MediaPreparer(tools) : null;
+        drivers.Media = preparer;
         var options = Options.Create(new TelegramOptions { BotToken = "test", AllowedUserIds = "123,456" });
         var store = new AttachmentStore(Attachments);
         pending = new PendingAttachments(store);
@@ -282,7 +380,7 @@ public sealed class TelegramImageTurnTests : IAsyncDisposable
         service = new TelegramPollingService(api, options, new TelegramUserAuthorizer(options), runner, runner,
             new JobRegistry(), NullLogger<TelegramPollingService>.Instance, null,
             new GeneralWorkspace(Path.Combine(root, "general")), settings, sessions, delivery,
-            attachments: store, pendingAttachments: pending);
+            attachments: store, pendingAttachments: pending, media: preparer);
         await service.StartAsync(CancellationToken.None);
     }
 
@@ -320,6 +418,9 @@ public sealed class TelegramImageTurnTests : IAsyncDisposable
     }
 
     private sealed record Run(string Prompt, IReadOnlyList<Attachment> Attachments, bool FilesExisted);
+
+    private static TelegramMessage Voice(string fileId, string? caption = null) =>
+        Message(caption: caption) with { Voice = new TelegramFileInfo(fileId, 16, "audio/ogg") };
 
     private sealed class RecordingRunner : ICodexRunner, IClaudeRunner
     {

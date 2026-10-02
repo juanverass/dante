@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Dante.Worker.Agents;
+using Dante.Worker.Attachments;
 using Dante.Worker.Sessions;
 
 namespace Dante.Tests;
@@ -130,6 +131,8 @@ internal sealed class FakeSessionDriverFactory : IAgentSessionDriverFactory
     private readonly ConcurrentQueue<FakeSessionDriver> created = new();
 
     public Action<FakeSessionDriver>? Configure { get; set; }
+    // Like the production factory with a preparer: audio and video go through MediaPreparingSessionDriver (#96).
+    public MediaPreparer? Media { get; set; }
     public IReadOnlyList<FakeSessionDriver> Created => created.ToArray();
 
     public IAgentSessionDriver Create(AgentKind agent)
@@ -139,7 +142,7 @@ internal sealed class FakeSessionDriverFactory : IAgentSessionDriverFactory
             : AgentDriverCapabilities.Claude);
         Configure?.Invoke(driver);
         created.Enqueue(driver);
-        return driver;
+        return Media is null ? driver : new MediaPreparingSessionDriver(driver, Media);
     }
 }
 

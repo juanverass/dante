@@ -865,7 +865,7 @@ da máquina é validação do usuário.
 
 ## AD-29 — Anexos como entrada neutra, imagem nativa por CLI e artefato só por canal explícito
 
-Status: vigente (#93, spike; recebimento na #94, encaminhamento aos agentes na #95, entrega de artefatos na #97); orienta #96, #98 e #99. Evidências e contrato completo em
+Status: vigente (#93, spike; recebimento na #94, encaminhamento aos agentes na #95, áudio e vídeo na #96, entrega de artefatos na #97); orienta #98 e #99. Evidências e contrato completo em
 [`docs/spikes/multimodal`](../spikes/multimodal/README.md).
 
 Validado em Claude Code 2.1.287 e codex-cli 0.159.3 (sessão e one-shot):
@@ -892,7 +892,8 @@ Decisões:
   entra na fila FIFO como item único (AD-16).
 - Limites: até 20 MB por arquivo (`getFile`); imagem JPEG/PNG/GIF/WebP de até 7 MB e 8000 px por lado; até
   10 imagens e 20 MB por turno; retenção até o fim da sessão ou do job. Áudio e vídeo são recusados
-  explicitamente até haver ferramenta aprovada (#96).
+  explicitamente até haver ferramenta aprovada (#96). *Substituído na #96: áudio e vídeo são aceitos quando as
+  ferramentas locais aprovadas estão instaladas (ver abaixo).*
 - Artefato só sai por canal explícito: evento estruturado da CLI (`imageGeneration.savedPath`) ou pedido do
   usuário por caminho dentro do diretório da sessão. Nunca por varredura do workspace nem por path citado na
   prosa. Geração de imagem fica restrita às sessões, porque o one-shot não informa o caminho.
@@ -959,11 +960,47 @@ Implementação da entrega de artefatos (#97):
   retry de falhas transitórias e aviso no chat em falha definitiva;
 - sessão com segredos vinculados não envia arquivo por nenhum canal (AD-10): conteúdo binário não pode ser redigido.
 
+Implementação de áudio e vídeo (#96):
+
+- decisão humana (2026-10-02, registrada na #96): ferramentas locais e gratuitas, instaladas pelo mantenedor —
+  `ffmpeg`/`ffprobe` 8.0.1 e `whisper.cpp` 1.8.3 (`whisper-cli`, apt) com o modelo `ggml-small.bin` em
+  `~/.dante/models/` (ou `DANTE_WHISPER_MODEL`). Nenhuma API paga nem credencial nova;
+- recebimento: voz e áudio são `Audio`; vídeo e video note são `Video`; documento conta pelo MIME declarado, que só
+  escolhe o tipo. O contêiner é conferido pelos primeiros bytes (`MediaInspector`: OGG, WebM/MKV, MP4/MOV/M4A, WAV,
+  FLAC, MP3), o que recusa playlists e outros textos que fariam o ffmpeg abrir arquivos ou URLs; as trilhas são
+  conferidas pelo `ffprobe` na preparação. Até 20 MB, conferido antes do download; sem as ferramentas, recusa antes
+  do download com o que instalar. Animação continua recusada;
+- preparação (`MediaPreparer`, `MediaTools`): fala vira transcrição com timestamps por trecho e idioma detectado;
+  vídeo vira até 6 quadros (JPEG de até 1280 px, no meio de fatias iguais) no lugar do vídeo, na ordem dos anexos,
+  mais a transcrição da trilha. Até 10 min de cada mídia; quadros contam no limite de 10 imagens por turno. O texto
+  derivado vem depois do pedido, num bloco que declara a proveniência e tudo que não foi analisado (análise parcial,
+  entre quadros, sem trilha, quadros fora do limite, transcrição indisponível). O agente nunca recebe o arquivo
+  original: o modelo não ouve nem assiste, e suporte não se infere pelo schema (`localAudio`);
+- ferramentas com nomes fixos resolvidos em entradas absolutas do `PATH`, `ArgumentList`, sem shell, ambiente mínimo,
+  `-protocol_whitelist file` e saída limitada; cancelamento encerra a árvore do processo. Falta de ferramenta é
+  verificada antes de executar e vira mensagem acionável; erro do processo nunca expõe caminho nem saída da ferramenta;
+- onde roda: dentro do turno, não no recebimento. Na sessão, `MediaPreparingSessionDriver` envolve o driver de cada
+  CLI (`AgentDriverCapabilities.MediaInput`): o turno abre na hora, a preparação roda em segundo plano, e só então o
+  input preparado inicia o turno upstream. Assim a fila FIFO (AD-16) mantém a ordem, `/status` mostra o turno, a
+  interrupção cancela as ferramentas e encerra o turno como interrompido sem tocar a CLI, e falha encerra só aquele
+  turno com o motivo. Steer durante a preparação vai junto do turno preparado. No one-shot, a preparação roda dentro
+  do job (`/cancel` a interrompe; falha encerra o job com o motivo). Limite de 10 min por mensagem;
+- `/steer` não leva áudio nem vídeo (a preparação não cabe num turno já em andamento upstream): o registry recusa, e
+  o Telegram recusa a orientação mantendo os pendentes para a próxima mensagem comum;
+- retenção: original e quadros ficam no diretório da sessão ou do job e saem com ele; o WAV intermediário e o JSON do
+  `whisper.cpp` são apagados logo após a transcrição, e tudo que foi derivado é apagado em falha, timeout ou
+  cancelamento.
+
+Por quê: preparar dentro do turno reaproveita a fila, o cancelamento e o estado que a sessão já tem, sem bloquear o
+long polling durante uma transcrição de minutos; o decorador mantém os drivers e o `SessionRegistry` sem
+conhecimento de ferramentas. Ferramentas locais evitam custo e credencial e mantêm a mídia na máquina.
+
 Código: `Attachments/`, `Artifacts/ArtifactStore.cs`, `Sessions/AgentInput.cs`, `Sessions/SessionRegistry.cs`, drivers e runners,
 `Telegram/TelegramDeliveryService.Artifacts.cs`,
-`Telegram/TelegramMediaReceiver.cs`, `Telegram/TelegramBotApi.cs`, `Telegram/TelegramPollingService.cs`; testes em
-`AttachmentStoreTests`, `PendingAttachmentsTests`, `TelegramBotApiTests`, `TelegramMediaIntakeTests`,
-`TelegramImageTurnTests`, `SessionRegistryTests` e nos testes de drivers e runners.
+`Sessions/MediaPreparingSessionDriver.cs`, `Telegram/TelegramMediaReceiver.cs`, `Telegram/TelegramBotApi.cs`,
+`Telegram/TelegramPollingService.cs`; testes em `AttachmentStoreTests`, `PendingAttachmentsTests`, `TelegramBotApiTests`,
+`TelegramMediaIntakeTests`, `TelegramImageTurnTests`, `MediaPreparerTests`, `MediaSessionTurnTests`,
+`LiveMediaEvidenceTests`, `SessionRegistryTests` e nos testes de drivers e runners.
 
 ## AD-30 — Input humano por mensagem correlacionada, botões para opções e Reply explícito
 

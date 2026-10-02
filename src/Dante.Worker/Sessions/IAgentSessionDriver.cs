@@ -32,6 +32,10 @@ public sealed record AgentDriverCapabilities(bool NativeSteer, bool Approvals, b
     // items (#93 spike, AD-29). Attachments are refused before reaching a driver without it.
     public bool ImageInput { get; init; } = true;
 
+    // Audio and video are prepared by the D.A.N.T.E. before the turn reaches the agent (#96): transcript and frames
+    // (MediaPreparingSessionDriver). No CLI receives them natively, so only that wrapper declares it.
+    public bool MediaInput { get; init; }
+
     // Claude stream-json: no mid-turn steer; approvals and AskUserQuestion via --permission-prompt-tool stdio.
     // Modes map to --permission-mode manual|auto|plan (AD-18).
     public static AgentDriverCapabilities Claude { get; } = new(NativeSteer: false, Approvals: true, UserInput: true) { ModeSwitch = AgentModeSwitch.Idle };

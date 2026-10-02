@@ -189,6 +189,9 @@ Nenhuma CLI entrega áudio ou vídeo ao modelo. Caminhos possíveis, todos fora 
 **Decisão humana necessária** antes da #96: qual ferramenta instalar ou contratar. Sem ela, áudio e vídeo
 são recusados explicitamente.
 
+Decisão (2026-10-02, #96): transcrição local com `whisper.cpp` (modelo `small`) e quadros pelo `ffmpeg`, instalados
+pelo mantenedor; sem API paga. Implementação e limites em AD-29.
+
 ## Caso LinkedIn (#98)
 
 Duas rotas viáveis, com trade-offs diferentes:
