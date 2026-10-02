@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-01, com o resolvedor unificado de agente e contexto (#37) e a execução como serviço local (#39).
+Última revisão: 2026-10-01, com o spike de capacidades multimodais (#93).
 
 ## Marcos
 
@@ -18,6 +18,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | Agent Harness v1 (Epic #40) | concluído |
 | MVP 3 — Conversational Context (Epic #32) | retomado: #33–#37 entregues; falta UX (#38) |
 | Interactive Agent Sessions (Epic #60) | concluído |
+| Mídias no Telegram (Epic #92) | em andamento: spike #93 entregue; #94–#99 pendentes |
 
 ## Funcionalidades disponíveis
 
@@ -92,12 +93,16 @@ Detalhes de uso: [README](../../README.md).
   mensagem progressivamente não está implementado;
 - a validação real foi feita contra as CLIs instaladas com a API do Telegram simulada; o
   dogfooding pelo Telegram real depende do bot do usuário;
-- sem CI no GitHub: validação é local.
+- sem CI no GitHub: validação é local;
+- mídias do Telegram (fotos, áudios, vídeos, arquivos) ainda são ignoradas e o bot só envia texto; capacidades e
+  contrato validados na AD-29 (#93), implementação nas #94–#99.
 
 ## Em andamento
 
 - **Epic #32 — MVP 3 (Conversational Context)**: retomada após o fechamento da Epic #60;
   #33–#37 entregues, falta a UX de contexto e jobs (#38).
+- **Epic #92 — Mídias no Telegram**: spike #93 com matriz de capacidades e contrato de anexos
+  (AD-29); áudio/vídeo (#96) e a imagem para LinkedIn (#98) dependem de decisão humana sobre ferramentas.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -119,4 +124,5 @@ intermitente na suíte completa em WSL2 e passa isolado; já falhava assim antes
 
 ## Próximos marcos
 
-1. conclusão do MVP 3 (#32): UX de contexto e jobs (#38).
+1. conclusão do MVP 3 (#32): UX de contexto e jobs (#38);
+2. mídias no Telegram (#92): receber e armazenar (#94), imagens para os agentes (#95), artefatos (#97).
