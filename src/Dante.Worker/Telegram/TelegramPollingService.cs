@@ -189,7 +189,7 @@ public sealed partial class TelegramPollingService(
             !command.Equals("/codex", StringComparison.OrdinalIgnoreCase))
         {
             await SendReplyAsync(message.Chat.Id, $"Comando desconhecido na legenda: {command}. As imagens continuam " +
-                "pendentes; envie o pedido em texto.", cancellationToken);
+                "pendentes; envie o pedido em texto. Use /help para ver os comandos.", cancellationToken);
             return;
         }
         await HandleTextAsync(message, caption, cancellationToken);
@@ -206,6 +206,13 @@ public sealed partial class TelegramPollingService(
         var separator = text.IndexOfAny([' ', '\t', '\r', '\n']);
         var command = separator < 0 ? text : text[..separator];
         var prompt = separator < 0 ? string.Empty : text[(separator + 1)..].Trim();
+        if (string.Equals(command, "/help", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var part in TelegramCommandHelp.Messages(prompt))
+                await SendLongMessageAsync(message.Chat.Id, part, cancellationToken);
+            return;
+        }
+
         if (string.Equals(command, "/repos", StringComparison.OrdinalIgnoreCase))
         {
             var registered = repositories?.List() ?? [];
@@ -359,7 +366,7 @@ public sealed partial class TelegramPollingService(
             if (text.StartsWith('/'))
             {
                 // Unknown commands are never forwarded to the default agent as prompts.
-                await SendReplyAsync(message.Chat.Id, $"Comando desconhecido: {command}.", cancellationToken);
+                await SendReplyAsync(message.Chat.Id, $"Comando desconhecido: {command}. Use /help para ver os comandos disponíveis.", cancellationToken);
                 return;
             }
 

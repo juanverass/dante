@@ -235,7 +235,7 @@ public sealed class TelegramImageTurnTests : IAsyncDisposable
         await StartAsync();
 
         api.Enqueue(Photo("a", caption: "/status"));
-        Assert.Equal("Comando desconhecido na legenda: /status. As imagens continuam pendentes; envie o pedido em texto.",
+        Assert.Equal("Comando desconhecido na legenda: /status. As imagens continuam pendentes; envie o pedido em texto. Use /help para ver os comandos.",
             await api.NextMessageAsync());
         Assert.Single(pending!.Get(123)!.Items);
         Assert.Empty(drivers.Created);

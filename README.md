@@ -57,7 +57,8 @@ suportado pelo agente) e **Negar**. Após uma decisão ou os cinco minutos de ex
 a mensagem mostra o resultado e os botões são removidos. Apenas o dono da sessão pode
 responder; cliques duplicados ou tardios são recusados. Os comandos `/approve`,
 `/approve-session` e `/deny` continuam disponíveis como fallback e atualizam a mesma
-mensagem. Sessões com segredos vinculados oferecem os botões com os detalhes omitidos.
+mensagem. As instruções textuais só aparecem no pedido quando o transporte não suporta
+botões inline. Sessões com segredos vinculados seguem essa regra com os detalhes omitidos.
 Perguntas do agente oferecem botões quando há uma única pergunta com até dez opções curtas.
 Para texto livre ou outra orientação, use o **Reply** nativo à mensagem da pergunta, sem copiar
 IDs. Se houver várias perguntas no pedido, responda na ordem, separando as respostas por `|`;
@@ -816,6 +817,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | Comando | Descrição |
 | --- | --- |
 | `/ping` | Verifica se o bot está respondendo |
+| `/help [comando]` | Mostra comandos por categoria, descrições e exemplos fictícios; `/help session` ou `/help /repo` detalha um comando |
 | `/claude <prompt>` | Executa Claude uma vez (one-shot) no contexto ativo, sem alterar o agente padrão |
 | `/codex <prompt>` | Executa Codex uma vez (one-shot) no contexto ativo, sem alterar o agente padrão |
 | `/claude @alias <prompt>` | Executa Claude uma vez em um repositório, sem alterar o contexto ativo |

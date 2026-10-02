@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-02, com a resposta a perguntas por botões e Reply (#105).
+Última revisão: 2026-10-02, com approvals inline (#104), respostas por botões e Reply (#105) e ajuda de comandos (#106).
 
 ## Marcos
 
@@ -24,6 +24,9 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 
 - bot Telegram por long polling com allowlist de usuários;
 - `/ping`;
+- `/help` mostra comandos por categoria com descrições, exemplos fictícios e escopo das
+  preferências/sessões/jobs; `/help comando` ou `/help /comando` detalha a sintaxe sem consultar
+  dados locais; comandos desconhecidos orientam para `/help` (#106);
 - `/claude [@alias] <prompt>` e `/codex [@alias] <prompt>`;
 - General Mode em workspace isolado e Repository Mode por `@alias`;
 - `/repos` e `/repo add|show|remove`;
@@ -96,7 +99,9 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   por retry e `/resend` sem reexecutar agentes (#81); comandos respeitam a ordem da prosa
   anterior e aguardam a liberação segura de caudas de segredo retidas;
 - aprovações oferecem botões inline com validação de dono, turno, request e expiração;
-  `/approve`, `/approve-session` e `/deny` seguem disponíveis como fallback textual;
+  `/approve`, `/approve-session` e `/deny` seguem aceitos manualmente, mas as instruções só
+  aparecem na mensagem quando o transporte não suporta os botões (#104), inclusive com
+  detalhes ocultos por segredos; o botão e o comando de aprovação na sessão dependem do suporte do agente;
 - execução como serviço systemd do usuário no WSL (`deploy/dante-service.sh`), com restart em
   falha, stop gracioso, logs no journald e distro iniciada no logon do Windows por tarefa agendada
   (AD-28);
@@ -134,11 +139,11 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #105:
+Estado conhecido com #104, #105 e #106:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    531 testes aprovados, 4 pulados (evidência com CLIs reais, opt-in)
+dotnet test Dante.sln    547 testes aprovados, 4 pulados (evidência com CLIs reais, opt-in)
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →

@@ -1,0 +1,96 @@
+namespace Dante.Worker.Telegram;
+
+// Static examples never interpolate the user's repositories, settings or pending requests.
+internal static class TelegramCommandHelp
+{
+    internal sealed record Entry(string Command, string Category, string Description, string Examples, string Details = "");
+
+    internal static IReadOnlyList<Entry> Entries { get; } = Array.AsReadOnly<Entry>(
+    [
+        new("/help", "BÁSICOS", "Descubra os comandos ou veja ajuda específica.", "/help\n/help session"),
+        new("/ping", "BÁSICOS", "Verifique se o bot responde.", "/ping"),
+        new("/status", "BÁSICOS", "Consulte jobs, suas sessões, pedidos pendentes e entregas recentes.", "/status"),
+
+        new("/session", "CONVERSA E SESSÕES", "Gerencie suas sessões e a conversa ativa; efeito apenas na sessão.",
+            "/session start codex manual\n/session list\n/session select S000003\n/session select none\n/session stop\n/session close S000003",
+            "start [claude|codex] [@alias] [manual|auto|plan] [model=nome|default] [effort=nível|default] abre e seleciona uma sessão. " +
+            "Opções omitidas usam suas preferências; overrides valem só para essa sessão. list lista suas sessões; " +
+            "select escolhe a sessão; none desmarca. stop [id] interrompe o turno e descarta a fila; close [id] encerra o processo. " +
+            "Sem id, stop e close usam a sessão ativa."),
+        new("/steer", "CONVERSA E SESSÕES", "Oriente o turno da sessão ativa; no Claude, interrompe e prioriza a orientação.",
+            "/steer não altere os arquivos de banco"),
+
+        new("/agent", "AGENTE E CONTEXTO", "Consulte ou salve o agente padrão; a sessão ativa mantém seu agente.",
+            "/agent\n/agent set claude", "set aceita claude ou codex. Preferência persistente para novas conversas e execuções sem agente explícito."),
+        new("/use", "AGENTE E CONTEXTO", "Consulte ou salve o contexto padrão; a sessão ativa mantém seu repositório.",
+            "/use\n/use @exemplo\n/use general", "Preferência persistente. @alias deve estar cadastrado; general usa o workspace geral. " +
+            "Um @alias explícito no pedido é override só daquela execução e não muda essa preferência."),
+
+        new("/model", "MODELOS E MODO", "Consulte, liste ou salve o modelo por agente para novas sessões e one-shot.",
+            "/model\n/model codex\n/model claude default", "/model claude|codex [modelo|default]. Sem modelo, lista os disponíveis; " +
+            "default volta ao padrão da CLI. Preferência persistente; a sessão ativa mantém seu modelo."),
+        new("/effort", "MODELOS E MODO", "Consulte ou salve o esforço por agente/modelo para novas sessões e one-shot.",
+            "/effort\n/effort codex\n/effort codex default", "/effort claude|codex [nível|default]. Escolha um nível anunciado pela CLI; " +
+            "default volta ao padrão da CLI. Preferência persistente; a sessão ativa mantém seu esforço."),
+        new("/mode", "MODELOS E MODO", "Consulte ou salve o modo padrão das novas sessões; não altera a sessão ativa.",
+            "/mode\n/mode manual", "manual pede aprovação, auto é automático e plan é planejamento, conforme suporte do agente. Preferência persistente."),
+        new("/permissions", "MODELOS E MODO", "Consulte ou salve a mesma preferência persistente de /mode.",
+            "/permissions\n/permissions plan", "Aceita manual, auto ou plan; aplica-se apenas às novas sessões."),
+
+        new("/claude", "EXECUÇÃO AVULSA", "Execute um job one-shot com Claude; não altera a conversa nem as preferências.",
+            "/claude explique arquitetura hexagonal", "/claude [@alias] pedido. Sem alias, usa o contexto padrão; alias explícito vale só para esse job."),
+        new("/codex", "EXECUÇÃO AVULSA", "Execute um job one-shot com Codex; não altera a conversa nem as preferências.",
+            "/codex @exemplo revise o README", "/codex [@alias] pedido. Sem alias, usa o contexto padrão; alias explícito vale só para esse job."),
+        new("/cancel", "EXECUÇÃO AVULSA", "Solicite cancelamento de um job; para um turno interativo, use /session stop.",
+            "/cancel J000001"),
+
+        new("/repos", "REPOSITÓRIOS", "Liste os repositórios cadastrados.", "/repos"),
+        new("/repo", "REPOSITÓRIOS", "Cadastre, consulte ou remova repositórios e configurações persistentes de ambiente.",
+            "/repo add @exemplo /caminho/do/repositorio\n/repo show @exemplo\n/repo remove @exemplo\n" +
+            "/repo env set @exemplo APP_ENV development\n/repo env bind @exemplo API_TOKEN TOKEN_DO_HOST\n" +
+            "/repo env list @exemplo\n/repo env remove @exemplo APP_ENV",
+            "add exige caminho absoluto de uma raiz Git; pode receber owner/repo após o caminho. Use aspas se houver espaços. " +
+            "Substitua o caminho fictício pelo seu. env set é só para valores não sensíveis; " +
+            "env bind referencia o nome de uma variável já definida no host, sem enviar o segredo pelo Telegram."),
+
+        new("/approve", "INTERAÇÃO HUMANA", "Fallback contextual: aprove uma ação uma vez, quando o agente pedir.",
+            "/approve S000001 T000002 R000003"),
+        new("/approve-session", "INTERAÇÃO HUMANA", "Fallback contextual: aprove na sessão, somente quando o agente oferecer essa opção.",
+            "/approve-session S000001 T000002 R000003"),
+        new("/deny", "INTERAÇÃO HUMANA", "Fallback contextual: negue uma ação, com motivo opcional.",
+            "/deny S000001 T000002 R000003 não permitido"),
+        new("/input", "INTERAÇÃO HUMANA", "Fallback contextual: responda às perguntas de uma solicitação do agente.",
+            "/input S000001 T000002 R000004 primeira resposta | segunda resposta",
+            "Use os IDs exibidos no pedido e responda na ordem das perguntas, separando respostas por |. " +
+            "Uma só pergunta precisa de uma só resposta. Apenas o dono pode responder a uma solicitação ainda válida."),
+
+        new("/send", "ENTREGA", "Envie um arquivo do diretório da sessão ativa; não executa o agente.",
+            "/send resultado.png", "Caminho relativo à sessão; até 50 MB. Arquivos de credenciais e sessões com segredos vinculados são recusados."),
+        new("/resend", "ENTREGA", "Reenvie partes pendentes de uma entrega recente; não executa o agente novamente.",
+            "/resend J000001\n/resend S000001/T000002\n/resend F000001", "Aceita ID de job, sessão, sessão/turno ou arquivo. Só recupera entregas disponíveis nesta execução do Worker.")
+    ]);
+
+    private const string ExamplesNotice = "Exemplos fictícios: substitua @exemplo por um alias cadastrado e os IDs pelos exibidos no seu pedido ou /status.";
+
+    internal static IReadOnlyList<string> Messages(string topic)
+    {
+        if (topic.Length > 0)
+        {
+            var name = "/" + topic.TrimStart('/');
+            var entry = Entries.FirstOrDefault(entry => entry.Command.Equals(name, StringComparison.OrdinalIgnoreCase));
+            return entry is null ? ["Comando de ajuda não encontrado. Use /help para ver todos os comandos disponíveis."] :
+                [entry.Category + "\n\n" + Format(entry, detailed: true) + "\n\n" + ExamplesNotice];
+        }
+
+        return Entries.GroupBy(entry => entry.Category).Select((group, index) =>
+            (index == 0 ? "Comandos do D.A.N.T.E.\n" +
+                "Mensagem comum conversa com a sessão ativa; sem sessão, abre uma com suas preferências.\n" +
+                "Use /help nome para detalhes, por exemplo /help session.\n" + ExamplesNotice + "\n\n" : "") +
+            group.Key + (group.Key == "INTERAÇÃO HUMANA" ? "\nUse os botões oferecidos; estes comandos são fallback, não é preciso decorá-los." : "") +
+            "\n\n" + string.Join("\n\n", group.Select(entry => Format(entry, detailed: false)))).ToArray();
+    }
+
+    private static string Format(Entry entry, bool detailed) =>
+        entry.Command + " — " + entry.Description + (detailed && entry.Details.Length > 0 ? "\n" + entry.Details : "") +
+        "\nExemplos:\n" + entry.Examples;
+}
