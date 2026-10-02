@@ -361,12 +361,65 @@ public sealed class TelegramPlainMessageTests : IAsyncDisposable
         try
         {
             api.Enqueue(command);
-            Assert.StartsWith("Comando desconhecido:", await api.NextMessageAsync());
+            var reply = await api.NextMessageAsync();
+            Assert.StartsWith("Comando desconhecido:", reply);
+            Assert.Contains("Use /help", reply);
             api.Enqueue("/ping");
             Assert.Equal("pong", await api.NextMessageAsync());
             Assert.Empty(codex.Runs);
             Assert.Empty(claude.Runs);
             Assert.Empty(drivers.Created);
+        }
+        finally { await service.StopAsync(CancellationToken.None); }
+    }
+
+    [Fact]
+    public async Task HelpIsCategorizedAndDoesNotChangePreferencesOrStartAgents()
+    {
+        var store = Settings();
+        store.SetDefaultAgent(AgentKind.Codex);
+        store.SetActiveRepository(123, "@private_repository");
+        using var service = CreateService(store);
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            api.Enqueue("/help");
+            foreach (var expected in TelegramCommandHelp.Messages(""))
+            {
+                var response = await api.NextMessageAsync();
+                Assert.Equal(expected, response);
+                Assert.InRange(response.Length, 1, 4000);
+                Assert.DoesNotContain("@private_repository", response);
+                Assert.DoesNotContain(root, response);
+            }
+            api.Enqueue("/HeLp /SESSION");
+            Assert.Equal(Assert.Single(TelegramCommandHelp.Messages("/SESSION")), await api.NextMessageAsync());
+            api.Enqueue("/help unknown");
+            Assert.Contains("Use /help", await api.NextMessageAsync());
+            api.Enqueue("/ping");
+            Assert.Equal("pong", await api.NextMessageAsync());
+            Assert.Equal(AgentKind.Codex, store.Current.DefaultAgent);
+            Assert.Equal("@private_repository", store.GetActiveRepository(123));
+            Assert.Empty(drivers.Created);
+            Assert.Empty(codex.Runs);
+            Assert.Empty(claude.Runs);
+        }
+        finally { await service.StopAsync(CancellationToken.None); }
+    }
+
+    [Fact]
+    public async Task UnauthorizedHelpReceivesNoResponse()
+    {
+        using var service = CreateService(Settings());
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            api.Enqueue("/help", 999);
+            api.Enqueue("/ping");
+            Assert.Equal("pong", await api.NextMessageAsync());
+            Assert.Empty(drivers.Created);
+            Assert.Empty(codex.Runs);
+            Assert.Empty(claude.Runs);
         }
         finally { await service.StopAsync(CancellationToken.None); }
     }

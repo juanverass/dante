@@ -807,6 +807,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | Comando | Descrição |
 | --- | --- |
 | `/ping` | Verifica se o bot está respondendo |
+| `/help [comando]` | Mostra comandos por categoria, descrições e exemplos fictícios; `/help session` ou `/help /repo` detalha um comando |
 | `/claude <prompt>` | Executa Claude uma vez (one-shot) no contexto ativo, sem alterar o agente padrão |
 | `/codex <prompt>` | Executa Codex uma vez (one-shot) no contexto ativo, sem alterar o agente padrão |
 | `/claude @alias <prompt>` | Executa Claude uma vez em um repositório, sem alterar o contexto ativo |
