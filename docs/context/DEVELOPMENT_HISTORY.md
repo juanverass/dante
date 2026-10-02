@@ -81,3 +81,20 @@ Resultado: mensagens comuns no Telegram são uma conversa com uma sessão intera
 ou Codex, com streaming, fila e steer, aprovação e input humanos, perfis `manual`/`auto`/`plan`,
 interrupção e encerramento previsíveis; o one-shot continua disponível por `/claude` e
 `/codex`.
+
+## MVP 3 — Conversational Context
+
+Epic #32 · Issues entregues em 2026-10-02; fechamento da Epic por decisão humana
+
+| Issue | Entrega | PR |
+| --- | --- | --- |
+| #33 | Configurações persistentes do assistente | #55 |
+| #34 | `/agent` para consultar e alterar o agente padrão | #56 |
+| #35 | Mensagens sem slash command com o agente padrão | #57 |
+| #36 | Repositório ativo por usuário com `/use` | #58 |
+| #37 | Resolvedor unificado de agente e contexto | #90 |
+| #38 | UX de contexto e jobs: sessão ativa em `/agent`/`/use` e aviso de override | #102 |
+
+Resultado: o usuário conversa com o agente padrão no repositório ativo sem repetir
+comandos, troca de agente ou repositório pontualmente com `/claude`, `/codex` e `@alias`
+sem alterar as preferências, e consulta a qualquer momento o que está em uso.
