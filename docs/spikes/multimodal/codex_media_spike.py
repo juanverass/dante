@@ -2,14 +2,16 @@
 """Spike #93: what `codex app-server` accepts as media in the session protocol the driver uses.
 
 Turn 1: text + two `localImage` inputs in one turn/start.
-Turn 2: text + one `localAudio` input (declared in the schema; checked here, not assumed).
+Turn 2: text + one `localAudio` input with speech.wav (make_speech.ps1); declared in the schema, checked here, not
+assumed. Without speech.wav only this turn is skipped, and says so: tone.wav has no speech to transcribe.
 Turn 3: a long text turn steered with text + `localImage` through turn/steer.
 Turn 4: a request to generate an image, to see whether an `imageGeneration` item arrives and where it is saved.
 Approvals are declined. Only completed items, errors and turn results are printed; image data is never printed.
 
-Usage: python3 codex_media_spike.py <scratch-dir> <media-dir>   (media from make_fixtures.py + speech.wav)
+Usage: python3 codex_media_spike.py <scratch-dir> <media-dir>   (make_fixtures.py; speech.wav optional)
 """
 import json
+import os
 import queue
 import subprocess
 import sys
@@ -81,10 +83,13 @@ turn("turno 1: localImage x2", [
                              "Não execute comandos."},
     {"type": "localImage", "path": f"{media}/left-red-right-blue.png"},
     {"type": "localImage", "path": f"{media}/green-square.png"}])
-turn("turno 2: localAudio", [
-    {"type": "text", "text": "Transcreva a fala do áudio anexado, se conseguir ouvir. Se não, diga por quê. "
-                             "Não execute comandos."},
-    {"type": "localAudio", "path": f"{media}/speech.wav"}])
+if os.path.exists(f"{media}/speech.wav"):
+    turn("turno 2: localAudio", [
+        {"type": "text", "text": "Transcreva a fala do áudio anexado, se conseguir ouvir. Se não, diga por quê. "
+                                 "Não execute comandos."},
+        {"type": "localAudio", "path": f"{media}/speech.wav"}])
+else:
+    print("\n=== turno 2: localAudio — PULADO: speech.wav ausente (gere com make_speech.ps1)")
 
 print("\n=== turno 3: turn/steer com localImage")
 rid = request("turn/start", {"threadId": thread, "input": [{"type": "text", "text":

@@ -4,7 +4,7 @@
 Writes into <dir>:
   left-red-right-blue.png  400x200, left half red, right half blue
   green-square.png         300x300, white with a green square in the middle
-  tone.wav                 2 s, 440 Hz mono PCM (no speech)
+  tone.wav                 2 s, 440 Hz mono PCM; no speech, so it is not used to test transcription
 
 The images carry facts a model can only state by actually seeing the pixels; nothing here is personal data.
 

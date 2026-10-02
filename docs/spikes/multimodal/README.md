@@ -18,15 +18,23 @@ ImageMagick, Pillow, Node ou navegador headless. `python3-pil` e `ffmpeg` existe
 ## Como reproduzir
 
 Scripts auxiliares (Python 3, sem dependências), que consomem cota real das CLIs. As mídias são sintéticas:
-fatos que o modelo só acerta vendo os pixels, sem dado pessoal.
+fatos que o modelo só acerta vendo os pixels ou ouvindo a fala, sem dado pessoal.
 
 ```bash
+S=<repo>/docs/spikes/multimodal
 mkdir -p /tmp/mm/work && cd /tmp/mm/work && git init -q
-python3 <repo>/docs/spikes/multimodal/make_fixtures.py /tmp/mm/media
-# fala sintética (TTS do Windows, opcional): "A palavra secreta é girassol." em /tmp/mm/media/speech.wav
-python3 <repo>/docs/spikes/multimodal/claude_media_spike.py /tmp/mm/work /tmp/mm/media
-python3 <repo>/docs/spikes/multimodal/codex_media_spike.py /tmp/mm/work /tmp/mm/media
+python3 $S/make_fixtures.py /tmp/mm/media
+# fala sintética para o teste de áudio (TTS do Windows, a partir do WSL):
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w $S/make_speech.ps1)" \
+    -OutFile "$(wslpath -w /tmp/mm/media/speech.wav)"
+python3 $S/claude_media_spike.py /tmp/mm/work /tmp/mm/media
+python3 $S/codex_media_spike.py /tmp/mm/work /tmp/mm/media
 ```
+
+O teste de áudio exige `speech.wav`, com a frase conhecida "A palavra secreta e girassol.". Sem ela, os probes
+rodam o resto e imprimem `PULADO: speech.wav ausente` no turno de áudio. `tone.wav` é só um tom de 440 Hz, sem
+fala, e não serve para avaliar transcrição. Fora do Windows, qualquer TTS que grave a mesma frase em WAV
+substitui o `make_speech.ps1`.
 
 Os one-shot foram exercitados com os mesmos argumentos de `ClaudeRunner`/`CodexRunner`, comandos na matriz.
 

@@ -3,11 +3,12 @@
 
 Turn 1: two PNGs as base64 `image` content blocks next to the text, in a single user message.
 Turn 2: no blocks; the prompt names a PNG inside the working directory, so the agent must open it with Read.
-Turn 3: the same with a WAV file, to see whether audio reaches the model at all.
+Turn 3: the same with speech.wav (make_speech.ps1), to see whether audio reaches the model at all. Without
+speech.wav only this turn is skipped, and says so: tone.wav has no speech, so it cannot test transcription.
 can_use_tool requests are allowed only for Read and denied otherwise. Only the assistant text, tool calls and
 results are printed; the base64 payloads are not.
 
-Usage: python3 claude_media_spike.py <scratch-dir> <media-dir>   (media from make_fixtures.py + speech.wav)
+Usage: python3 claude_media_spike.py <scratch-dir> <media-dir>   (make_fixtures.py; speech.wav optional)
 """
 import base64
 import json
@@ -20,8 +21,10 @@ from pathlib import Path
 
 cwd, media = Path(sys.argv[1]), Path(sys.argv[2])
 (cwd / "attachments").mkdir(exist_ok=True)
-for name in ["green-square.png", "speech.wav"]:
-    shutil.copy(media / name, cwd / "attachments" / name)
+shutil.copy(media / "green-square.png", cwd / "attachments" / "green-square.png")
+speech = media / "speech.wav"
+if speech.exists():
+    shutil.copy(speech, cwd / "attachments" / "speech.wav")
 
 proc = subprocess.Popen(
     ["claude", "--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
@@ -78,7 +81,10 @@ turn([{"type": "text", "text": "Duas imagens anexadas. Para cada uma, diga as co
      "turno 1: blocos image base64")
 turn("Abra attachments/green-square.png com a ferramenta Read e descreva as cores e a forma central.",
      "turno 2: imagem no workspace, aberta pelo agente")
-turn("Abra attachments/speech.wav com a ferramenta Read e transcreva a fala, se conseguir ouvir. "
-     "Se não conseguir, diga apenas por quê.", "turno 3: áudio no workspace")
+if speech.exists():
+    turn("Abra attachments/speech.wav com a ferramenta Read e transcreva a fala, se conseguir ouvir. "
+         "Se não conseguir, diga apenas por quê.", "turno 3: áudio no workspace")
+else:
+    print("\n=== turno 3: áudio no workspace — PULADO: speech.wav ausente (gere com make_speech.ps1)")
 proc.stdin.close()
 print("\nexit:", proc.wait(timeout=60))
