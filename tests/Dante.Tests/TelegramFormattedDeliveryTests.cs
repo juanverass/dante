@@ -120,6 +120,8 @@ public sealed class TelegramFormattedDeliveryTests
         var approval = Assert.Single(api.Approvals);
         Assert.NotNull(approval.Keyboard);
         Assert.Contains("a < b", approval.Text);
+        Assert.DoesNotContain("/approve", approval.Text);
+        Assert.DoesNotContain("/deny", approval.Text);
         Assert.True(delivery.OwnsApprovalMessage("R000001", 123, -123, 42));
     }
 
@@ -190,6 +192,7 @@ public sealed class TelegramFormattedDeliveryTests
 
     private sealed class FormattedApi : ITelegramBotApi
     {
+        public bool SupportsInlineKeyboards => true;
         public readonly ConcurrentQueue<TelegramFormattedMessage> Attempts = new();
         public readonly ConcurrentQueue<TelegramFormattedMessage> Sent = new();
         public readonly ConcurrentQueue<string> PlainSent = new();

@@ -57,7 +57,8 @@ suportado pelo agente) e **Negar**. Após uma decisão ou os cinco minutos de ex
 a mensagem mostra o resultado e os botões são removidos. Apenas o dono da sessão pode
 responder; cliques duplicados ou tardios são recusados. Os comandos `/approve`,
 `/approve-session` e `/deny` continuam disponíveis como fallback e atualizam a mesma
-mensagem. Sessões com segredos vinculados oferecem os botões com os detalhes omitidos.
+mensagem. As instruções textuais só aparecem no pedido quando o transporte não suporta
+botões inline. Sessões com segredos vinculados seguem essa regra com os detalhes omitidos.
 `/claude` e `/codex` continuam disponíveis como execução avulsa (one-shot).
 
 Respostas técnicas com blocos Markdown cercados por três ou mais crases (ou `~~~`)

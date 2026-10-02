@@ -6,6 +6,10 @@ public interface ITelegramBotApi
 
     Task SendMessageAsync(long chatId, string text, CancellationToken cancellationToken);
 
+    // Whether messages are sent with their inline keyboard and return the id that correlates its buttons. Without it
+    // the buttons cannot be used, so requests show the textual commands instead (#104).
+    bool SupportsInlineKeyboards => false;
+
     // The default keeps lightweight transports compatible with the textual approval fallback.
     async Task<long?> SendApprovalAsync(long chatId, string text, TelegramInlineKeyboard? keyboard,
         CancellationToken cancellationToken)
