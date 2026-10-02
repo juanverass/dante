@@ -168,6 +168,71 @@ public sealed class TelegramPlainMessageTests : IAsyncDisposable
         finally { await service.StopAsync(CancellationToken.None); }
     }
 
+    // The README flow of #38: defaults, an active repository, a one-shot override and back to the conversation.
+    [Fact]
+    public async Task ContinuousConversationWithAOneShotOverrideSaysWhatIsUsedAndKept()
+    {
+        var registry = new RepositoryRegistry(Path.Combine(root, "config", "repositories.json"));
+        var path = CreateGitRepository("fitness");
+        registry.Add("@fitness_backend", path);
+        registry.Add("@dante", CreateGitRepository("dante"));
+        var store = Settings();
+        using var service = CreateService(store, registry);
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            api.Enqueue("/agent set claude");
+            Assert.Equal("Agente padrão alterado para Claude.", await api.NextMessageAsync());
+            api.Enqueue("/use @fitness_backend");
+            Assert.Equal("Contexto ativo: @fitness_backend", await api.NextMessageAsync());
+
+            api.Enqueue("implemente a issue 500");
+            var driver = await SingleDriverAsync();
+            await Eventually(() => driver.Calls.Contains("turn:implemente a issue 500"));
+            Assert.Equal(path, driver.StartOptions!.WorkingDirectory);
+            Assert.Equal(AgentKind.Claude, sessions!.GetActive(123)!.Agent);
+            driver.Emit(new TurnStartedEvent());
+            driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+            await api.NextMessageAsync();
+            await Eventually(() => sessions.GetActive(123)!.State == AgentSessionState.Idle);
+
+            const string conversation = "\nMensagens comuns vão para a sessão ativa S000001 (Claude, @fitness_backend) até /session close.";
+            api.Enqueue("/agent");
+            Assert.Equal("Agente padrão: Claude" + conversation, await api.NextMessageAsync());
+            api.Enqueue("/use");
+            Assert.Equal("Contexto ativo: @fitness_backend" + conversation, await api.NextMessageAsync());
+
+            api.Enqueue("/codex revise o PR");
+            Assert.Equal("Codex iniciado. Job ID: J000001 (@fitness_backend).\n" +
+                "Override só desta execução: o agente padrão continua Claude.", await api.NextMessageAsync());
+            Assert.Contains("Codex concluído", await api.NextMessageAsync());
+            Assert.Equal(path, Assert.Single(codex.Runs).WorkingDirectory);
+
+            api.Enqueue("/codex @dante revise o README");
+            Assert.EndsWith("Override só desta execução: o agente padrão continua Claude e o contexto ativo continua " +
+                "@fitness_backend.", await api.NextMessageAsync());
+            await api.NextMessageAsync();
+            api.Enqueue("/claude rode os testes");
+            Assert.Equal("Claude iniciado. Job ID: J000003 (@fitness_backend).", await api.NextMessageAsync());
+            await api.NextMessageAsync();
+
+            api.Enqueue("agora corrija o que o Codex apontou");
+            await Eventually(() => driver.Calls.Contains("turn:agora corrija o que o Codex apontou"));
+            Assert.Single(drivers.Created);
+            Assert.Equal(AgentKind.Claude, store.Current.DefaultAgent);
+            Assert.Equal("@fitness_backend", store.GetActiveRepository(123));
+
+            driver.Emit(new TurnStartedEvent());
+            driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+            await api.NextMessageAsync();
+            api.Enqueue("/session close");
+            Assert.Equal("Sessão S000001 encerrada.", await api.NextMessageAsync());
+            api.Enqueue("/agent");
+            Assert.Equal("Agente padrão: Claude", await api.NextMessageAsync());
+        }
+        finally { await service.StopAsync(CancellationToken.None); }
+    }
+
     [Fact]
     public async Task OutputOfASessionThatStopsBeingActiveMidTurnIsIdentified()
     {
