@@ -100,12 +100,14 @@ public sealed class AttachmentStore
         return directory;
     }
 
-    // Ids restart with the process; CreateNew skips any name a previous run left behind.
+    // Ids restart with the process, and files younger than the sweep limit survive a restart: an id is used only if
+    // no file of a previous run has it under any extension. CreateNew guards the partial file itself.
     private (string Id, string Path, FileStream Stream) CreateFile(string directory)
     {
         while (true)
         {
             var id = $"A{Interlocked.Increment(ref nextId):D6}";
+            if (Directory.EnumerateFiles(directory, id + ".*").Any()) continue;
             var path = System.IO.Path.Combine(directory, id + ".part");
             var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
             if (!OperatingSystem.IsWindows()) options.UnixCreateMode = OwnerOnlyFile;

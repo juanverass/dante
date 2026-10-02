@@ -117,7 +117,7 @@ Estado conhecido com #94:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    444 testes aprovados
+dotnet test Dante.sln    445 testes aprovados
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →

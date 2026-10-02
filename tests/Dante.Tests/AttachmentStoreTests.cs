@@ -98,6 +98,24 @@ public sealed class AttachmentStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task AFreshStoreNeverReusesTheNameOfARecentFileFromAPreviousRun()
+    {
+        // Ids restart with the process, and the startup sweep keeps files younger than 24 h.
+        var previous = await Save(new AttachmentStore(root), 123, TestImages.Png(10, 10));
+        var restarted = new AttachmentStore(root);
+        Assert.Equal(0, restarted.SweepStale(TimeSpan.FromHours(24)));
+
+        var next = await Save(restarted, 123, TestImages.Png(20, 20));
+        var other = await Save(restarted, 123, TestImages.Gif(30, 30));
+
+        Assert.NotEqual(previous.Id, next.Id);
+        Assert.Equal(3, new[] { previous.Id, next.Id, other.Id }.Distinct().Count());
+        Assert.Equal(TestImages.Png(10, 10), File.ReadAllBytes(previous.Path));
+        Assert.Equal(TestImages.Png(20, 20), File.ReadAllBytes(next.Path));
+        Assert.Equal(3, Directory.GetFiles(Path.Combine(root, "123", "pending")).Length);
+    }
+
+    [Fact]
     public async Task SweepRemovesOnlyOldFiles()
     {
         var store = new AttachmentStore(root);

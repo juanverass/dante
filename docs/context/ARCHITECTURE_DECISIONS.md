@@ -884,7 +884,8 @@ Implementação do recebimento (#94):
 - o tipo vem do conteúdo (`ImageInspector`), nunca do nome ou MIME declarados; a foto usa o maior `PhotoSize`
   dentro do limite;
 - arquivos `A000001.<ext>` em `~/.dante/attachments/<usuário>/pending/` (`700`/`600`), gravados como `.part` e
-  renomeados só depois de validados;
+  renomeados só depois de validados. O contador reinicia com o processo, então um id só é usado se nenhum arquivo
+  de execução anterior (sobra com menos de 24 h) o tiver, em qualquer extensão; nada é sobrescrito;
 - itens de um álbum são confirmados juntos após 1,5 s sem item novo do mesmo `media_group_id`, ignorando
   `message_id` repetido;
 - a chave de contexto dos pendentes é a sessão ativa ou, sem ela, agente padrão + contexto resolvido (AD-27);
