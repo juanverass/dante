@@ -97,6 +97,7 @@ public sealed partial class TelegramDeliveryService
                     exception.GetType().Name);
                 lock (gate) delivery.State = TelegramDeliveryState.Failed;
             }
+            Prune();
             if (AfterArtifactDeliveryAsync is { } after) await after(delivery.Artifact.Id);
         });
     }
@@ -104,21 +105,29 @@ public sealed partial class TelegramDeliveryService
     private ArtifactDelivery Track(Artifact artifact, long userId, long chatId)
     {
         var delivery = new ArtifactDelivery(artifact, userId, chatId);
-        Artifact? evicted = null;
+        lock (gate) artifactDeliveries[artifact.Id] = delivery;
+        Prune();
+        return delivery;
+    }
+
+    // Keeps the resend window at the most recent MaxArtifacts records, oldest out first. A pending upload still uses its
+    // copy, so the pruning stops at it; the prune that runs when it finishes continues from there. The copy lives as
+    // long as its record: past the window there is nothing left to send.
+    private void Prune()
+    {
+        List<Artifact> evicted = [];
         lock (gate)
         {
-            artifactDeliveries[artifact.Id] = delivery;
-            if (artifactDeliveries.Count > MaxArtifacts &&
-                artifactDeliveries.Values.Where(old => old.State != TelegramDeliveryState.Pending)
-                    .OrderBy(old => old.CreatedAtUtc).FirstOrDefault() is { } oldest)
+            var excess = artifactDeliveries.Count - MaxArtifacts;
+            foreach (var old in artifactDeliveries.Values.OrderBy(old => old.CreatedAtUtc)
+                         .ThenBy(old => old.Artifact.Id, StringComparer.Ordinal).ToArray())
             {
-                artifactDeliveries.Remove(oldest.Artifact.Id);
-                evicted = oldest.Artifact;
+                if (excess-- <= 0 || old.State == TelegramDeliveryState.Pending) break;
+                artifactDeliveries.Remove(old.Artifact.Id);
+                evicted.Add(old.Artifact);
             }
         }
-        // The copy lives as long as its record: past the resend window there is nothing left to send.
-        if (evicted is not null) DeleteCopy(evicted);
-        return delivery;
+        foreach (var artifact in evicted) DeleteCopy(artifact);
     }
 
     private async Task<TelegramDeliverySnapshot> RetryArtifactAsync(ArtifactDelivery delivery,
@@ -127,7 +136,10 @@ public sealed partial class TelegramDeliveryService
         // Like text deliveries, only the parts not delivered yet are sent again.
         lock (gate) delivery.State = TelegramDeliveryState.Pending;
         await DeliverArtifactAsync(delivery, cancellationToken);
-        lock (gate) return Snapshot(delivery);
+        TelegramDeliverySnapshot snapshot;
+        lock (gate) snapshot = Snapshot(delivery);
+        Prune();
+        return snapshot;
     }
 
     private async Task DeliverArtifactAsync(ArtifactDelivery delivery, CancellationToken cancellationToken)

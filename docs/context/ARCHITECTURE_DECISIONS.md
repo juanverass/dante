@@ -921,7 +921,10 @@ Implementação da entrega de artefatos (#97):
   canal; no Linux, confere pelo `/proc/self/fd` que o arquivo aberto é o verificado. Recusa diretório, arquivo vazio
   ou acima de 50 MB e nomes de credencial/configuração (`.env*`, `id_*`, `*.pem`, `*.key`, `.git/`, `.ssh/`…);
 - o aceito vira cópia privada em `~/.dante/artifacts/<usuário>/F000001.<ext>` (`700`/`600`); retry e `/resend` mandam
-  a cópia, sem o agente. A cópia vive enquanto o registro está entre os 50 mais recentes e é apagada na inicialização;
+  a cópia, sem o agente. A cópia vive enquanto o registro está entre os 50 mais recentes: a poda roda ao registrar e
+  ao fim de cada upload, do mais antigo para o mais novo, e para num upload ainda pendente (que usa a cópia). Na
+  inicialização, todas as cópias são apagadas; links dentro do store são removidos como links, nunca seguidos, e
+  cópia ou exclusão nunca passam por um link interno;
 - upload multipart: imagem dentro dos limites do `sendPhoto` vai como foto e como documento original; o resto
   (inclusive áudio e vídeo) como documento, com `disable_content_type_detection`. O upload roda em segundo plano, com
   retry de falhas transitórias e aviso no chat em falha definitiva;

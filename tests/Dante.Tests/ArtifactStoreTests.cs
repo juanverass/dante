@@ -121,6 +121,37 @@ public sealed class ArtifactStoreTests : IDisposable
         Assert.Empty(Directory.EnumerateFiles(store.Root, "*", SearchOption.AllDirectories));
     }
 
+    // Review of #107: a link left inside the store never takes the startup sweep, a copy or a deletion outside it.
+    [Fact]
+    public void LinksInsideTheStoreAreNeverFollowed()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var external = Directory.CreateDirectory(Path.Combine(root, "externo")).FullName;
+        File.WriteAllText(Path.Combine(external, "keep.txt"), "do host");
+        File.WriteAllText(Path.Combine(external, "keep2.txt"), "do host");
+        Directory.CreateDirectory(store.Root);
+        Directory.CreateSymbolicLink(Path.Combine(store.Root, "123"), external);
+        File.CreateSymbolicLink(Path.Combine(store.Root, "solto"), Path.Combine(external, "keep2.txt"));
+        Directory.CreateDirectory(Path.Combine(store.Root, "7"));
+        File.WriteAllText(Path.Combine(store.Root, "7", "F000001.csv"), "cópia");
+
+        Assert.Equal(1, store.SweepAll());
+
+        Assert.Equal(["keep.txt", "keep2.txt"], Directory.GetFiles(external).Select(Path.GetFileName).Order());
+        // Only the emptied real directory remains: the copy and both links are gone.
+        Assert.DoesNotContain(Directory.EnumerateFileSystemEntries(store.Root, "*", SearchOption.AllDirectories),
+            entry => !Directory.Exists(entry) || new DirectoryInfo(entry).LinkTarget is not null);
+
+        // A copy for an owner whose directory is a link is refused, and a deletion through it does nothing.
+        Directory.CreateSymbolicLink(Path.Combine(store.Root, "42"), external);
+        Write("relatorio.csv", "a");
+        Assert.Equal("diretório de cópias inválido",
+            Assert.Throws<ArtifactRejectedException>(() => store.Capture(42, "relatorio.csv", Workspace)).Message);
+        store.Delete(new Artifact("F000009", 42, Path.Combine(store.Root, "42", "keep.txt"), "keep.txt",
+            "application/octet-stream", 7, false, false));
+        Assert.Equal(["keep.txt", "keep2.txt"], Directory.GetFiles(external).Select(Path.GetFileName).Order());
+    }
+
     private string Write(string relative, string content)
     {
         var path = Path.GetFullPath(Path.Combine(Workspace, relative));

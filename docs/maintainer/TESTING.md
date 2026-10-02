@@ -384,7 +384,8 @@ Recebimento de mídias (#94):
 ## `ArtifactStoreTests` e `TelegramArtifactDeliveryTests`
 
 Arquivos produzidos (#97): cópia privada, imagem como foto e documento, traversal, path absoluto externo, symlink de
-arquivo e de diretório saindo da raiz, credenciais, limites, canal só de imagem; no fluxo, imagem gerada como prévia e
+arquivo e de diretório saindo da raiz, credenciais, limites, canal só de imagem, links dentro do store que a limpeza,
+a cópia e a exclusão nunca seguem; no fluxo, rajada de 60 uploads pendentes que volta à janela dos 50 mais recentes, imagem gerada como prévia e
 original, path em prosa sem upload, path gerado fora da raiz, `/send` e suas recusas, falha com aviso e `/resend`, retry
 transitório, cópia removida e sessão com segredos sem upload. `TelegramBotApiTests` verifica o multipart de `sendPhoto`
 e `sendDocument` e o rate limit.

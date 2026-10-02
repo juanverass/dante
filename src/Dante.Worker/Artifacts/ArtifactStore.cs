@@ -114,21 +114,37 @@ public sealed class ArtifactStore
     }
 
     // Only files under this store are ever deleted.
+    // Only files really under this store are ever deleted: a link on the way never takes the deletion elsewhere.
     public void Delete(Artifact artifact)
     {
         var path = System.IO.Path.GetFullPath(artifact.Path);
-        if (IsWithin(path, Root) && path != Root) File.Delete(path);
+        if (!IsWithin(path, Root) || path == Root) return;
+        var real = RealPath(path);
+        if (IsWithin(real, RealPath(Root)) && real != RealPath(Root)) File.Delete(real);
     }
 
-    // Records live in memory only: at startup every copy left by a previous run is unreachable and goes away.
+    // Records live in memory only: at startup every copy left by a previous run is unreachable and goes away. Links
+    // found inside the store are removed as links and never followed, so nothing outside it is touched.
     public int SweepAll()
     {
-        if (!Directory.Exists(Root)) return 0;
+        var root = new DirectoryInfo(RealPath(Root));
+        return root.Exists ? Sweep(root) : 0;
+    }
+
+    private static int Sweep(DirectoryInfo directory)
+    {
         var removed = 0;
-        foreach (var file in Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories))
+        foreach (var entry in directory.EnumerateFileSystemInfos())
         {
-            File.Delete(file);
-            removed++;
+            if (entry.LinkTarget is null && entry is DirectoryInfo child)
+            {
+                removed += Sweep(child);
+                continue;
+            }
+            // A regular file, or a link of any kind: unlinking a link removes the link only.
+            if (entry.LinkTarget is null) removed++;
+            if (entry is DirectoryInfo link) link.Delete(recursive: false);
+            else entry.Delete();
         }
         return removed;
     }
@@ -141,6 +157,9 @@ public sealed class ArtifactStore
             if (OperatingSystem.IsWindows()) Directory.CreateDirectory(path);
             else Directory.CreateDirectory(path, OwnerOnlyDirectory);
         }
+        // Copies are written only where the store really is, never through a link placed inside it.
+        if (RealPath(directory) != System.IO.Path.Combine(RealPath(Root), System.IO.Path.GetFileName(directory)))
+            throw new ArtifactRejectedException("diretório de cópias inválido");
         return directory;
     }
 

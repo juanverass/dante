@@ -138,6 +138,38 @@ public sealed class TelegramArtifactDeliveryTests : IAsyncDisposable
         Assert.Empty(api.Uploads);
     }
 
+    // Review of #107: pending uploads keep their copies, and once they finish the window is back to the 50 most recent.
+    [Fact]
+    public async Task ABurstOfUploadsShrinksToTheResendWindowWhenItFinishes()
+    {
+        for (var index = 1; index <= 60; index++) File.WriteAllText(Path.Combine(General, $"f{index}.txt"), $"{index}");
+        store = new ArtifactStore(Path.Combine(root, "artifacts"), Path.Combine(root, "codex", "generated_images"));
+        delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance, store);
+        delivery.RegisterSession("S000001", 123, 1, hideOutput: false);
+        var finished = 0;
+        delivery.AfterArtifactDeliveryAsync = _ =>
+        {
+            Interlocked.Increment(ref finished);
+            return Task.CompletedTask;
+        };
+        api.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        for (var index = 1; index <= 60; index++)
+            Assert.Null(delivery.SendFile("S000001", 123, 1, $"f{index}.txt", General).Error);
+        Assert.Equal(60, delivery.ListArtifacts(123).Count);
+        Assert.Equal(60, Directory.GetFiles(store.Root, "*", SearchOption.AllDirectories).Length);
+
+        api.Gate.SetResult();
+        await Eventually(() => Volatile.Read(ref finished) == 60);
+
+        var kept = delivery.ListArtifacts(123);
+        Assert.Equal(Enumerable.Range(11, 50).Select(index => $"F{index:D6}"), kept.Select(snapshot => snapshot.Id));
+        Assert.All(kept, snapshot => Assert.Equal(TelegramDeliveryState.Delivered, snapshot.State));
+        Assert.Equal(kept.Select(snapshot => snapshot.Id + ".txt"),
+            Directory.GetFiles(store.Root, "*", SearchOption.AllDirectories).Select(Path.GetFileName).Order());
+        Assert.Null(delivery.Get("F000001", 123));
+    }
+
     // AD-10: a session with bound secrets keeps its files, whichever channel asks.
     [Fact]
     public async Task SessionWithBoundSecretsNeverUploads()
@@ -239,6 +271,8 @@ public sealed class TelegramArtifactDeliveryTests : IAsyncDisposable
             uploads.ToArray();
         public int UploadAttempts => uploadAttempts;
         public HttpStatusCode? FailUploads { get; set; }
+        // Holds every upload until the test releases it.
+        public TaskCompletionSource? Gate { get; set; }
         public int TransientFailures { get; set; }
 
         public void Enqueue(string text) => updates.Writer.TryWrite(new TelegramUpdate(Interlocked.Increment(ref nextId),
@@ -256,8 +290,9 @@ public sealed class TelegramArtifactDeliveryTests : IAsyncDisposable
             return Task.CompletedTask;
         }
 
-        public Task SendFileAsync(long chatId, TelegramFileUpload upload, CancellationToken cancellationToken)
+        public async Task SendFileAsync(long chatId, TelegramFileUpload upload, CancellationToken cancellationToken)
         {
+            if (Gate is { } gate) await gate.Task;
             Interlocked.Increment(ref uploadAttempts);
             if (FailUploads is { } status) throw new HttpRequestException("falha simulada", null, status);
             if (TransientFailures > 0)
@@ -267,7 +302,6 @@ public sealed class TelegramArtifactDeliveryTests : IAsyncDisposable
             }
             Assert.True(File.Exists(upload.Path));
             uploads.Enqueue((chatId, upload.FileName, upload.MediaType, upload.AsPhoto, upload.Caption));
-            return Task.CompletedTask;
         }
     }
 }

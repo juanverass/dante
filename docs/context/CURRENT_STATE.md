@@ -131,7 +131,7 @@ Estado conhecido com #97:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    495 testes aprovados, 4 pulados (evidência com CLIs reais, opt-in)
+dotnet test Dante.sln    497 testes aprovados, 4 pulados (evidência com CLIs reais, opt-in)
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
