@@ -1,19 +1,22 @@
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using Dante.Worker.Artifacts;
 using Dante.Worker.Sessions;
 
 namespace Dante.Worker.Telegram;
 
 public enum TelegramDeliveryState { Pending, Delivered, Failed }
 
+// Problem: why a delivery cannot complete again, e.g. the copy of a file is gone.
 public sealed record TelegramDeliverySnapshot(string Id, TelegramDeliveryState State, int DeliveredChunks,
-    int TotalChunks);
+    int TotalChunks, string? Problem = null);
 
 // Delivery is independent of the agent's outcome. Records stay in memory for recovery without rerunning work.
-public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<TelegramDeliveryService> logger)
-    : IAgentSessionEventSink
+public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILogger<TelegramDeliveryService> logger,
+    ArtifactStore? artifacts = null) : IAgentSessionEventSink
 {
+    private readonly ArtifactStore? artifacts = artifacts;
     private const int MaxMessageLength = 4000;
     private const int MaxRecords = 100;
     private static readonly TimeSpan BatchDelay = TimeSpan.FromMilliseconds(750);
@@ -68,6 +71,7 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
 
     public Task PublishAsync(AgentSessionSnapshot session, AgentEvent agentEvent, CancellationToken cancellationToken)
     {
+        if (agentEvent is ArtifactProducedEvent produced) return PublishArtifactAsync(session, produced);
         lock (gate)
         {
             if (!chats.TryGetValue(session.Id, out var chat)) return Task.CompletedTask;
@@ -163,6 +167,8 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
     {
         lock (gate)
         {
+            if (artifactDeliveries.TryGetValue(id, out var artifact))
+                return artifact.UserId == userId ? Snapshot(artifact) : null;
             var key = latestTurns.GetValueOrDefault(id) ?? id;
             return records.TryGetValue(key, out var record) && record.UserId == userId
                 ? Snapshot(record) : null;
@@ -173,6 +179,11 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
         CancellationToken cancellationToken)
     {
         DeliveryRecord? record;
+        ArtifactDelivery? artifact;
+        lock (gate) artifact = artifactDeliveries.GetValueOrDefault(id);
+        if (artifact is not null)
+            return artifact.UserId == userId && artifact.ChatId == chatId
+                ? await RetryArtifactAsync(artifact, cancellationToken) : null;
         lock (gate)
         {
             var key = latestTurns.GetValueOrDefault(id) ?? id;

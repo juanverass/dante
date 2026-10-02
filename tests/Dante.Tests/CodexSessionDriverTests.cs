@@ -232,6 +232,22 @@ public sealed class CodexSessionDriverTests
             new(id, Owner, AttachmentKind.Image, "image/png", path, 10, 1, 1, null);
     }
 
+    // #97: a generated image arrives as an artifact event with the path the CLI reported; prose never becomes one.
+    [Fact]
+    public async Task GeneratedImageIsReportedByItsSavedPath()
+    {
+        await using var driver = new CodexSessionDriver(new ProbeLauncher());
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+
+        await driver.StartTurnAsync("generate-image /home/u/.codex/generated_images/t1/ig_1.png");
+        var turn = await ReadTurnAsync(events);
+
+        var artifact = Assert.Single(turn.OfType<ArtifactProducedEvent>());
+        Assert.Equal("/home/u/.codex/generated_images/t1/ig_1.png", artifact.Path);
+        Assert.Contains("O arquivo está em", turn.OfType<MessageCompletedEvent>().Single().Text);
+    }
+
     [Fact]
     public async Task SteerReachesTheActiveTurn()
     {

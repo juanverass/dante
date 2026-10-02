@@ -59,6 +59,68 @@ public sealed class TelegramBotApiTests
         await Assert.ThrowsAsync<JsonException>(() => api.GetUpdatesAsync(0, CancellationToken.None));
     }
 
+    // #97: files go by multipart to sendPhoto or sendDocument, with the chat, the caption and the original bytes.
+    [Theory]
+    [InlineData(true, "sendPhoto", "photo")]
+    [InlineData(false, "sendDocument", "document")]
+    public async Task FileUploadIsMultipartToTheChat(bool asPhoto, string method, string field)
+    {
+        var path = Path.GetTempFileName();
+        File.WriteAllBytes(path, "PNGDATA"u8.ToArray());
+        try
+        {
+            var requests = new List<(string Path, string? ContentType, string Body)>();
+            using var httpClient = new HttpClient(new StubHandler(async request =>
+            {
+                requests.Add((request.RequestUri!.AbsolutePath, request.Content!.Headers.ContentType?.MediaType,
+                    await request.Content.ReadAsStringAsync()));
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"ok":true,"result":{"message_id":9}}""")
+                };
+            }));
+            var api = new TelegramBotApi(httpClient, Options.Create(new TelegramOptions { BotToken = "test-token" }));
+
+            await api.SendFileAsync(-123, new TelegramFileUpload(path, "grafico.png", "image/png", asPhoto,
+                "F000001 · grafico.png"), CancellationToken.None);
+
+            var (url, contentType, body) = Assert.Single(requests);
+            Assert.Equal($"/bottest-token/{method}", url);
+            Assert.Equal("multipart/form-data", contentType);
+            Assert.Contains("name=chat_id", body);
+            Assert.Contains("-123", body);
+            Assert.Contains("F000001 · grafico.png", body);
+            Assert.Contains($"name={field}; filename=grafico.png", body);
+            Assert.Contains("Content-Type: image/png", body);
+            Assert.Contains("PNGDATA", body);
+            // A document keeps the original: Telegram must not turn it into a compressed photo.
+            Assert.Equal(!asPhoto, body.Contains("name=disable_content_type_detection"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task FileUploadReportsRateLimitForDeliveryRetry()
+    {
+        var path = Path.GetTempFileName();
+        File.WriteAllBytes(path, [1]);
+        try
+        {
+            using var httpClient = new HttpClient(new StubHandler(_ =>
+                Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                {
+                    Content = new StringContent("""{"ok":false,"parameters":{"retry_after":3}}""")
+                })));
+            var api = new TelegramBotApi(httpClient, Options.Create(new TelegramOptions { BotToken = "test-token" }));
+
+            var error = await Assert.ThrowsAsync<TelegramRateLimitException>(() => api.SendFileAsync(-123,
+                new TelegramFileUpload(path, "a.bin", "application/octet-stream", false, null), CancellationToken.None));
+
+            Assert.Equal(TimeSpan.FromSeconds(3), error.RetryAfter);
+        }
+        finally { File.Delete(path); }
+    }
+
     [Fact]
     public async Task SendMessageReportsRateLimitForDeliveryRetry()
     {

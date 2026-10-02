@@ -836,7 +836,7 @@ da máquina é validação do usuário.
 
 ## AD-29 — Anexos como entrada neutra, imagem nativa por CLI e artefato só por canal explícito
 
-Status: vigente (#93, spike; recebimento implementado na #94, encaminhamento aos agentes na #95); orienta #96–#99. Evidências e contrato completo em
+Status: vigente (#93, spike; recebimento na #94, encaminhamento aos agentes na #95, entrega de artefatos na #97); orienta #96, #98 e #99. Evidências e contrato completo em
 [`docs/spikes/multimodal`](../spikes/multimodal/README.md).
 
 Validado em Claude Code 2.1.287 e codex-cli 0.159.3 (sessão e one-shot):
@@ -912,7 +912,26 @@ Implementação do encaminhamento (#95):
   outro meio até a janela fechar, imagens e legenda são descartadas juntas, com aviso. A conclusão pela janela é
   serializada com os updates.
 
-Código: `Attachments/`, `Sessions/AgentInput.cs`, `Sessions/SessionRegistry.cs`, drivers e runners,
+Implementação da entrega de artefatos (#97):
+
+- canais: `ArtifactProducedEvent` (do `imageGeneration.savedPath` do Codex), aceito só sob
+  `$CODEX_HOME/generated_images` e só se for imagem; e `/send <caminho>`, aceito só sob o diretório de trabalho da
+  sessão ativa do usuário. Path em prosa nunca vira envio;
+- `ArtifactStore.Capture` resolve links simbólicos componente a componente e exige que o caminho real fique na raiz do
+  canal; no Linux, confere pelo `/proc/self/fd` que o arquivo aberto é o verificado. Recusa diretório, arquivo vazio
+  ou acima de 50 MB e nomes de credencial/configuração (`.env*`, `id_*`, `*.pem`, `*.key`, `.git/`, `.ssh/`…);
+- o aceito vira cópia privada em `~/.dante/artifacts/<usuário>/F000001.<ext>` (`700`/`600`); retry e `/resend` mandam
+  a cópia, sem o agente. A cópia vive enquanto o registro está entre os 50 mais recentes: a poda roda ao registrar e
+  ao fim de cada upload, do mais antigo para o mais novo, e para num upload ainda pendente (que usa a cópia). Na
+  inicialização, todas as cópias são apagadas; links dentro do store são removidos como links, nunca seguidos, e
+  cópia ou exclusão nunca passam por um link interno;
+- upload multipart: imagem dentro dos limites do `sendPhoto` vai como foto e como documento original; o resto
+  (inclusive áudio e vídeo) como documento, com `disable_content_type_detection`. O upload roda em segundo plano, com
+  retry de falhas transitórias e aviso no chat em falha definitiva;
+- sessão com segredos vinculados não envia arquivo por nenhum canal (AD-10): conteúdo binário não pode ser redigido.
+
+Código: `Attachments/`, `Artifacts/ArtifactStore.cs`, `Sessions/AgentInput.cs`, `Sessions/SessionRegistry.cs`, drivers e runners,
+`Telegram/TelegramDeliveryService.Artifacts.cs`,
 `Telegram/TelegramMediaReceiver.cs`, `Telegram/TelegramBotApi.cs`, `Telegram/TelegramPollingService.cs`; testes em
 `AttachmentStoreTests`, `PendingAttachmentsTests`, `TelegramBotApiTests`, `TelegramMediaIntakeTests`,
 `TelegramImageTurnTests`, `SessionRegistryTests` e nos testes de drivers e runners.

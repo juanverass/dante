@@ -1065,6 +1065,12 @@ como um item só. Cada driver traduz: Claude em blocos `image` base64 rotulados,
 
 ---
 
+## `ArtifactStore`
+
+Arquivos que saem para o Telegram (#97, AD-29). `Capture(owner, path, root)` resolve links simbólicos, exige o caminho
+real dentro da raiz do canal, recusa diretório, vazio, acima de 50 MB e nomes de credencial, e grava uma cópia privada
+`F000001.<ext>` em `~/.dante/artifacts/<usuário>/`. Identifica imagem pelo conteúdo e decide se ela cabe no `sendPhoto`.
+
 ## `TelegramDeliveryService`
 
 Responsável pela etapa:

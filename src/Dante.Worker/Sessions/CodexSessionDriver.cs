@@ -592,6 +592,10 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
             case "webSearch":
                 await EmitAsync(new ToolCompletedEvent(itemId, AgentToolKind.Tool, true));
                 break;
+            // The saved path is the only artifact channel of the Codex session (#93 spike, AD-29).
+            case "imageGeneration" when GetString(item, "savedPath") is { Length: > 0 } saved:
+                await EmitAsync(new ArtifactProducedEvent(itemId, saved));
+                break;
         }
     }
 

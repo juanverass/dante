@@ -718,6 +718,35 @@ enviada: a imagem nunca vira só um nome de arquivo, e o D.A.N.T.E. não troca d
   depois no diretório da sessão ou do job que os usa (`S000001/`, `J000001/`), apagados quando a sessão é
   encerrada ou o job termina; sobras com mais de 24 h são removidas quando o Worker inicia.
 
+## Arquivos produzidos pelos agentes
+
+Um arquivo só chega ao Telegram por um canal explícito; um caminho citado na resposta do agente nunca vira envio.
+
+- **Imagem gerada pelo Codex numa sessão**: o Codex informa onde salvou a imagem, e ela é enviada sozinha. Só é
+  aceita de `~/.codex/generated_images` (ou `$CODEX_HOME/generated_images`).
+- **`/send <caminho>`**: envia um arquivo do diretório da sessão ativa (o repositório ou o workspace geral),
+  com caminho relativo a ele:
+
+```text
+/send relatorios/vendas.csv
+```
+
+Cada arquivo recebe um id (`F000001`) na legenda. Imagens chegam como foto (prévia) e como documento (o original, sem
+compressão); os demais arquivos, inclusive áudio e vídeo, como documento.
+
+O arquivo é recusado, sem envio, quando:
+
+- o caminho real, com links simbólicos resolvidos, sai do diretório permitido;
+- não é um arquivo comum, está vazio ou passa de 50 MB;
+- parece credencial ou configuração sensível (`.env*`, chaves `id_*`, `*.pem`, `*.key`, `.git/`, `.ssh/`,
+  `.aws/`, `.netrc` e similares);
+- a sessão tem segredos vinculados ao ambiente: arquivos binários não podem ser filtrados, então nenhum sai dela.
+
+O envio fica em `/status` (`Entregas Telegram`). Se falhar, o bot avisa, e `/resend F000001` tenta de novo sem rodar o
+agente: o D.A.N.T.E. guarda uma cópia em `~/.dante/artifacts/<usuário>/` no momento do envio, mantida enquanto o
+registro está na janela de reenvio (os 50 arquivos mais recentes). Ao reiniciar o Worker, os registros e as cópias
+são descartados.
+
 ---
 
 # Jobs
@@ -815,7 +844,8 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/deny <sessionId> <turnId> <requestId> [motivo]` | Nega a ação solicitada |
 | `/input <sessionId> <turnId> <requestId> <resposta1> [ \| <resposta2> ...]` | Responde às perguntas na ordem exibida |
 | `/steer <orientação>` | Orienta imediatamente o turno da sessão ativa; no Claude, interrompe o turno e prioriza a orientação |
-| `/resend <jobId\|sessionId[/turnId]>` | Reenvia as partes pendentes da saída recente, sem executar o agente novamente |
+| `/resend <jobId\|sessionId[/turnId]\|arquivo>` | Reenvia as partes pendentes da saída recente ou de um arquivo (`F000001`), sem executar o agente novamente |
+| `/send <caminho>` | Envia um arquivo do diretório da sessão ativa |
 
 Durante um turno interativo, mensagens comuns entram na fila. A sessão mantém o mesmo agente e
 repositório até ser encerrada, mesmo que `/agent set` ou `/use` mudem depois. Eventos são
@@ -958,6 +988,7 @@ Atualmente:
 | Sessões interativas, turnos, filas e solicitações pendentes | somente memória (perdidas ao reiniciar o Worker) |
 | Saídas recentes para `/resend` | somente memória |
 | Imagens recebidas | `~/.dante/attachments/<usuário>/` enquanto pendentes e até o fim da sessão ou do job que as usa; registro somente em memória |
+| Arquivos enviados ao Telegram | cópia em `~/.dante/artifacts/<usuário>/` enquanto o registro de entrega existe; registro somente em memória, cópias apagadas ao reiniciar |
 
 A seleção de modelo é independente por usuário e agente:
 
@@ -1116,7 +1147,7 @@ Ainda não fazem parte do projeto:
 - botões inline para aprovação (os comandos textuais estão disponíveis);
 - perfil de acesso irrestrito (`full`);
 - pergunta do Codex ao usuário (input) fora do perfil `plan`, por limitação do `app-server`;
-- áudio e vídeo não são processados, e o bot ainda só envia texto (Epic #92).
+- áudio e vídeo enviados ao bot não são processados (Epic #92); imagens geradas só são enviadas sozinhas nas sessões do Codex.
 
 Esses pontos são candidatos naturais para os próximos MVPs.
 

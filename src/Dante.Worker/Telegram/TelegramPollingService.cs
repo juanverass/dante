@@ -1,4 +1,5 @@
 using Dante.Worker.Agents;
+using Dante.Worker.Artifacts;
 using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 using Dante.Worker.Repositories;
@@ -26,7 +27,8 @@ public sealed class TelegramPollingService(
     TelegramDeliveryService? delivery = null,
     IAgentModelCatalog? models = null,
     AttachmentStore? attachments = null,
-    PendingAttachments? pendingAttachments = null) : BackgroundService
+    PendingAttachments? pendingAttachments = null,
+    ArtifactStore? artifacts = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private const string EffortOption = "effort=";
@@ -245,10 +247,12 @@ public sealed class TelegramPollingService(
                     $"expiram às {batch.ExpiresAtUtc:HH:mm:ss} UTC.";
             var deliveries = visible.Select(job => delivery.Get(job.Id, message.From!.Id))
                 .Concat(ownSessions.Select(session => delivery.Get(session.Id, message.From!.Id)))
+                .Concat(delivery.ListArtifacts(message.From!.Id))
                 .Where(snapshot => snapshot is not null).ToArray();
             if (deliveries.Length > 0)
                 response += "\n\nEntregas Telegram:\n" + string.Join('\n', deliveries.Select(snapshot =>
-                    $"{snapshot!.Id}: {snapshot.State} ({snapshot.DeliveredChunks}/{snapshot.TotalChunks} partes)"));
+                    $"{snapshot!.Id}: {snapshot.State} ({snapshot.DeliveredChunks}/{snapshot.TotalChunks} partes)" +
+                    (snapshot.Problem is null ? string.Empty : $" | {snapshot.Problem}")));
             await SendLongMessageAsync(message.Chat.Id, response, cancellationToken);
             return;
         }
@@ -306,14 +310,21 @@ public sealed class TelegramPollingService(
         {
             if (prompt.Length == 0)
             {
-                await SendReplyAsync(message.Chat.Id, "Uso: /resend <jobId|sessionId[/turnId]>", cancellationToken);
+                await SendReplyAsync(message.Chat.Id, "Uso: /resend <jobId|sessionId[/turnId]|arquivo>", cancellationToken);
                 return;
             }
             var recovered = await delivery.RetryAsync(prompt, message.From!.Id, message.Chat.Id, cancellationToken);
             await SendReplyAsync(message.Chat.Id, recovered is null
                 ? "Saída recente não encontrada para reenvio."
-                : $"Entrega {recovered.Id}: {recovered.State} ({recovered.DeliveredChunks}/{recovered.TotalChunks} partes).",
+                : $"Entrega {recovered.Id}: {recovered.State} ({recovered.DeliveredChunks}/{recovered.TotalChunks} partes)" +
+                  (recovered.Problem is null ? "." : $": {recovered.Problem}."),
                 cancellationToken);
+            return;
+        }
+
+        if (string.Equals(command, "/send", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleSendCommandAsync(message, prompt, cancellationToken);
             return;
         }
 
@@ -1101,11 +1112,35 @@ public sealed class TelegramPollingService(
         {
             var removed = attachments?.SweepStale(TimeSpan.FromHours(24)) ?? 0;
             if (removed > 0) logger.LogInformation("{Count} anexo(s) antigo(s) removido(s).", removed);
+            // Copies of produced files are reachable only through in-memory records, gone with the previous run.
+            var copies = artifacts?.SweepAll() ?? 0;
+            if (copies > 0) logger.LogInformation("{Count} cópia(s) de arquivo(s) produzido(s) removida(s).", copies);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             logger.LogWarning("Falha ao limpar anexos antigos ({ErrorType}).", exception.GetType().Name);
         }
+    }
+
+    // /send <caminho>: the user asks for a file of the active session's working directory (#97, AD-29). Only that
+    // directory is accepted, with links resolved, and nothing leaves a session with bound secrets (AD-10).
+    private async Task HandleSendCommandAsync(TelegramMessage message, string path, CancellationToken cancellationToken)
+    {
+        var userId = message.From!.Id;
+        string reply;
+        if (path.Length == 0) reply = "Uso: /send <caminho no diretório da sessão>";
+        else if (artifacts is null || sessions is null) reply = "Envio de arquivos indisponível.";
+        else if (sessions.GetActive(userId) is not { State: not (AgentSessionState.Failed or AgentSessionState.Closing or
+                     AgentSessionState.Closed) } active)
+            reply = "Nenhuma sessão ativa: /send envia arquivos do diretório da sessão ativa.";
+        else
+        {
+            var (_, error) = delivery.SendFile(active.Id, userId, message.Chat.Id, path, active.Context.WorkingDirectory);
+            // On success the file itself is the answer; a failed upload is reported with its id.
+            if (error is null) return;
+            reply = $"Arquivo não enviado: {error}.";
+        }
+        await SendReplyAsync(message.Chat.Id, reply, cancellationToken);
     }
 
     private const string ImagesUnavailable = "Não foi possível preparar as imagens pendentes; nada foi enviado ao agente.";

@@ -189,6 +189,19 @@ internal static class FakeCodex
                         ["threadId"] = ThreadId, ["turn"] = new JsonObject { ["id"] = activeTurn, ["status"] = "inProgress" }
                     });
                     var text = (string?)parameters["input"]![0]!["text"];
+                    if (text?.StartsWith("generate-image ", StringComparison.Ordinal) == true)
+                    {
+                        // Like 0.159.3: the generated image is an item whose savedPath is where the CLI wrote it (#97).
+                        Item("item/completed", new JsonObject
+                        {
+                            ["type"] = "imageGeneration", ["id"] = $"ig-{turns}", ["status"] = "completed",
+                            ["savedPath"] = text["generate-image ".Length..]
+                        });
+                        Message($"Gerei a imagem. O arquivo está em {text["generate-image ".Length..]}");
+                        Complete("completed");
+                        break;
+                    }
+
                     switch (text)
                     {
                         case "pong":

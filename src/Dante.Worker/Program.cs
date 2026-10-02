@@ -1,5 +1,6 @@
 using Dante.Worker;
 using Dante.Worker.Agents;
+using Dante.Worker.Artifacts;
 using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 using Dante.Worker.Repositories;
@@ -23,6 +24,7 @@ builder.Services.AddSingleton<SessionRegistry>();
 builder.Services.AddSingleton<RepositoryRegistry>();
 builder.Services.AddSingleton<AssistantSettingsStore>();
 builder.Services.AddSingleton(_ => new AttachmentStore());
+builder.Services.AddSingleton(_ => new ArtifactStore());
 builder.Services.AddSingleton<PendingAttachments>(provider =>
     new PendingAttachments(provider.GetRequiredService<AttachmentStore>()));
 builder.Services.Configure<TelegramOptions>(builder.Configuration.GetSection(TelegramOptions.SectionName));
