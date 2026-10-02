@@ -8,6 +8,8 @@ public abstract record AgentEvent
     public DateTimeOffset TimestampUtc { get; init; }
 }
 
+public sealed record ModeAppliedEvent(AgentPermissionProfile Profile) : AgentEvent;
+
 public sealed record TurnStartedEvent : AgentEvent;
 
 public sealed record MessageDeltaEvent(string ItemId, string Text) : AgentEvent;

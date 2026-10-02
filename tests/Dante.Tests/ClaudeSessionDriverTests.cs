@@ -12,6 +12,35 @@ namespace Dante.Tests;
 public sealed class ClaudeSessionDriverTests
 {
     [Fact]
+    public async Task ModeChangesAreConfirmedOnTheSameProcessAcrossAllModes()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new ClaudeSessionDriver(launcher);
+        var started = await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        foreach (var mode in new[] { AgentPermissionProfile.Auto, AgentPermissionProfile.Manual, AgentPermissionProfile.Plan, AgentPermissionProfile.Manual })
+        {
+            await driver.ChangeModeAsync(mode);
+            await driver.StartTurnAsync("mode");
+            Assert.Equal("mode:" + (mode == AgentPermissionProfile.Manual ? "default" : AgentSessionModes.Name(mode)),
+                (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+            Assert.False(HasExited(started.ProcessId));
+        }
+        Assert.Single(launcher.Requests);
+    }
+
+    [Theory]
+    [InlineData("reject-mode", false)]
+    [InlineData("missing-mode", true)]
+    public async Task ModeRefusalOrMissingConfirmationIsNeverSuccess(string scenario, bool unconfirmed)
+    {
+        await using var driver = new ClaudeSessionDriver(new ProbeLauncher(scenario));
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        if (unconfirmed) await Assert.ThrowsAsync<AgentModeUnconfirmedException>(() => driver.ChangeModeAsync(AgentPermissionProfile.Plan));
+        else await Assert.ThrowsAsync<AgentProtocolException>(() => driver.ChangeModeAsync(AgentPermissionProfile.Plan));
+    }
+
+    [Fact]
     public async Task EffortIsKeptAcrossTurnsInPlanMode()
     {
         var launcher = new ProbeLauncher();

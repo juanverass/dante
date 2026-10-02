@@ -32,8 +32,10 @@ internal static class TelegramCommandHelp
         new("/effort", "MODELOS E MODO", "Consulte ou salve o esforço por agente/modelo para novas sessões e one-shot.",
             "/effort\n/effort codex\n/effort codex default", "/effort claude|codex [nível|default]. Escolha um nível anunciado pela CLI; " +
             "default volta ao padrão da CLI. Preferência persistente; a sessão ativa mantém seu esforço."),
-        new("/mode", "MODELOS E MODO", "Consulte ou salve o modo padrão das novas sessões; não altera a sessão ativa.",
-            "/mode\n/mode manual", "manual pede aprovação, auto é automático e plan é planejamento, conforme suporte do agente. Preferência persistente."),
+        new("/mode", "MODELOS E MODO", "Consulte ou salve o modo padrão; use /mode session para trocar na sessão ativa.",
+            "/mode\n/mode manual\n/mode session manual", "manual pede aprovação, auto é automático e plan é planejamento. " +
+            "/mode <modo> salva o padrão; /mode session <modo> mantém o padrão e troca na sessão ociosa. " +
+            "Claude confirma imediatamente; Codex aplica no próximo turno. Aguarde ou interrompa explicitamente um turno ativo."),
         new("/permissions", "MODELOS E MODO", "Consulte ou salve a mesma preferência persistente de /mode.",
             "/permissions\n/permissions plan", "Aceita manual, auto ou plan; aplica-se apenas às novas sessões."),
 

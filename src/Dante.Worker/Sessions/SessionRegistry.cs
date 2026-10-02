@@ -97,6 +97,57 @@ public sealed class SessionRegistry(
         return await EndIfFailedAsync(entry);
     }
 
+    public async Task<SessionResult> ChangeModeAsync(long userId, string? sessionId,
+        AgentPermissionProfile profile, CancellationToken cancellationToken = default)
+    {
+        var entry = Find(userId, sessionId, out var error);
+        if (entry is null) return SessionResult.Reject(error!);
+        await entry.Upstream.WaitAsync(cancellationToken);
+        try
+        {
+            var snapshot = Snapshot(entry);
+            if (snapshot.State != AgentSessionState.Idle || snapshot.QueuedCount != 0 || snapshot.PendingRequestIds.Count != 0)
+                return SessionResult.Reject("Não é possível trocar o modo enquanto há um turno ou solicitação pendente. " +
+                    "Aguarde a conclusão ou use /session stop para interromper explicitamente.");
+            if (!entry.Driver.Capabilities.Modes.Contains(profile))
+                return SessionResult.Reject($"O modo {AgentSessionModes.Name(profile)} não é suportado pelo {snapshot.Agent}.");
+            if (entry.Driver.Capabilities.ModeSwitch == AgentModeSwitch.Unsupported)
+                return SessionResult.Reject($"Esta sessão {snapshot.Agent} não permite trocar o modo sem reiniciar. " +
+                    $"Use /session start {snapshot.Agent.ToString().ToLowerInvariant()} {AgentSessionModes.Name(profile)} para abrir uma nova sessão.");
+            if (snapshot.Profile == profile && snapshot.PendingProfile is null)
+                return new SessionResult(true, snapshot);
+            try
+            {
+                await entry.Driver.ChangeModeAsync(profile, cancellationToken);
+                lock (gate)
+                {
+                    if (entry.Driver.Capabilities.ModeSwitch == AgentModeSwitch.NextTurn)
+                        entry.PendingProfile = profile == entry.Profile ? null : profile;
+                    else
+                    {
+                        entry.Profile = profile;
+                        entry.PendingProfile = null;
+                    }
+                }
+                return new SessionResult(true, Snapshot(entry));
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning("Troca de modo recusada na sessão {SessionId} ({ErrorType}).", snapshot.Id,
+                    exception.GetType().Name);
+                if (exception is AgentModeUnconfirmedException or OperationCanceledException or TimeoutException)
+                {
+                    await FailAsync(entry, "O agente não confirmou o modo; a sessão foi encerrada para evitar políticas divergentes. Inicie uma nova sessão.");
+                    await entry.DisposeDriverAsync();
+                    return new SessionResult(false, Snapshot(entry), entry.Session.Error);
+                }
+                return new SessionResult(false, Snapshot(entry),
+                    "Não foi possível confirmar a troca de modo. O modo anterior foi mantido; tente novamente ou inicie uma nova sessão.");
+            }
+        }
+        finally { entry.Upstream.Release(); }
+    }
+
     // sessionId null routes to the user's active session.
     public async Task<SessionSubmitResult> SubmitAsync(long userId, string? sessionId, AgentInput input,
         MessageDelivery delivery = MessageDelivery.Queue, CancellationToken cancellationToken = default)
@@ -159,6 +210,14 @@ public sealed class SessionRegistry(
                     break;
             }
         }
+        catch (AgentModeRejectedException exception)
+        {
+            lock (gate) entry.PendingProfile = null;
+            // A rejected turn/start never reached the agent. Keep the upstream thread and the previous profile.
+            var completed = session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Failed, exception.Message));
+            await PublishAsync(entry, completed);
+            return SessionSubmitResult.Reject(exception.Message, session.Id);
+        }
         catch (Exception exception) when (result.Outcome == SubmitOutcome.Steered)
         {
             if (exception is OperationCanceledException)
@@ -176,7 +235,9 @@ public sealed class SessionRegistry(
             // A turn that was opened but never reached the agent would stay Running forever.
             logger.LogWarning("Falha ao enviar mensagem à sessão {SessionId} ({ErrorType}).", session.Id,
                 exception.GetType().Name);
-            await FailAsync(entry, "Não foi possível enviar a mensagem ao agente; a sessão foi encerrada.");
+            await FailAsync(entry, entry.PendingProfile is not null
+                ? "Não foi possível confirmar as políticas da troca de modo; a sessão foi encerrada. Atualize a CLI ou inicie uma nova sessão explicitamente."
+                : "Não foi possível enviar a mensagem ao agente; a sessão foi encerrada.");
             await entry.DisposeDriverAsync();
             if (exception is OperationCanceledException && cancellationToken.IsCancellationRequested) throw;
             return SessionSubmitResult.Reject(session.Error!, session.Id);
@@ -491,6 +552,18 @@ public sealed class SessionRegistry(
         {
             await foreach (var agentEvent in entry.Driver.ReadEventsAsync(lifetime.Token))
             {
+                if (agentEvent is ModeAppliedEvent mode)
+                {
+                    lock (gate)
+                    {
+                        if (entry.PendingProfile == mode.Profile && !IsEnded(session.State))
+                        {
+                            entry.Profile = mode.Profile;
+                            entry.PendingProfile = null;
+                        }
+                    }
+                    continue;
+                }
                 AgentEvent stamped;
                 try
                 {
@@ -607,21 +680,26 @@ public sealed class SessionRegistry(
 
     private async Task StartNextQueuedAsync(Entry entry, CancellationToken cancellationToken)
     {
-        if (!entry.Session.TryStartQueued(out _, out var input))
-        {
-            return;
-        }
-
+        await entry.Upstream.WaitAsync(cancellationToken);
         try
         {
-            await entry.Driver.StartTurnAsync(input!, cancellationToken);
+            if (!entry.Session.TryStartQueued(out _, out var input))
+            {
+                return;
+            }
+
+            try
+            {
+                await entry.Driver.StartTurnAsync(input!, cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning("Falha ao iniciar turno enfileirado na sessão {SessionId} ({ErrorType}).",
+                    entry.Session.Id, exception.GetType().Name);
+                await FailAsync(entry, "Não foi possível enviar a mensagem ao agente; a sessão foi encerrada.");
+            }
         }
-        catch (Exception exception)
-        {
-            logger.LogWarning("Falha ao iniciar turno enfileirado na sessão {SessionId} ({ErrorType}).",
-                entry.Session.Id, exception.GetType().Name);
-            await FailAsync(entry, "Não foi possível enviar a mensagem ao agente; a sessão foi encerrada.");
-        }
+        finally { entry.Upstream.Release(); }
     }
 
     private async Task<SessionResult> EndIfFailedAsync(Entry entry)
@@ -725,6 +803,7 @@ public sealed class SessionRegistry(
                 return false;
             }
 
+            entry.PendingProfile = null;
             entry.EndedAtUtc = DateTimeOffset.UtcNow;
             var ended = sessions.Values
                 .Where(candidate => candidate.EndedAtUtc is not null)
@@ -749,7 +828,7 @@ public sealed class SessionRegistry(
                 entry.Profile, session.State, session.ActiveTurnId, session.QueuedCount, session.PendingRequestIds,
                 activeSessions.TryGetValue(session.OwnerUserId, out var active) && active == session.Id,
                 entry.CreatedAtUtc, entry.EndedAtUtc, session.Error, entry.LastTurnOutcome, entry.ModelSelection,
-                entry.ReportedModel);
+                entry.ReportedModel) { PendingProfile = entry.PendingProfile };
         }
     }
 
@@ -763,7 +842,8 @@ public sealed class SessionRegistry(
 
         public AgentSession Session { get; } = session;
         public IAgentSessionDriver Driver { get; } = driver;
-        public AgentPermissionProfile Profile { get; } = profile;
+        public AgentPermissionProfile Profile { get; set; } = profile;
+        public AgentPermissionProfile? PendingProfile { get; set; }
         public AgentModelSelection? ModelSelection { get; } = modelSelection;
         public string? ReportedModel { get; set; }
         public DateTimeOffset CreatedAtUtc { get; } = DateTimeOffset.UtcNow;

@@ -70,6 +70,18 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
         return new AgentSessionStarted(sessionId, agent.ProcessId);
     }
 
+    public async Task ChangeModeAsync(AgentPermissionProfile profile, CancellationToken cancellationToken = default)
+    {
+        var result = await SendControlAsync(new JsonObject
+        {
+            ["subtype"] = "set_permission_mode", ["mode"] = PermissionMode(profile)
+        }, cancellationToken).WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+        // Claude normalizes manual to default (2.1.287). Never infer success from an empty response.
+        var expected = profile == AgentPermissionProfile.Manual ? "default" : PermissionMode(profile);
+        if (GetString(result, "mode") != expected)
+            throw new AgentModeUnconfirmedException("O Claude não confirmou o modo solicitado.");
+    }
+
     public async Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);

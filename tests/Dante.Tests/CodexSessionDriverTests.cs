@@ -11,6 +11,60 @@ namespace Dante.Tests;
 // JSON-RPC protocol, without the Codex CLI or any external service.
 public sealed class CodexSessionDriverTests
 {
+    [Fact]
+    public async Task ModeOverridesAreConfirmedInTheSameThreadAndProcessAtTheNextTurn()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new CodexSessionDriver(launcher);
+        var started = await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory,
+            Profile: AgentPermissionProfile.Auto, ModelSelection: new AgentModelSelection("fake-model", "high")));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        foreach (var mode in new[] { AgentPermissionProfile.Manual, AgentPermissionProfile.Plan, AgentPermissionProfile.Auto })
+        {
+            await driver.ChangeModeAsync(mode);
+            await driver.StartTurnAsync("config");
+            var turn = await ReadTurnAsync(events);
+            Assert.Equal(mode, turn.OfType<ModeAppliedEvent>().Single().Profile);
+            var expected = mode == AgentPermissionProfile.Plan ? "on-request/read-only/plan/fake-model/true/user"
+                : $"on-request/workspace-write/default/fake-model/true/{(mode == AgentPermissionProfile.Auto ? "auto_review" : "user")}";
+            Assert.Equal(expected, turn.OfType<MessageCompletedEvent>().Single().Text);
+            Assert.False(HasExited(started.ProcessId));
+        }
+        Assert.Single(launcher.Requests);
+        Assert.Equal("thread-1", started.UpstreamSessionId);
+    }
+
+    [Fact]
+    public async Task AnOlderServerWithoutSettingsConfirmationDoesNotApplyTheSnapshotMode()
+    {
+        await using var driver = new CodexSessionDriver(new ProbeLauncher("missing-mode-confirmation"));
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await driver.ChangeModeAsync(AgentPermissionProfile.Plan);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => driver.StartTurnAsync("config", timeout.Token));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        Assert.DoesNotContain(await ReadTurnAsync(events), item => item is ModeAppliedEvent);
+    }
+
+    [Theory]
+    [InlineData("wrong-mode-reviewer")]
+    [InlineData("wrong-mode-sandbox")]
+    [InlineData("reject-mode")]
+    public async Task UpstreamPolicyRefusalIsNeverReportedAsApplied(string scenario)
+    {
+        await using var driver = new CodexSessionDriver(new ProbeLauncher(scenario));
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await driver.ChangeModeAsync(AgentPermissionProfile.Auto);
+        if (scenario == "reject-mode")
+        {
+            await Assert.ThrowsAsync<AgentModeRejectedException>(() => driver.StartTurnAsync("config"));
+            await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+            await driver.StartTurnAsync("config");
+            Assert.DoesNotContain(await ReadTurnAsync(events), item => item is ModeAppliedEvent);
+        }
+        else await Assert.ThrowsAsync<AgentProtocolException>(() => driver.StartTurnAsync("config"));
+    }
+
     [Theory]
     [InlineData(AgentPermissionProfile.Plan, "effort:high/high")]
     [InlineData(AgentPermissionProfile.Manual, "effort:high/default")]

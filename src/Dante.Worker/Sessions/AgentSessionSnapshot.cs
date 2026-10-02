@@ -21,6 +21,9 @@ public sealed record AgentSessionSnapshot(
     AgentModelSelection? ModelSelection = null,
     string? ReportedModel = null)
 {
+    // A requested override is not the effective mode until the driver confirms it.
+    public AgentPermissionProfile? PendingProfile { get; init; }
+
     // The model chosen when the session started, or the CLI default with the model the CLI reported, if any (#77).
     public string EffortLabel => ModelSelection?.EffortLabel ?? "padrão da CLI";
 

@@ -679,7 +679,7 @@ simuladas do `Dante.ProcessProbe`).
 
 ## AD-24 — Modos operacionais: perfis com nomes amigáveis, padrão persistido por usuário e capacidade por agente
 
-Status: vigente (#76)
+Status: vigente (#76), evoluída pela #108 com troca explícita na sessão ociosa.
 
 Os perfis de permissão da AD-22 são apresentados ao usuário como **modos** de trabalho:
 `manual` (aprovação; `approval` é sinônimo na entrada), `auto` (automático) e `plan`
@@ -693,9 +693,32 @@ mapeamentos para cada CLI continuam os das AD-18 e AD-19.
   iniciar; sinônimos não são aceitos no arquivo). Sem escolha, o modo é `manual`. Isso substitui a
   escolha em memória até o reinício da AD-22. `/permissions` continua como interface de baixo nível
   e lê e grava o mesmo padrão;
-- **imutável na sessão**: o modo é fixado quando a sessão começa (AD-20). Mudar o padrão vale só
-  para sessões futuras, e a resposta avisa quando a sessão ativa continua no modo anterior. Um modo
-  em `/session start` vale só para aquela sessão e não altera o padrão;
+- **regra original (#76), evoluída pela #108**: o modo era imutável na sessão, fixado na
+  abertura (AD-20). Mudar o padrão continua valendo só para sessões futuras. Agora
+  `/mode session <modo>` solicita explicitamente a troca na sessão ativa ociosa, sem mudar
+  o padrão. Um modo em `/session start` continua valendo só para aquela sessão;
+- **capacidade dinâmica validada por driver (#108)**: `AgentDriverCapabilities.ModeSwitch`
+  distingue ausência de suporte, aplicação ociosa confirmada (Claude) e override no próximo
+  turno (Codex). Claude usa `set_permission_mode` e exige o modo retornado (`manual` normaliza
+  para `default`). Codex guarda a intenção separada do perfil efetivo e envia `approvalPolicy`,
+  `approvalsReviewer`, `sandboxPolicy` e `collaborationMode` no próximo `turn/start`, na mesma
+  thread efêmera. Sair de plan envia colaboração `default` explicitamente. Só
+  `thread/settings/updated` compatível com a política solicitada, cwd, modelo e esforço
+  confirma a aplicação e atualiza o snapshot. `/status` mostra o modo efetivo e a intenção
+  pendente. Não se usa `thread/resume`, que recusou threads efêmeras na CLI 0.159.3;
+- **ponto seguro**: troca exige `Idle`, fila vazia e nenhum request pendente. Início de turno,
+  despacho da fila, troca e respostas upstream são serializados. Turno ativo, approval e
+  input pendentes recusam a operação sem descartar nem responder a requests. O usuário
+  precisa aguardar ou interromper explicitamente. Solicitar o modo atual cancela uma troca
+  pendente do Codex. Só o dono pode trocar;
+- **falha de troca**: recusa explícita preserva perfil anterior e sessão. Falta de confirmação,
+  confirmação incompatível ou cancelamento/timeout após envio ao Claude encerram a sessão
+  com erro, preservando o último perfil confirmado e evitando processo vivo divergente.
+  Agente sem suporte orienta abertura explícita de nova sessão. Nenhuma troca reinicia
+  processo/thread silenciosamente, altera modelo/esforço/contexto ou concede full;
+- **evidência**: [investigação #108](../spikes/session-mode/README.md), com Claude Code
+  2.1.287 e Codex 0.159.3, controles reais e seis transições dirigidas entre modos com
+  lembrança da conversa. Teste reproduzível opt-in: `LiveSessionModeEvidenceTests`;
 - **visível**: `/status` mostra o modo de cada sessão, `/mode` mostra o padrão e o modo da sessão
   ativa, e `/session start` o informa na abertura explícita. A abertura implícita por mensagem
   comum não envia aviso adicional de ciclo de vida, preservando a conversa direta da AD-23;

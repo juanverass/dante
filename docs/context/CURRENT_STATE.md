@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-02, com approvals inline (#104), respostas por botões e Reply (#105) e ajuda de comandos (#106).
+Última revisão: 2026-10-02, com approvals inline (#104), respostas por botões e Reply (#105), ajuda de comandos (#106) e troca de modo da sessão ociosa (#108).
 
 ## Marcos
 
@@ -79,8 +79,12 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   da execução em `/status` e recuperação de partes pendentes por `/resend` (AD-21).
 - `/mode` consulta e escolhe o modo de trabalho das novas sessões — `manual` (aprovação), `auto`
   (automático) ou `plan` (planejamento) —, com padrão por usuário persistido em
-  `~/.dante/settings.json`; `/session start` aceita modo explícito, a sessão mantém o modo até ser
-  encerrada, `/status`, `/mode` e `/session start` o mostram, sem aviso na abertura implícita, e
+  `~/.dante/settings.json`; `/session start` aceita modo explícito. `/mode session <modo>` (#108)
+  troca somente na sessão ativa ociosa: Claude confirma via controle, Codex aplica no próximo
+  turno da mesma thread e exige confirmação das políticas; `/status` e `/mode` distinguem
+  perfil efetivo e troca pendente. Turno ativo/fila/requests pendentes recusam sem interrupção
+  automática; recusa mantém modo anterior, confirmação incerta encerra a sessão com erro.
+  `/status`, `/mode` e `/session start` mostram o modo, sem aviso na abertura implícita, e
   modo não suportado pelo agente é recusado antes de iniciar (AD-24). `/permissions` segue como interface de baixo nível do mesmo
   padrão. `/approve`, `/approve-session`, `/deny` e `/input` respondem a
   solicitações correlacionadas por sessão, turno e request, com expiração em cinco minutos
@@ -143,12 +147,16 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #104, #105 e #106:
+Estado conhecido com #104, #105, #106 e #108:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    549 testes aprovados, 5 pulados (evidência com CLIs reais, opt-in)
+dotnet test Dante.sln    575 testes aprovados, 7 pulados (evidência com CLIs reais, opt-in)
 ```
+
+`LiveSessionModeEvidenceTests` (#108), opt-in com `DANTE_LIVE_CLI=1`, passou para Claude Code
+2.1.287 e Codex 0.159.3 nas seis transições dirigidas entre modos, mantendo conversa e esforço
+`high` no mesmo processo/session/thread.
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
 `SessionRegistry` → drivers reais → CLIs simuladas do `Dante.ProcessProbe`).

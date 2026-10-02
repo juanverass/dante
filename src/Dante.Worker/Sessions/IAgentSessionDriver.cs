@@ -13,11 +13,20 @@ public sealed record AgentSessionStartOptions(
 // model the CLI reports for the session when it says so at start (Codex thread/start), even without a selection.
 public sealed record AgentSessionStarted(string UpstreamSessionId, int ProcessId, string? Model = null);
 
-// What each structured protocol offers, as validated by the #61 spikes (docs/spikes/interactive-protocols).
+// An explicit refusal before application is different from an uncertain upstream mode.
+public sealed class AgentModeRejectedException(string message) : Exception(message);
+
+public sealed class AgentModeUnconfirmedException(string message) : Exception(message);
+
+public enum AgentModeSwitch { Unsupported, Idle, NextTurn }
+
+// Validated protocol capabilities (#61 and #108; docs/spikes/).
 public sealed record AgentDriverCapabilities(bool NativeSteer, bool Approvals, bool UserInput)
 {
     // Modes (permission profiles) the driver maps to its CLI; a session in any other mode is refused before it starts.
     public IReadOnlyList<AgentPermissionProfile> Modes { get; init; } = AgentSessionModes.All;
+
+    public AgentModeSwitch ModeSwitch { get; init; } = AgentModeSwitch.Unsupported;
 
     // Images reach the model in the turn and in a native steer: Claude as base64 image blocks, Codex as localImage
     // items (#93 spike, AD-29). Attachments are refused before reaching a driver without it.
@@ -25,12 +34,12 @@ public sealed record AgentDriverCapabilities(bool NativeSteer, bool Approvals, b
 
     // Claude stream-json: no mid-turn steer; approvals and AskUserQuestion via --permission-prompt-tool stdio.
     // Modes map to --permission-mode manual|auto|plan (AD-18).
-    public static AgentDriverCapabilities Claude { get; } = new(NativeSteer: false, Approvals: true, UserInput: true);
+    public static AgentDriverCapabilities Claude { get; } = new(NativeSteer: false, Approvals: true, UserInput: true) { ModeSwitch = AgentModeSwitch.Idle };
 
     // Codex app-server: turn/steer; approvals and item/tool/requestUserInput as server requests. User input is
     // EXPERIMENTAL: it needs capabilities.experimentalApi and the plan collaboration mode on 0.157.1.
     // Modes map to approvalPolicy/sandbox and the plan collaboration mode (AD-19).
-    public static AgentDriverCapabilities Codex { get; } = new(NativeSteer: true, Approvals: true, UserInput: true);
+    public static AgentDriverCapabilities Codex { get; } = new(NativeSteer: true, Approvals: true, UserInput: true) { ModeSwitch = AgentModeSwitch.NextTurn };
 
     public static AgentDriverCapabilities For(AgentKind agent) => agent == AgentKind.Codex ? Codex : Claude;
 }
@@ -43,6 +52,10 @@ public interface IAgentSessionDriver : IAsyncDisposable
 
     // Starts the process and the upstream session/thread; one call per driver instance.
     Task<AgentSessionStarted> StartAsync(AgentSessionStartOptions options, CancellationToken cancellationToken = default);
+
+    // Idle only. NextTurn drivers schedule an override; ModeAppliedEvent confirms the effective policy later.
+    Task ChangeModeAsync(AgentPermissionProfile profile, CancellationToken cancellationToken = default) =>
+        Task.FromException(new NotSupportedException("Este agente não suporta troca de modo nesta sessão."));
 
     Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default);
 
