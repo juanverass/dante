@@ -19,6 +19,10 @@ public sealed record AgentDriverCapabilities(bool NativeSteer, bool Approvals, b
     // Modes (permission profiles) the driver maps to its CLI; a session in any other mode is refused before it starts.
     public IReadOnlyList<AgentPermissionProfile> Modes { get; init; } = AgentSessionModes.All;
 
+    // Images reach the model in the turn and in a native steer: Claude as base64 image blocks, Codex as localImage
+    // items (#93 spike, AD-29). Attachments are refused before reaching a driver without it.
+    public bool ImageInput { get; init; } = true;
+
     // Claude stream-json: no mid-turn steer; approvals and AskUserQuestion via --permission-prompt-tool stdio.
     // Modes map to --permission-mode manual|auto|plan (AD-18).
     public static AgentDriverCapabilities Claude { get; } = new(NativeSteer: false, Approvals: true, UserInput: true);
@@ -40,10 +44,10 @@ public interface IAgentSessionDriver : IAsyncDisposable
     // Starts the process and the upstream session/thread; one call per driver instance.
     Task<AgentSessionStarted> StartAsync(AgentSessionStartOptions options, CancellationToken cancellationToken = default);
 
-    Task StartTurnAsync(string input, CancellationToken cancellationToken = default);
+    Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default);
 
     // Only when Capabilities.NativeSteer; applied at the next model boundary, not preemptively.
-    Task SteerAsync(string input, CancellationToken cancellationToken = default);
+    Task SteerAsync(AgentInput input, CancellationToken cancellationToken = default);
 
     Task InterruptTurnAsync(CancellationToken cancellationToken = default);
 

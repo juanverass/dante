@@ -280,7 +280,8 @@ public sealed class TelegramModelCommandTests : IAsyncDisposable
         public IReadOnlyList<string?> Models => models.ToArray();
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
             CancellationToken cancellationToken = default, bool generalMode = false,
-            IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null)
+            IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null,
+            IReadOnlyList<Dante.Worker.Attachments.Attachment>? attachments = null)
         {
             Effort = effort;
             models.Enqueue(model);

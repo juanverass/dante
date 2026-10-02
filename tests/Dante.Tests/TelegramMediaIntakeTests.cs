@@ -23,21 +23,19 @@ public sealed class TelegramMediaIntakeTests : IAsyncDisposable
     private string Attachments => Path.Combine(root, "attachments");
 
     [Fact]
-    public async Task PhotoWithCaptionIsStoredFromTheLargestSizeAndAcknowledged()
+    public async Task PhotoIsStoredFromTheLargestSizeAndAcknowledged()
     {
         api.Files["small"] = TestImages.Jpeg(90, 60);
         api.Files["large"] = TestImages.Jpeg(1280, 960);
         await StartAsync();
 
-        api.Enqueue(Message(photo: [new TelegramPhotoSize("small", 90, 60, 100), new TelegramPhotoSize("large", 1280, 960, 300)],
-            caption: "monte um post"));
+        api.Enqueue(Message(photo: [new TelegramPhotoSize("small", 90, 60, 100), new TelegramPhotoSize("large", 1280, 960, 300)]));
 
         var reply = await api.NextMessageAsync();
         Assert.StartsWith("Recebi 1 imagem.", reply);
-        Assert.Contains("Ainda não encaminho imagens aos agentes", reply);
+        Assert.Contains("Envie o pedido em texto: as imagens vão junto com a próxima mensagem.", reply);
         Assert.Equal(["large"], api.Downloads);
         var batch = pending!.Get(123)!;
-        Assert.Equal("monte um post", batch.Caption);
         Assert.Equal("Claude:General", batch.ContextKey);
         var item = Assert.Single(batch.Items);
         Assert.Equal((1280, 960, "image/jpeg"), (item.Width!.Value, item.Height!.Value, item.MediaType));
@@ -94,7 +92,7 @@ public sealed class TelegramMediaIntakeTests : IAsyncDisposable
         api.Files["fake"] = "não é imagem"u8.ToArray();
         await StartAsync();
 
-        api.Enqueue(Message(photo: [new TelegramPhotoSize("a", 10, 10)], group: "G1", id: 1, caption: "os dois prints"));
+        api.Enqueue(Message(photo: [new TelegramPhotoSize("a", 10, 10)], group: "G1", id: 1));
         api.Enqueue(Message(photo: [new TelegramPhotoSize("a", 10, 10)], group: "G1", id: 1));
         api.Enqueue(Message(document: new TelegramFileInfo("fake", 20, "image/png", "x.png"), group: "G1", id: 2));
         api.Enqueue(Message(document: new TelegramFileInfo("b", 13, "image/gif", "../../b.gif"), group: "G1", id: 3));
@@ -106,7 +104,6 @@ public sealed class TelegramMediaIntakeTests : IAsyncDisposable
         var batch = pending!.Get(123)!;
         Assert.Equal(["image/png", "image/gif"], batch.Items.Select(item => item.MediaType));
         Assert.Equal("b.gif", batch.Items[1].Name);
-        Assert.Equal("os dois prints", batch.Caption);
         Assert.Equal(2, Directory.GetFiles(Attachments, "*", SearchOption.AllDirectories).Length);
         await Task.Delay(300);
         Assert.False(api.HasMessage);
@@ -221,7 +218,8 @@ public sealed class TelegramMediaIntakeTests : IAsyncDisposable
     {
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
             CancellationToken cancellationToken = default, bool generalMode = false,
-            IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null) =>
+            IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null,
+            IReadOnlyList<Dante.Worker.Attachments.Attachment>? attachments = null) =>
             throw new InvalidOperationException("Nenhum agente deve rodar nestes testes.");
     }
 

@@ -30,7 +30,8 @@ public sealed class AgentSession(
     TimeProvider? timeProvider = null)
 {
     private readonly object gate = new();
-    private readonly LinkedList<string> queue = new();
+    // Each queued item is one message with its attachments, kept together and in order (AD-16, AD-29).
+    private readonly LinkedList<AgentInput> queue = new();
     private readonly Dictionary<string, PendingRequest> pending = new(StringComparer.OrdinalIgnoreCase);
     private AgentSessionState state = AgentSessionState.Starting;
     private Turn? activeTurn;
@@ -90,9 +91,10 @@ public sealed class AgentSession(
         }
     }
 
-    public SubmitResult Submit(string text, MessageDelivery delivery = MessageDelivery.Queue)
+    public SubmitResult Submit(AgentInput input, MessageDelivery delivery = MessageDelivery.Queue)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentException.ThrowIfNullOrWhiteSpace(input.Text);
         lock (gate)
         {
             switch (state)
@@ -101,22 +103,22 @@ public sealed class AgentSession(
                     // Queued messages have not started yet: never overtake them (steer still goes first).
                     if (delivery == MessageDelivery.Steer)
                     {
-                        queue.AddFirst(text);
+                        queue.AddFirst(input);
                     }
                     else
                     {
-                        queue.AddLast(text);
+                        queue.AddLast(input);
                     }
 
                     return new SubmitResult(SubmitOutcome.Queued);
                 case AgentSessionState.Idle:
                     return new SubmitResult(SubmitOutcome.TurnStarted, OpenTurn());
                 case AgentSessionState.Starting when delivery == MessageDelivery.Queue:
-                    queue.AddLast(text);
+                    queue.AddLast(input);
                     return new SubmitResult(SubmitOutcome.Queued);
                 case AgentSessionState.Running or AgentSessionState.WaitingForUser
                     when delivery == MessageDelivery.Queue:
-                    queue.AddLast(text);
+                    queue.AddLast(input);
                     return new SubmitResult(SubmitOutcome.Queued, activeTurn!.Id);
                 case AgentSessionState.Running when activeTurn!.InterruptRequested:
                     return SubmitResult.Reject("O turno atual já está sendo interrompido.");
@@ -126,7 +128,7 @@ public sealed class AgentSession(
                     // Steer without native support: interrupt now and run this text first, keeping the queue.
                     activeTurn.InterruptRequested = true;
                     ExpirePending();
-                    queue.AddFirst(text);
+                    queue.AddFirst(input);
                     return new SubmitResult(SubmitOutcome.SteerByInterrupt, activeTurn.Id);
                 case AgentSessionState.WaitingForUser:
                     return SubmitResult.Reject(
@@ -138,19 +140,19 @@ public sealed class AgentSession(
     }
 
     // Starts the next queued message when the session is idle; the caller sends it with StartTurnAsync.
-    public bool TryStartQueued(out string? turnId, out string? text)
+    public bool TryStartQueued(out string? turnId, out AgentInput? input)
     {
         lock (gate)
         {
             if (state != AgentSessionState.Idle || queue.First is not { } first)
             {
                 turnId = null;
-                text = null;
+                input = null;
                 return false;
             }
 
             queue.RemoveFirst();
-            text = first.Value;
+            input = first.Value;
             turnId = OpenTurn();
             return true;
         }

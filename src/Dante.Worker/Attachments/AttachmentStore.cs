@@ -66,7 +66,24 @@ public sealed class AttachmentStore
     public void Delete(Attachment attachment)
     {
         var path = System.IO.Path.GetFullPath(attachment.Path);
-        if (path.StartsWith(Root + System.IO.Path.DirectorySeparatorChar, StringComparison.Ordinal)) File.Delete(path);
+        if (IsUnderRoot(path)) File.Delete(path);
+    }
+
+    // A consumed attachment moves to the directory of the session or job that uses it, kept until that one ends (AD-29).
+    public Attachment MoveTo(Attachment attachment, string scope)
+    {
+        var source = System.IO.Path.GetFullPath(attachment.Path);
+        if (!IsUnderRoot(source)) throw new ArgumentException("Anexo fora do diretório de anexos.", nameof(attachment));
+        var path = System.IO.Path.Combine(CreateDirectory(attachment.OwnerId, scope), System.IO.Path.GetFileName(source));
+        File.Move(source, path);
+        return attachment with { Path = path };
+    }
+
+    // Session and job ids restart with the process, so a directory found for a new one is a leftover: removed first.
+    public void DeleteScope(long ownerId, string scope)
+    {
+        var directory = ScopeDirectory(ownerId, scope);
+        if (Directory.Exists(directory)) Directory.Delete(directory, true);
     }
 
     // At startup the in-memory registry is empty, so files older than maxAge are leftovers of a previous run.
@@ -87,11 +104,19 @@ public sealed class AttachmentStore
         return removed;
     }
 
-    private string CreateDirectory(long ownerId, string scope)
+    private bool IsUnderRoot(string path) =>
+        path.StartsWith(Root + System.IO.Path.DirectorySeparatorChar, StringComparison.Ordinal);
+
+    private string ScopeDirectory(long ownerId, string scope)
     {
         if (scope.Length == 0 || !scope.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_'))
             throw new ArgumentException("Escopo de anexo inválido.", nameof(scope));
-        var directory = System.IO.Path.Combine(Root, ownerId.ToString(System.Globalization.CultureInfo.InvariantCulture), scope);
+        return System.IO.Path.Combine(Root, ownerId.ToString(System.Globalization.CultureInfo.InvariantCulture), scope);
+    }
+
+    private string CreateDirectory(long ownerId, string scope)
+    {
+        var directory = ScopeDirectory(ownerId, scope);
         foreach (var path in new[] { Root, System.IO.Path.GetDirectoryName(directory)!, directory })
         {
             if (OperatingSystem.IsWindows()) Directory.CreateDirectory(path);

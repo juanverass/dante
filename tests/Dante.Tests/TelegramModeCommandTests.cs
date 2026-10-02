@@ -169,7 +169,8 @@ public sealed class TelegramModeCommandTests : IAsyncDisposable
     {
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
             CancellationToken cancellationToken = default, bool generalMode = false,
-            IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null) =>
+            IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null,
+            IReadOnlyList<Dante.Worker.Attachments.Attachment>? attachments = null) =>
             throw new InvalidOperationException("Modos não executam one-shot.");
     }
 

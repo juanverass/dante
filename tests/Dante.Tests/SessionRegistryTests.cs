@@ -1,4 +1,5 @@
 using Dante.Worker.Agents;
+using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 using Dante.Worker.Sessions;
 using Microsoft.Extensions.DependencyInjection;
@@ -116,6 +117,77 @@ public sealed class SessionRegistryTests
 
         Assert.Equal(["start", "turn:a", "turn:b", "turn:c"], driver.Calls);
     }
+
+    // #95: a message keeps its images through the queue, in order, and they reach the driver with it.
+    [Fact]
+    public async Task QueuedMessageKeepsItsImagesInOrder()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+        var driver = drivers.Created.Single();
+
+        await registry.SubmitAsync(Owner, null, "a");
+        Assert.Equal(SubmitOutcome.Queued, (await registry.SubmitAsync(Owner, null,
+            new AgentInput("compare", [Image("A000002", Owner), Image("A000001", Owner)]))).Outcome);
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+
+        await Eventually(() => driver.Calls.Contains("turn:compare [A000002,A000001]"));
+    }
+
+    // #95: images the session cannot take are refused before reaching the driver, never sent as file names.
+    [Fact]
+    public async Task UnsupportedOrForeignAttachmentsAreRefusedBeforeTheDriver()
+    {
+        drivers.Configure = driver => driver.Capabilities = driver.Capabilities with { ImageInput = false };
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var driver = drivers.Created.Single();
+
+        var unsupported = await registry.SubmitAsync(Owner, null, new AgentInput("veja", [Image("A000001", Owner)]));
+        Assert.Equal(SubmitOutcome.Rejected, unsupported.Outcome);
+        Assert.Equal("O Codex não recebe imagens nesta sessão; a mensagem não foi enviada.", unsupported.Error);
+        var foreign = await registry.SubmitAsync(Owner, null, new AgentInput("veja", [Image("A000001", Intruder)]));
+        Assert.Equal("Anexo de outro usuário.", foreign.Error);
+        var audio = await registry.SubmitAsync(Owner, null,
+            new AgentInput("ouça", [Image("A000001", Owner) with { Kind = AttachmentKind.Audio }]));
+        Assert.StartsWith("Só imagens chegam ao agente", audio.Error);
+
+        Assert.Equal(["start"], driver.Calls);
+        Assert.Equal(AgentSessionState.Idle, registry.GetActive(Owner)!.State);
+        Assert.Equal(SubmitOutcome.TurnStarted, (await registry.SubmitAsync(Owner, null, "só texto")).Outcome);
+    }
+
+    // #95: a session's attachment directory lives as long as the session; a leftover with its id is cleared first.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AttachmentsOfASessionAreDeletedWhenItEnds(bool fails)
+    {
+        var root = Directory.CreateTempSubdirectory("dante-session-attachments-").FullName;
+        try
+        {
+            var store = new AttachmentStore(root);
+            var leftover = Path.Combine(root, Owner.ToString(), "S000001", "A000009.png");
+            Directory.CreateDirectory(Path.GetDirectoryName(leftover)!);
+            File.WriteAllBytes(leftover, TestImages.Png(1, 1));
+            await using var registry = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance, sink,
+                attachments: store);
+            await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+            Assert.False(File.Exists(leftover));
+
+            var image = Path.Combine(root, Owner.ToString(), "S000001", "A000001.png");
+            Directory.CreateDirectory(Path.GetDirectoryName(image)!);
+            File.WriteAllBytes(image, TestImages.Png(1, 1));
+            if (fails) drivers.Created.Single().Crash(new AgentProtocolException("boom"));
+            else await registry.CloseAsync(Owner, null);
+
+            await Eventually(() => !Directory.Exists(Path.GetDirectoryName(image)));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    private static Attachment Image(string id, long owner) =>
+        new(id, owner, AttachmentKind.Image, "image/png", $"/tmp/{id}.png", 10, 1, 1, null);
 
     [Fact]
     public async Task SteerGoesToTheDriverOfTheSession()

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Dante.ProcessProbe;
 using Dante.Worker.Agents;
+using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 using Dante.Worker.Sessions;
 
@@ -205,6 +206,30 @@ public sealed class CodexSessionDriverTests
         Assert.Equal("""answers:{"codename":{"answers":["beta"]}}""",
             rest.OfType<MessageCompletedEvent>().Single().Text);
         Assert.Equal(AgentTurnOutcome.Completed, rest.OfType<TurnCompletedEvent>().Single().Outcome);
+    }
+
+    // #95: the text first, then one localImage per image by absolute path, in turn/start and turn/steer alike.
+    [Fact]
+    public async Task ImagesGoAsLocalImageItemsInTurnsAndSteers()
+    {
+        var first = Image("A000001", "/home/u/.dante/attachments/42/S000001/A000001.png");
+        var second = Image("A000002", "/home/u/.dante/attachments/42/S000001/A000002.webp");
+        await using var driver = new CodexSessionDriver(new ProbeLauncher());
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+
+        await driver.StartTurnAsync(new AgentInput("describe-input", [first, second]));
+        Assert.Equal($"input:text:describe-input|localImage:{first.Path}|localImage:{second.Path}",
+            (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+
+        await driver.StartTurnAsync("slow");
+        Assert.Equal("working", (await NextOfTypeAsync<MessageCompletedEvent>(events)).Text);
+        await driver.SteerAsync(new AgentInput("olhe este print", [second]));
+        Assert.Equal($"steered:olhe este print|localImage:{second.Path}",
+            (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+
+        static Attachment Image(string id, string path) =>
+            new(id, Owner, AttachmentKind.Image, "image/png", path, 10, 1, 1, null);
     }
 
     [Fact]

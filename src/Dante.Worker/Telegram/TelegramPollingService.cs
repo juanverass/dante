@@ -43,6 +43,8 @@ public sealed class TelegramPollingService(
     private readonly PendingAttachments? pending = attachments is null ? null :
         pendingAttachments ?? new PendingAttachments(attachments);
     private TelegramMediaReceiver? mediaReceiver;
+    // Updates are handled one at a time; an album that completes later joins the same line (#95).
+    private readonly SemaphoreSlim updateGate = new(1, 1);
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -83,7 +85,7 @@ public sealed class TelegramPollingService(
                     else if (update.Message is { } message && (message.Text is not null || message.HasMedia)
                         && authorizer.IsAuthorized(message.From))
                     {
-                        await HandleMessageAsync(message, stoppingToken);
+                        await ExclusiveAsync(() => HandleMessageAsync(message, stoppingToken), stoppingToken);
                     }
                 }
                 await NotifyExpiredAttachmentsAsync(stoppingToken);
@@ -141,6 +143,8 @@ public sealed class TelegramPollingService(
 
     private async Task HandleMessageAsync(TelegramMessage message, CancellationToken cancellationToken)
     {
+        // An album still open completes before anything its sender sent after it, so requests keep their order (#95).
+        if (mediaReceiver is not null) await mediaReceiver.CompleteAlbumsAsync(message.From!.Id, message.MediaGroupId);
         if (message.Text is null)
         {
             if (pending is null)
@@ -148,13 +152,41 @@ public sealed class TelegramPollingService(
                 await SendReplyAsync(message.Chat.Id, "Recebimento de mídias indisponível.", cancellationToken);
                 return;
             }
-            mediaReceiver ??= new TelegramMediaReceiver(botApi, attachments!, pending, logger);
-            await mediaReceiver.ReceiveAsync(message, AttachmentContext(message.From!.Id),
-                (reply, token) => SendReplyAsync(message.Chat.Id, reply, token), cancellationToken);
+            mediaReceiver ??= new TelegramMediaReceiver(botApi, attachments!, pending, logger, AttachmentContext,
+                ExclusiveAsync);
+            await mediaReceiver.ReceiveAsync(message, (reply, token) => SendReplyAsync(message.Chat.Id, reply, token),
+                (caption, token) => HandleCaptionAsync(message, caption, token), cancellationToken);
             return;
         }
 
-        var text = message.Text.Trim();
+        await HandleTextAsync(message, message.Text.Trim(), cancellationToken);
+    }
+
+    private async Task ExclusiveAsync(Func<Task> action, CancellationToken cancellationToken)
+    {
+        await updateGate.WaitAsync(cancellationToken);
+        try { await action(); }
+        finally { updateGate.Release(); }
+    }
+
+    // A caption is the request of its images (AD-29): a conversation message or a /claude or /codex one-shot. Any other
+    // command is refused and the images stay pending for the next text.
+    private async Task HandleCaptionAsync(TelegramMessage message, string caption, CancellationToken cancellationToken)
+    {
+        var separator = caption.IndexOfAny([' ', '\t', '\r', '\n']);
+        var command = separator < 0 ? caption : caption[..separator];
+        if (caption.StartsWith('/') && !command.Equals("/claude", StringComparison.OrdinalIgnoreCase) &&
+            !command.Equals("/codex", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendReplyAsync(message.Chat.Id, $"Comando desconhecido na legenda: {command}. As imagens continuam " +
+                "pendentes; envie o pedido em texto.", cancellationToken);
+            return;
+        }
+        await HandleTextAsync(message, caption, cancellationToken);
+    }
+
+    private async Task HandleTextAsync(TelegramMessage message, string text, CancellationToken cancellationToken)
+    {
         if (string.Equals(text, "/ping", StringComparison.OrdinalIgnoreCase))
         {
             await SendReplyAsync(message.Chat.Id, "pong", cancellationToken);
@@ -337,20 +369,29 @@ public sealed class TelegramPollingService(
         if (modelSelection is null) return;
         var context = resolution.Context!;
         var (job, jobToken) = jobs.Create(agent, context, cancellationToken, modelSelection);
+        // The pending images go with this one-shot and live in the job's directory until it ends (AD-29).
+        var images = Adopt(message.From.Id, AttachmentContext(message.From.Id), job.Id, newScope: true);
+        if (images is null)
+        {
+            jobs.Complete(job.Id, AgentProcessStatus.Failed, errorMessage: ImagesUnavailable);
+            await SendReplyAsync(message.Chat.Id, ImagesUnavailable, cancellationToken);
+            return;
+        }
         try
         {
             await SendReplyAsync(message.Chat.Id,
-                $"{agent} iniciado. Job ID: {job.Id} ({context.Label}){ModelSuffix(modelSelection)}." +
+                $"{agent} iniciado. Job ID: {job.Id} ({context.Label}){ModelSuffix(modelSelection)}{ImageSuffix(images)}." +
                 OverrideNotice(message.From.Id, resolution), cancellationToken);
         }
         catch
         {
             jobs.Complete(job.Id, AgentProcessStatus.Failed, errorMessage: "Falha ao confirmar o início.");
+            ReleaseJobImages(message.From.Id, job.Id, images);
             throw;
         }
 
         var task = RunJobAsync(job.Id, agent, resolution.Agent == AgentKind.Codex, resolution.Prompt, context,
-            resolution.Environment, modelSelection, message.From!.Id, message.Chat.Id, jobToken,
+            resolution.Environment, modelSelection, images, message.From!.Id, message.Chat.Id, jobToken,
             cancellationToken);
         lock (runningGate)
         {
@@ -871,6 +912,8 @@ public sealed class TelegramPollingService(
     {
         var userId = message.From!.Id;
         var chatId = message.Chat.Id;
+        // Taken from the context the conversation is in now, before a new session changes it (AD-29).
+        var pendingKey = AttachmentContext(userId);
         var active = sessions!.GetActive(userId);
         if (active is { State: AgentSessionState.Failed or AgentSessionState.Closing or AgentSessionState.Closed })
         {
@@ -912,7 +955,14 @@ public sealed class TelegramPollingService(
             sessionId = started.Session.Id;
         }
 
-        var result = await sessions.SubmitAsync(userId, sessionId, text, MessageDelivery.Queue, cancellationToken);
+        var images = Adopt(userId, pendingKey, sessionId);
+        if (images is null)
+        {
+            await SendReplyAsync(chatId, ImagesUnavailable, cancellationToken);
+            return;
+        }
+        var result = await SessionSubmitAsync(userId, sessionId, new AgentInput(text, images), MessageDelivery.Queue,
+            cancellationToken);
         var reply = result.Outcome switch
         {
             SubmitOutcome.TurnStarted => null,
@@ -932,7 +982,16 @@ public sealed class TelegramPollingService(
                 cancellationToken);
             return;
         }
-        var result = await sessions.SubmitAsync(message.From!.Id, null, text, mode, cancellationToken);
+        var userId = message.From!.Id;
+        IReadOnlyList<Attachment>? images = [];
+        if (sessions.GetActive(userId) is { } active)
+            images = Adopt(userId, AttachmentContext(userId), active.Id);
+        if (images is null)
+        {
+            await SendReplyAsync(message.Chat.Id, ImagesUnavailable, cancellationToken);
+            return;
+        }
+        var result = await SessionSubmitAsync(userId, null, new AgentInput(text, images), mode, cancellationToken);
         var response = result.Outcome switch
         {
             SubmitOutcome.TurnStarted => $"Turno {result.TurnId} iniciado na sessão {result.SessionId}.",
@@ -1049,6 +1108,61 @@ public sealed class TelegramPollingService(
         }
     }
 
+    private const string ImagesUnavailable = "Não foi possível preparar as imagens pendentes; nada foi enviado ao agente.";
+
+    // The next text that reaches an agent takes the images pending in the conversation's context and moves them to the
+    // directory of the session or job that uses them (AD-29). Null: they could not be moved and were deleted. Job ids
+    // restart with the process, so a job's directory is cleared first; a session's was cleared when it started.
+    private IReadOnlyList<Attachment>? Adopt(long userId, string contextKey, string scope, bool newScope = false)
+    {
+        if (pending?.Take(userId, contextKey) is not { } batch) return [];
+        var moved = new List<Attachment>();
+        try
+        {
+            if (newScope) attachments!.DeleteScope(userId, scope);
+            foreach (var item in batch.Items) moved.Add(attachments!.MoveTo(item, scope));
+            return moved;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning("Falha ao mover anexos para {Scope} ({ErrorType}).", scope, exception.GetType().Name);
+            foreach (var item in batch.Items.Concat(moved)) DeleteQuietly(item);
+            return null;
+        }
+    }
+
+    // A message the session refused never reaches the agent, so its images are not kept.
+    private async Task<SessionSubmitResult> SessionSubmitAsync(long userId, string? sessionId, AgentInput input,
+        MessageDelivery mode, CancellationToken cancellationToken)
+    {
+        var result = await sessions!.SubmitAsync(userId, sessionId, input, mode, cancellationToken);
+        if (result.Outcome == SubmitOutcome.Rejected)
+            foreach (var image in input.Attachments) DeleteQuietly(image);
+        return result;
+    }
+
+    private void ReleaseJobImages(long userId, string jobId, IReadOnlyList<Attachment> images)
+    {
+        if (images.Count == 0) return;
+        try { attachments!.DeleteScope(userId, jobId); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning("Falha ao apagar os anexos do job {JobId} ({ErrorType}).", jobId, exception.GetType().Name);
+        }
+    }
+
+    private void DeleteQuietly(Attachment attachment)
+    {
+        try { attachments!.Delete(attachment); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning("Falha ao apagar um anexo ({ErrorType}).", exception.GetType().Name);
+        }
+    }
+
+    private static string ImageSuffix(IReadOnlyList<Attachment> images) =>
+        images.Count == 0 ? string.Empty : $", {images.Count} {(images.Count == 1 ? "imagem" : "imagens")}";
+
     // The delivery identifies output of every session other than the one selected here (AD-23).
     private void SyncActiveSession(long userId) => delivery.SetActiveSession(userId, sessions?.GetActive(userId)?.Id);
 
@@ -1163,8 +1277,9 @@ public sealed class TelegramPollingService(
     }
 
     private async Task RunJobAsync(string id, string agent, bool isCodex, string prompt,
-        JobExecutionContext context, ResolvedRepositoryEnvironment? repositoryEnvironment, AgentModelSelection selection, long userId,
-        long chatId, CancellationToken jobToken, CancellationToken stoppingToken)
+        JobExecutionContext context, ResolvedRepositoryEnvironment? repositoryEnvironment, AgentModelSelection selection,
+        IReadOnlyList<Attachment> images, long userId, long chatId, CancellationToken jobToken,
+        CancellationToken stoppingToken)
     {
         AgentProcessResult? result = null;
         var status = AgentProcessStatus.Cancelled;
@@ -1176,10 +1291,10 @@ public sealed class TelegramPollingService(
                 result = isCodex
                     ? await codexRunner.RunAsync(prompt, context.WorkingDirectory, jobToken,
                         context.Mode == JobExecutionMode.General,
-                        repositoryEnvironment?.Values, selection.Model, selection.Effort)
+                        repositoryEnvironment?.Values, selection.Model, selection.Effort, images)
                     : await claudeRunner.RunAsync(prompt, context.WorkingDirectory, jobToken,
                         context.Mode == JobExecutionMode.General,
-                        repositoryEnvironment?.Values, selection.Model, selection.Effort);
+                        repositoryEnvironment?.Values, selection.Model, selection.Effort, images);
                 status = result.Status;
                 errorMessage = result.ErrorMessage;
             }
@@ -1197,6 +1312,7 @@ public sealed class TelegramPollingService(
         }
 
         var completed = jobs.Complete(id, status, result?.ExitCode, errorMessage);
+        ReleaseJobImages(userId, id, images);
         var label = completed.Context.Label;
         var response = completed.Status switch
         {

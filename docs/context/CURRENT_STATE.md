@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-02, com a UX de contexto e jobs (#38).
+Última revisão: 2026-10-02, com o encaminhamento de imagens aos agentes (#95).
 
 ## Marcos
 
@@ -18,7 +18,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | Agent Harness v1 (Epic #40) | concluído |
 | MVP 3 — Conversational Context (Epic #32) | concluído (#33–#38); fechamento da Epic por decisão humana |
 | Interactive Agent Sessions (Epic #60) | concluído |
-| Mídias no Telegram (Epic #92) | em andamento: spike #93 e recebimento #94 entregues; #95–#99 pendentes |
+| Mídias no Telegram (Epic #92) | em andamento: spike #93, recebimento #94 e imagens aos agentes #95 entregues; #96–#99 pendentes |
 
 ## Funcionalidades disponíveis
 
@@ -53,6 +53,11 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   como pendentes em `~/.dante/attachments`, por usuário e contexto, com uma confirmação por álbum, linha em
   `/status`, descarte na troca de contexto, expiração em 10 min e limpeza de sobras na inicialização; áudio,
   vídeo e outros arquivos são recusados sem download;
+- imagens aos agentes (#95, AD-29): a legenda é o pedido (turno da conversa, fila durante turno ativo, ou one-shot
+  com `/claude`/`/codex`), e sem legenda o próximo texto (mensagem, `/steer`, `/claude`, `/codex`) leva todos os
+  pendentes, na ordem; Claude recebe blocos `image` na sessão e `Read` + `--add-dir` no one-shot, Codex recebe
+  `localImage` no turno e no steer e `-i` no one-shot; anexos sem suporte são recusados antes do agente; os arquivos
+  ficam no diretório da sessão ou do job e são apagados quando ela ou ele termina;
 - `/use @alias`, `/use general` e `/use`: repositório ativo por usuário, persistido em
   `~/.dante/settings.json` e usado por toda execução sem `@alias` explícito (AD-14);
 - resolvedor único de agente e contexto (AD-27): `/claude`/`/codex` → agente padrão;
@@ -101,23 +106,26 @@ Detalhes de uso: [README](../../README.md).
 - a validação real foi feita contra as CLIs instaladas com a API do Telegram simulada; o
   dogfooding pelo Telegram real depende do bot do usuário;
 - sem CI no GitHub: validação é local;
-- imagens recebidas ficam pendentes, mas ainda não chegam aos agentes (#95); áudio e vídeo são recusados até
-  haver ferramenta aprovada (#96); o bot só envia texto (#97).
+- áudio e vídeo são recusados até haver ferramenta aprovada (#96); o bot só envia texto (#97);
+- a interpretação de imagens pelas CLIs reais foi validada no spike #93; na #95, os testes automáticos usam as CLIs
+  simuladas do `Dante.ProcessProbe`, e a evidência com as CLIs reais é o `LiveImageEvidenceTests`, opt-in por
+  `DANTE_LIVE_CLI=1`, executado em 2026-10-02 com Claude Code 2.1.287 e codex-cli 0.159.3: os quatro caminhos
+  (sessão e one-shot de cada CLI) identificaram a imagem sintética; o bot do Telegram real não foi exercitado.
 
 ## Em andamento
 
-- **Epic #92 — Mídias no Telegram**: spike #93 (AD-29) e recebimento de imagens (#94) entregues; áudio/vídeo (#96) e a imagem para LinkedIn (#98) dependem de decisão humana sobre ferramentas.
+- **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94) e imagens aos agentes (#95) entregues; áudio/vídeo (#96) e a imagem para LinkedIn (#98) dependem de decisão humana sobre ferramentas.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #38:
+Estado conhecido com #95:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    446 testes aprovados
+dotnet test Dante.sln    468 testes aprovados, 4 pulados (evidência com CLIs reais, opt-in)
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
@@ -126,8 +134,8 @@ dotnet test Dante.sln    446 testes aprovados
 `InteractiveAgentProcessTests.GracefulExitDoesNotLeaveOrphanedChildProcess` (#62) pode ser
 intermitente na suíte completa em WSL2 e passa isolado; já falhava assim antes da #63.
 `TelegramBotApiTests.OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard` também falhou uma vez na suíte
-completa durante a #94 e passa isolado e nas execuções seguintes.
+completa durante a #94 e de novo no baseline da #95; passa isolado e nas execuções seguintes.
 
 ## Próximos marcos
 
-1. mídias no Telegram (#92): imagens para os agentes (#95), artefatos (#97).
+1. mídias no Telegram (#92): artefatos dos agentes no Telegram (#97).

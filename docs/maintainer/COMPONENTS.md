@@ -1039,12 +1039,28 @@ Recebimento de mídias (#94, AD-29). Para uma mensagem com mídia de usuário au
 
 Álbuns (`media_group_id`) recebem uma única resposta após a janela de 1,5 s.
 
+Com legenda (#95), a legenda é o pedido: depois de guardar as imagens, o receptor a despacha como o texto que as
+consome, e a confirmação só traz recusas. O álbum é um lote: as imagens só entram nos pendentes quando ele termina,
+junto com a legenda e no contexto em que chegou. Qualquer update posterior do mesmo usuário conclui antes os álbuns
+abertos dele (`CompleteAlbumsAsync`), preservando a ordem dos pedidos; pela janela de 1,5 s, a conclusão passa pelo
+mesmo semáforo do `TelegramPollingService`, que trata um update por vez. Se o contexto mudou por outro meio, imagens e
+legenda são descartadas juntas.
+
+O próximo texto que chega a um agente (conversa, `/steer`, `/claude`, `/codex`) faz `Take` dos pendentes do
+contexto atual e os move para o diretório da sessão ou do job (`AttachmentStore.MoveTo`). A entrada vira um
+`AgentInput` (texto + anexos), que o `SessionRegistry` valida (dono, tipo imagem, `ImageInput` do driver) e enfileira
+como um item só. Cada driver traduz: Claude em blocos `image` base64 rotulados, antes do texto; Codex em itens
+`localImage`, no `turn/start` e no `turn/steer`. Os runners one-shot recebem `--add-dir` + lista de paths (Claude) ou
+`-i` por imagem (Codex). O diretório da sessão é apagado quando ela termina; o do job, quando ele termina.
+
 ## `AttachmentStore` / `PendingAttachments` / `ImageInspector`
 
 - `AttachmentStore`: arquivos em `~/.dante/attachments/<usuário>/<escopo>/`, nomes gerados, `700`/`600`,
   exclusão restrita ao próprio diretório e limpeza de sobras com mais de 24 h;
 - `PendingAttachments`: lote por usuário e chave de contexto, até 10 imagens e 20 MB, expiração em 10 min,
   descarte quando o contexto muda e `Take` para quem for executar o turno (#95);
+- `AttachmentStore.MoveTo`/`DeleteScope`: mudam os anexos consumidos para `<usuário>/<sessão|job>/` e apagam esse
+  diretório no fim; um diretório com id de execução anterior é apagado antes de ser reutilizado;
 - `ImageInspector`: identifica JPEG, PNG, GIF e WebP e as dimensões pelos bytes.
 
 ---

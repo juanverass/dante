@@ -685,23 +685,38 @@ repositório ativo que deixou de existir é recusado com a instrução `/use @al
 
 ## Imagens e prints
 
-Fotos e prints enviados ao bot, inclusive como arquivo e em álbum, são baixados e guardados como
-**pendentes** do usuário, no contexto atual da conversa:
+Fotos e prints enviados ao bot, inclusive como arquivo e em álbum, chegam ao agente junto com o pedido.
+
+Com legenda, a legenda é o pedido: a foto (ou o álbum inteiro) vira um turno da conversa, como uma mensagem
+comum — na sessão ativa ou abrindo uma nova (AD-23), e na fila se o agente ainda estiver respondendo. Uma legenda
+`/claude [@alias] …` ou `/codex …` roda como execução avulsa com as imagens; outra legenda iniciada por `/` é
+recusada e as imagens ficam pendentes.
+
+Sem legenda, as imagens ficam **pendentes** do usuário, no contexto atual da conversa, até o pedido em texto:
 
 ```text
 Recebi 2 imagens.
-Ainda não encaminho imagens aos agentes: elas ficam guardadas por 10 min e depois são apagadas.
+Envie o pedido em texto: as imagens vão junto com a próxima mensagem. Sem pedido, elas são apagadas em 10 min.
 ```
+
+```text
+Compare as duas telas e diga o que mudou.
+```
+
+A próxima mensagem que chega a um agente — mensagem comum, `/steer`, `/claude` ou `/codex` — leva todas as
+imagens pendentes, na ordem em que foram enviadas. Claude recebe as imagens no próprio turno (sessão) ou as abre
+com a ferramenta `Read` (one-shot, com acesso só ao diretório dos anexos); Codex as recebe como imagens locais do
+turno, do steer ou do `codex exec -i`. Se o agente não puder receber imagens, a mensagem é recusada sem ser
+enviada: a imagem nunca vira só um nome de arquivo, e o D.A.N.T.E. não troca de agente nem de modelo.
 
 - formatos: JPEG, PNG, GIF e WebP, conferidos pelo conteúdo do arquivo; até 7 MB e 8000 px por lado;
 - até 10 imagens e 20 MB pendentes por usuário; um álbum recebe uma única confirmação;
 - áudio, voz, vídeo e outros tipos de arquivo são recusados com aviso, sem download;
 - `/status` mostra as imagens pendentes; trocar de contexto (`/use`, `/agent set`, `/session`) as descarta com
   aviso, e após 10 min sem pedido elas são apagadas;
-- os arquivos ficam em `~/.dante/attachments/<usuário>/`, com acesso só do dono, e sobras com mais de 24 h são
-  removidas quando o Worker inicia.
-
-O encaminhamento das imagens aos agentes chega na #95.
+- os arquivos ficam em `~/.dante/attachments/<usuário>/`, com acesso só do dono: pendentes em `pending/`, e
+  depois no diretório da sessão ou do job que os usa (`S000001/`, `J000001/`), apagados quando a sessão é
+  encerrada ou o job termina; sobras com mais de 24 h são removidas quando o Worker inicia.
 
 ---
 
@@ -942,7 +957,7 @@ Atualmente:
 | Histórico de jobs | somente memória |
 | Sessões interativas, turnos, filas e solicitações pendentes | somente memória (perdidas ao reiniciar o Worker) |
 | Saídas recentes para `/resend` | somente memória |
-| Imagens recebidas (pendentes) | `~/.dante/attachments/<usuário>/` enquanto pendentes; registro somente em memória |
+| Imagens recebidas | `~/.dante/attachments/<usuário>/` enquanto pendentes e até o fim da sessão ou do job que as usa; registro somente em memória |
 
 A seleção de modelo é independente por usuário e agente:
 
@@ -1101,7 +1116,7 @@ Ainda não fazem parte do projeto:
 - botões inline para aprovação (os comandos textuais estão disponíveis);
 - perfil de acesso irrestrito (`full`);
 - pergunta do Codex ao usuário (input) fora do perfil `plan`, por limitação do `app-server`;
-- imagens recebidas ainda não chegam aos agentes, e áudio/vídeo não são processados (Epic #92).
+- áudio e vídeo não são processados, e o bot ainda só envia texto (Epic #92).
 
 Esses pontos são candidatos naturais para os próximos MVPs.
 

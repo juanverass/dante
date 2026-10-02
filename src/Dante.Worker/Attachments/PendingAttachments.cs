@@ -23,12 +23,12 @@ public sealed class PendingAttachments(AttachmentStore store, TimeProvider? time
         lock (gate) return batches.GetValueOrDefault(ownerId);
     }
 
-    // Refusal before downloading: the batch of this context is already full.
-    public bool IsFull(long ownerId, string contextKey)
+    // Refusal before downloading: the batch of this context is already full, counting images on their way to it.
+    public bool IsFull(long ownerId, string contextKey, int adding = 0)
     {
         lock (gate)
-            return batches.TryGetValue(ownerId, out var batch) && batch.ContextKey == contextKey &&
-                batch.Items.Count >= MaxItems;
+            return (batches.TryGetValue(ownerId, out var batch) && batch.ContextKey == contextKey
+                ? batch.Items.Count : 0) + adding >= MaxItems;
     }
 
     // Adds a downloaded attachment. A batch from another context is discarded first and returned so the caller can

@@ -28,6 +28,10 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
     public IReadOnlyList<string> Calls => calls.ToArray();
     public IReadOnlyList<(string RequestId, AgentUserResponse Response)> Responses => responses.ToArray();
 
+    // Text-only inputs are recorded as before; attachments are listed after the text by id.
+    private static string Describe(AgentInput input) => input.Attachments.Count == 0 ? input.Text
+        : input.Text + " [" + string.Join(",", input.Attachments.Select(attachment => attachment.Id)) + "]";
+
     public void Emit(AgentEvent agentEvent) => events.Writer.TryWrite(agentEvent);
 
     public void Crash(Exception exception) => events.Writer.TryComplete(exception);
@@ -42,15 +46,15 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
             : Task.FromException<AgentSessionStarted>(StartFailure);
     }
 
-    public Task StartTurnAsync(string input, CancellationToken cancellationToken = default)
+    public Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default)
     {
-        calls.Enqueue("turn:" + input);
+        calls.Enqueue("turn:" + Describe(input));
         return TurnFailure is null ? Task.CompletedTask : Task.FromException(TurnFailure);
     }
 
-    public Task SteerAsync(string input, CancellationToken cancellationToken = default)
+    public Task SteerAsync(AgentInput input, CancellationToken cancellationToken = default)
     {
-        calls.Enqueue("steer:" + input);
+        calls.Enqueue("steer:" + Describe(input));
         return SteerFailure is null ? Task.CompletedTask : Task.FromException(SteerFailure);
     }
 

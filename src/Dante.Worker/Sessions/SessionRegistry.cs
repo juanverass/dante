@@ -1,4 +1,5 @@
 using Dante.Worker.Agents;
+using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 
 namespace Dante.Worker.Sessions;
@@ -7,13 +8,15 @@ namespace Dante.Worker.Sessions;
 // routes each user operation to the session it names (or to the user's active session) after checking ownership,
 // and pumps driver events into the AgentSession state machine. Agent, context, permission profile and model are fixed
 // when the session starts: /use, /agent set or /model never reach a running session. Sessions are not jobs (AD-16) and do not
-// survive a Worker restart: stopping the host fails every live session and kills its process.
+// survive a Worker restart: stopping the host fails every live session and kills its process. Attachments of a session
+// live in its own directory of the attachment store until the session ends (AD-29).
 public sealed class SessionRegistry(
     IAgentSessionDriverFactory drivers,
     ILogger<SessionRegistry> logger,
     IAgentSessionEventSink? sink = null,
     SessionIdGenerator? ids = null,
-    TimeSpan? requestTimeout = null) : IAsyncDisposable, IDisposable
+    TimeSpan? requestTimeout = null,
+    AttachmentStore? attachments = null) : IAsyncDisposable, IDisposable
 {
     private const int RecentEndedLimit = 20;
     private const string RestartNotice = "Sessões existem só em memória e não sobrevivem ao reinício do Worker.";
@@ -58,6 +61,8 @@ public sealed class SessionRegistry(
                 $"Modos disponíveis: {string.Join(", ", driver.Capabilities.Modes.Select(AgentSessionModes.Name))}.");
         }
 
+        // A directory of a previous run with the same session id must not hand old files to this session.
+        ReleaseAttachments(entry);
         try
         {
             var started = await entry.Driver.StartAsync(new AgentSessionStartOptions(
@@ -93,21 +98,40 @@ public sealed class SessionRegistry(
     }
 
     // sessionId null routes to the user's active session.
-    public async Task<SessionSubmitResult> SubmitAsync(long userId, string? sessionId, string text,
+    public async Task<SessionSubmitResult> SubmitAsync(long userId, string? sessionId, AgentInput input,
         MessageDelivery delivery = MessageDelivery.Queue, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentException.ThrowIfNullOrWhiteSpace(input.Text);
         var entry = Find(userId, sessionId, out var error);
         if (entry is null)
         {
             return SessionSubmitResult.Reject(error!, sessionId);
         }
 
+        // An attachment the agent cannot receive is refused, never reduced to its file name (AD-29).
+        if (input.Attachments.Any(attachment => attachment.OwnerId != userId))
+        {
+            return SessionSubmitResult.Reject("Anexo de outro usuário.", entry.Session.Id);
+        }
+
+        if (input.Attachments.Any(attachment => attachment.Kind != AttachmentKind.Image))
+        {
+            return SessionSubmitResult.Reject("Só imagens chegam ao agente; áudio, vídeo e outros arquivos ainda não.",
+                entry.Session.Id);
+        }
+
+        if (input.Attachments.Count > 0 && !entry.Driver.Capabilities.ImageInput)
+        {
+            return SessionSubmitResult.Reject(
+                $"O {entry.Session.Agent} não recebe imagens nesta sessão; a mensagem não foi enviada.", entry.Session.Id);
+        }
+
         // SteerByInterrupt interrupts the turn upstream: serialized with the other request operations.
         await entry.Upstream.WaitAsync(cancellationToken);
         try
         {
-            return await SubmitLockedAsync(entry, text, delivery, cancellationToken);
+            return await SubmitLockedAsync(entry, input, delivery, cancellationToken);
         }
         finally
         {
@@ -115,20 +139,20 @@ public sealed class SessionRegistry(
         }
     }
 
-    private async Task<SessionSubmitResult> SubmitLockedAsync(Entry entry, string text, MessageDelivery delivery,
+    private async Task<SessionSubmitResult> SubmitLockedAsync(Entry entry, AgentInput input, MessageDelivery delivery,
         CancellationToken cancellationToken)
     {
         var session = entry.Session;
-        var result = session.Submit(text, delivery);
+        var result = session.Submit(input, delivery);
         try
         {
             switch (result.Outcome)
             {
                 case SubmitOutcome.TurnStarted:
-                    await entry.Driver.StartTurnAsync(text, cancellationToken);
+                    await entry.Driver.StartTurnAsync(input, cancellationToken);
                     break;
                 case SubmitOutcome.Steered:
-                    await entry.Driver.SteerAsync(text, cancellationToken);
+                    await entry.Driver.SteerAsync(input, cancellationToken);
                     break;
                 case SubmitOutcome.SteerByInterrupt:
                     await entry.Driver.InterruptTurnAsync(cancellationToken);
@@ -272,6 +296,7 @@ public sealed class SessionRegistry(
             }
 
             MarkEnded(entry);
+            ReleaseAttachments(entry);
         }
 
         return new SessionResult(true, Snapshot(entry));
@@ -563,14 +588,14 @@ public sealed class SessionRegistry(
 
     private async Task StartNextQueuedAsync(Entry entry, CancellationToken cancellationToken)
     {
-        if (!entry.Session.TryStartQueued(out _, out var text))
+        if (!entry.Session.TryStartQueued(out _, out var input))
         {
             return;
         }
 
         try
         {
-            await entry.Driver.StartTurnAsync(text!, cancellationToken);
+            await entry.Driver.StartTurnAsync(input!, cancellationToken);
         }
         catch (Exception exception)
         {
@@ -599,6 +624,8 @@ public sealed class SessionRegistry(
         {
             return;
         }
+
+        ReleaseAttachments(entry);
 
         await PublishAsync(entry, new ErrorEvent(entry.Session.Error!)
         {
@@ -652,6 +679,21 @@ public sealed class SessionRegistry(
 
             error = null;
             return entry;
+        }
+    }
+
+    // The files of an ended session are no longer needed by its agent: queued or sent, they go away with it.
+    private void ReleaseAttachments(Entry entry)
+    {
+        try
+        {
+            attachments?.DeleteScope(entry.Session.OwnerUserId, entry.Session.Id);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Leftovers are removed by the startup sweep.
+            logger.LogWarning("Falha ao apagar os anexos da sessão {SessionId} ({ErrorType}).", entry.Session.Id,
+                exception.GetType().Name);
         }
     }
 

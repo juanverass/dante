@@ -1,4 +1,5 @@
 using Dante.Worker.Agents;
+using Dante.Worker.Attachments;
 
 namespace Dante.Tests;
 
@@ -14,6 +15,31 @@ public sealed class ClaudeRunnerTests
         Assert.Equal("high", arguments[arguments.IndexOf("--effort") + 1]);
         Assert.True(executor.Request.IsGeneral);
         Assert.Equal(["--", "question"], arguments.ToArray()[^2..]);
+    }
+
+    // #95: only the attachments' directory is added, General Mode keeps its restrictions and the prompt lists the
+    // absolute paths in order for the Read tool.
+    [Fact]
+    public async Task ImagesAddOnlyTheirDirectoryAndAreListedInThePrompt()
+    {
+        var executor = new RecordingExecutor(Result(AgentProcessStatus.Succeeded));
+        const string directory = "/home/u/.dante/attachments/123/J000001";
+        Attachment[] images =
+        [
+            new("A000001", 123, AttachmentKind.Image, "image/png", directory + "/A000001.png", 10, 1, 1, "antes.png"),
+            new("A000002", 123, AttachmentKind.Image, "image/jpeg", directory + "/A000002.jpg", 10, 1, 1, null)
+        ];
+        await new ClaudeRunner(executor).RunAsync("compare", AppContext.BaseDirectory, generalMode: true,
+            attachments: images);
+
+        Assert.Equal(["--print", "--restricted", "--strict-mcp-config", "--tools", "Read,Write,Edit",
+            "--permission-mode", "auto", "--permission-prompts", "none", "--add-dir", directory, "--",
+            "compare\n\nImagens anexadas, na ordem (abra cada uma com a ferramenta Read):\n" +
+            $"1. {directory}/A000001.png (antes.png)\n2. {directory}/A000002.jpg"], executor.Request!.Arguments);
+        Assert.True(executor.Request.IsGeneral);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new ClaudeRunner(executor).RunAsync("x",
+            AppContext.BaseDirectory, attachments: [images[0] with { Kind = AttachmentKind.Audio }]));
     }
 
     [Fact]

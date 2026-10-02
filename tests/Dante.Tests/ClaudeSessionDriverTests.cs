@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Dante.ProcessProbe;
 using Dante.Worker.Agents;
+using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 using Dante.Worker.Sessions;
 
@@ -24,6 +25,39 @@ public sealed class ClaudeSessionDriverTests
         var second = await ReadTurnAsync(events);
         Assert.Equal("effort:high", first.OfType<MessageCompletedEvent>().Single().Text);
         Assert.Equal("effort:high", second.OfType<MessageCompletedEvent>().Single().Text);
+    }
+
+    // #95: images go as base64 image blocks, each after its label, in the order sent and before the user's text.
+    [Fact]
+    public async Task ImagesGoAsLabeledBase64BlocksBeforeTheText()
+    {
+        var directory = Directory.CreateTempSubdirectory("dante-claude-images-").FullName;
+        try
+        {
+            var png = TestImages.Png(10, 10);
+            var jpeg = TestImages.Jpeg(20, 10);
+            File.WriteAllBytes(Path.Combine(directory, "A000001.png"), png);
+            File.WriteAllBytes(Path.Combine(directory, "A000002.jpg"), jpeg);
+            await using var driver = new ClaudeSessionDriver(new ProbeLauncher());
+            await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+            await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+
+            await driver.StartTurnAsync(new AgentInput("compare os prints",
+            [
+                new Attachment("A000001", Owner, AttachmentKind.Image, "image/png", Path.Combine(directory, "A000001.png"),
+                    png.Length, 10, 10, "antes.png"),
+                new Attachment("A000002", Owner, AttachmentKind.Image, "image/jpeg", Path.Combine(directory, "A000002.jpg"),
+                    jpeg.Length, 20, 10, null)
+            ]));
+            var turn = await ReadTurnAsync(events);
+
+            Assert.Equal($"content:text:Imagem 1 (antes.png):|image:image/png:{png.Length}|text:Imagem 2:|" +
+                $"image:image/jpeg:{jpeg.Length}|text:compare os prints", turn.OfType<MessageCompletedEvent>().Single().Text);
+            // Text-only turns keep the plain string content.
+            await driver.StartTurnAsync("pong");
+            Assert.Contains("pong 2", (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Select(item => item.Text));
+        }
+        finally { Directory.Delete(directory, true); }
     }
 
     private const long Owner = 42;
