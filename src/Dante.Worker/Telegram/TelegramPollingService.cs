@@ -1,4 +1,5 @@
 using Dante.Worker.Agents;
+using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 using Dante.Worker.Repositories;
 using Dante.Worker.Sessions;
@@ -23,7 +24,9 @@ public sealed class TelegramPollingService(
     AssistantSettingsStore? settings = null,
     SessionRegistry? sessions = null,
     TelegramDeliveryService? delivery = null,
-    IAgentModelCatalog? models = null) : BackgroundService
+    IAgentModelCatalog? models = null,
+    AttachmentStore? attachments = null,
+    PendingAttachments? pendingAttachments = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private const string EffortOption = "effort=";
@@ -36,6 +39,10 @@ public sealed class TelegramPollingService(
         new(generalWorkspace ?? new GeneralWorkspace(), repositories, settings);
     private readonly TelegramDeliveryService delivery = delivery ??
         new TelegramDeliveryService(botApi, NullLogger<TelegramDeliveryService>.Instance);
+    // Media intake (#94) exists only when an attachment store is composed.
+    private readonly PendingAttachments? pending = attachments is null ? null :
+        pendingAttachments ?? new PendingAttachments(attachments);
+    private TelegramMediaReceiver? mediaReceiver;
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -57,6 +64,7 @@ public sealed class TelegramPollingService(
             return;
         }
 
+        SweepAttachments();
         long offset = 0;
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -71,12 +79,14 @@ public sealed class TelegramPollingService(
                     {
                         await HandleCallbackAsync(callback, stoppingToken);
                     }
-                    else if (update.Message is { Text: not null } message
+                    // Authorization comes before anything else, including any download of a sent file.
+                    else if (update.Message is { } message && (message.Text is not null || message.HasMedia)
                         && authorizer.IsAuthorized(message.From))
                     {
                         await HandleMessageAsync(message, stoppingToken);
                     }
                 }
+                await NotifyExpiredAttachmentsAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -131,7 +141,20 @@ public sealed class TelegramPollingService(
 
     private async Task HandleMessageAsync(TelegramMessage message, CancellationToken cancellationToken)
     {
-        var text = message.Text!.Trim();
+        if (message.Text is null)
+        {
+            if (pending is null)
+            {
+                await SendReplyAsync(message.Chat.Id, "Recebimento de mídias indisponível.", cancellationToken);
+                return;
+            }
+            mediaReceiver ??= new TelegramMediaReceiver(botApi, attachments!, pending, logger);
+            await mediaReceiver.ReceiveAsync(message, AttachmentContext(message.From!.Id),
+                (reply, token) => SendReplyAsync(message.Chat.Id, reply, token), cancellationToken);
+            return;
+        }
+
+        var text = message.Text.Trim();
         if (string.Equals(text, "/ping", StringComparison.OrdinalIgnoreCase))
         {
             await SendReplyAsync(message.Chat.Id, "pong", cancellationToken);
@@ -159,6 +182,7 @@ public sealed class TelegramPollingService(
         if (string.Equals(command, "/agent", StringComparison.OrdinalIgnoreCase))
         {
             await SendReplyAsync(message.Chat.Id, HandleAgentCommand(message.From!.Id, prompt), cancellationToken);
+            await DiscardStalePendingAsync(message, cancellationToken);
             return;
         }
 
@@ -166,6 +190,7 @@ public sealed class TelegramPollingService(
         {
             await SendReplyAsync(message.Chat.Id, HandleUseCommand(message.From!.Id, prompt),
                 cancellationToken);
+            await DiscardStalePendingAsync(message, cancellationToken);
             return;
         }
 
@@ -183,6 +208,9 @@ public sealed class TelegramPollingService(
                     FormatSession(session) + (session.Error is null || delivery.HidesOutput(session.Id)
                         ? string.Empty : $" | erro: {session.Error}")));
             }
+            if (pending?.Get(message.From!.Id) is { } batch)
+                response += $"\n\nAnexos pendentes: {batch.Items.Count} imagem(ns), {batch.Bytes / 1024} KB, " +
+                    $"expiram às {batch.ExpiresAtUtc:HH:mm:ss} UTC.";
             var deliveries = visible.Select(job => delivery.Get(job.Id, message.From!.Id))
                 .Concat(ownSessions.Select(session => delivery.Get(session.Id, message.From!.Id)))
                 .Where(snapshot => snapshot is not null).ToArray();
@@ -196,6 +224,7 @@ public sealed class TelegramPollingService(
         if (string.Equals(command, "/session", StringComparison.OrdinalIgnoreCase))
         {
             await HandleSessionCommandAsync(message, prompt, cancellationToken);
+            await DiscardStalePendingAsync(message, cancellationToken);
             return;
         }
 
@@ -971,6 +1000,52 @@ public sealed class TelegramPollingService(
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             return "Não foi possível salvar as configurações do assistente.";
+        }
+    }
+
+    // Pending attachments belong to the context they arrived in (AD-29): the active session, or else the agent and
+    // context a new conversation would use. They never move to another one.
+    private string AttachmentContext(long userId)
+    {
+        if (sessions?.GetActive(userId) is { } active) return $"session:{active.Id}";
+        var resolved = resolver.ResolveContext(userId, null, null);
+        return resolved.Succeeded ? $"{resolved.Agent}:{resolved.Context!.Label}" : "unresolved";
+    }
+
+    private async Task DiscardStalePendingAsync(TelegramMessage message, CancellationToken cancellationToken)
+    {
+        if (pending?.DiscardIfContextChanged(message.From!.Id, AttachmentContext(message.From.Id)) is { } discarded)
+            await SendReplyAsync(message.Chat.Id, $"{discarded.Items.Count} imagem(ns) pendente(s) descartada(s): " +
+                "o contexto da conversa mudou.", cancellationToken);
+    }
+
+    private async Task NotifyExpiredAttachmentsAsync(CancellationToken cancellationToken)
+    {
+        if (pending is null) return;
+        foreach (var batch in pending.RemoveExpired())
+        {
+            try
+            {
+                await SendReplyAsync(batch.ChatId, $"{batch.Items.Count} imagem(ns) pendente(s) apagada(s): nenhum " +
+                    $"pedido chegou em {PendingAttachments.Expiry.TotalMinutes:0} min.", cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                logger.LogWarning("Falha ao avisar a expiração de anexos ({ErrorType}).", exception.GetType().Name);
+            }
+        }
+    }
+
+    private void SweepAttachments()
+    {
+        try
+        {
+            var removed = attachments?.SweepStale(TimeSpan.FromHours(24)) ?? 0;
+            if (removed > 0) logger.LogInformation("{Count} anexo(s) antigo(s) removido(s).", removed);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning("Falha ao limpar anexos antigos ({ErrorType}).", exception.GetType().Name);
         }
     }
 

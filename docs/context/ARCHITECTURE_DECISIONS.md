@@ -836,7 +836,7 @@ da máquina é validação do usuário.
 
 ## AD-29 — Anexos como entrada neutra, imagem nativa por CLI e artefato só por canal explícito
 
-Status: vigente (#93, spike); orienta #94–#99. Evidências e contrato completo em
+Status: vigente (#93, spike; recebimento implementado na #94); orienta #95–#99. Evidências e contrato completo em
 [`docs/spikes/multimodal`](../spikes/multimodal/README.md).
 
 Validado em Claude Code 2.1.287 e codex-cli 0.159.3 (sessão e one-shot):
@@ -874,3 +874,23 @@ Por quê: o protocolo de cada CLI já transporta imagens, então o D.A.N.T.E. s�
 correlacionar anexos, sem processar conteúdo. Separar entrada neutra de tradução por driver segue a AD-16, e
 exigir canal explícito para artefatos impede que o agente (ou um prompt injetado) faça o bot enviar arquivos
 arbitrários do disco.
+
+Implementação do recebimento (#94):
+
+- só mensagens de usuários autorizados chegam ao download;
+- `getFile` + download por `ResponseHeadersRead`, com o limite conferido no tamanho declarado, no `Content-Length`
+  e nos bytes lidos, timeout de 60 s, `file_path` aceito só como segmentos simples, e o token fora de logs e
+  exceções;
+- o tipo vem do conteúdo (`ImageInspector`), nunca do nome ou MIME declarados; a foto usa o maior `PhotoSize`
+  dentro do limite;
+- arquivos `A000001.<ext>` em `~/.dante/attachments/<usuário>/pending/` (`700`/`600`), gravados como `.part` e
+  renomeados só depois de validados. O contador reinicia com o processo, então um id só é usado se nenhum arquivo
+  de execução anterior (sobra com menos de 24 h) o tiver, em qualquer extensão; nada é sobrescrito;
+- itens de um álbum são confirmados juntos após 1,5 s sem item novo do mesmo `media_group_id`, ignorando
+  `message_id` repetido;
+- a chave de contexto dos pendentes é a sessão ativa ou, sem ela, agente padrão + contexto resolvido (AD-27);
+- no estado da #94, a resposta informa que as imagens ainda não vão aos agentes.
+
+Código: `Attachments/`, `Telegram/TelegramMediaReceiver.cs`, `Telegram/TelegramBotApi.cs`,
+`Telegram/TelegramPollingService.cs`; testes em `AttachmentStoreTests`, `PendingAttachmentsTests`,
+`TelegramBotApiTests` e `TelegramMediaIntakeTests`.

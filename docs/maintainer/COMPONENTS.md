@@ -1028,6 +1028,27 @@ Isso é uma proteção deliberada.
 
 ---
 
+## `TelegramMediaReceiver`
+
+Recebimento de mídias (#94, AD-29). Para uma mensagem com mídia de usuário autorizado:
+
+1. recusa áudio, voz, vídeo, video note, animação e documento não-imagem, sem baixar;
+2. escolhe o maior `PhotoSize` dentro do limite (ou o documento `image/*`);
+3. baixa por `ITelegramBotApi.DownloadFileAsync` com limite de 7 MB e timeout;
+4. grava via `AttachmentStore`, que valida o conteúdo, e registra em `PendingAttachments`.
+
+Álbuns (`media_group_id`) recebem uma única resposta após a janela de 1,5 s.
+
+## `AttachmentStore` / `PendingAttachments` / `ImageInspector`
+
+- `AttachmentStore`: arquivos em `~/.dante/attachments/<usuário>/<escopo>/`, nomes gerados, `700`/`600`,
+  exclusão restrita ao próprio diretório e limpeza de sobras com mais de 24 h;
+- `PendingAttachments`: lote por usuário e chave de contexto, até 10 imagens e 20 MB, expiração em 10 min,
+  descarte quando o contexto muda e `Take` para quem for executar o turno (#95);
+- `ImageInspector`: identifica JPEG, PNG, GIF e WebP e as dimensões pelos bytes.
+
+---
+
 ## `TelegramDeliveryService`
 
 Responsável pela etapa:

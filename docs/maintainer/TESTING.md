@@ -371,6 +371,18 @@ Cobrem:
 
 # 8. End-to-end simulado
 
+## `AttachmentStoreTests`, `PendingAttachmentsTests` e `TelegramMediaIntakeTests`
+
+Recebimento de mídias (#94):
+
+- tipo real, isolamento por usuário, permissões, exclusão restrita e limpeza;
+- limites, expiração e troca de contexto dos pendentes;
+- no polling: foto, álbum, recusas sem download, usuário não autorizado, `/status` e expiração com aviso.
+
+`TelegramBotApiTests` cobre o download: limite declarado e real, path malicioso, erro sem token e cancelamento.
+
+---
+
 ## `InteractiveSessionEndToEndTests`
 
 É provavelmente o teste mais útil para enxergar o sistema inteiro.

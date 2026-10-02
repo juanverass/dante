@@ -30,4 +30,11 @@ public interface ITelegramBotApi
 
     // Best-effort presence signal ("typing"); implementations without it simply show nothing.
     Task SendChatActionAsync(long chatId, string action, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    // Copies a file sent to the bot into destination and returns the bytes written. More than maxBytes, declared or
+    // real, throws TelegramFileTooLargeException before or while downloading.
+    Task<long> DownloadFileAsync(string fileId, Stream destination, long maxBytes, CancellationToken cancellationToken)
+        => throw new NotSupportedException("Download de arquivos indisponível.");
 }
+
+public sealed class TelegramFileTooLargeException() : IOException("Arquivo acima do limite de tamanho.");
