@@ -6,6 +6,10 @@ public interface ITelegramBotApi
 
     Task SendMessageAsync(long chatId, string text, CancellationToken cancellationToken);
 
+    // Input delivery returns message ids, including messages without buttons, and supports inline options.
+    // Lightweight transports retain the /input instructions unless they explicitly provide this contract.
+    bool SupportsInputMessages => false;
+
     // The default keeps lightweight transports compatible with the textual approval fallback.
     async Task<long?> SendApprovalAsync(long chatId, string text, TelegramInlineKeyboard? keyboard,
         CancellationToken cancellationToken)

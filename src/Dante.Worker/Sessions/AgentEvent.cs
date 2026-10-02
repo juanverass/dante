@@ -39,6 +39,10 @@ public sealed record ErrorEvent(string Message) : AgentEvent;
 
 public sealed record RequestResolvedEvent(string RequestId, AgentApprovalDecision Decision) : AgentEvent;
 
+public sealed record InputResolvedEvent(string RequestId) : AgentEvent;
+
+public sealed record RequestClosedEvent(string RequestId) : AgentEvent;
+
 public sealed record RequestExpiredEvent(string RequestId) : AgentEvent;
 
 public sealed record ApprovalRequestedEvent(

@@ -564,7 +564,7 @@ Código: `Telegram/TelegramDeliveryService.cs`, `Telegram/TelegramPollingService
 ## AD-22 — Approvals e input por IDs correlacionados, perfis escolhidos para sessões novas
 
 Status: vigente (Epic #60, #67), com a escolha do perfil padrão (em memória até o reinício)
-substituída pela AD-24
+substituída pela AD-24 e a apresentação de input humano evoluída pela AD-30 (#105)
 
 O Telegram apresenta pedidos de aprovação e input com IDs `S…`, `T…` e `R…`. Os comandos
 `/approve`, `/approve-session`, `/deny` e `/input` exigem os três IDs; o registry confirma
@@ -935,3 +935,41 @@ Código: `Attachments/`, `Artifacts/ArtifactStore.cs`, `Sessions/AgentInput.cs`,
 `Telegram/TelegramMediaReceiver.cs`, `Telegram/TelegramBotApi.cs`, `Telegram/TelegramPollingService.cs`; testes em
 `AttachmentStoreTests`, `PendingAttachmentsTests`, `TelegramBotApiTests`, `TelegramMediaIntakeTests`,
 `TelegramImageTurnTests`, `SessionRegistryTests` e nos testes de drivers e runners.
+
+## AD-30 — Input humano por mensagem correlacionada, botões para opções e Reply explícito
+
+Status: vigente (#105); evolui a apresentação de input da AD-22, preservando seu protocolo e timeout.
+
+O transporte Telegram declara `SupportsInputMessages` quando entrega inline keyboards e retorna
+`message_id`, inclusive sem botões. No `TelegramBotApi` real, a pergunta não mostra IDs nem
+`/input`: uma única pergunta com até dez opções de até 64 unidades UTF-16, sem quebras de linha,
+usa um botão por opção. Esses são limites de legibilidade adotados pelo produto, não limites de
+texto de botão anunciados pelo Telegram. Os callbacks têm só sessão/turno/request e índice de opção,
+sempre dentro do limite de 64 bytes da [Bot API](https://core.telegram.org/bots/api#inlinekeyboardbutton).
+Texto livre e opções fora desses limites usam Reply nativo; múltiplas perguntas ficam em um pedido,
+com respostas na ordem separadas por `|`. Pedido longo é dividido pelos limites de delivery, com
+correlação por Reply em cada parte e botões apenas na última. Segredos vinculados ocultam pergunta
+e opções; opções que contenham segredos conhecidos do host não viram labels de botão.
+
+A correlação vive só na entrega em memória, junto dos registros recentes: usuário + chat +
+`message_id` → sessão/turno/request. Ela não decide se o request está válido; o `SessionRegistry`
+continua sendo a autoridade, conferindo dono, turno, tipo, conteúdo completo e prazo antes de
+consumir uma única vez. A opção é recuperada da pergunta ainda pendente no registry, nunca do
+texto do callback. Reply é roteado antes de comandos/conversa e não consome anexos pendentes.
+Reply não correlacionado ou já encerrado é recusado com orientação, sem iniciar um turno.
+Mensagens comuns sem Reply continuam na conversa: não há inferência de input pendente.
+
+`/input` permanece compatível e aceita os IDs visíveis em `/status`; as instruções textuais
+são mostradas quando o transporte não oferece a capacidade. `InputResolvedEvent` notifica a
+entrega após a resposta chegar ao driver; `RequestClosedEvent` informa o encerramento de inputs
+na interrupção/fechamento. Expiração, conclusão do turno e erro também encerram a apresentação.
+Esses eventos não criam outra máquina de estados. A mensagem é editada e o keyboard removido
+com a mesma serialização, retry e tratamento de corrida durante envio usados pelas aprovações.
+
+Por quê: a interação normal deve parecer conversa, sem cópia de IDs e sem adivinhar a qual pedido
+uma mensagem comum se destina. Correlacionar a mensagem e revalidar no registry preserva a
+segurança da AD-22 mesmo com vários pedidos ou após seleção de outra sessão.
+
+Código: `Telegram/TelegramDeliveryService.Inputs.cs`, `Telegram/TelegramPollingService.Inputs.cs`,
+`Telegram/TelegramInputCallback.cs`, `Telegram/TelegramUpdate.cs`, `Sessions/SessionRegistry.cs`.
+Testes: `TelegramInputInteractionTests`, `TelegramBotApiTests` e regressões de delivery/registry.

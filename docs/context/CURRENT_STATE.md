@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-02, com a entrega de arquivos produzidos pelos agentes (#97).
+Última revisão: 2026-10-02, com a resposta a perguntas por botões e Reply (#105).
 
 ## Marcos
 
@@ -82,6 +82,13 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   padrão. `/approve`, `/approve-session`, `/deny` e `/input` respondem a
   solicitações correlacionadas por sessão, turno e request, com expiração em cinco minutos
   e estado pendente em `/status` (AD-22).
+- input humano por botões e Reply (#105, AD-30): uma pergunta com até dez opções curtas
+  oferece botões; texto livre, opções extensas e múltiplas perguntas usam Reply à mensagem
+  original, correlacionada por usuário/chat/message_id e validada pelo registry; várias respostas
+  seguem a ordem das perguntas, separadas por `|`. `/input` continua aceito e aparece como
+  instrução somente nos transportes sem suporte; segredos ocultam perguntas e opções. A mensagem
+  é atualizada após resposta, expiração, interrupção ou fechamento; Reply incorreto/tardio é
+  recusado sem abrir novo turno. Mensagens comuns sem Reply continuam na conversa, sem adivinhação;
 
 - respostas técnicas renderizam blocos fenced Markdown como código nativo do Telegram,
   com linguagem, escape de HTML e divisão em partes válidas; comandos multiline/extensos
@@ -127,11 +134,11 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #97:
+Estado conhecido com #105:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    497 testes aprovados, 4 pulados (evidência com CLIs reais, opt-in)
+dotnet test Dante.sln    531 testes aprovados, 4 pulados (evidência com CLIs reais, opt-in)
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
