@@ -277,7 +277,8 @@ public sealed class InteractiveSessionEndToEndTests : IAsyncDisposable
 
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
             CancellationToken cancellationToken = default, bool generalMode = false,
-            IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null)
+            IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null,
+            IReadOnlyList<Dante.Worker.Attachments.Attachment>? attachments = null)
         {
             Interlocked.Increment(ref calls);
             return Task.FromResult(new AgentProcessResult(AgentProcessStatus.Succeeded, "resultado one-shot", "", 0,

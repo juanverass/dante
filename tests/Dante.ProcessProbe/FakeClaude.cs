@@ -113,6 +113,14 @@ internal static class FakeClaude
                     turns++;
                     turnActive = true;
                     Send(new JsonObject { ["type"] = "system", ["subtype"] = "init", ["cwd"] = Environment.CurrentDirectory });
+                    if (message["message"]!["content"] is JsonArray blocks)
+                    {
+                        // Reports every content block in order: what a turn with attachments sent (#95).
+                        Assistant("content:" + string.Join("|", blocks.Select(Describe)));
+                        Result(true, "done");
+                        break;
+                    }
+
                     switch ((string?)message["message"]!["content"])
                     {
                         case "pong":
@@ -206,6 +214,15 @@ internal static class FakeClaude
 
         return 0;
     }
+
+    // Images are reported by media type and decoded size, never by content.
+    private static string Describe(JsonNode? block) => (string?)block!["type"] switch
+    {
+        "text" => "text:" + (string?)block["text"],
+        "image" => $"image:{(string?)block["source"]!["media_type"]}:" +
+                   Convert.FromBase64String((string)block["source"]!["data"]!).Length,
+        var other => other ?? "?"
+    };
 
     // "write" offers only a session suggestion, "write-persistent" only persistent ones, "write-mixed" both.
     private static JsonArray WriteSuggestions(string prompt)

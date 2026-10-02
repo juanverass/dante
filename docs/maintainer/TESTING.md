@@ -381,6 +381,17 @@ Recebimento de mídias (#94):
 
 `TelegramBotApiTests` cobre o download: limite declarado e real, path malicioso, erro sem token e cancelamento.
 
+## `TelegramImageTurnTests`
+
+Imagens até os agentes (#95): foto com legenda abrindo sessão, prints seguidos de pedido em texto, álbum com legenda
+como um turno, legenda durante turno ativo (fila), `/steer` com imagem, legenda `/codex` como one-shot (arquivos
+existem durante o job e são apagados no fim), legenda com outro comando, agente sem suporte a imagem (recusa e
+exclusão) e isolamento entre usuários.
+
+Os protocolos ficam em `ClaudeSessionDriverTests` e `CodexSessionDriverTests` (conteúdo e ordem dos anexos no
+`FakeClaude`/`FakeCodex`), `ClaudeRunnerTests`/`CodexRunnerTests` (argumentos one-shot) e `SessionRegistryTests`
+(fila, recusas e limpeza do diretório da sessão).
+
 ---
 
 ## `InteractiveSessionEndToEndTests`

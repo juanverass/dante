@@ -207,6 +207,11 @@ internal static class FakeCodex
                             });
                             Complete("completed");
                             break;
+                        case "describe-input":
+                            // Reports every input item in order: what a turn with attachments sent (#95).
+                            Message("input:" + Describe(parameters["input"]!.AsArray()));
+                            Complete("completed");
+                            break;
                         case "config":
                             var mode = turnParams["collaborationMode"] as JsonObject;
                             Message($"{threadParams!["approvalPolicy"]}/{threadParams["sandbox"]}/" +
@@ -299,7 +304,10 @@ internal static class FakeCodex
                     }
 
                     Reply(new JsonObject { ["turnId"] = activeTurn });
-                    Message("steered:" + (string?)parameters["input"]![0]!["text"]);
+                    var steer = parameters["input"]!.AsArray();
+                    Message("steered:" + (string?)steer[0]!["text"] +
+                            (steer.Count == 1 ? string.Empty : "|" + Describe(new JsonArray(steer.Skip(1)
+                                .Select(item => item!.DeepClone()).ToArray()))));
                     Complete("completed");
                     break;
                 case "turn/interrupt":
@@ -320,4 +328,12 @@ internal static class FakeCodex
 
         return 0;
     }
+
+    private static string Describe(JsonArray input) => string.Join("|", input.Select(item =>
+        (string?)item!["type"] switch
+        {
+            "text" => "text:" + (string?)item["text"],
+            "localImage" => "localImage:" + (string?)item["path"],
+            var other => other ?? "?"
+        }));
 }

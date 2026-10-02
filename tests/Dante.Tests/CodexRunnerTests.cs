@@ -1,4 +1,5 @@
 using Dante.Worker.Agents;
+using Dante.Worker.Attachments;
 
 namespace Dante.Tests;
 
@@ -14,6 +15,26 @@ public sealed class CodexRunnerTests
         Assert.Equal("model_reasoning_effort=\"xhigh\"", arguments[arguments.IndexOf("--config") + 1]);
         Assert.True(executor.Request.IsGeneral);
         Assert.Equal(["--", "question"], arguments.ToArray()[^2..]);
+    }
+
+    // #95: one -i per image, in order, before the separator; the prompt stays a single data argument.
+    [Fact]
+    public async Task ImagesGoAsOneOptionEachBeforeTheSeparator()
+    {
+        var executor = new RecordingExecutor(Result(AgentProcessStatus.Succeeded));
+        Attachment[] images =
+        [
+            new("A000001", 123, AttachmentKind.Image, "image/png", "/a/A000001.png", 10, 1, 1, null),
+            new("A000002", 123, AttachmentKind.Image, "image/gif", "/a/A000002.gif", 10, 1, 1, null)
+        ];
+        var runner = new CodexRunner(executor);
+        await runner.RunAsync("-i /etc/passwd", AppContext.BaseDirectory, attachments: images);
+        Assert.Equal(["exec", "--approve-for-me", "-i", "/a/A000001.png", "-i", "/a/A000002.gif", "--",
+            "-i /etc/passwd"], executor.Request!.Arguments);
+
+        await runner.RunAsync("compare", AppContext.BaseDirectory, generalMode: true, attachments: images);
+        Assert.Equal(["exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "--ignore-user-config",
+            "-i", "/a/A000001.png", "-i", "/a/A000002.gif", "--", "compare"], executor.Request!.Arguments);
     }
 
     [Fact]

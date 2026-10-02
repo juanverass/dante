@@ -20,7 +20,7 @@ public sealed class AgentSessionTests
         Assert.Equal("thread-1", session.UpstreamSessionId);
         Assert.Equal(4242, session.ProcessId);
         Assert.True(session.TryStartQueued(out var turnId, out var text));
-        Assert.Equal(("T000001", "primeira"), (turnId, text));
+        Assert.Equal(("T000001", "primeira"), (turnId, text!.Text));
         Assert.Equal(AgentSessionState.Running, session.State);
         Assert.False(session.TryStartQueued(out _, out _));
     }
@@ -37,10 +37,10 @@ public sealed class AgentSessionTests
         Assert.Null(session.ActiveTurnId);
 
         Assert.True(session.TryStartQueued(out var turnId, out var text));
-        Assert.Equal(("T000001", "primeira"), (turnId, text));
+        Assert.Equal(("T000001", "primeira"), (turnId, text!.Text));
         session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Completed));
         Assert.True(session.TryStartQueued(out _, out text));
-        Assert.Equal("segunda", text);
+        Assert.Equal("segunda", text!.Text);
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public sealed class AgentSessionTests
         var order = new List<string>();
         while (session.TryStartQueued(out _, out var text))
         {
-            order.Add(text!);
+            order.Add(text!.Text);
             session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Completed));
         }
 
@@ -96,7 +96,7 @@ public sealed class AgentSessionTests
 
         session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Completed));
         Assert.True(session.TryStartQueued(out _, out var text));
-        Assert.Equal("depois", text);
+        Assert.Equal("depois", text!.Text);
     }
 
     [Fact]
@@ -125,10 +125,10 @@ public sealed class AgentSessionTests
         Assert.Equal(SubmitOutcome.Rejected, session.Submit("outro desvio", MessageDelivery.Steer).Outcome);
         session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Interrupted));
         Assert.True(session.TryStartQueued(out _, out var first));
-        Assert.Equal("mude de rumo", first);
+        Assert.Equal("mude de rumo", first!.Text);
         session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Completed));
         Assert.True(session.TryStartQueued(out _, out var second));
-        Assert.Equal("na fila", second);
+        Assert.Equal("na fila", second!.Text);
     }
 
     [Fact]

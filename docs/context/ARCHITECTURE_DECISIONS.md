@@ -836,7 +836,7 @@ da máquina é validação do usuário.
 
 ## AD-29 — Anexos como entrada neutra, imagem nativa por CLI e artefato só por canal explícito
 
-Status: vigente (#93, spike; recebimento implementado na #94); orienta #95–#99. Evidências e contrato completo em
+Status: vigente (#93, spike; recebimento implementado na #94, encaminhamento aos agentes na #95); orienta #96–#99. Evidências e contrato completo em
 [`docs/spikes/multimodal`](../spikes/multimodal/README.md).
 
 Validado em Claude Code 2.1.287 e codex-cli 0.159.3 (sessão e one-shot):
@@ -891,6 +891,24 @@ Implementação do recebimento (#94):
 - a chave de contexto dos pendentes é a sessão ativa ou, sem ela, agente padrão + contexto resolvido (AD-27);
 - no estado da #94, a resposta informa que as imagens ainda não vão aos agentes.
 
-Código: `Attachments/`, `Telegram/TelegramMediaReceiver.cs`, `Telegram/TelegramBotApi.cs`,
-`Telegram/TelegramPollingService.cs`; testes em `AttachmentStoreTests`, `PendingAttachmentsTests`,
-`TelegramBotApiTests` e `TelegramMediaIntakeTests`.
+Implementação do encaminhamento (#95):
+
+- a entrada neutra é `AgentInput` (texto + `Attachment` na ordem de envio), usada em `AgentSession`, na fila, no
+  `SessionRegistry` e nos drivers; um item da fila é uma mensagem com seus anexos;
+- legenda é o pedido: a foto ou o álbum vira um turno (sessão ativa, abertura implícita ou fila) e uma legenda
+  `/claude`/`/codex` vira one-shot; outra legenda iniciada por `/` é recusada e as imagens ficam pendentes;
+- o próximo texto que chega a um agente (mensagem comum, `/steer`, `/claude`, `/codex`) leva todos os pendentes do
+  contexto **em que a conversa está**, inclusive quando um `@alias` ou o one-shot sobrepõe agente ou contexto naquela
+  execução: o pedido é o que o usuário enviou logo depois das imagens. Troca de contexto por comando continua
+  descartando os pendentes;
+- recusa antes do driver, sem converter em nome de arquivo nem trocar agente/modelo: anexo de outro usuário, tipo
+  diferente de imagem ou driver sem `ImageInput` (hoje Claude e Codex têm). Os arquivos de uma mensagem recusada são
+  apagados;
+- os consumidos vão para `<usuário>/<sessão|job>/` (`AttachmentStore.MoveTo`); o diretório é apagado quando a sessão
+  termina (fechada ou falha) ou o job termina, e limpo antes do uso se sobrou de uma execução anterior com o mesmo id;
+- o álbum completa fora do loop de updates; resposta e despacho são serializados com os updates.
+
+Código: `Attachments/`, `Sessions/AgentInput.cs`, `Sessions/SessionRegistry.cs`, drivers e runners,
+`Telegram/TelegramMediaReceiver.cs`, `Telegram/TelegramBotApi.cs`, `Telegram/TelegramPollingService.cs`; testes em
+`AttachmentStoreTests`, `PendingAttachmentsTests`, `TelegramBotApiTests`, `TelegramMediaIntakeTests`,
+`TelegramImageTurnTests`, `SessionRegistryTests` e nos testes de drivers e runners.

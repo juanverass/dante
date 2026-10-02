@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using Dante.Worker.Agents;
+using Dante.Worker.Attachments;
 
 namespace Dante.Worker.Sessions;
 
@@ -101,9 +102,10 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
     }
 
     // Only with the session idle: a turn/start during an active turn is absorbed by it instead of queued (AD-16).
-    public async Task StartTurnAsync(string input, CancellationToken cancellationToken = default)
+    public async Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(input);
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentException.ThrowIfNullOrWhiteSpace(input.Text);
         string thread;
         AgentPermissionProfile current;
         string? currentModel;
@@ -114,7 +116,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
             currentModel = model;
         }
 
-        var parameters = new JsonObject { ["threadId"] = thread, ["input"] = TextInput(input) };
+        var parameters = new JsonObject { ["threadId"] = thread, ["input"] = Input(input) };
         if (effort is not null) parameters["effort"] = effort;
         if (current == AgentPermissionProfile.Plan)
         {
@@ -141,9 +143,10 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
     }
 
     // Applied at the next model boundary of the active turn, not preemptively.
-    public async Task SteerAsync(string input, CancellationToken cancellationToken = default)
+    public async Task SteerAsync(AgentInput input, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(input);
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentException.ThrowIfNullOrWhiteSpace(input.Text);
         string thread;
         string turn;
         lock (gate)
@@ -156,7 +159,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
         {
             ["threadId"] = thread,
             ["expectedTurnId"] = turn,
-            ["input"] = TextInput(input)
+            ["input"] = Input(input)
         }, cancellationToken);
     }
 
@@ -315,7 +318,20 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
         return new JsonObject { ["answers"] = answers };
     }
 
-    private static JsonArray TextInput(string text) => [new JsonObject { ["type"] = "text", ["text"] = text }];
+    // The text, then one localImage per image in the order sent; the CLI reads each file by absolute path, so it may
+    // stay outside the cwd and the sandbox (#93 spike, AD-29). Used by turn/start and turn/steer alike.
+    private static JsonArray Input(AgentInput input)
+    {
+        var items = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = input.Text });
+        foreach (var attachment in input.Attachments)
+        {
+            if (attachment.Kind != AttachmentKind.Image)
+                throw new ArgumentException("O Codex só recebe imagens como anexo.", nameof(input));
+            items.Add(new JsonObject { ["type"] = "localImage", ["path"] = attachment.Path });
+        }
+
+        return items;
+    }
 
     private static JsonObject Response(JsonNode id, JsonObject result) =>
         new() { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["result"] = result };

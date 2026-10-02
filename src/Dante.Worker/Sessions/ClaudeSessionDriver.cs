@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using Dante.Worker.Agents;
+using Dante.Worker.Attachments;
 
 namespace Dante.Worker.Sessions;
 
@@ -69,10 +70,12 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
         return new AgentSessionStarted(sessionId, agent.ProcessId);
     }
 
-    public async Task StartTurnAsync(string input, CancellationToken cancellationToken = default)
+    public async Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(input);
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentException.ThrowIfNullOrWhiteSpace(input.Text);
         var agent = RequireOpen();
+        var content = await ContentAsync(input, cancellationToken);
         lock (gate)
         {
             interruptRequested = false;
@@ -83,11 +86,43 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
         await WriteAsync(agent, new JsonObject
         {
             ["type"] = "user",
-            ["message"] = new JsonObject { ["role"] = "user", ["content"] = input }
+            ["message"] = new JsonObject { ["role"] = "user", ["content"] = content }
         }, cancellationToken);
     }
 
-    public Task SteerAsync(string input, CancellationToken cancellationToken = default) =>
+    // Text only stays a plain string. Images go as base64 image blocks, each after a label with its position and name,
+    // and the user's text last (#93 spike, AD-29).
+    private static async Task<JsonNode> ContentAsync(AgentInput input, CancellationToken cancellationToken)
+    {
+        if (input.Attachments.Count == 0) return input.Text;
+        var content = new JsonArray();
+        for (var index = 0; index < input.Attachments.Count; index++)
+        {
+            var image = input.Attachments[index];
+            if (image.Kind != AttachmentKind.Image)
+                throw new ArgumentException("O Claude só recebe imagens como anexo.", nameof(input));
+            content.Add(new JsonObject
+            {
+                ["type"] = "text",
+                ["text"] = $"Imagem {index + 1}" + (image.Name is null ? ":" : $" ({image.Name}):")
+            });
+            content.Add(new JsonObject
+            {
+                ["type"] = "image",
+                ["source"] = new JsonObject
+                {
+                    ["type"] = "base64",
+                    ["media_type"] = image.MediaType,
+                    ["data"] = Convert.ToBase64String(await File.ReadAllBytesAsync(image.Path, cancellationToken))
+                }
+            });
+        }
+
+        content.Add(new JsonObject { ["type"] = "text", ["text"] = input.Text });
+        return content;
+    }
+
+    public Task SteerAsync(AgentInput input, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("O Claude não tem steer nativo: interrompa o turno e envie a mensagem.");
 
     // The turn ends with a result that the driver reports as Interrupted; the process keeps serving the session.
