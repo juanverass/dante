@@ -9,6 +9,7 @@ internal static class FakeClaude
     public static int Run(string[] args)
     {
         var sessionId = ValueAfter(args, "--session-id") ?? "no-session-id";
+        var mode = ValueAfter(args, "--permission-mode") ?? "manual";
         var turns = 0;
         string? waitingFor = null;
         var turnActive = false;
@@ -56,6 +57,19 @@ internal static class FakeClaude
             {
                 case "control_request":
                     var request = message["request"]!.AsObject();
+                    if ((string?)request["subtype"] == "set_permission_mode")
+                    {
+                        var requested = (string?)request["mode"];
+                        if (args.Contains("reject-mode"))
+                            Send(ControlResponse((string)message["request_id"]!, "error", "mode rejected"));
+                        else
+                        {
+                            mode = requested == "manual" ? "default" : requested!;
+                            Send(ControlResponse((string)message["request_id"]!, "success", payload:
+                                args.Contains("missing-mode") ? new JsonObject() : new JsonObject { ["mode"] = mode }));
+                        }
+                        break;
+                    }
                     if ((string?)request["subtype"] == "initialize" && args.Contains("reject-init"))
                     {
                         Send(ControlResponse((string)message["request_id"]!, "error", "initialize rejected"));
@@ -123,6 +137,10 @@ internal static class FakeClaude
 
                     switch ((string?)message["message"]!["content"])
                     {
+                        case "mode":
+                            Assistant($"mode:{mode}");
+                            Result(true, "done");
+                            break;
                         case "pong":
                             Send(StreamEvent(new JsonObject
                             {

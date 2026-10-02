@@ -281,7 +281,7 @@ public sealed partial class TelegramPollingService(
 
         if (string.Equals(command, "/mode", StringComparison.OrdinalIgnoreCase))
         {
-            await SendReplyAsync(message.Chat.Id, HandleModeCommand(message.From!.Id, prompt), cancellationToken);
+            await SendReplyAsync(message.Chat.Id, await HandleModeCommandAsync(message.From!.Id, prompt, cancellationToken), cancellationToken);
             return;
         }
 
@@ -595,13 +595,28 @@ public sealed partial class TelegramPollingService(
         await SendReplyAsync(message.Chat.Id, usage, cancellationToken);
     }
 
-    // Modes are the user-facing permission profiles (#76): the default applies to new sessions only, and a session
-    // keeps the mode it started with until it is closed (AD-20).
-    private string HandleModeCommand(long userId, string prompt)
+    // The persisted default applies to new sessions only. Explicit session mode changes are separate (#108, AD-24).
+    private async Task<string> HandleModeCommandAsync(long userId, string prompt, CancellationToken cancellationToken)
     {
-        const string usage = "Uso: /mode | /mode manual|auto|plan";
+        const string usage = "Uso: /mode | /mode manual|auto|plan | /mode session manual|auto|plan";
         var parts = prompt.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 2 && parts[0].Equals("set", StringComparison.OrdinalIgnoreCase)) parts = [parts[1]];
+        if (parts.Length == 2 && parts[0].Equals("session", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!AgentSessionModes.TryParse(parts[1], out var requested)) return usage;
+            if (sessions is null) return "Sessões interativas indisponíveis.";
+            var previous = sessions.GetActive(userId);
+            var result = await sessions.ChangeModeAsync(userId, null, requested, cancellationToken);
+            if (!result.Accepted) return result.Error!;
+            var updated = result.Session!;
+            var change = updated.PendingProfile is { } pending
+                ? $"Troca de modo da sessão {updated.Id} agendada: {AgentSessionModes.Name(updated.Profile)} → {AgentSessionModes.Name(pending)}. " +
+                  "Será aplicada e confirmada pelo Codex no próximo turno; o modo atual ainda não mudou."
+                : previous!.PendingProfile is not null && previous.Profile == updated.Profile
+                    ? $"Troca pendente da sessão {updated.Id} cancelada; modo efetivo mantido: {AgentSessionModes.Name(updated.Profile)}."
+                    : $"Modo da sessão {updated.Id}: {AgentSessionModes.Name(previous.Profile)} → {AgentSessionModes.Name(updated.Profile)} (confirmado pelo agente).";
+            return change + $" Padrão para novas sessões mantido: {AgentSessionModes.Name(DefaultMode(userId))}.";
+        }
         if (parts.Length == 0)
         {
             var lines = new List<string>
@@ -615,8 +630,8 @@ public sealed partial class TelegramPollingService(
                 $"{agent} {string.Join(", ", AgentDriverCapabilities.For(agent).Modes.Select(AgentSessionModes.Name))}")));
             if (sessions?.GetActive(userId) is { State: not (AgentSessionState.Failed or AgentSessionState.Closing or
                     AgentSessionState.Closed) } active)
-                lines.Add($"Sessão ativa {active.Id}: modo {AgentSessionModes.Name(active.Profile)}, fixo até ela ser encerrada.");
-            lines.Add("Use /mode <modo> para novas sessões ou /session start [claude|codex] [@alias] <modo>. " +
+                lines.Add($"Sessão ativa {active.Id}: modo {AgentSessionModes.Name(active.Profile)}.{(active.PendingProfile is { } pending ? $" Troca para {AgentSessionModes.Name(pending)} pendente para o próximo turno." : "")}");
+            lines.Add("Use /mode <modo> para novas sessões, /mode session <modo> para a sessão ativa ou /session start [claude|codex] [@alias] <modo>. " +
                 "Acesso irrestrito (full) não é oferecido.");
             return string.Join('\n', lines);
         }
@@ -624,9 +639,11 @@ public sealed partial class TelegramPollingService(
         if (!AgentSessionModes.TryParse(parts[0], out var selected))
             return $"Modo indisponível: {parts[0]}. Use /mode manual|auto|plan. Acesso irrestrito (full) não é oferecido.";
         if (!TrySetDefaultMode(userId, selected)) return "Não foi possível salvar as configurações do assistente.";
-        return $"Modo padrão para novas sessões: {AgentSessionModes.Label(selected)}. Sessões existentes mantêm o modo original." +
-            KeptSessionNotice(userId, session => session.Profile != selected,
-                $"usar o modo {AgentSessionModes.Name(selected)}");
+        return $"Modo padrão para novas sessões: {AgentSessionModes.Label(selected)}. Sessões existentes mantêm o modo atual. Use /mode session <modo> para trocar na sessão ativa." +
+            (sessions?.GetActive(userId) is { } kept && kept.Profile != selected
+                ? $"\nA sessão ativa {kept.Id} ({kept.Agent}, {kept.Context.Label}) continua no modo {AgentSessionModes.Name(kept.Profile)}; " +
+                  $"use /mode session {AgentSessionModes.Name(selected)} para solicitar a troca."
+                : string.Empty);
     }
 
     // Low-level alias of /mode kept from #67.
@@ -1405,7 +1422,9 @@ public sealed partial class TelegramPollingService(
                 AgentTurnOutcome.Interrupted => "interrompido",
                 _ => "falhou"
             }}") +
-        $" | modo {AgentSessionModes.Name(session.Profile)} | modelo {session.ModelLabel} | esforço {session.EffortLabel}" +
+        $" | modo {AgentSessionModes.Name(session.Profile)}" +
+        (session.PendingProfile is { } pending ? $" (troca para {AgentSessionModes.Name(pending)} no próximo turno, pendente)" : "") +
+        $" | modelo {session.ModelLabel} | esforço {session.EffortLabel}" +
         $" | criada {session.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
 
     private async Task SendTypingAsync(long chatId, CancellationToken cancellationToken)

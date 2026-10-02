@@ -29,6 +29,10 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
     private string? activeTurnId;
     private string? completedTurnId;
     private AgentPermissionProfile profile;
+    private AgentPermissionProfile? pendingProfile;
+    private TaskCompletionSource? modeConfirmation;
+    private string? workingDirectory;
+    private string? effectiveEffort;
     private bool closing;
     private bool ended;
     private long nextRequestId;
@@ -60,6 +64,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
         {
             process = agent;
             profile = options.Profile;
+            workingDirectory = options.WorkingDirectory;
             effort = options.ModelSelection?.Effort;
         }
 
@@ -97,6 +102,7 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
             {
                 threadId = id;
                 model = GetString(thread, "model");
+                effectiveEffort = options.ModelSelection?.Effort ?? GetString(thread, "reasoningEffort");
             }
 
             return new AgentSessionStarted(id, agent.ProcessId, GetString(thread, "model"));
@@ -108,6 +114,20 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
         }
     }
 
+    public Task ChangeModeAsync(AgentPermissionProfile requested, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _ = Policy(requested);
+        lock (gate)
+        {
+            _ = RequireThread();
+            if (activeTurnId is not null || pendingRequests.Count != 0)
+                throw new InvalidOperationException("Aguarde o turno do Codex terminar antes de trocar o modo.");
+            pendingProfile = requested == profile ? null : requested;
+        }
+        return Task.CompletedTask;
+    }
+
     // Only with the session idle: a turn/start during an active turn is absorbed by it instead of queued (AD-16).
     public async Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default)
     {
@@ -116,21 +136,36 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
         string thread;
         AgentPermissionProfile current;
         string? currentModel;
+        TaskCompletionSource? confirmation;
         lock (gate)
         {
             thread = RequireThread();
-            current = profile;
+            current = pendingProfile ?? profile;
+            confirmation = pendingProfile is null ? null : new(TaskCreationOptions.RunContinuationsAsynchronously);
+            modeConfirmation = confirmation;
             currentModel = model;
         }
 
         var parameters = new JsonObject { ["threadId"] = thread, ["input"] = Input(input) };
         if (effort is not null) parameters["effort"] = effort;
-        if (current == AgentPermissionProfile.Plan)
+        if (confirmation is not null)
+        {
+            parameters["approvalPolicy"] = Policy(current).ApprovalPolicy;
+            parameters["approvalsReviewer"] = current == AgentPermissionProfile.Auto ? "auto_review" : "user";
+            parameters["sandboxPolicy"] = current == AgentPermissionProfile.Plan
+                ? new JsonObject { ["type"] = "readOnly" }
+                : new JsonObject
+                {
+                    ["type"] = "workspaceWrite", ["writableRoots"] = new JsonArray(),
+                    ["networkAccess"] = false, ["excludeTmpdirEnvVar"] = false, ["excludeSlashTmp"] = false
+                };
+        }
+        if (current == AgentPermissionProfile.Plan || confirmation is not null)
         {
             // The plan collaboration mode needs the model explicitly; thread/start reported it.
             parameters["collaborationMode"] = new JsonObject
             {
-                ["mode"] = "plan",
+                ["mode"] = current == AgentPermissionProfile.Plan ? "plan" : "default",
                 ["settings"] = new JsonObject { ["model"] = currentModel, ["developer_instructions"] = null }
             };
         }
@@ -138,7 +173,27 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
         if (effort is not null && parameters["collaborationMode"]?["settings"] is JsonObject collaborationSettings)
             collaborationSettings["reasoning_effort"] = effort;
 
-        var result = await SendRequestAsync("turn/start", parameters, cancellationToken);
+        JsonObject result;
+        try
+        {
+            try
+            {
+                result = await SendRequestAsync("turn/start", parameters, cancellationToken);
+            }
+            catch (InvalidOperationException) when (confirmation is not null)
+            {
+                if (confirmation.Task.IsCompletedSuccessfully)
+                    throw new AgentProtocolException("O Codex confirmou políticas novas mas recusou o turno; a sessão será encerrada.");
+                lock (gate) pendingProfile = null;
+                throw new AgentModeRejectedException("O Codex recusou a troca de modo; o turno não foi iniciado e o modo anterior foi mantido.");
+            }
+            if (confirmation is not null)
+                await confirmation.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+        }
+        finally
+        {
+            lock (gate) modeConfirmation = null;
+        }
         var turnId = GetString(result["turn"] as JsonObject, "id")
                      ?? throw new AgentProtocolException("O Codex iniciou o turno sem id.");
         lock (gate)
@@ -504,6 +559,9 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
     {
         switch (method)
         {
+            case "thread/settings/updated":
+                await ConfirmModeAsync(parameters);
+                break;
             case "turn/started":
                 lock (gate)
                 {
@@ -547,6 +605,45 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
                 break;
             // Deltas of reasoning and command output, diffs, thread status, token usage…: not session events.
         }
+    }
+
+    private async Task ConfirmModeAsync(JsonObject parameters)
+    {
+        AgentPermissionProfile requested;
+        TaskCompletionSource confirmation;
+        lock (gate)
+        {
+            if (modeConfirmation is null || pendingProfile is null || GetString(parameters, "threadId") != threadId)
+                return;
+            requested = pendingProfile.Value;
+            confirmation = modeConfirmation;
+        }
+        var settings = parameters["threadSettings"] as JsonObject;
+        var sandbox = settings?["sandboxPolicy"] as JsonObject;
+        var collaboration = settings?["collaborationMode"] as JsonObject;
+        // A positive RPC response alone does not attest the policy. Compare the effective settings notification.
+        if (GetString(settings, "approvalPolicy") != Policy(requested).ApprovalPolicy ||
+            GetString(settings, "approvalsReviewer") != (requested == AgentPermissionProfile.Auto ? "auto_review" : "user") ||
+            GetString(sandbox, "type") != (requested == AgentPermissionProfile.Plan ? "readOnly" : "workspaceWrite") ||
+            sandbox?["networkAccess"] is not JsonValue network || network.GetValueKind() != JsonValueKind.False ||
+            (requested != AgentPermissionProfile.Plan &&
+                (sandbox?["writableRoots"] is not JsonArray { Count: 0 } ||
+                 sandbox["excludeTmpdirEnvVar"]?.GetValue<bool>() != false || sandbox["excludeSlashTmp"]?.GetValue<bool>() != false)) ||
+            GetString(collaboration, "mode") != (requested == AgentPermissionProfile.Plan ? "plan" : "default") ||
+            GetString(settings, "cwd") != workingDirectory || GetString(settings, "model") != model ||
+            GetString(settings, "effort") != effectiveEffort)
+        {
+            confirmation.TrySetException(new AgentProtocolException("O Codex não confirmou as políticas do novo modo; a sessão será encerrada."));
+            return;
+        }
+        lock (gate)
+        {
+            profile = requested;
+            pendingProfile = null;
+        }
+        // Settings are effective upstream before turn/started. Preserve that order for snapshots and delivery.
+        await EmitAsync(new ModeAppliedEvent(requested));
+        confirmation.TrySetResult();
     }
 
     private static ToolStartedEvent? ToolStarted(JsonObject item)

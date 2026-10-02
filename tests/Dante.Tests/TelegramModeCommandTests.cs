@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 
 namespace Dante.Tests;
 
-// Operational modes (#76): /mode chooses the persisted default for new sessions; a session keeps its mode until closed.
+// /mode chooses the persisted default; /mode session explicitly changes the idle session (#108).
 public sealed class TelegramModeCommandTests : IAsyncDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "dante-modes-" + Guid.NewGuid().ToString("N"));
@@ -36,7 +36,7 @@ public sealed class TelegramModeCommandTests : IAsyncDisposable
             api.Enqueue("/mode full");
             Assert.StartsWith("Modo indisponível: full.", await api.NextMessageAsync());
             api.Enqueue("/mode auto plan");
-            Assert.Equal("Uso: /mode | /mode manual|auto|plan", await api.NextMessageAsync());
+            Assert.Equal("Uso: /mode | /mode manual|auto|plan | /mode session manual|auto|plan", await api.NextMessageAsync());
             Assert.Empty(drivers.Created);
         }
         finally { await service.StopAsync(CancellationToken.None); }
@@ -93,10 +93,10 @@ public sealed class TelegramModeCommandTests : IAsyncDisposable
             Assert.Equal(AgentPermissionProfile.Manual, store.GetSessionMode(123));
 
             api.Enqueue("/mode approval");
-            Assert.Contains("A sessão ativa S000001 (Codex, General) continua; envie /session start para usar o modo manual.",
+            Assert.Contains("A sessão ativa S000001 (Codex, General) continua no modo plan; use /mode session manual para solicitar a troca.",
                 await api.NextMessageAsync());
             api.Enqueue("/mode");
-            Assert.Contains("Sessão ativa S000001: modo plan, fixo até ela ser encerrada.", await api.NextMessageAsync());
+            Assert.Contains("Sessão ativa S000001: modo plan.", await api.NextMessageAsync());
 
             api.Enqueue("continue");
             var driver = drivers.Created.Single();
@@ -136,6 +136,36 @@ public sealed class TelegramModeCommandTests : IAsyncDisposable
 
             Assert.All(drivers.Created, driver => Assert.Empty(driver.Calls));
             Assert.Empty(sessions!.List(123));
+        }
+        finally { await service.StopAsync(CancellationToken.None); }
+    }
+
+    [Theory]
+    [InlineData("claude", false)]
+    [InlineData("codex", true)]
+    public async Task SessionModeHasSeparateIntentAndReportsOnlyConfirmedMode(string agent, bool deferred)
+    {
+        var store = Settings();
+        using var service = CreateService(store);
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            api.Enqueue($"/session start {agent} auto");
+            await api.NextMessageAsync();
+            api.Enqueue("/mode session manual");
+            var reply = await api.NextMessageAsync();
+            Assert.Contains(deferred ? "agendada: auto → manual" : "auto → manual (confirmado pelo agente)", reply);
+            Assert.Contains("Padrão para novas sessões mantido: manual", reply);
+            Assert.Equal(AgentPermissionProfile.Manual, store.GetSessionMode(123));
+            Assert.Equal(deferred ? AgentPermissionProfile.Auto : AgentPermissionProfile.Manual, sessions!.GetActive(123)!.Profile);
+            api.Enqueue("/status");
+            reply = await api.NextMessageAsync();
+            Assert.Contains(deferred ? "modo auto (troca para manual no próximo turno, pendente)" : "modo manual", reply);
+            api.Enqueue("continue");
+            await Eventually(() => drivers.Created.Single().Calls.Contains("turn:continue"));
+            await Eventually(() => sessions.GetActive(123)!.Profile == AgentPermissionProfile.Manual);
+            api.Enqueue("/mode session plan");
+            Assert.Contains("turno ou solicitação pendente", await api.NextMessageAsync());
         }
         finally { await service.StopAsync(CancellationToken.None); }
     }

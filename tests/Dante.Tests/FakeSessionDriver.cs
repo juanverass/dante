@@ -16,6 +16,9 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
     public AgentDriverCapabilities Capabilities { get; set; } = capabilities;
     public AgentSessionStartOptions? StartOptions { get; private set; }
     public Exception? StartFailure { get; set; }
+    public Exception? ModeFailure { get; set; }
+    public TaskCompletionSource? ModeGate { get; set; }
+    private AgentPermissionProfile? pendingMode;
     public Exception? TurnFailure { get; set; }
     public Exception? SteerFailure { get; set; }
     public Exception? InterruptFailure { get; set; }
@@ -46,8 +49,26 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
             : Task.FromException<AgentSessionStarted>(StartFailure);
     }
 
+    public async Task ChangeModeAsync(AgentPermissionProfile profile, CancellationToken cancellationToken = default)
+    {
+        calls.Enqueue($"mode:{AgentSessionModes.Name(profile)}");
+        if (ModeGate is not null) await ModeGate.Task.WaitAsync(cancellationToken);
+        if (ModeFailure is not null) throw ModeFailure;
+        if (Capabilities.ModeSwitch == AgentModeSwitch.NextTurn) pendingMode = profile;
+    }
+
     public Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default)
     {
+        if (TurnFailure is not null)
+        {
+            pendingMode = null;
+            return Task.FromException(TurnFailure);
+        }
+        if (pendingMode is { } applied)
+        {
+            Emit(new ModeAppliedEvent(applied));
+            pendingMode = null;
+        }
         calls.Enqueue("turn:" + Describe(input));
         return TurnFailure is null ? Task.CompletedTask : Task.FromException(TurnFailure);
     }

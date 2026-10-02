@@ -180,6 +180,36 @@ internal static class FakeCodex
                         break;
                     }
 
+                    if (parameters["sandboxPolicy"] is JsonObject newSandbox)
+                    {
+                        if (args.Contains("reject-mode"))
+                        {
+                            Fail("mode rejected");
+                            break;
+                        }
+                        newSandbox["networkAccess"] ??= false;
+                        threadParams!["approvalPolicy"] = parameters["approvalPolicy"]!.DeepClone();
+                        threadParams["approvalsReviewer"] = parameters["approvalsReviewer"]!.DeepClone();
+                        threadParams["sandbox"] = (string?)newSandbox["type"] == "readOnly" ? "read-only" : "workspace-write";
+                        if (!args.Contains("missing-mode-confirmation"))
+                            Notify("thread/settings/updated", new JsonObject
+                            {
+                                ["threadId"] = ThreadId,
+                                ["threadSettings"] = new JsonObject
+                                {
+                                    ["cwd"] = threadParams["cwd"]!.DeepClone(),
+                                    ["model"] = (string?)threadParams["model"] ?? "fake-model",
+                                    ["effort"] = parameters["effort"]?.DeepClone(),
+                                    ["approvalPolicy"] = threadParams["approvalPolicy"]!.DeepClone(),
+                                    ["approvalsReviewer"] = args.Contains("wrong-mode-reviewer") ? "unexpected" : threadParams["approvalsReviewer"]!.DeepClone(),
+                                    ["sandboxPolicy"] = args.Contains("wrong-mode-sandbox")
+                                        ? new JsonObject { ["type"] = "dangerFullAccess", ["networkAccess"] = true }
+                                        : newSandbox.DeepClone(),
+                                    ["collaborationMode"] = parameters["collaborationMode"]!.DeepClone()
+                                }
+                            });
+                    }
+
                     turns++;
                     turnParams = parameters;
                     activeTurn = $"turn-{turns}";

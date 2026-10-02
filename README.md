@@ -581,13 +581,29 @@ O modo define quanta autonomia o agente tem numa sessão:
 ```text
 /mode           consulta o modo padrão, as opções e o suporte de cada agente
 /mode auto      escolhe o modo padrão para as próximas sessões
+/mode session manual    troca o modo da sessão ativa, mantendo o padrão
 /session start codex @dante plan    inicia uma sessão num modo específico
 ```
 
-O modo padrão é por usuário, sobrevive a reinícios e vale só para sessões novas: uma
-sessão mantém o modo com que começou até ser encerrada, e a resposta do `/mode` avisa
-quando a sessão ativa continua no modo anterior. Um modo informado em `/session start`
-vale somente para aquela sessão. `/status` e `/mode` mostram o modo de cada sessão.
+O modo padrão é por usuário, sobrevive a reinícios e vale só para sessões novas.
+`/mode <modo>` e `/permissions <modo>` alteram esse padrão; `/mode session <modo>` altera
+somente a sessão ativa, sem mudar a preferência persistida. Um modo informado em
+`/session start` vale somente para aquela sessão.
+
+A troca exige sessão ociosa, sem mensagens enfileiradas, approvals ou input humano pendentes.
+Durante um turno, aguarde a conclusão ou use `/session stop` explicitamente antes de solicitar a troca.
+O D.A.N.T.E. nunca interrompe nem responde a requests automaticamente para trocar o modo.
+Claude confirma a alteração por `set_permission_mode`. Codex agenda a troca para o próximo
+turno da mesma thread: `/status` e `/mode` continuam mostrando o modo efetivo anterior e a
+solicitação pendente até `thread/settings/updated` confirmar sandbox, aprovação, revisor e
+colaboração. Envie sua próxima mensagem normalmente; não é necessário fechar a sessão.
+Solicitar o modo efetivo atual cancela uma troca pendente do Codex.
+
+Recusa upstream mantém o modo anterior. Se a CLI não confirmar as políticas ou a resposta
+ficar incerta, a sessão é encerrada com erro para impedir execução com políticas divergentes;
+inicie uma nova sessão explicitamente. Agente sem suporte orienta `/session start`, sem
+reiniciar silenciosamente. A [investigação #108](docs/spikes/session-mode/README.md) registra
+as evidências das CLIs e as limitações.
 
 Cada agente declara os modos que suporta; pedir um modo não suportado é recusado com erro
 claro antes de iniciar a sessão. Hoje Claude e Codex suportam os três, com mapeamentos
@@ -854,6 +870,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/effort claude\|codex [<nível>\|default]` | Escolhe o esforço das novas sessões e execuções one-shot ou volta ao padrão da CLI |
 | `/mode` | Consulta o modo padrão, as opções e o suporte de cada agente |
 | `/mode manual\|auto\|plan` | Escolhe o modo padrão para novas sessões do usuário (`approval` = `manual`) |
+| `/mode session manual\|auto\|plan` | Troca somente na sessão ativa ociosa; Claude confirma agora, Codex no próximo turno |
 | `/permissions [manual\|auto\|plan]` | Interface de baixo nível do `/mode`: consulta ou escolhe o mesmo padrão |
 | `/approve <sessionId> <turnId> <requestId>` | Aprova a ação solicitada uma vez |
 | `/approve-session <sessionId> <turnId> <requestId>` | Aprova para a sessão quando o agente oferece essa opção |
