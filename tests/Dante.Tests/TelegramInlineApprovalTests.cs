@@ -24,6 +24,11 @@ public sealed class TelegramInlineApprovalTests
             b.CallbackData.EndsWith(":" + (int)decision));
         Assert.All(message.Keyboard.Rows.SelectMany(row => row), b => Assert.InRange(b.CallbackData.Length, 1, 64));
         Assert.Equal(sessionApproval, message.Keyboard.Rows.SelectMany(row => row).Any(b => b.Text == "Aprovar na sessão"));
+        // The buttons are the interface: the textual commands are not repeated in the message (#104).
+        Assert.DoesNotContain("/approve", message.Text);
+        Assert.DoesNotContain("/deny", message.Text);
+        Assert.Contains("Aprovação pendente S000001 T000001 R000001:\nsensitive command\n\nMotivo: sensitive reason\n" +
+            "Expira em 5 minutos.", message.Text);
         fixture.Api.Callback(button.CallbackData, message.Id);
         Assert.Equal(TelegramApprovalCallback.DecisionText(decision), await fixture.Api.NextAnswer());
         await Eventually(() => fixture.Api.Edits.Count > 0);
@@ -90,13 +95,45 @@ public sealed class TelegramInlineApprovalTests
         Assert.Equal(decision, Assert.IsType<AgentApprovalResponse>(Assert.Single(fixture.Driver.Responses).Response).Decision);
     }
 
-    [Fact]
-    public async Task BoundSecretsHideDetailsWhileAllowingApproval()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task WithoutInlineKeyboardsTheMessageShowsTheTextualCommands(bool forSession)
     {
-        await using var fixture = await Fixture.Start(hideOutput: true);
+        await using var fixture = await Fixture.Start(keyboards: false);
+        var message = await fixture.Approval(forSession);
+        Assert.Null(message.Keyboard);
+        Assert.Contains("/approve S000001 T000001 R000001\n", message.Text);
+        Assert.Contains("/deny S000001 T000001 R000001 [motivo]\n", message.Text);
+        Assert.Equal(forSession, message.Text.Contains("/approve-session S000001 T000001 R000001"));
+        Assert.EndsWith("Expira em 5 minutos.", message.Text.TrimEnd());
+        fixture.Api.Text("/deny S000001 T000001 R000001");
+        await Eventually(() => fixture.Driver.Responses.Count == 1);
+        Assert.Equal(AgentApprovalDecision.Deny,
+            Assert.IsType<AgentApprovalResponse>(Assert.Single(fixture.Driver.Responses).Response).Decision);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BoundSecretsHideDetailsWhileAllowingApproval(bool keyboards)
+    {
+        await using var fixture = await Fixture.Start(hideOutput: true, keyboards: keyboards);
         var message = await fixture.Approval(true);
         Assert.DoesNotContain("sensitive command", message.Text);
         Assert.DoesNotContain("sensitive reason", message.Text);
+        Assert.Contains("Detalhes omitidos", message.Text);
+        Assert.Equal(!keyboards, message.Text.Contains("/approve S000001 T000001 R000001"));
+        Assert.Equal(!keyboards, message.Text.Contains("/approve-session S000001 T000001 R000001"));
+        Assert.Equal(!keyboards, message.Text.Contains("/deny S000001 T000001 R000001"));
+        if (!keyboards)
+        {
+            fixture.Api.Text("/approve S000001 T000001 R000001");
+            await Eventually(() => fixture.Driver.Responses.Count == 1);
+            Assert.Equal(AgentApprovalDecision.ApproveOnce,
+                Assert.IsType<AgentApprovalResponse>(Assert.Single(fixture.Driver.Responses).Response).Decision);
+            return;
+        }
         fixture.Api.Callback(message.Keyboard!.Rows[0][0].CallbackData, message.Id);
         await fixture.Api.NextAnswer();
         await Eventually(() => fixture.Api.Edits.Count > 0);
@@ -130,9 +167,10 @@ public sealed class TelegramInlineApprovalTests
         public TelegramPollingService Polling = null!;
         public FakeSessionDriver Driver => Assert.Single(Drivers.Created);
 
-        public static async Task<Fixture> Start(TimeSpan? timeout = null, bool hideOutput = false)
+        public static async Task<Fixture> Start(TimeSpan? timeout = null, bool hideOutput = false, bool keyboards = true)
         {
             var fixture = new Fixture();
+            fixture.Api.SupportsInlineKeyboards = keyboards;
             var delivery = new TelegramDeliveryService(fixture.Api, NullLogger<TelegramDeliveryService>.Instance)
                 { PartInterval = TimeSpan.Zero };
             fixture.Sessions = new SessionRegistry(fixture.Drivers, NullLogger<SessionRegistry>.Instance,
@@ -180,6 +218,7 @@ public sealed class TelegramInlineApprovalTests
         public readonly ConcurrentQueue<string> Edits = new();
         public TaskCompletionSource? SendGate;
         public bool SendStarted;
+        public bool SupportsInlineKeyboards { get; set; } = true;
         private long sequence;
         public void Text(string text) => updates.Writer.TryWrite(new TelegramUpdate(Interlocked.Increment(ref sequence),
             new TelegramMessage(new TelegramChat(-123), text, new TelegramUser(123))));
@@ -200,8 +239,8 @@ public sealed class TelegramInlineApprovalTests
         {
             SendStarted = true;
             if (SendGate is { } hold) await hold.Task;
-            Sent.Writer.TryWrite(new SentApproval(42, text, keyboard));
-            return 42;
+            Sent.Writer.TryWrite(new SentApproval(42, text, SupportsInlineKeyboards ? keyboard : null));
+            return SupportsInlineKeyboards ? 42 : null;
         }
         public Task EditApprovalAsync(long chatId, long messageId, string text, CancellationToken cancellationToken)
         {

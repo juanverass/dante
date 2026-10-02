@@ -312,14 +312,15 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
         });
     }
 
-    private static string ApprovalInstructions(ApprovalRequestedEvent approval, bool hideDetails)
+    // The buttons are the interface; the commands stay accepted but are shown only when buttons cannot be used (#104).
+    private string ApprovalInstructions(ApprovalRequestedEvent approval, bool hideDetails)
     {
         var ids = $"{approval.SessionId} {approval.TurnId} {approval.RequestId}";
         var details = hideDetails ? "Detalhes omitidos para proteger segredos do ambiente." :
-            $"{approval.Action}" + (approval.Reason is null ? "" : $"\nMotivo: {approval.Reason}");
-        return $"Aprovação pendente {ids}: {details}\n/approve {ids}\n" +
-            (approval.CanApproveForSession ? $"/approve-session {ids}\n" : "") +
-            $"/deny {ids} [motivo]\nExpira em 5 minutos.\n";
+            $"{approval.Action}" + (approval.Reason is null ? "" : $"\n\nMotivo: {approval.Reason}");
+        var commands = botApi.SupportsInlineKeyboards ? "" : $"/approve {ids}\n" +
+            (approval.CanApproveForSession ? $"/approve-session {ids}\n" : "") + $"/deny {ids} [motivo]\n";
+        return $"Aprovação pendente {ids}:\n{details}\n{commands}Expira em 5 minutos.\n";
     }
 
     private static string InputInstructions(UserInputRequestedEvent input, bool hideDetails)
