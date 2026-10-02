@@ -11,12 +11,13 @@ using Microsoft.Extensions.Options;
 namespace Dante.Tests;
 
 // Media intake (#94, AD-29): files reach a pending batch of their sender, with replies and refusals, and nothing is
-// downloaded for unauthorized users or for audio and video.
+// downloaded for unauthorized users, or for audio and video when the tools that prepare them are missing (#96).
 public sealed class TelegramMediaIntakeTests : IAsyncDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "dante-media-" + Guid.NewGuid().ToString("N"));
     private readonly BotApi api = new();
     private readonly ManualTime time = new();
+    private readonly FakeMediaTools tools = new();
     private PendingAttachments? pending;
     private TelegramPollingService? service;
 
@@ -63,7 +64,7 @@ public sealed class TelegramMediaIntakeTests : IAsyncDisposable
     [InlineData("video_note")]
     [InlineData("animation")]
     [InlineData("pdf")]
-    public async Task AudioVideoAndOtherFilesAreRefusedWithoutDownloading(string kind)
+    public async Task WithoutMediaPreparationAudioVideoAndOtherFilesAreRefusedWithoutDownloading(string kind)
     {
         await StartAsync();
         var file = new TelegramFileInfo("f", 10, kind == "pdf" ? "application/pdf" : "audio/ogg");
@@ -79,9 +80,82 @@ public sealed class TelegramMediaIntakeTests : IAsyncDisposable
 
         var reply = await api.NextMessageAsync();
         Assert.StartsWith("Não recebi o arquivo: ", reply);
-        Assert.Contains(kind == "pdf" ? "formato não suportado" : "ainda não processo áudio nem vídeo", reply);
+        Assert.Contains(kind switch
+        {
+            "pdf" => "formato não suportado",
+            "animation" => "animações não são processadas; envie como vídeo",
+            _ => "ainda não processo áudio nem vídeo"
+        }, reply);
         Assert.Empty(api.Downloads);
         Assert.Null(pending!.Get(123));
+    }
+
+    [Theory]
+    [InlineData("voice", AttachmentKind.Audio, "audio/ogg", ".ogg")]
+    [InlineData("audio", AttachmentKind.Audio, "audio/mpeg", ".mp3")]
+    [InlineData("video", AttachmentKind.Video, "video/mp4", ".mp4")]
+    [InlineData("video_note", AttachmentKind.Video, "video/mp4", ".mp4")]
+    [InlineData("audio_document", AttachmentKind.Audio, "audio/mp4", ".m4a")]
+    [InlineData("video_document", AttachmentKind.Video, "video/quicktime", ".mov")]
+    public async Task AudioAndVideoAreStoredByContentWhenTheToolsAreInstalled(string field, AttachmentKind kind,
+        string mediaType, string extension)
+    {
+        api.Files["f"] = field switch
+        {
+            "voice" => TestMedia.Ogg(),
+            "audio" => TestMedia.Mp3(),
+            "video_document" => TestMedia.Mp4("qt  "),
+            _ => TestMedia.Mp4()
+        };
+        await StartAsync(media: true);
+        var file = new TelegramFileInfo("f", 20, "application/octet-stream", "gravação.bin");
+        api.Enqueue(field switch
+        {
+            "voice" => Message() with { Voice = file },
+            "audio" => Message() with { Audio = file },
+            "video" => Message() with { Video = file },
+            "video_note" => Message() with { VideoNote = file },
+            "audio_document" => Message(document: file with { MimeType = "audio/x-m4a" }),
+            _ => Message(document: file with { MimeType = "video/quicktime" })
+        });
+
+        var reply = await api.NextMessageAsync();
+        Assert.StartsWith($"Recebi 1 {(kind == AttachmentKind.Audio ? "áudio" : "vídeo")}.", reply);
+        Assert.Contains("áudio e vídeo são transcritos e amostrados localmente", reply);
+        var item = Assert.Single(pending!.Get(123)!.Items);
+        Assert.Equal((kind, mediaType, "gravação.bin"), (item.Kind, item.MediaType, item.Name));
+        Assert.Equal(Path.Combine(Attachments, "123", "pending", item.Id + extension), item.Path);
+        Assert.Empty(tools.Calls);
+    }
+
+    [Fact]
+    public async Task AMissingToolRefusesAudioBeforeDownloadingWithWhatToInstall()
+    {
+        tools.Missing[AttachmentKind.Audio] = "whisper-cli não encontrado no PATH; instale o whisper.cpp";
+        await StartAsync(media: true);
+
+        api.Enqueue(Message() with { Voice = new TelegramFileInfo("f", 10, "audio/ogg") });
+
+        Assert.Equal("Não recebi o arquivo: áudio indisponível: whisper-cli não encontrado no PATH; instale o whisper.cpp.",
+            await api.NextMessageAsync());
+        Assert.Empty(api.Downloads);
+        Assert.Null(pending!.Get(123));
+    }
+
+    [Fact]
+    public async Task MediaOverTheDownloadLimitOrWithOtherContentIsRefused()
+    {
+        api.Files["png"] = TestImages.Png(10, 10);
+        await StartAsync(media: true);
+
+        api.Enqueue(Message() with { Video = new TelegramFileInfo("big", AttachmentStore.MaxMediaBytes + 1, "video/mp4") });
+        Assert.Equal("Não recebi o arquivo: arquivo acima de 20 MB.", await api.NextMessageAsync());
+        api.Enqueue(Message() with { Voice = new TelegramFileInfo("png", 33, "audio/ogg") });
+        Assert.StartsWith("Não recebi o arquivo: formato de áudio não suportado", await api.NextMessageAsync());
+
+        Assert.Equal(["png"], api.Downloads);
+        Assert.Null(pending!.Get(123));
+        Assert.Empty(Directory.EnumerateFiles(Attachments, "*", SearchOption.AllDirectories));
     }
 
     [Fact]
@@ -181,7 +255,7 @@ public sealed class TelegramMediaIntakeTests : IAsyncDisposable
         Assert.False(File.Exists(leftover));
     }
 
-    private async Task StartAsync()
+    private async Task StartAsync(bool media = false)
     {
         var options = Options.Create(new TelegramOptions { BotToken = "test", AllowedUserIds = "123" });
         var store = new AttachmentStore(Attachments);
@@ -189,7 +263,7 @@ public sealed class TelegramMediaIntakeTests : IAsyncDisposable
         service = new TelegramPollingService(api, options, new TelegramUserAuthorizer(options), new NoRunner(),
             new NoRunner(), new JobRegistry(), NullLogger<TelegramPollingService>.Instance, null,
             new GeneralWorkspace(Path.Combine(root, "general")), new AssistantSettingsStore(Path.Combine(root, "settings.json")),
-            attachments: store, pendingAttachments: pending);
+            attachments: store, pendingAttachments: pending, media: media ? new MediaPreparer(tools) : null);
         await service.StartAsync(CancellationToken.None);
     }
 

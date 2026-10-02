@@ -22,6 +22,8 @@ public sealed class AttachmentStore
 {
     public const long MaxImageBytes = 7 * 1024 * 1024;
     public const int MaxImageSide = 8000;
+    // Audio and video only have to fit the getFile download (#96); duration is limited when they are prepared.
+    public const long MaxMediaBytes = 20 * 1024 * 1024;
     private const UnixFileMode OwnerOnlyDirectory = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
     private const UnixFileMode OwnerOnlyFile = UnixFileMode.UserRead | UnixFileMode.UserWrite;
     private long nextId;
@@ -54,6 +56,32 @@ public sealed class AttachmentStore
             File.Move(partial, path);
             return new Attachment(id, ownerId, AttachmentKind.Image, image.MediaType, path, new FileInfo(path).Length,
                 image.Width, image.Height, name);
+        }
+        catch
+        {
+            File.Delete(partial);
+            throw;
+        }
+    }
+
+    // write fills the file; the content must then be an audio or video container of the kind declared by the field
+    // Telegram used (voice, audio, video, video_note or the document's MIME type). Its streams are checked later.
+    public async Task<Attachment> SaveMediaAsync(long ownerId, string scope, AttachmentKind kind, string? name,
+        Func<Stream, CancellationToken, Task> write, CancellationToken cancellationToken)
+    {
+        if (kind is not (AttachmentKind.Audio or AttachmentKind.Video))
+            throw new ArgumentOutOfRangeException(nameof(kind), kind, "Somente áudio ou vídeo.");
+        var directory = CreateDirectory(ownerId, scope);
+        var (id, partial, stream) = CreateFile(directory);
+        try
+        {
+            await using (stream) await write(stream, cancellationToken);
+            var media = MediaInspector.Inspect(partial, kind) ?? throw new AttachmentRejectedException(kind ==
+                AttachmentKind.Audio ? "formato de áudio não suportado; envie OGG, MP3, M4A, WAV, FLAC ou WebM"
+                : "formato de vídeo não suportado; envie MP4, MOV, WebM ou OGG");
+            var path = System.IO.Path.Combine(directory, id + media.Extension);
+            File.Move(partial, path);
+            return new Attachment(id, ownerId, kind, media.MediaType, path, new FileInfo(path).Length, null, null, name);
         }
         catch
         {

@@ -29,6 +29,7 @@ public sealed partial class TelegramPollingService(
     AttachmentStore? attachments = null,
     PendingAttachments? pendingAttachments = null,
     ArtifactStore? artifacts = null,
+    MediaPreparer? media = null,
     TelegramShowcase? showcase = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
@@ -164,7 +165,7 @@ public sealed partial class TelegramPollingService(
                 return;
             }
             mediaReceiver ??= new TelegramMediaReceiver(botApi, attachments!, pending, logger, AttachmentContext,
-                ExclusiveAsync);
+                ExclusiveAsync, mediaUnavailable: media is null ? null : media.Unavailable);
             await mediaReceiver.ReceiveAsync(message, (reply, token) => SendReplyAsync(message.Chat.Id, reply, token),
                 (caption, token) => HandleCaptionAsync(message, caption, token), cancellationToken);
             return;
@@ -190,8 +191,10 @@ public sealed partial class TelegramPollingService(
             !command.Equals("/codex", StringComparison.OrdinalIgnoreCase) &&
             !command.Equals("/vitrine", StringComparison.OrdinalIgnoreCase))
         {
-            await SendReplyAsync(message.Chat.Id, $"Comando desconhecido na legenda: {command}. As imagens continuam " +
-                "pendentes; envie o pedido em texto. Use /help para ver os comandos.", cancellationToken);
+            var images = pending?.Get(message.From!.Id)?.Items.All(item => item.Kind == AttachmentKind.Image) != false;
+            await SendReplyAsync(message.Chat.Id, $"Comando desconhecido na legenda: {command}. " +
+                $"{(images ? "As imagens continuam" : "Os arquivos continuam")} pendentes; envie o pedido em texto. " +
+                "Use /help para ver os comandos.", cancellationToken);
             return;
         }
         await HandleTextAsync(message, caption, cancellationToken);
@@ -260,7 +263,8 @@ public sealed partial class TelegramPollingService(
                         ? string.Empty : $" | erro: {session.Error}")));
             }
             if (pending?.Get(message.From!.Id) is { } batch)
-                response += $"\n\nAnexos pendentes: {batch.Items.Count} imagem(ns), {batch.Bytes / 1024} KB, " +
+                response += $"\n\nAnexos pendentes: {batch.Items.Count} " +
+                    $"{(batch.Items.All(item => item.Kind == AttachmentKind.Image) ? "imagem(ns)" : "arquivo(s)")}, {batch.Bytes / 1024} KB, " +
                     $"expiram às {batch.ExpiresAtUtc:HH:mm:ss} UTC.";
             var deliveries = visible.Select(job => delivery.Get(job.Id, message.From!.Id))
                 .Concat(ownSessions.Select(session => delivery.Get(session.Id, message.From!.Id)))
@@ -1122,6 +1126,15 @@ public sealed partial class TelegramPollingService(
             return;
         }
         var userId = message.From!.Id;
+        // A steer reaches a turn already running upstream, where audio and video cannot be prepared (#96): they stay
+        // pending for the next ordinary message instead of being lost with a refused steer.
+        if (mode == MessageDelivery.Steer && pending?.Get(userId) is { } waiting &&
+            waiting.ContextKey == AttachmentContext(userId) && MediaPreparer.NeedsPreparation(waiting.Items))
+        {
+            await SendReplyAsync(message.Chat.Id, "Orientação não enviada: há áudio ou vídeo pendente, que vai ao " +
+                "agente só como mensagem comum (entra na fila da sessão). Envie o pedido sem /steer.", cancellationToken);
+            return;
+        }
         IReadOnlyList<Attachment>? images = [];
         if (sessions.GetActive(userId) is { } active)
             images = Adopt(userId, AttachmentContext(userId), active.Id);
@@ -1213,7 +1226,7 @@ public sealed partial class TelegramPollingService(
     private async Task DiscardStalePendingAsync(TelegramMessage message, CancellationToken cancellationToken)
     {
         if (pending?.DiscardIfContextChanged(message.From!.Id, AttachmentContext(message.From.Id)) is { } discarded)
-            await SendReplyAsync(message.Chat.Id, $"{discarded.Items.Count} imagem(ns) pendente(s) descartada(s): " +
+            await SendReplyAsync(message.Chat.Id, $"{PendingCount(discarded, "descartada(s)", "descartado(s)")}: " +
                 "o contexto da conversa mudou.", cancellationToken);
     }
 
@@ -1224,7 +1237,7 @@ public sealed partial class TelegramPollingService(
         {
             try
             {
-                await SendReplyAsync(batch.ChatId, $"{batch.Items.Count} imagem(ns) pendente(s) apagada(s): nenhum " +
+                await SendReplyAsync(batch.ChatId, $"{PendingCount(batch, "apagada(s)", "apagado(s)")}: nenhum " +
                     $"pedido chegou em {PendingAttachments.Expiry.TotalMinutes:0} min.", cancellationToken);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -1233,6 +1246,11 @@ public sealed partial class TelegramPollingService(
             }
         }
     }
+
+    private static string PendingCount(PendingBatch batch, string images, string files) =>
+        batch.Items.All(item => item.Kind == AttachmentKind.Image)
+            ? $"{batch.Items.Count} imagem(ns) pendente(s) {images}"
+            : $"{batch.Items.Count} arquivo(s) pendente(s) {files}";
 
     private void SweepAttachments()
     {
@@ -1323,8 +1341,13 @@ public sealed partial class TelegramPollingService(
         }
     }
 
-    private static string ImageSuffix(IReadOnlyList<Attachment> images) =>
-        images.Count == 0 ? string.Empty : $", {images.Count} {(images.Count == 1 ? "imagem" : "imagens")}";
+    private static string ImageSuffix(IReadOnlyList<Attachment> attachments)
+    {
+        var images = attachments.Count(attachment => attachment.Kind == AttachmentKind.Image);
+        var media = MediaPreparer.Describe(attachments);
+        return (images == 0 ? string.Empty : $", {images} {(images == 1 ? "imagem" : "imagens")}") +
+            (media.Length == 0 ? string.Empty : $", {media}");
+    }
 
     // The delivery identifies output of every session other than the one selected here (AD-23).
     private void SyncActiveSession(long userId) => delivery.SetActiveSession(userId, sessions?.GetActive(userId)?.Id);
@@ -1447,10 +1470,19 @@ public sealed partial class TelegramPollingService(
         AgentProcessResult? result = null;
         var status = AgentProcessStatus.Cancelled;
         string? errorMessage = null;
+        var received = images;
         try
         {
             if (jobs.TryStart(id))
             {
+                // Audio and video become transcript and frames inside the job, so /cancel stops the tools (#96).
+                if (MediaPreparer.NeedsPreparation(images))
+                {
+                    var prepared = await (media ?? throw new MediaPreparationException(
+                            "Áudio e vídeo indisponíveis neste Worker.")).PrepareAsync(new AgentInput(prompt, images),
+                        jobToken);
+                    (prompt, images) = (prepared.Text, prepared.Attachments);
+                }
                 result = isCodex
                     ? await codexRunner.RunAsync(prompt, context.WorkingDirectory, jobToken,
                         context.Mode == JobExecutionMode.General,
@@ -1466,6 +1498,11 @@ public sealed partial class TelegramPollingService(
         {
             status = AgentProcessStatus.Cancelled;
         }
+        catch (MediaPreparationException exception)
+        {
+            status = AgentProcessStatus.Failed;
+            errorMessage = exception.Message;
+        }
         catch (Exception exception)
         {
             status = AgentProcessStatus.Failed;
@@ -1475,7 +1512,7 @@ public sealed partial class TelegramPollingService(
         }
 
         var completed = jobs.Complete(id, status, result?.ExitCode, errorMessage);
-        ReleaseJobImages(userId, id, images);
+        ReleaseJobImages(userId, id, received);
         var label = completed.Context.Label;
         var response = completed.Status switch
         {

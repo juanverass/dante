@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Dante.Worker.Agents;
+using Dante.Worker.Attachments;
 using Dante.Worker.Sessions;
 
 namespace Dante.Tests;
@@ -10,6 +11,7 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
 {
     private readonly Channel<AgentEvent> events = Channel.CreateUnbounded<AgentEvent>();
     private readonly ConcurrentQueue<string> calls = new();
+    private readonly ConcurrentQueue<AgentInput> turnInputs = new();
     private readonly ConcurrentQueue<(string RequestId, AgentUserResponse Response)> responses = new();
     private volatile bool interrupted;
 
@@ -29,6 +31,7 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
     public bool RejectResponsesAfterInterrupt { get; set; }
     public bool Disposed { get; private set; }
     public IReadOnlyList<string> Calls => calls.ToArray();
+    public IReadOnlyList<AgentInput> TurnInputs => turnInputs.ToArray();
     public IReadOnlyList<(string RequestId, AgentUserResponse Response)> Responses => responses.ToArray();
 
     // Text-only inputs are recorded as before; attachments are listed after the text by id.
@@ -69,6 +72,7 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
             Emit(new ModeAppliedEvent(applied));
             pendingMode = null;
         }
+        turnInputs.Enqueue(input);
         calls.Enqueue("turn:" + Describe(input));
         return TurnFailure is null ? Task.CompletedTask : Task.FromException(TurnFailure);
     }
@@ -130,6 +134,8 @@ internal sealed class FakeSessionDriverFactory : IAgentSessionDriverFactory
     private readonly ConcurrentQueue<FakeSessionDriver> created = new();
 
     public Action<FakeSessionDriver>? Configure { get; set; }
+    // Like the production factory with a preparer: audio and video go through MediaPreparingSessionDriver (#96).
+    public MediaPreparer? Media { get; set; }
     public IReadOnlyList<FakeSessionDriver> Created => created.ToArray();
 
     public IAgentSessionDriver Create(AgentKind agent)
@@ -139,7 +145,7 @@ internal sealed class FakeSessionDriverFactory : IAgentSessionDriverFactory
             : AgentDriverCapabilities.Claude);
         Configure?.Invoke(driver);
         created.Enqueue(driver);
-        return driver;
+        return Media is null ? driver : new MediaPreparingSessionDriver(driver, Media);
     }
 }
 

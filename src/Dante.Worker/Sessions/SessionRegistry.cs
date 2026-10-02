@@ -166,13 +166,25 @@ public sealed class SessionRegistry(
             return SessionSubmitResult.Reject("Anexo de outro usuário.", entry.Session.Id);
         }
 
-        if (input.Attachments.Any(attachment => attachment.Kind != AttachmentKind.Image))
+        // Audio and video arrive only through the media preparation of a new turn (#96): never in a steer, which
+        // reaches a turn already running upstream.
+        var media = MediaPreparer.NeedsPreparation(input.Attachments);
+        if (input.Attachments.Any(attachment => attachment.Kind == AttachmentKind.Document) ||
+            media && !entry.Driver.Capabilities.MediaInput)
         {
             return SessionSubmitResult.Reject("Só imagens chegam ao agente; áudio, vídeo e outros arquivos ainda não.",
                 entry.Session.Id);
         }
 
-        if (input.Attachments.Count > 0 && !entry.Driver.Capabilities.ImageInput)
+        if (media && delivery == MessageDelivery.Steer)
+        {
+            return SessionSubmitResult.Reject("Áudio e vídeo não vão em /steer; envie como mensagem comum, que entra " +
+                "na fila da sessão.", entry.Session.Id);
+        }
+
+        // Images and video frames need image input; an audio transcript is plain text.
+        if (input.Attachments.Any(attachment => attachment.Kind != AttachmentKind.Audio) &&
+            !entry.Driver.Capabilities.ImageInput)
         {
             return SessionSubmitResult.Reject(
                 $"O {entry.Session.Agent} não recebe imagens nesta sessão; a mensagem não foi enviada.", entry.Session.Id);
@@ -216,6 +228,10 @@ public sealed class SessionRegistry(
             // A rejected turn/start never reached the agent. Keep the upstream thread and the previous profile.
             var completed = session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Failed, exception.Message));
             await PublishAsync(entry, completed);
+            return SessionSubmitResult.Reject(exception.Message, session.Id);
+        }
+        catch (AgentSteerRejectedException exception) when (result.Outcome == SubmitOutcome.Steered)
+        {
             return SessionSubmitResult.Reject(exception.Message, session.Id);
         }
         catch (Exception exception) when (result.Outcome == SubmitOutcome.Steered)

@@ -18,6 +18,9 @@ public sealed class AgentModeRejectedException(string message) : Exception(messa
 
 public sealed class AgentModeUnconfirmedException(string message) : Exception(message);
 
+// A steer refused locally before changing the active turn.
+public sealed class AgentSteerRejectedException(string message) : Exception(message);
+
 public enum AgentModeSwitch { Unsupported, Idle, NextTurn }
 
 // Validated protocol capabilities (#61 and #108; docs/spikes/).
@@ -31,6 +34,10 @@ public sealed record AgentDriverCapabilities(bool NativeSteer, bool Approvals, b
     // Images reach the model in the turn and in a native steer: Claude as base64 image blocks, Codex as localImage
     // items (#93 spike, AD-29). Attachments are refused before reaching a driver without it.
     public bool ImageInput { get; init; } = true;
+
+    // Audio and video are prepared by the D.A.N.T.E. before the turn reaches the agent (#96): transcript and frames
+    // (MediaPreparingSessionDriver). No CLI receives them natively, so only that wrapper declares it.
+    public bool MediaInput { get; init; }
 
     // Claude stream-json: no mid-turn steer; approvals and AskUserQuestion via --permission-prompt-tool stdio.
     // Modes map to --permission-mode manual|auto|plan (AD-18).

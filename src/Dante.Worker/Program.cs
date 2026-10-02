@@ -17,6 +17,8 @@ builder.Services.AddSingleton<ICodexRunner, CodexRunner>();
 builder.Services.AddSingleton<IClaudeRunner, ClaudeRunner>();
 builder.Services.AddSingleton<IAgentModelCatalog, AgentModelCatalog>();
 builder.Services.AddSingleton<JobRegistry>();
+builder.Services.AddSingleton<IMediaTools>(_ => new MediaTools());
+builder.Services.AddSingleton<MediaPreparer>();
 builder.Services.AddSingleton<IAgentSessionDriverFactory, AgentSessionDriverFactory>();
 builder.Services.AddSingleton<TelegramDeliveryService>();
 builder.Services.AddSingleton<IShowcaseRenderer, ShowcaseRenderer>();

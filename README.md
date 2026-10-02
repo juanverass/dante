@@ -118,6 +118,8 @@ O D.A.N.T.E. resolve o alias de forma determinística e inicia o agente diretame
 - Telegram
 - Codex CLI e/ou Claude Code CLI disponíveis no `PATH`
 - pelo menos uma das CLIs autenticada localmente para usar o respectivo agente
+- opcional, para áudio e vídeo: `ffmpeg` e `whisper.cpp` no `PATH` e um modelo do whisper (ver
+  [Áudio e vídeo](#áudio-e-vídeo))
 
 O D.A.N.T.E. **não exige uma API key da OpenAI ou Anthropic**.
 
@@ -742,12 +744,79 @@ enviada: a imagem nunca vira só um nome de arquivo, e o D.A.N.T.E. não troca d
 
 - formatos: JPEG, PNG, GIF e WebP, conferidos pelo conteúdo do arquivo; até 7 MB e 8000 px por lado;
 - até 10 imagens e 20 MB pendentes por usuário; um álbum recebe uma única confirmação;
-- áudio, voz, vídeo e outros tipos de arquivo são recusados com aviso, sem download;
+- voz, áudio e vídeo seguem as mesmas regras de pendência (ver [Áudio e vídeo](#áudio-e-vídeo)); outros tipos de
+  arquivo e animações (GIF) são recusados com aviso, sem download;
 - `/status` mostra as imagens pendentes; trocar de contexto (`/use`, `/agent set`, `/session`) as descarta com
   aviso, e após 10 min sem pedido elas são apagadas;
 - os arquivos ficam em `~/.dante/attachments/<usuário>/`, com acesso só do dono: pendentes em `pending/`, e
   depois no diretório da sessão ou do job que os usa (`S000001/`, `J000001/`), apagados quando a sessão é
   encerrada ou o job termina; sobras com mais de 24 h são removidas quando o Worker inicia.
+
+## Áudio e vídeo
+
+Nenhuma das CLIs ouve áudio ou assiste vídeo. O D.A.N.T.E. processa esses arquivos **localmente**, antes de o
+turno chegar ao agente, e envia o conteúdo derivado:
+
+- **voz e áudio**: transcrição automática pelo `whisper.cpp`, com timestamps por trecho e o idioma detectado;
+- **vídeo e vídeo redondo (video note)**: até 6 quadros amostrados em intervalos iguais, enviados como imagens,
+  mais a transcrição da trilha de áudio.
+
+O agente recebe o seu pedido seguido de um bloco que diz de onde veio cada parte e o que **não** foi analisado:
+
+```text
+[Anexos processados localmente pelo D.A.N.T.E.: o agente não recebe os arquivos de áudio ou vídeo, só o conteúdo
+derivado abaixo. Transcrições são automáticas e podem conter erros.]
+Áudio 1, duração 0:42. Transcrição (whisper.cpp, idioma detectado: pt):
+[0:00–0:05] Preciso que você revise o relatório de vendas.
+Vídeo 1 (demo.mp4), duração 1:00. 6 quadros amostrados, nas imagens 1 a 6 (em 0:05, 0:15, 0:25, 0:35, 0:45,
+0:55). O que acontece entre os quadros não foi visto. Trilha de áudio: Transcrição (...)
+```
+
+Como as imagens, voz, áudio e vídeo sem legenda ficam pendentes até o pedido em texto; com legenda, a legenda é o
+pedido. A próxima mensagem comum, `/claude` ou `/codex` os leva. `/steer` não leva áudio nem vídeo: com algum
+pendente, a orientação é recusada e eles continuam esperando a próxima mensagem comum.
+
+Na conversa, o turno começa na hora e mostra `→ Processando 1 áudio localmente (transcrição)`; mensagens enviadas
+enquanto isso entram na fila, e `/session stop` cancela o processamento. Na execução avulsa, o processamento faz
+parte do job, e `/cancel <jobId>` o interrompe.
+
+Limites:
+
+- até 20 MB por arquivo (limite de download do Telegram), conferido antes do download;
+- até 10 min de cada áudio ou vídeo são transcritos e amostrados; o que passar disso é declarado como análise
+  parcial;
+- até 10 imagens por mensagem, contando os quadros: se não couberem, a mensagem diz que nenhum quadro foi enviado;
+- até 10 min de processamento por mensagem; passou disso, as ferramentas são encerradas e o turno ou o job falha
+  com o motivo;
+- formatos conferidos pelo conteúdo: OGG/Opus, MP3, M4A, WAV, FLAC e WebM para áudio; MP4, MOV, WebM e OGG para
+  vídeo.
+
+O arquivo original fica no diretório da sessão ou do job, como as imagens, e é apagado com ele; os quadros
+também. O áudio intermediário (WAV) e o JSON do `whisper.cpp` são apagados logo após a transcrição.
+
+### Ferramentas
+
+Nada é instalado ou contratado automaticamente. Sem as ferramentas, voz, áudio e vídeo são recusados **antes do
+download**, com o que falta:
+
+```bash
+sudo apt install ffmpeg whisper.cpp
+mkdir -p ~/.dante/models
+curl -L -o ~/.dante/models/ggml-small.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
+```
+
+- `ffmpeg` e `ffprobe` leem o arquivo e extraem quadros e áudio; sozinhos, bastam para os quadros dos vídeos (a
+  trilha de áudio fica sem transcrição, e a mensagem diz isso);
+- `whisper-cli` (pacote `whisper.cpp`) transcreve com o modelo em `~/.dante/models/ggml-small.bin`, ou no caminho
+  absoluto de `DANTE_WHISPER_MODEL`. O modelo `small` é multilíngue e, na CPU, leva cerca de 25 s por minuto de
+  fala.
+
+As ferramentas rodam sem shell, com argumentos fixos, ambiente mínimo e acesso só a arquivos locais (AD-03);
+áudio e vídeo nunca ampliam as permissões do agente nem o modo da sessão.
+
+Durante a preparação de áudio/vídeo, `/steer` aceita só texto. Steer com imagens é recusado com orientação para
+reenviá-las como mensagem comum, que entra na fila; isso preserva os limites de imagens e bytes do turno.
 
 ## Imagem para LinkedIn (`/vitrine`)
 
@@ -1219,8 +1288,8 @@ Ainda não fazem parte do projeto:
 - botões inline para aprovação (os comandos textuais estão disponíveis);
 - perfil de acesso irrestrito (`full`);
 - pergunta do Codex ao usuário (input) fora do perfil `plan`, por limitação do `app-server`;
-- áudio e vídeo enviados ao bot não são processados (Epic #92); imagens geradas só são enviadas sozinhas nas sessões
-  do Codex; `/vitrine` monta imagens a partir de prints, mas não as gera nem publica.
+- áudio e vídeo chegam ao agente só como transcrição e quadros amostrados, nunca como o arquivo original; imagens
+  geradas só são enviadas sozinhas nas sessões do Codex; `/vitrine` monta imagens a partir de prints, sem publicação automática.
 
 Esses pontos são candidatos naturais para os próximos MVPs.
 

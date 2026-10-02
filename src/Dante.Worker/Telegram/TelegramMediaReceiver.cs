@@ -3,15 +3,18 @@ using Dante.Worker.Attachments;
 namespace Dante.Worker.Telegram;
 
 // Media messages become pending attachments of their sender (#94, AD-29). Images are downloaded with size and time
-// limits and checked by content; audio, video and other files are refused without downloading. The items of an album
+// limits and checked by content. Voice, audio, video and video notes (#96) are downloaded the same way when the local
+// tools that prepare them are installed, and refused before downloading otherwise; other files are refused too. The
+// items of an album
 // arrive as separate messages and get a single reply once no new item came for the album window. A caption is the
 // request (#95): once the images are pending, it is dispatched as the text that consumes them.
 // An album is one indivisible batch: its images become pending only when it completes, together with its caption, in
 // the context it arrived in. Anything its sender sends next completes it first, so it keeps its place before later
 // requests; when the window closes instead, completion runs through exclusive, serialized with the updates.
+// mediaUnavailable: null when audio and video are not composed at all; otherwise what is missing for a kind, or null.
 public sealed class TelegramMediaReceiver(ITelegramBotApi botApi, AttachmentStore store, PendingAttachments pending,
     ILogger logger, Func<long, string> contextOf, Func<Func<Task>, CancellationToken, Task> exclusive,
-    TimeSpan? albumWindow = null)
+    TimeSpan? albumWindow = null, Func<AttachmentKind, string?>? mediaUnavailable = null)
 {
     private const string PendingScope = "pending";
     private static readonly TimeSpan DownloadTimeout = TimeSpan.FromSeconds(60);
@@ -116,7 +119,9 @@ public sealed class TelegramMediaReceiver(ITelegramBotApi botApi, AttachmentStor
             var dropped = stored.Where(outcome => outcome.Attachment is not null).ToArray();
             foreach (var outcome in dropped) store.Delete(outcome.Attachment!);
             if (dropped.Length > 0)
-                await reply($"{Count(dropped.Length, "imagem descartada", "imagens descartadas")} com a legenda: o " +
+                await reply($"{(dropped.All(outcome => outcome.Attachment!.Kind == AttachmentKind.Image)
+                    ? Count(dropped.Length, "imagem descartada", "imagens descartadas")
+                    : Count(dropped.Length, "arquivo descartado", "arquivos descartados"))} com a legenda: o " +
                     "contexto da conversa mudou antes de o álbum terminar.", cancellationToken);
             return;
         }
@@ -149,8 +154,10 @@ public sealed class TelegramMediaReceiver(ITelegramBotApi botApi, AttachmentStor
     private async Task<Outcome> StoreAsync(TelegramMessage message, long owner, string contextKey, int queued,
         CancellationToken cancellationToken)
     {
-        if ((message.Voice ?? message.Audio ?? message.Video ?? message.VideoNote ?? message.Animation) is not null)
-            return Outcome.Rejected("ainda não processo áudio nem vídeo; envie imagens", message.Caption);
+        if (message.Animation is not null)
+            return Outcome.Rejected("animações não são processadas; envie como vídeo", message.Caption);
+        if (MediaOf(message) is { } media)
+            return await StoreMediaAsync(message, owner, contextKey, queued, media.Kind, media.File, cancellationToken);
 
         string fileId;
         string? name = null;
@@ -195,14 +202,60 @@ public sealed class TelegramMediaReceiver(ITelegramBotApi botApi, AttachmentStor
 
     private static string TooLarge => $"imagem acima de {AttachmentStore.MaxImageBytes / 1024 / 1024} MB";
 
+    // Voice and audio are audio, video and video notes are video; a document counts by its declared MIME type, which
+    // only picks the kind: the content still has to be a container of that kind.
+    private static (AttachmentKind Kind, TelegramFileInfo File)? MediaOf(TelegramMessage message)
+    {
+        if ((message.Voice ?? message.Audio) is { } audio) return (AttachmentKind.Audio, audio);
+        if ((message.Video ?? message.VideoNote) is { } video) return (AttachmentKind.Video, video);
+        var type = message.Document?.MimeType?.ToLowerInvariant();
+        return type?.StartsWith("audio/", StringComparison.Ordinal) == true ? (AttachmentKind.Audio, message.Document!)
+            : type?.StartsWith("video/", StringComparison.Ordinal) == true ? (AttachmentKind.Video, message.Document!)
+            : null;
+    }
+
+    private async Task<Outcome> StoreMediaAsync(TelegramMessage message, long owner, string contextKey, int queued,
+        AttachmentKind kind, TelegramFileInfo file, CancellationToken cancellationToken)
+    {
+        if (mediaUnavailable is null)
+            return Outcome.Rejected("ainda não processo áudio nem vídeo; envie imagens", message.Caption);
+        // Nothing is downloaded for a kind the installed tools cannot prepare: the reply says what to install.
+        if (mediaUnavailable(kind) is { } missing)
+            return Outcome.Rejected($"{(kind == AttachmentKind.Audio ? "áudio" : "vídeo")} indisponível: {missing}",
+                message.Caption);
+        var tooLarge = $"arquivo acima de {AttachmentStore.MaxMediaBytes / 1024 / 1024} MB";
+        if (file.FileSize > AttachmentStore.MaxMediaBytes) return Outcome.Rejected(tooLarge, message.Caption);
+        if (pending.IsFull(owner, contextKey, queued))
+            return Outcome.Rejected($"limite de {PendingAttachments.MaxItems} arquivos pendentes atingido", message.Caption);
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(DownloadTimeout);
+            var attachment = await store.SaveMediaAsync(owner, PendingScope, kind, DisplayName(file.FileName),
+                (destination, token) => botApi.DownloadFileAsync(file.FileId, destination, AttachmentStore.MaxMediaBytes,
+                    token), timeout.Token);
+            return new Outcome(attachment, null, null, message.Caption);
+        }
+        catch (TelegramFileTooLargeException) { return Outcome.Rejected(tooLarge, message.Caption); }
+        catch (AttachmentRejectedException exception) { return Outcome.Rejected(exception.Message, message.Caption); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception exception)
+        {
+            logger.LogWarning("Falha ao baixar anexo do Telegram ({ErrorType}).", exception.GetType().Name);
+            return Outcome.Rejected("não consegui baixar o arquivo do Telegram", message.Caption);
+        }
+    }
+
     private string Summary(IReadOnlyList<Outcome> outcomes, bool request)
     {
-        var accepted = outcomes.Count(outcome => outcome.Attachment is not null);
+        var received = outcomes.Select(outcome => outcome.Attachment).OfType<Attachment>().ToArray();
+        var accepted = received.Length;
         var lines = new List<string>();
+        PendingBatch? batch = null;
         if (accepted > 0 && !request)
         {
-            var batch = pending.Get(outcomes.First(outcome => outcome.Attachment is not null).Attachment!.OwnerId);
-            lines.Add($"Recebi {Count(accepted, "imagem", "imagens")}" +
+            batch = pending.Get(received[0].OwnerId);
+            lines.Add($"Recebi {Describe(received)}" +
                 (batch is null || batch.Items.Count == accepted ? "." :
                     $"; {batch.Items.Count} pendentes ({batch.Bytes / 1024} KB)."));
         }
@@ -213,13 +266,29 @@ public sealed class TelegramMediaReceiver(ITelegramBotApi botApi, AttachmentStor
             lines.Add($"{Count(replaced.Items.Count, "imagem pendente", "imagens pendentes")} de outro contexto " +
                 (replaced.Items.Count == 1 ? "foi descartada." : "foram descartadas."));
         if (accepted > 0 && !request)
-            lines.Add($"Envie o pedido em texto: as imagens vão junto com a próxima mensagem. Sem pedido, elas são " +
-                $"apagadas em {PendingAttachments.Expiry.TotalMinutes:0} min.");
+            lines.Add((batch?.Items ?? received).All(item => item.Kind == AttachmentKind.Image)
+                ? $"Envie o pedido em texto: as imagens vão junto com a próxima mensagem. Sem pedido, elas são " +
+                  $"apagadas em {PendingAttachments.Expiry.TotalMinutes:0} min."
+                : $"Envie o pedido em texto: os arquivos vão junto com a próxima mensagem, e áudio e vídeo são " +
+                  $"transcritos e amostrados localmente antes de chegar ao agente. Sem pedido, eles são apagados em " +
+                  $"{PendingAttachments.Expiry.TotalMinutes:0} min.");
         return string.Join('\n', lines);
     }
 
     private static string Count(int count, string singular, string plural) =>
         $"{count} {(count == 1 ? singular : plural)}";
+
+    // "1 imagem", "2 imagens e 1 áudio", "1 imagem, 1 áudio e 1 vídeo".
+    private static string Describe(IReadOnlyList<Attachment> items)
+    {
+        var parts = new[]
+        {
+            (AttachmentKind.Image, "imagem", "imagens"), (AttachmentKind.Audio, "áudio", "áudios"),
+            (AttachmentKind.Video, "vídeo", "vídeos")
+        }.Select(kind => (Count: items.Count(item => item.Kind == kind.Item1), kind.Item2, kind.Item3))
+            .Where(kind => kind.Count > 0).Select(kind => Count(kind.Count, kind.Item2, kind.Item3)).ToArray();
+        return parts.Length == 1 ? parts[0] : string.Join(", ", parts[..^1]) + " e " + parts[^1];
+    }
 
     // The sender's file name is only shown back, never used as a path: no directories, no control characters.
     private static string? DisplayName(string? name)
