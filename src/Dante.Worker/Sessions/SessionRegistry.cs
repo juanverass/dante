@@ -230,6 +230,10 @@ public sealed class SessionRegistry(
             await PublishAsync(entry, completed);
             return SessionSubmitResult.Reject(exception.Message, session.Id);
         }
+        catch (AgentSteerRejectedException exception) when (result.Outcome == SubmitOutcome.Steered)
+        {
+            return SessionSubmitResult.Reject(exception.Message, session.Id);
+        }
         catch (Exception exception) when (result.Outcome == SubmitOutcome.Steered)
         {
             if (exception is OperationCanceledException)

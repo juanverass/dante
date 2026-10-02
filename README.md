@@ -815,6 +815,9 @@ curl -L -o ~/.dante/models/ggml-small.bin \
 As ferramentas rodam sem shell, com argumentos fixos, ambiente mínimo e acesso só a arquivos locais (AD-03);
 áudio e vídeo nunca ampliam as permissões do agente nem o modo da sessão.
 
+Durante a preparação de áudio/vídeo, `/steer` aceita só texto. Steer com imagens é recusado com orientação para
+reenviá-las como mensagem comum, que entra na fila; isso preserva os limites de imagens e bytes do turno.
+
 ## Imagem para LinkedIn (`/vitrine`)
 
 `/vitrine <pedido>` monta uma imagem de divulgação a partir dos prints da conversa: fundo claro, título,
@@ -1286,7 +1289,7 @@ Ainda não fazem parte do projeto:
 - perfil de acesso irrestrito (`full`);
 - pergunta do Codex ao usuário (input) fora do perfil `plan`, por limitação do `app-server`;
 - áudio e vídeo chegam ao agente só como transcrição e quadros amostrados, nunca como o arquivo original; imagens
-  geradas só são enviadas sozinhas nas sessões do Codex.; `/vitrine` monta imagens a partir de prints, sem publicação automática.
+  geradas só são enviadas sozinhas nas sessões do Codex; `/vitrine` monta imagens a partir de prints, sem publicação automática.
 
 Esses pontos são candidatos naturais para os próximos MVPs.
 

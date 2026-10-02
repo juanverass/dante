@@ -18,6 +18,9 @@ public sealed class AgentModeRejectedException(string message) : Exception(messa
 
 public sealed class AgentModeUnconfirmedException(string message) : Exception(message);
 
+// A steer refused locally before changing the active turn.
+public sealed class AgentSteerRejectedException(string message) : Exception(message);
+
 public enum AgentModeSwitch { Unsupported, Idle, NextTurn }
 
 // Validated protocol capabilities (#61 and #108; docs/spikes/).

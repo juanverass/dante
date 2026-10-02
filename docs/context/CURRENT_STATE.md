@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-02, com approvals inline (#104), respostas por botões e Reply (#105), ajuda de comandos (#106), troca de modo da sessão ociosa (#108) áudio e vídeo aos agentes (#96) e imagem para LinkedIn (#98).
+Última revisão: 2026-10-02, com approvals inline (#104), respostas por botões e Reply (#105), ajuda de comandos (#106), troca de modo da sessão ociosa (#108), áudio e vídeo aos agentes (#96) e imagem para LinkedIn (#98).
 
 ## Marcos
 
@@ -18,7 +18,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | Agent Harness v1 (Epic #40) | concluído |
 | MVP 3 — Conversational Context (Epic #32) | concluído (#33–#38); fechamento da Epic por decisão humana |
 | Interactive Agent Sessions (Epic #60) | concluído |
-| Mídias no Telegram (Epic #92) | em andamento: spike #93, recebimento #94, imagens aos agentes #95, áudio e vídeo #96 artefatos #97 e imagem para LinkedIn #98 entregues; #99 pendente |
+| Mídias no Telegram (Epic #92) | em andamento: spike #93, recebimento #94, imagens aos agentes #95, áudio e vídeo #96, artefatos #97 e imagem para LinkedIn #98 entregues; #99 pendente |
 
 ## Funcionalidades disponíveis
 
@@ -68,7 +68,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   quadros por vídeo, enviados como imagens; o texto declara a proveniência e o que não foi analisado (além de 10 min,
   entre quadros, sem trilha de áudio). Na sessão, a preparação roda dentro do turno já aberto: a fila mantém a ordem,
   `/session stop` cancela as ferramentas e falha encerra só aquele turno; no one-shot, roda dentro do job, e `/cancel`
-  a interrompe. `/steer` não leva áudio nem vídeo; limite de 10 min de processamento por mensagem;
+  a interrompe. `/steer` não leva áudio nem vídeo e aceita só texto durante a preparação; limite de 10 min de processamento por mensagem;
 - arquivos produzidos (#97, AD-29): imagem gerada pela sessão do Codex (`imageGeneration.savedPath`) é enviada sozinha,
   e `/send <caminho>` envia um arquivo do diretório da sessão ativa; caminho real validado contra a raiz do canal
   (symlinks resolvidos), até 50 MB, sem nomes de credencial, e nunca de sessão com segredos vinculados; imagem vai

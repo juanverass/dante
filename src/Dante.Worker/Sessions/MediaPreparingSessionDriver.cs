@@ -52,6 +52,10 @@ public sealed class MediaPreparingSessionDriver(IAgentSessionDriver inner, Media
         {
             if (preparing is { } preparation)
             {
+                // Frame and byte budgets belong to the original input. Only text can be added while preparing.
+                if (input.Attachments.Count > 0)
+                    throw new AgentSteerRejectedException("Não envie anexos em /steer durante o processamento de áudio/vídeo. " +
+                        "Reenvie as imagens como mensagem comum para entrar na fila; /steer aceita só texto nesse momento.");
                 preparation.Steers.Add(input);
                 return Task.CompletedTask;
             }

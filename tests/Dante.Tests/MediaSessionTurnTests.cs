@@ -123,6 +123,51 @@ public sealed class MediaSessionTurnTests : IAsyncDisposable
         Assert.DoesNotContain(driver.Calls, call => call.StartsWith("steer:"));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AttachmentsInASteerCannotExpandThePreparingTurnsImageOrByteBudget(bool byteBudget)
+    {
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var driver = drivers.Created.Single();
+        tools.Gate = new TaskCompletionSource();
+        var images = Enumerable.Range(2, byteBudget ? 3 : 4).Select(index =>
+        {
+            var path = Path.Combine(directory, $"A{index:D6}.png");
+            File.WriteAllBytes(path, TestImages.Png(64, 40));
+            return new Attachment($"A{index:D6}", Owner, AttachmentKind.Image, "image/png", path,
+                byteBudget ? 6 * 1024 * 1024 : new FileInfo(path).Length, 64, 40, null);
+        }).ToArray();
+        var media = Voice();
+        if (!byteBudget)
+        {
+            tools.DefaultProbe = new MediaProbe(TimeSpan.FromSeconds(42), HasAudio: false, HasVideo: true);
+            media = media with { Kind = AttachmentKind.Video };
+        }
+        var turn = await registry.SubmitAsync(Owner, null, new AgentInput("resuma", [.. images, media]));
+        await Eventually(() => tools.Calls.Count > 0);
+        var extra = images[0] with { Id = "A000099", Bytes = byteBudget ? 3 * 1024 * 1024 : images[0].Bytes };
+
+        var refused = await registry.SubmitAsync(Owner, null, new AgentInput("inclua esta imagem", [extra]),
+            MessageDelivery.Steer);
+
+        Assert.Equal(SubmitOutcome.Rejected, refused.Outcome);
+        Assert.StartsWith("Não envie anexos em /steer durante o processamento", refused.Error);
+        Assert.Equal(turn.TurnId, registry.GetActive(Owner)!.ActiveTurnId);
+        Assert.Equal(AgentSessionState.Running, registry.GetActive(Owner)!.State);
+        Assert.Equal(SubmitOutcome.Steered,
+            (await registry.SubmitAsync(Owner, null, "foque no final", MessageDelivery.Steer)).Outcome);
+        tools.Gate.SetResult();
+        await Eventually(() => driver.Calls.Count == 2);
+        var prepared = Assert.Single(driver.TurnInputs);
+        Assert.Equal(byteBudget ? 3 : MediaPreparer.MaxImages, prepared.Attachments.Count);
+        Assert.True(prepared.Attachments.Sum(attachment => attachment.Bytes) <= 20 * 1024 * 1024);
+        Assert.DoesNotContain(prepared.Attachments, attachment => attachment.Id == extra.Id);
+        Assert.DoesNotContain("inclua esta imagem", prepared.Text);
+        Assert.EndsWith("Orientação enviada durante o processamento: foque no final", prepared.Text);
+        Assert.DoesNotContain(driver.Calls, call => call.StartsWith("steer:"));
+    }
+
     [Fact]
     public async Task AudioIsNeverASteerAndNeedsTheMediaWrapper()
     {

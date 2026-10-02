@@ -983,7 +983,8 @@ Implementação de áudio e vídeo (#96):
   CLI (`AgentDriverCapabilities.MediaInput`): o turno abre na hora, a preparação roda em segundo plano, e só então o
   input preparado inicia o turno upstream. Assim a fila FIFO (AD-16) mantém a ordem, `/status` mostra o turno, a
   interrupção cancela as ferramentas e encerra o turno como interrompido sem tocar a CLI, e falha encerra só aquele
-  turno com o motivo. Steer durante a preparação vai junto do turno preparado. No one-shot, a preparação roda dentro
+  turno com o motivo. Steer textual durante a preparação vai junto do turno preparado; anexos nesse momento são recusados
+  explicitamente, sem alterar o turno, para preservar o orçamento original de imagens e bytes. No one-shot, a preparação roda dentro
   do job (`/cancel` a interrompe; falha encerra o job com o motivo). Limite de 10 min por mensagem;
 - `/steer` não leva áudio nem vídeo (a preparação não cabe num turno já em andamento upstream): o registry recusa, e
   o Telegram recusa a orientação mantendo os pendentes para a próxima mensagem comum;
