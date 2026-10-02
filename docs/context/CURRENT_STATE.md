@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-02, com a apresentação de approvals por botões inline (#104).
+Última revisão: 2026-10-02, com a ajuda de comandos (#106) e a apresentação de approvals por botões inline (#104).
 
 ## Marcos
 
@@ -24,6 +24,9 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 
 - bot Telegram por long polling com allowlist de usuários;
 - `/ping`;
+- `/help` mostra comandos por categoria com descrições, exemplos fictícios e escopo das
+  preferências/sessões/jobs; `/help comando` ou `/help /comando` detalha a sintaxe sem consultar
+  dados locais; comandos desconhecidos orientam para `/help` (#106);
 - `/claude [@alias] <prompt>` e `/codex [@alias] <prompt>`;
 - General Mode em workspace isolado e Repository Mode por `@alias`;
 - `/repos` e `/repo add|show|remove`;
@@ -129,11 +132,11 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #104:
+Estado conhecido com #104 e #106:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    500 testes aprovados, 4 pulados (evidência com CLIs reais, opt-in)
+dotnet test Dante.sln    513 testes aprovados, 4 pulados (evidência com CLIs reais, opt-in)
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
