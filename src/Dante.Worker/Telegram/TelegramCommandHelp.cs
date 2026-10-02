@@ -66,6 +66,10 @@ internal static class TelegramCommandHelp
             "Use os IDs exibidos no pedido e responda na ordem das perguntas, separando respostas por |. " +
             "Uma só pergunta precisa de uma só resposta. Apenas o dono pode responder a uma solicitação ainda válida."),
 
+        new("/vitrine", "ENTREGA", "Monte uma imagem para LinkedIn com os prints da conversa; o agente escreve os textos.",
+            "/vitrine mostre o modo alto contraste do site\n/vitrine título mais curto e destaque no segundo print",
+            "Envie os prints antes ou use /vitrine como legenda. O D.A.N.T.E. cola os prints sem alterá-los, com título, " +
+            "subtítulo, etiquetas e rodapé, e envia o PNG; cada novo /vitrine na conversa gera outra versão. A sessão deve estar ociosa."),
         new("/send", "ENTREGA", "Envie um arquivo do diretório da sessão ativa; não executa o agente.",
             "/send resultado.png", "Caminho relativo à sessão; até 50 MB. Arquivos de credenciais e sessões com segredos vinculados são recusados."),
         new("/resend", "ENTREGA", "Reenvie partes pendentes de uma entrega recente; não executa o agente novamente.",

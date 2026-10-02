@@ -203,3 +203,6 @@ Duas rotas viáveis, com trade-offs diferentes:
 
 **Decisão humana necessária** antes da #98: aceitar a rota A como está (com aviso de que a imagem é
 redesenhada) ou autorizar a dependência da rota B. Nenhum serviço pago novo é usado em nenhuma das duas.
+
+Decisão (2026-10-02, #98): rota B com o `ffmpeg` (instalado para a #96), sem biblioteca nova; o agente escreve só os
+textos e o arranjo. Implementação em AD-29.

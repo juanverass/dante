@@ -865,7 +865,7 @@ da máquina é validação do usuário.
 
 ## AD-29 — Anexos como entrada neutra, imagem nativa por CLI e artefato só por canal explícito
 
-Status: vigente (#93, spike; recebimento na #94, encaminhamento aos agentes na #95, áudio e vídeo na #96, entrega de artefatos na #97); orienta #98 e #99. Evidências e contrato completo em
+Status: vigente (#93, spike; recebimento na #94, encaminhamento aos agentes na #95, áudio e vídeo na #96, entrega de artefatos na #97, imagem para LinkedIn na #98); orienta #99. Evidências e contrato completo em
 [`docs/spikes/multimodal`](../spikes/multimodal/README.md).
 
 Validado em Claude Code 2.1.287 e codex-cli 0.159.3 (sessão e one-shot):
@@ -1001,6 +1001,43 @@ Código: `Attachments/`, `Artifacts/ArtifactStore.cs`, `Sessions/AgentInput.cs`,
 `Telegram/TelegramPollingService.cs`; testes em `AttachmentStoreTests`, `PendingAttachmentsTests`, `TelegramBotApiTests`,
 `TelegramMediaIntakeTests`, `TelegramImageTurnTests`, `MediaPreparerTests`, `MediaSessionTurnTests`,
 `LiveMediaEvidenceTests`, `SessionRegistryTests` e nos testes de drivers e runners.
+
+Imagem para LinkedIn (#98):
+
+- decisão humana (2026-10-02, registrada na #98): rota B, montagem determinística local com `ffmpeg`, sem dependência
+  nova; a rota A (geração pelo Codex) não é usada, porque redesenha os prints e inventa o texto miúdo. Referência
+  visual do mantenedor: vitrine com fundo claro, título, subtítulo, prints em cartões arredondados com sombra,
+  etiqueta sob cada print (uma em destaque) e URL no rodapé;
+- o agente decide só texto e arranjo: `/vitrine <pedido>` abre um turno da conversa (agente, contexto e modo da sessão)
+  cujo texto pede um JSON (`ShowcaseSpec`: formato, título, subtítulo, cor, prints por id com etiqueta e destaque,
+  rodapé), validado campo a campo contra os prints da sessão. Nenhuma ferramenta nova é liberada ao agente (sem shell
+  nem MCP no General Mode);
+- novo canal explícito de artefato: só o turno aberto por `/vitrine` vira imagem. `TelegramShowcase` envolve o sink de
+  eventos, segura o texto desse turno (o JSON não vai ao chat), monta o PNG ao fim e o envia por
+  `TelegramDeliveryService.SendFile` com raiz no diretório de anexos da sessão (#97: cópia privada, `/resend`, recusa
+  em sessão com segredos). Os ids citados só podem ser imagens que o usuário enviou à sessão; resposta fora do formato
+  é mostrada com o motivo. Prosa nunca vira arquivo;
+- a sessão precisa estar ociosa e com fila vazia, para que o próximo turno seja comprovadamente o pedido; a
+  correlação é registrada antes do envio, sem corrida com os eventos;
+- montagem (`ShowcaseLayoutBuilder`, `ShowcaseRenderer`): canvas paisagem 1600×900, quadrado 1400×1400 ou retrato
+  1200×1500; prints em altura comum, nas linhas que os deixam maiores; textos quebrados por largura estimada. O
+  `ffmpeg` roda sem shell, com ambiente mínimo, `-protocol_whitelist file`, timeout de 60 s; textos do agente vão por
+  arquivo (`textfile`, `expansion=none`), nunca para a linha de comando, e caminhos do grafo com caracteres especiais
+  são recusados. Fonte Inter quando instalada (`fonts-inter`), senão DejaVu Sans;
+- cada pedido gera `vitrine-<turno>-v<n>.png` no diretório da sessão, apagado com ela; ajuste é um novo `/vitrine` na
+  mesma conversa.
+
+Por quê: colar os prints garante fidelidade ao que o site mostra; deixar ao agente só o JSON mantém o modelo no que
+ele faz bem (texto, escolha e ordem) sem ampliar suas permissões, e o canal ligado a um comando explícito do usuário
+preserva a regra de que artefato só sai por canal explícito.
+
+Código: `Attachments/`, `Artifacts/ArtifactStore.cs`, `Artifacts/ShowcaseSpec.cs`, `Artifacts/ShowcaseRenderer.cs`,
+`Telegram/TelegramShowcase.cs`, `Sessions/AgentInput.cs`, `Sessions/SessionRegistry.cs`, drivers e runners,
+`Telegram/TelegramDeliveryService.Artifacts.cs`,
+`Telegram/TelegramMediaReceiver.cs`, `Telegram/TelegramBotApi.cs`, `Telegram/TelegramPollingService.cs`; testes em
+`AttachmentStoreTests`, `PendingAttachmentsTests`, `TelegramBotApiTests`, `TelegramMediaIntakeTests`,
+`TelegramImageTurnTests`, `ShowcaseTests`, `TelegramShowcaseTests`, `LiveShowcaseEvidenceTests`, `SessionRegistryTests`
+e nos testes de drivers e runners.
 
 ## AD-30 — Input humano por mensagem correlacionada, botões para opções e Reply explícito
 

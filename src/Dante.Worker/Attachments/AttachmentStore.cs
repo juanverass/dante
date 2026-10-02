@@ -90,6 +90,27 @@ public sealed class AttachmentStore
         }
     }
 
+    // The directory of a session or job, created with owner-only permissions; files made for it (#98) live there.
+    public string ScopePath(long ownerId, string scope) => CreateDirectory(ownerId, scope);
+
+    // The images the user sent to a session or job (A000001.png…), in the order they arrived, checked by content again.
+    // Files the D.A.N.T.E. made in the same directory are not listed.
+    public IReadOnlyList<Attachment> Images(long ownerId, string scope)
+    {
+        var directory = ScopeDirectory(ownerId, scope);
+        if (!Directory.Exists(directory)) return [];
+        return Directory.EnumerateFiles(directory)
+            .Where(path => System.Text.RegularExpressions.Regex.IsMatch(System.IO.Path.GetFileName(path),
+                @"^A\d{6}\.(png|jpg|gif|webp)$"))
+            .Order(StringComparer.Ordinal)
+            .Select(path => (Path: path, Image: ImageInspector.Inspect(path)))
+            .Where(item => item.Image is not null)
+            .Select(item => new Attachment(System.IO.Path.GetFileNameWithoutExtension(item.Path), ownerId,
+                AttachmentKind.Image, item.Image!.MediaType, item.Path, new FileInfo(item.Path).Length,
+                item.Image.Width, item.Image.Height, null))
+            .ToArray();
+    }
+
     // Only files under this store are ever deleted, whatever path an attachment carries.
     public void Delete(Attachment attachment)
     {

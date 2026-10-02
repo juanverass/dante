@@ -815,6 +815,42 @@ curl -L -o ~/.dante/models/ggml-small.bin \
 As ferramentas rodam sem shell, com argumentos fixos, ambiente mínimo e acesso só a arquivos locais (AD-03);
 áudio e vídeo nunca ampliam as permissões do agente nem o modo da sessão.
 
+## Imagem para LinkedIn (`/vitrine`)
+
+`/vitrine <pedido>` monta uma imagem de divulgação a partir dos prints da conversa: fundo claro, título,
+subtítulo, os prints em cartões com cantos arredondados e sombra, uma etiqueta sob cada print (uma pode ficar em
+destaque) e um rodapé opcional, como o endereço do site. O PNG chega pelo Telegram, como foto e como arquivo
+original, pronto para postar manualmente; nada é publicado no LinkedIn.
+
+```text
+(envie os prints, como foto ou arquivo)
+/vitrine mostre que o site tem modo de alto contraste; destaque esse modo
+```
+
+ou use `/vitrine …` como legenda dos prints. Para ajustar, peça outra vez na mesma conversa:
+
+```text
+/vitrine título mais curto, formato quadrado e destaque no segundo print
+```
+
+Cada pedido vira uma nova versão (`vitrine-T000004-v2.png`), correlacionada ao turno que a gerou.
+
+Como funciona: o agente da conversa (Claude ou Codex, no contexto e no modo dela) vê os prints e responde só os
+textos e o arranjo, num JSON que o D.A.N.T.E. valida (formato, título, subtítulo, cor de destaque, etiquetas,
+destaque e rodapé). A imagem é montada **localmente pelo `ffmpeg`**: os prints são colados sem alteração, só
+redimensionados, e nenhum texto deles é redesenhado. Se o agente não responder no formato (por exemplo, fizer uma
+pergunta), a resposta aparece com o motivo, e um novo `/vitrine` corrige.
+
+- formatos: paisagem 1600×900 (padrão), quadrado 1400×1400 e retrato 1200×1500; até 6 prints; os prints ficam
+  lado a lado ou empilhados, o que os deixar maiores;
+- a sessão precisa estar ociosa: durante uma resposta, o pedido é recusado e os prints pendentes continuam
+  guardados;
+- precisa do `ffmpeg` (`sudo apt install ffmpeg`); a fonte é a Inter quando instalada (`sudo apt install
+  fonts-inter`), senão a DejaVu Sans. Sem o `ffmpeg`, `/vitrine` responde o que instalar, sem chamar o agente;
+- sessões com segredos vinculados não enviam a imagem (AD-10); a imagem fica no diretório da sessão e sai com ela.
+
+A geração de imagem do Codex não é usada aqui: ela redesenha os prints e inventa o texto miúdo.
+
 ## Arquivos produzidos pelos agentes
 
 Um arquivo só chega ao Telegram por um canal explícito; um caminho citado na resposta do agente nunca vira envio.
@@ -1250,7 +1286,7 @@ Ainda não fazem parte do projeto:
 - perfil de acesso irrestrito (`full`);
 - pergunta do Codex ao usuário (input) fora do perfil `plan`, por limitação do `app-server`;
 - áudio e vídeo chegam ao agente só como transcrição e quadros amostrados, nunca como o arquivo original; imagens
-  geradas só são enviadas sozinhas nas sessões do Codex.
+  geradas só são enviadas sozinhas nas sessões do Codex.; `/vitrine` monta imagens a partir de prints, sem publicação automática.
 
 Esses pontos são candidatos naturais para os próximos MVPs.
 
