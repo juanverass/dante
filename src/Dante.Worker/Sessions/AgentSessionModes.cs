@@ -20,7 +20,7 @@ public static class AgentSessionModes
     public static string Description(AgentPermissionProfile mode) => mode switch
     {
         AgentPermissionProfile.Manual => "pede sua aprovação antes de ações fora dos limites da CLI",
-        AgentPermissionProfile.Auto => "a CLI decide sozinha dentro do sandbox, com menos interrupções",
+        AgentPermissionProfile.Auto => "a CLI avalia permissões automaticamente, com menos interrupções",
         AgentPermissionProfile.Plan => "analisa e planeja sem alterar arquivos",
         _ => string.Empty
     };

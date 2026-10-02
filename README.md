@@ -575,7 +575,7 @@ O modo define quanta autonomia o agente tem numa sessão:
 | Modo | Nome | Comportamento |
 | --- | --- | --- |
 | `manual` (ou `approval`) | aprovação | pede sua aprovação antes de ações fora dos limites da CLI (padrão recomendado) |
-| `auto` | automático | a CLI decide sozinha dentro do sandbox, com menos interrupções |
+| `auto` | automático | a CLI avalia permissões automaticamente, com menos interrupções |
 | `plan` | planejamento | analisa e planeja sem alterar arquivos |
 
 ```text
@@ -596,8 +596,13 @@ diferentes:
 | Modo | Claude Code | Codex |
 | --- | --- | --- |
 | `manual` | `--permission-mode manual` | aprovação `on-request`, sandbox `workspace-write` |
-| `auto` | `--permission-mode auto` | aprovação `never`, sandbox `workspace-write` |
+| `auto` | `--permission-mode auto` | aprovação `on-request`, revisor `auto_review`, sandbox `workspace-write` |
 | `plan` | `--permission-mode plan` | aprovação `on-request`, sandbox `read-only` e modo de colaboração `plan` |
+
+No Codex, `auto` encaminha pedidos de acesso além do sandbox à revisão automática da CLI,
+como o one-shot `--approve-for-me`. O revisor pode aprovar ou negar conforme o risco;
+não equivale a acesso irrestrito. Requer uma CLI que confirme `approvalsReviewer=auto_review`.
+A mudança vale para sessões novas; sessões abertas mantêm a configuração original.
 
 No Codex, perguntas do agente ao usuário (input) só aparecem no modo `plan`. Nenhum modo
 concede acesso irrestrito (`full`), e o D.A.N.T.E. nunca escolhe um modo por inferência.
