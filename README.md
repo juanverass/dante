@@ -494,6 +494,14 @@ Agente padrão alterado para Codex.
 `/agent` não inicia job. `/claude` e `/codex` valem somente para a execução em que são
 usados e não alteram o agente padrão.
 
+Com uma sessão ativa, `/agent` e `/use` mostram também para onde vão as mensagens comuns,
+porque a sessão mantém o agente e o contexto com que começou:
+
+```text
+Agente padrão: Codex
+Mensagens comuns vão para a sessão ativa S000001 (Claude, General) até /session close.
+```
+
 O agente padrão vale para conversas e execuções novas. Uma sessão já aberta mantém o seu
 agente, e a resposta avisa:
 
@@ -620,6 +628,59 @@ contexto. `/repo remove` limpa o repositório ativo de quem o usava;
 se um repositório ativo deixar de existir por outro motivo, o D.A.N.T.E. recusa a
 execução e pede `/use @alias` ou `/use general`, em vez de cair para General Mode.
 
+## Conversa contínua e troca pontual de agente
+
+Agente padrão e repositório ativo definem a conversa; `/claude`, `/codex` e um `@alias`
+explícito são overrides de **uma execução** e não mudam nenhum dos dois.
+
+1. Escolha o agente padrão:
+
+   ```text
+   /agent set claude
+   ```
+
+2. Escolha o repositório ativo:
+
+   ```text
+   /use @fitness_backend
+   ```
+
+3. Converse normalmente; a mensagem abre uma sessão do Claude em `@fitness_backend`:
+
+   ```text
+   Implemente a issue 500.
+   ```
+
+4. Peça uma revisão pontual ao Codex, como execução avulsa:
+
+   ```text
+   /codex revise o PR
+   ```
+
+   ```text
+   Codex iniciado. Job ID: J000001 (@fitness_backend).
+   Override só desta execução: o agente padrão continua Claude.
+   ```
+
+5. A próxima mensagem volta para a conversa com o Claude, na mesma sessão:
+
+   ```text
+   Agora corrija o que o Codex apontou.
+   ```
+
+Um `@alias` diferente do ativo avisa da mesma forma (`o contexto ativo continua
+@fitness_backend`). Para conferir a qualquer momento:
+
+```text
+/agent     agente padrão e, havendo, a sessão que recebe as mensagens comuns
+/use       contexto ativo e, havendo, a sessão que recebe as mensagens comuns
+/status    agente e contexto de cada job e sessão
+```
+
+Um alias explícito desconhecido é recusado com `Repositório @alias não cadastrado`, e um
+repositório ativo que deixou de existir é recusado com a instrução `/use @alias` ou
+`/use general`; em nenhum dos casos o agente é iniciado.
+
 ---
 
 ## Imagens e prints
@@ -702,10 +763,10 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | Comando | Descrição |
 | --- | --- |
 | `/ping` | Verifica se o bot está respondendo |
-| `/claude <prompt>` | Executa Claude em General Mode |
-| `/codex <prompt>` | Executa Codex em General Mode |
-| `/claude @alias <prompt>` | Executa Claude em um repositório |
-| `/codex @alias <prompt>` | Executa Codex em um repositório |
+| `/claude <prompt>` | Executa Claude uma vez (one-shot) no contexto ativo, sem alterar o agente padrão |
+| `/codex <prompt>` | Executa Codex uma vez (one-shot) no contexto ativo, sem alterar o agente padrão |
+| `/claude @alias <prompt>` | Executa Claude uma vez em um repositório, sem alterar o contexto ativo |
+| `/codex @alias <prompt>` | Executa Codex uma vez em um repositório, sem alterar o contexto ativo |
 | `/repos` | Lista repositórios cadastrados |
 | `/repo add @alias <path> [owner/repo]` | Cadastra um repositório |
 | `/repo show @alias` | Exibe um repositório |
@@ -714,10 +775,10 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/repo env bind @alias KEY HOST_ENV` | Vincula uma variável a uma variável do host |
 | `/repo env list @alias` | Lista nomes e origens das variáveis |
 | `/repo env remove @alias KEY` | Remove uma configuração de ambiente |
-| `/agent` | Exibe o agente padrão |
+| `/agent` | Exibe o agente padrão e a sessão ativa que recebe as mensagens comuns |
 | `/agent set claude\|codex` | Altera o agente padrão |
 | `<mensagem>` | Conversa: novo turno da sessão ativa; sem sessão ativa, abre uma com o agente padrão no contexto ativo |
-| `/use` | Exibe o contexto ativo do usuário |
+| `/use` | Exibe o contexto ativo do usuário e a sessão ativa que recebe as mensagens comuns |
 | `/use @alias` | Define o repositório ativo |
 | `/use general` | Volta ao General Mode |
 | `/status` | Exibe jobs, sessões próprias e estado da entrega recente ao Telegram |

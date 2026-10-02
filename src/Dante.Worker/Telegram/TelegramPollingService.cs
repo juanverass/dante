@@ -340,8 +340,8 @@ public sealed class TelegramPollingService(
         try
         {
             await SendReplyAsync(message.Chat.Id,
-                $"{agent} iniciado. Job ID: {job.Id} ({context.Label}){ModelSuffix(modelSelection)}.",
-                cancellationToken);
+                $"{agent} iniciado. Job ID: {job.Id} ({context.Label}){ModelSuffix(modelSelection)}." +
+                OverrideNotice(message.From.Id, resolution), cancellationToken);
         }
         catch
         {
@@ -949,7 +949,7 @@ public sealed class TelegramPollingService(
         const string usage = "Uso: /agent | /agent set claude|codex";
         if (settings is null) return "Configurações do assistente indisponíveis.";
         var parts = prompt.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0) return $"Agente padrão: {settings.Current.DefaultAgent}";
+        if (parts.Length == 0) return $"Agente padrão: {settings.Current.DefaultAgent}" + ActiveSessionNotice(userId);
         if (parts.Length != 2 || !parts[0].Equals("set", StringComparison.OrdinalIgnoreCase)) return usage;
         if (!AssistantSettingsStore.TryParseAgent(parts[1], out var agent))
             return $"Agente desconhecido: {parts[1]}. Use claude ou codex.";
@@ -975,10 +975,10 @@ public sealed class TelegramPollingService(
             if (parts.Length == 0)
             {
                 var active = settings.GetActiveRepository(userId);
-                return active is null ? "Contexto ativo: General" :
+                return (active is null ? "Contexto ativo: General" :
                     repositories?.Get(active) is null
                         ? $"Contexto ativo: {active} (não cadastrado; use /use @alias ou /use general)"
-                        : $"Contexto ativo: {active}";
+                        : $"Contexto ativo: {active}") + ActiveSessionNotice(userId);
             }
             if (parts.Length != 1) return usage;
             if (parts[0].Equals("general", StringComparison.OrdinalIgnoreCase))
@@ -1058,6 +1058,27 @@ public sealed class TelegramPollingService(
             AgentSessionState.Closed) } active && differs(active)
             ? $"\nA sessão ativa {active.Id} ({active.Agent}, {active.Context.Label}) continua; envie /session start para {purpose}."
             : string.Empty;
+
+    // Plain messages go to the live active session whatever the defaults say (AD-23), so the queries tell it (#38).
+    private string ActiveSessionNotice(long userId) =>
+        sessions?.GetActive(userId) is { State: not (AgentSessionState.Failed or AgentSessionState.Closing or
+            AgentSessionState.Closed) } active
+            ? $"\nMensagens comuns vão para a sessão ativa {active.Id} ({active.Agent}, {active.Context.Label}) até /session close."
+            : string.Empty;
+
+    // A one-shot /claude, /codex or @alias that differs from the user's defaults applies to that execution only (AD-27).
+    private string OverrideNotice(long userId, AgentContextResolution resolution)
+    {
+        var kept = new List<string>();
+        var defaultAgent = (settings?.Current ?? AssistantSettings.Default).DefaultAgent;
+        if (resolution.AgentSource == AgentSource.Explicit && resolution.Agent != defaultAgent)
+            kept.Add($"o agente padrão continua {defaultAgent}");
+        var activeContext = settings?.GetActiveRepository(userId) ?? "General";
+        if (resolution.ContextSource == ContextSource.Explicit &&
+            !string.Equals(resolution.Context!.Label, activeContext, StringComparison.OrdinalIgnoreCase))
+            kept.Add($"o contexto ativo continua {activeContext}");
+        return kept.Count == 0 ? string.Empty : $"\nOverride só desta execução: {string.Join(" e ", kept)}.";
+    }
 
     private void ClearActiveRepository(string alias)
     {

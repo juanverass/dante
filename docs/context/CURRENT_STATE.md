@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-02, com o recebimento de mídias do Telegram (#94).
+Última revisão: 2026-10-02, com a UX de contexto e jobs (#38).
 
 ## Marcos
 
@@ -16,7 +16,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | MVP 1 — Telegram → D.A.N.T.E. → Claude/Codex → Telegram (Epic #1) | concluído |
 | MVP 2 — Context-aware orchestration (Epic #18) | concluído |
 | Agent Harness v1 (Epic #40) | concluído |
-| MVP 3 — Conversational Context (Epic #32) | retomado: #33–#37 entregues; falta UX (#38) |
+| MVP 3 — Conversational Context (Epic #32) | concluído (#33–#38); fechamento da Epic por decisão humana |
 | Interactive Agent Sessions (Epic #60) | concluído |
 | Mídias no Telegram (Epic #92) | em andamento: spike #93 e recebimento #94 entregues; #95–#99 pendentes |
 
@@ -31,7 +31,8 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 - `/status` com contexto de cada job e `/cancel <jobId>`;
 - configurações do assistente em `~/.dante/settings.json` (agente padrão, Claude quando
   não configurado; repositório ativo, modo padrão, modelos e esforço por usuário);
-- `/agent` e `/agent set claude|codex` para consultar e alterar o agente padrão;
+- `/agent` e `/agent set claude|codex` para consultar e alterar o agente padrão; com sessão ativa, `/agent` e
+  `/use` mostram também a sessão (agente e contexto) que recebe as mensagens comuns (#38);
 - `/model` e `/model claude|codex [<modelo>|default]`: preferência persistida por usuário
   e agente, validada no catálogo das CLIs (cache de dez minutos), usada nas novas sessões
   e nos one-shot explícitos; `/session start ... model=<modelo>` permite override local
@@ -57,7 +58,8 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 - resolvedor único de agente e contexto (AD-27): `/claude`/`/codex` → agente padrão;
   `@alias` explícito → repositório ativo → General. Overrides valem para uma execução e
   não alteram preferências; alias desconhecido, ativo inválido e prompt vazio recusam sem
-  iniciar agente.
+  iniciar agente. O início de um one-shot cujo agente ou `@alias` difere do padrão avisa que o override vale só
+  para aquela execução (#38).
 - `/session start|list|select|stop|close` e `/steer`, com fila durante o turno e eventos
   agrupados no Telegram em linhas inteiras; `/agent set` e `/use` avisam quando a sessão ativa
   continua com outro agente ou contexto;
@@ -104,8 +106,6 @@ Detalhes de uso: [README](../../README.md).
 
 ## Em andamento
 
-- **Epic #32 — MVP 3 (Conversational Context)**: retomada após o fechamento da Epic #60;
-  #33–#37 entregues, falta a UX de contexto e jobs (#38).
 - **Epic #92 — Mídias no Telegram**: spike #93 (AD-29) e recebimento de imagens (#94) entregues; áudio/vídeo (#96) e a imagem para LinkedIn (#98) dependem de decisão humana sobre ferramentas.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
@@ -113,11 +113,11 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #94:
+Estado conhecido com #38:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    445 testes aprovados
+dotnet test Dante.sln    446 testes aprovados
 ```
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
@@ -130,5 +130,4 @@ completa durante a #94 e passa isolado e nas execuções seguintes.
 
 ## Próximos marcos
 
-1. conclusão do MVP 3 (#32): UX de contexto e jobs (#38);
-2. mídias no Telegram (#92): imagens para os agentes (#95), artefatos (#97).
+1. mídias no Telegram (#92): imagens para os agentes (#95), artefatos (#97).
