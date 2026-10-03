@@ -106,6 +106,7 @@ public sealed class SessionRegistry(
         try
         {
             var snapshot = Snapshot(entry);
+            if (snapshot.Compacting) return SessionResult.Reject(CompactingRefusal(snapshot.Id));
             if (snapshot.State != AgentSessionState.Idle || snapshot.QueuedCount != 0 || snapshot.PendingRequestIds.Count != 0)
                 return SessionResult.Reject("Não é possível trocar o modo enquanto há um turno ou solicitação pendente. " +
                     "Aguarde a conclusão ou use /session stop para interromper explicitamente.");
@@ -162,6 +163,7 @@ public sealed class SessionRegistry(
         try
         {
             var snapshot = Snapshot(entry);
+            if (snapshot.Compacting) return SessionResult.Reject(CompactingRefusal(snapshot.Id));
             if (snapshot.State != AgentSessionState.Idle || snapshot.QueuedCount != 0 ||
                 snapshot.PendingRequestIds.Count != 0 || snapshot.PendingProfile is not null)
             {
@@ -176,7 +178,11 @@ public sealed class SessionRegistry(
             {
                 var cleared = await entry.Driver.ClearContextAsync(cancellationToken);
                 entry.Session.ReplaceUpstream(cleared.UpstreamSessionId);
-                lock (gate) entry.LastTurnOutcome = null;
+                lock (gate)
+                {
+                    entry.LastTurnOutcome = null;
+                    entry.TurnsSinceContextReset = 0;
+                }
             }
             catch (AgentContextUnchangedException exception)
             {
@@ -200,6 +206,92 @@ public sealed class SessionRegistry(
         finally { entry.Upstream.Release(); }
     }
 
+    // /compact (#121, AD-32): accepted only for the owner's idle session that has a turn since it started or was
+    // cleared. The compaction then runs in the background, so a long one never holds the session lock: meanwhile messages,
+    // mode changes and clears are refused, /session stop cancels it upstream and close ends it. Completion says how it
+    // ended: confirmed, refused with the history intact, or uncertain (the session is failed).
+    public async Task<SessionCompaction> CompactContextAsync(long userId, string? sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        var entry = Find(userId, sessionId, out var error);
+        if (entry is null) return new SessionCompaction(SessionResult.Reject(error!));
+        if (!entry.Driver.Capabilities.CompactContext)
+            return new SessionCompaction(SessionResult.Reject(
+                $"O {entry.Session.Agent} não oferece compactação da conversa nesta sessão."));
+        CompactionRun run;
+        await entry.Upstream.WaitAsync(cancellationToken);
+        try
+        {
+            var snapshot = Snapshot(entry);
+            if (snapshot.Compacting) return new SessionCompaction(SessionResult.Reject(CompactingRefusal(snapshot.Id)));
+            if (snapshot.State != AgentSessionState.Idle || snapshot.QueuedCount != 0 ||
+                snapshot.PendingRequestIds.Count != 0 || snapshot.PendingProfile is not null)
+            {
+                return new SessionCompaction(SessionResult.Reject(snapshot.PendingProfile is not null
+                    ? "Há uma troca de modo aguardando o próximo turno do Codex; envie uma mensagem para aplicá-la e " +
+                      "então use /compact."
+                    : "Só é possível compactar a conversa com a sessão ociosa. Aguarde o turno, a fila e as solicitações " +
+                      "pendentes terminarem, ou use /session stop para interromper explicitamente."));
+            }
+
+            lock (gate)
+            {
+                // Nothing to summarize: the Codex would still "compact" an empty thread (#119), so it is not asked.
+                if (entry.TurnsSinceContextReset == 0)
+                    return new SessionCompaction(SessionResult.Reject(
+                        "Nada a compactar: a conversa desta sessão ainda não tem nenhuma resposta do agente."));
+                run = new CompactionRun(CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token));
+                entry.Compaction = run;
+            }
+        }
+        finally { entry.Upstream.Release(); }
+
+        var completion = Task.Run(() => RunCompactionAsync(entry, run));
+        return new SessionCompaction(new SessionResult(true, Snapshot(entry)), completion);
+    }
+
+    private async Task<SessionCompactionResult> RunCompactionAsync(Entry entry, CompactionRun run)
+    {
+        SessionCompactionResult outcome;
+        try
+        {
+            var compacted = await entry.Driver.CompactContextAsync(run.Cancel.Token);
+            outcome = new SessionCompactionResult(true, PreTokens: compacted.PreTokens, PostTokens: compacted.PostTokens);
+        }
+        catch (AgentContextUnchangedException exception)
+        {
+            outcome = new SessionCompactionResult(false, Error: exception.Message);
+        }
+        catch (Exception) when (IsEnded(entry.Session.State))
+        {
+            outcome = new SessionCompactionResult(false, Error: "A sessão foi encerrada durante a compactação.");
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning("Compactação não confirmada na sessão {SessionId} ({ErrorType}).", entry.Session.Id,
+                exception.GetType().Name);
+            await FailAsync(entry, "O agente não confirmou a compactação; a sessão foi encerrada para não continuar " +
+                "num contexto incerto. Inicie outra com /session start.");
+            await entry.DisposeDriverAsync();
+            outcome = new SessionCompactionResult(false, Error: entry.Session.Error);
+        }
+        finally
+        {
+            lock (gate)
+            {
+                if (entry.Compaction == run) entry.Compaction = null;
+            }
+
+            run.Cancel.Dispose();
+        }
+
+        return outcome with { Session = Snapshot(entry) };
+    }
+
+    private static string CompactingRefusal(string sessionId) =>
+        $"A conversa da sessão {sessionId} está sendo compactada. Aguarde o aviso de conclusão ou use /session stop " +
+        "para cancelar a compactação.";
+
     // sessionId null routes to the user's active session.
     public async Task<SessionSubmitResult> SubmitAsync(long userId, string? sessionId, AgentInput input,
         MessageDelivery delivery = MessageDelivery.Queue, CancellationToken cancellationToken = default)
@@ -210,6 +302,12 @@ public sealed class SessionRegistry(
         if (entry is null)
         {
             return SessionSubmitResult.Reject(error!, sessionId);
+        }
+
+        // A compaction in progress owns the upstream conversation (#121): nothing is sent or queued meanwhile.
+        if (entry.Compaction is not null)
+        {
+            return SessionSubmitResult.Reject(CompactingRefusal(entry.Session.Id), entry.Session.Id);
         }
 
         // Refused before the state machine sees it (#128): no turn opens, no turn is interrupted, nothing is queued.
@@ -328,6 +426,7 @@ public sealed class SessionRegistry(
     }
 
     // Stop turn (AD-16): pending requests expire and the queue is discarded; the session goes back to Idle.
+    // During a compaction (#121) it cancels the compaction instead; the driver interrupts it upstream.
     public async Task<SessionResult> InterruptAsync(long userId, string? sessionId,
         CancellationToken cancellationToken = default)
     {
@@ -335,6 +434,12 @@ public sealed class SessionRegistry(
         if (entry is null)
         {
             return SessionResult.Reject(error!);
+        }
+
+        if (CancelCompaction(entry))
+        {
+            // What was stopped, even if the cancelled compaction already ended while this answer is built.
+            return new SessionResult(true, Snapshot(entry) with { Compacting = true });
         }
 
         await entry.Upstream.WaitAsync(cancellationToken);
@@ -346,6 +451,16 @@ public sealed class SessionRegistry(
         {
             entry.Upstream.Release();
         }
+    }
+
+    private bool CancelCompaction(Entry entry)
+    {
+        CompactionRun? run;
+        lock (gate) run = entry.Compaction;
+        if (run is null) return false;
+        try { run.Cancel.Cancel(); }
+        catch (ObjectDisposedException) { return false; }
+        return true;
     }
 
     private async Task<SessionResult> InterruptLockedAsync(Entry entry, CancellationToken cancellationToken)
@@ -383,6 +498,8 @@ public sealed class SessionRegistry(
         {
             return SessionResult.Reject(error!);
         }
+
+        CancelCompaction(entry);
 
         await entry.Upstream.WaitAsync(cancellationToken);
         try
@@ -663,7 +780,11 @@ public sealed class SessionRegistry(
 
                 if (stamped is TurnCompletedEvent completed)
                 {
-                    lock (gate) entry.LastTurnOutcome = completed.Outcome;
+                    lock (gate)
+                    {
+                        entry.LastTurnOutcome = completed.Outcome;
+                        entry.TurnsSinceContextReset++;
+                    }
                 }
                 if (stamped is ApprovalRequestedEvent { RequestId: var approvalId })
                     _ = ExpireRequestAsync(entry, approvalId, true);
@@ -922,7 +1043,8 @@ public sealed class SessionRegistry(
                 entry.CreatedAtUtc, entry.EndedAtUtc, session.Error, entry.LastTurnOutcome, entry.ModelSelection,
                 entry.ReportedModel)
             {
-                PendingProfile = entry.PendingProfile, UpstreamSessionId = session.UpstreamSessionId
+                PendingProfile = entry.PendingProfile, UpstreamSessionId = session.UpstreamSessionId,
+                Compacting = entry.Compaction is not null
             };
         }
     }
@@ -945,6 +1067,9 @@ public sealed class SessionRegistry(
         public DateTimeOffset? EndedAtUtc { get; set; }
         public Task? Pump { get; set; }
         public AgentTurnOutcome? LastTurnOutcome { get; set; }
+        // Turns that ended since the session started or was cleared: without any, there is nothing to compact (#121).
+        public int TurnsSinceContextReset { get; set; }
+        public CompactionRun? Compaction { get; set; }
 
         // Serializes the operations that consume or cancel upstream requests (answer, expiration, interrupt,
         // steer by interrupt, close): each changes the session state and reaches the driver as one step.
@@ -967,4 +1092,6 @@ public sealed class SessionRegistry(
             }
         }
     }
+
+    private sealed record CompactionRun(CancellationTokenSource Cancel);
 }

@@ -11,8 +11,9 @@ using Microsoft.Extensions.Options;
 
 namespace Dante.Tests;
 
-// /clear (#120, AD-32) through the Telegram polling loop: only the owner's active, idle session; never a prompt; the
-// same session and settings with a new upstream conversation, and the pending attachments of the old one dropped.
+// /clear (#120) and /compact (#121) through the Telegram polling loop (AD-32): only the owner's active, idle session;
+// never a prompt. Clear keeps the session and settings with a new upstream conversation and drops the pending
+// attachments of the old one; compact is acknowledged at once and its outcome arrives when the agent confirms it.
 public sealed class TelegramContextCommandTests : IAsyncDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "dante-context-" + Guid.NewGuid().ToString("N"));
@@ -110,6 +111,99 @@ public sealed class TelegramContextCommandTests : IAsyncDisposable
         do refused = await api.NextMessageAsync();
         while (!refused.StartsWith("A sessão S000001 foi encerrada", StringComparison.Ordinal));
         Assert.DoesNotContain(drivers.Created.Single().Calls, call => call.StartsWith("turn:"));
+    }
+
+    [Fact]
+    public async Task CompactIsAcknowledgedAndItsOutcomeReportsTheAgentsTokenCounts()
+    {
+        await StartAsync();
+        var driver = await AnsweredSessionAsync("claude");
+
+        api.Enqueue(Text("/compact"));
+
+        Assert.Equal("Compactando a conversa da sessão S000001 com o Claude… Aviso quando terminar. Até lá, mensagens " +
+                     "para esta sessão são recusadas; /session stop cancela a compactação.", await api.NextMessageAsync());
+        Assert.Equal("Conversa da sessão S000001 compactada: o Claude segue a mesma conversa a partir de um resumo do " +
+                     "que foi feito e das instruções; agente, contexto, modo, modelo e esforço não mudaram.\n" +
+                     "Contexto informado pelo Claude: 5.201 → 592 tokens.\n" +
+                     "Compactar não apaga a conversa (para isso, /clear) nem renova as cotas de uso.",
+            await api.NextMessageAsync());
+        Assert.Contains("compact", driver.Calls);
+    }
+
+    [Fact]
+    public async Task CompactWithoutMetricsSaysSoInsteadOfInventingThem()
+    {
+        drivers.Configure = driver => driver.Compacted = new AgentContextCompacted();
+        await StartAsync();
+        await AnsweredSessionAsync("codex");
+
+        api.Enqueue(Text("/compact"));
+
+        await api.NextMessageAsync();
+        var done = await api.NextMessageAsync();
+        Assert.Contains("O Codex não informa o tamanho do contexto antes e depois da compactação.", done);
+        Assert.DoesNotContain("tokens", done);
+    }
+
+    [Fact]
+    public async Task MessagesWaitForTheCompactionAndStopCancelsIt()
+    {
+        api.Files["a"] = TestImages.Png(10, 10);
+        drivers.Configure = driver =>
+            driver.CompactGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await StartAsync();
+        var driver = await AnsweredSessionAsync("codex");
+        api.Enqueue(Text("/compact"));
+        Assert.StartsWith("Compactando", await api.NextMessageAsync());
+        api.Enqueue(Photo("a"));
+        Assert.StartsWith("Recebi 1 imagem.", await api.NextMessageAsync());
+
+        api.Enqueue(Text("mais uma coisa"));
+        Assert.Equal("A conversa da sessão S000001 está sendo compactada. Aguarde o aviso de conclusão ou use " +
+                     "/session stop para cancelar a compactação. Os anexos pendentes continuam guardados.",
+            await api.NextMessageAsync());
+        api.Enqueue(Text("/status"));
+        Assert.Contains("| compactando", await api.NextMessageAsync());
+        Assert.NotNull(pending!.Get(123));
+
+        api.Enqueue(Text("/session stop"));
+        var replies = new[] { await api.NextMessageAsync(), await api.NextMessageAsync() };
+        Assert.Contains("Cancelamento da compactação solicitado para S000001; aviso quando terminar.", replies);
+        Assert.Contains("Compactação da sessão S000001 não concluída: A compactação foi cancelada; a conversa " +
+                        "anterior foi mantida.", replies);
+        Assert.DoesNotContain(driver.Calls, call => call == "turn:mais uma coisa");
+    }
+
+    [Fact]
+    public async Task CompactSyntaxSessionAndNothingToCompactAreRefusedLocally()
+    {
+        await StartAsync();
+        api.Enqueue(Text("/compact agora"));
+        Assert.Equal("Uso: /compact (sem argumentos) — compacta a conversa da sessão ativa.", await api.NextMessageAsync());
+        api.Enqueue(Text("/compact"));
+        Assert.StartsWith("Nenhuma sessão ativa para compactar.", await api.NextMessageAsync());
+        api.Enqueue(Text("/session start claude"));
+        await api.NextMessageAsync();
+        api.Enqueue(Text("/compact"));
+        Assert.StartsWith("Nada a compactar", await api.NextMessageAsync());
+        Assert.DoesNotContain("compact", drivers.Created.Single().Calls);
+    }
+
+    // Opens a session with the agent and lets one turn complete, so the conversation has something to compact.
+    private async Task<FakeSessionDriver> AnsweredSessionAsync(string agent)
+    {
+        api.Enqueue(Text($"/session start {agent}"));
+        Assert.Contains("S000001", await api.NextMessageAsync());
+        var driver = drivers.Created.Single();
+        api.Enqueue(Text("primeira"));
+        await Eventually(() => driver.Calls.Contains("turn:primeira"));
+        driver.Emit(new TurnStartedEvent());
+        driver.Emit(new MessageCompletedEvent("m1", "resposta"));
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        Assert.Equal("resposta\n", await api.NextMessageAsync());
+        await Eventually(() => sessions!.GetActive(123)!.State == AgentSessionState.Idle);
+        return driver;
     }
 
     private async Task StartAsync()
