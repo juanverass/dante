@@ -885,6 +885,43 @@ são descartados.
 
 ---
 
+# Cotas de uso (`/uso`)
+
+```text
+/uso codex
+/uso claude
+```
+
+Mostra quanto da cota da **assinatura** já foi usado: o percentual da janela de sessão, o percentual da semana e
+quanto falta para a janela de sessão renovar. Exemplo (fictício):
+
+```text
+Uso — Codex
+Janela de sessão (5h): 37% do limite utilizado
+Semana: 62% do limite utilizado
+Janela de sessão renova em: 2h 13min
+Consultado agora (14:05 UTC)
+Cota da conta autenticada no Codex deste host, inclusive uso fora do D.A.N.T.E.
+```
+
+- A "janela de sessão" é a janela curta de cota definida pelo provedor (5 h nas contas validadas), não a sessão
+  `S000001` nem o contexto da conversa. Os valores são da conta autenticada na CLI do host e incluem uso fora do
+  D.A.N.T.E.
+- A consulta não exige conversa ativa e não abre sessão, não inicia turno, não interrompe o agente, não responde
+  pedidos pendentes e não altera preferências: o D.A.N.T.E. pergunta à própria CLI num processo curto no workspace
+  geral (AD-31). Não há cache: cada `/uso` lê o provedor de novo e mostra o horário da consulta.
+- **Codex**: `account/rateLimits/read` do `app-server`. A cota geral é só a do bucket `codex`, e as janelas são
+  reconhecidas pelas durações comprovadas (5 h e 7 dias), nunca pela posição; outras janelas e outros buckets aparecem
+  em "Outros limites", sem somar nem substituir a cota geral. Percentual fora de 0–100 é tratado como CLI sem suporte.
+- **Claude**: ainda não consultado; `/uso claude` responde indisponível sem iniciar o agente.
+- Métrica que o provedor não informa aparece como "indisponível" com o motivo, nunca como 0%. Um horário de
+  renovação já vencido não é tratado como renovação: o bot pede nova consulta.
+- Erros orientam a ação: CLI sem login (`codex login` no host), autenticação por API key (sem cota de assinatura),
+  CLI antiga (atualize), tempo esgotado (20 s) ou falha do serviço (tente de novo). E-mail e ids da conta não
+  aparecem na resposta nem nos logs.
+
+---
+
 # Jobs
 
 Cada chamada a `/claude` ou `/codex` gera um job: uma execução one-shot, que inicia a CLI,
@@ -963,6 +1000,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/use @alias` | Define o repositório ativo |
 | `/use general` | Volta ao General Mode |
 | `/status` | Exibe jobs, sessões próprias e estado da entrega recente ao Telegram |
+| `/uso claude\|codex` | Consulta o uso da cota da assinatura: janela de sessão, semana e tempo até a janela de sessão renovar |
 | `/cancel <jobId>` | Solicita cancelamento de um job |
 | `/session start [claude\|codex] [@alias] [manual\|auto\|plan] [model=<modelo>] [effort=<nível>]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e modo selecionados se omitidos |
 | `/session list` | Lista as suas sessões |

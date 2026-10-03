@@ -10,6 +10,14 @@ internal static class TelegramCommandHelp
         new("/help", "BÁSICOS", "Descubra os comandos ou veja ajuda específica.", "/help\n/help session"),
         new("/ping", "BÁSICOS", "Verifique se o bot responde.", "/ping"),
         new("/status", "BÁSICOS", "Consulte jobs, suas sessões, pedidos pendentes e entregas recentes.", "/status"),
+        new("/uso", "BÁSICOS", "Consulte quanto da cota da assinatura do Claude ou do Codex já foi usado.",
+            "/uso codex\n/uso claude", "/uso claude|codex mostra o percentual usado da janela de sessão definida pelo provedor " +
+            "(não é a sessão S000001 nem o contexto da conversa) e da semana, e quanto falta para a janela de sessão renovar. " +
+            "Os valores são da conta autenticada na CLI do host, inclusive uso fora do D.A.N.T.E. Não abre sessão, não inicia " +
+            "turno e não altera preferências; métrica que o provedor não informar aparece como indisponível. " +
+            "Por enquanto só o Codex é consultado; o Claude responde indisponível.\n" +
+            "Resposta fictícia: Janela de sessão (5h): 37% do limite utilizado | Semana: 62% do limite utilizado | " +
+            "Janela de sessão renova em: 2h 13min"),
 
         new("/session", "CONVERSA E SESSÕES", "Gerencie suas sessões e a conversa ativa; efeito apenas na sessão.",
             "/session start codex manual\n/session list\n/session select S000003\n/session select none\n/session stop\n/session close S000003",

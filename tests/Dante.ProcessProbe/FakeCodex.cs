@@ -4,7 +4,8 @@ namespace Dante.ProcessProbe;
 
 // Simulated `codex app-server --listen stdio://` (JSON-RPC in JSONL), shaped like codex-cli 0.157.1: responses have no
 // "jsonrpc" field, like the real server. Each turn picks a scenario by its text: pong, config, command, edit, ask,
-// slow, fail, warn, elicit, garbage, crash or model. model/list answers in two pages.
+// slow, fail, warn, elicit, garbage, crash or model. model/list answers in two pages; account/read and
+// account/rateLimits/read answer the quota query (#116).
 internal static class FakeCodex
 {
     private const string ThreadId = "thread-1";
@@ -146,6 +147,61 @@ internal static class FakeCodex
                         ["approvalsReviewer"] = args.Contains("wrong-reviewer") ? "user" :
                             args.Contains("missing-reviewer") ? null : (string?)parameters["approvalsReviewer"],
                         ["model"] = (string?)parameters["model"] ?? "fake-model"
+                    });
+                    break;
+                case "account/read":
+                    // Shaped like codex-cli 0.159.3. Scenarios: no-auth, api-key; ids and e-mail are fake.
+                    Reply(new JsonObject
+                    {
+                        ["account"] = args.Contains("no-auth") ? null : args.Contains("api-key")
+                            ? new JsonObject { ["type"] = "apiKey" }
+                            : new JsonObject { ["type"] = "chatgpt", ["email"] = "fake@example.invalid", ["planType"] = "plus" },
+                        ["requiresOpenaiAuth"] = true
+                    });
+                    break;
+                case "account/rateLimits/read":
+                    // Scenarios: old-cli, no-auth, upstream-error, hang-limits, multi-bucket, short-windows, single-view,
+                    // percent-out-of-range.
+                    if (args.Contains("hang-limits")) break;
+                    if (args.Contains("old-cli"))
+                    {
+                        Fail("Invalid request: unknown variant `account/rateLimits/read`, expected one of `initialize`");
+                        break;
+                    }
+                    if (args.Contains("no-auth"))
+                    {
+                        Fail("codex account authentication required to read rate limits");
+                        break;
+                    }
+                    if (args.Contains("upstream-error"))
+                    {
+                        Fail("failed to fetch codex rate limits: 503 Service Unavailable");
+                        break;
+                    }
+
+                    JsonObject Window(int used, int minutes, long resetsAt) => new()
+                    {
+                        ["usedPercent"] = used, ["windowDurationMins"] = minutes, ["resetsAt"] = resetsAt
+                    };
+                    JsonObject Bucket(string id, string? name, JsonObject? primary, JsonObject? secondary) => new()
+                    {
+                        ["limitId"] = id, ["limitName"] = name, ["primary"] = primary, ["secondary"] = secondary,
+                        ["credits"] = new JsonObject { ["hasCredits"] = false, ["unlimited"] = false, ["balance"] = "0" },
+                        ["planType"] = "plus", ["rateLimitReachedType"] = null
+                    };
+                    var codex = args.Contains("short-windows")
+                        ? Bucket("codex", null, Window(25, 15, 4102444800), Window(42, 60, 4102444800))
+                        : Bucket("codex", null, Window(37, 300, 4102444800),
+                            Window(args.Contains("percent-out-of-range") ? 140 : 62, 10080, 4103049600));
+                    var buckets = new JsonObject { ["codex"] = codex };
+                    if (args.Contains("multi-bucket"))
+                        buckets["codex_other"] = Bucket("codex_other", "Codex Other", Window(42, 60, 4102444800), null);
+                    Reply(new JsonObject
+                    {
+                        ["rateLimits"] = codex.DeepClone(),
+                        ["rateLimitsByLimitId"] = args.Contains("single-view") ? null : buckets,
+                        ["rateLimitResetCredits"] = new JsonObject { ["availableCount"] = 1, ["credits"] = null },
+                        ["accountId"] = "fake-account"
                     });
                     break;
                 case "model/list":
