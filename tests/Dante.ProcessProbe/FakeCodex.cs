@@ -171,7 +171,9 @@ internal static class FakeCodex
                         Fail("compaction rejected");
                         break;
                     }
-                    Reply(new JsonObject());
+                    if (args.Contains("compact-no-start")) break;
+                    if (!args.Contains("compact-no-ack") && !args.Contains("compact-late-ack"))
+                        Reply(new JsonObject());
                     activeTurn = $"compact-{threads}";
                     Notify("turn/started", new JsonObject
                     {
@@ -191,6 +193,11 @@ internal static class FakeCodex
                     }
                     Item("item/completed", new JsonObject { ["type"] = "contextCompaction", ["id"] = "cc-1" });
                     Complete("completed");
+                    if (args.Contains("compact-late-ack"))
+                    {
+                        Thread.Sleep(500);
+                        Reply(new JsonObject());
+                    }
                     break;
                 case "thread/unsubscribe":
                     unsubscribed.Add((string?)parameters!["threadId"] ?? "?");

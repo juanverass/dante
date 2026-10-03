@@ -145,6 +145,57 @@ public sealed class CodexSessionDriverTests
     }
 
     [Theory]
+    [InlineData("compact-no-ack")]
+    [InlineData("compact-late-ack")]
+    public async Task CompletedCompactionWithoutTimelyAckUsesTheConfirmedResult(string scenario)
+    {
+        await using var driver = new CodexSessionDriver(new ProbeLauncher(scenario),
+            contextTimeout: TimeSpan.FromMilliseconds(100));
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("pong");
+        await ReadTurnAsync(events);
+
+        Assert.Equal(new AgentContextCompacted(), await driver.CompactContextAsync());
+        await driver.StartTurnAsync("thread");
+        var turn = await ReadTurnAsync(events);
+        Assert.Single(turn.OfType<TurnStartedEvent>());
+        Assert.StartsWith("thread:thread-1;turn:2;", turn.OfType<MessageCompletedEvent>().Single().Text);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartedCompactionWithoutAckIsInterruptedBeforeReusingTheThread(bool cancel)
+    {
+        await using var driver = new CodexSessionDriver(new ProbeLauncher("compact-no-ack", "compact-hang"),
+            contextTimeout: cancel ? TimeSpan.FromSeconds(10) : TimeSpan.FromMilliseconds(100));
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("pong");
+        await ReadTurnAsync(events);
+        using var cancellation = new CancellationTokenSource(cancel ? TimeSpan.FromMilliseconds(300) : Timeout);
+
+        var error = await Assert.ThrowsAsync<AgentContextUnchangedException>(() =>
+            driver.CompactContextAsync(cancellation.Token));
+        Assert.Contains(cancel ? "foi cancelada" : "passou do limite", error.Message);
+        await driver.StartTurnAsync("thread");
+        var turn = await ReadTurnAsync(events);
+        Assert.Single(turn.OfType<TurnStartedEvent>());
+        Assert.StartsWith("thread:thread-1;turn:2;", turn.OfType<MessageCompletedEvent>().Single().Text);
+    }
+
+    [Fact]
+    public async Task CompactionWithoutAckOrNotificationsRemainsUncertain()
+    {
+        await using var driver = new CodexSessionDriver(new ProbeLauncher("compact-no-start"),
+            contextTimeout: TimeSpan.FromMilliseconds(100));
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        // No upstream confirmation: a timeout must reach the registry as uncertain, never as unchanged.
+        await Assert.ThrowsAsync<TimeoutException>(() => driver.CompactContextAsync());
+    }
+
+    [Theory]
     [InlineData("compact-reject", "não iniciou a compactação")]
     [InlineData("compact-fail", "compaction failed upstream")]
     public async Task CompactTheServerDoesNotCompleteKeepsTheHistory(string scenario, string reason)

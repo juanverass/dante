@@ -868,6 +868,38 @@ public sealed class SessionRegistryTests
     }
 
     [Fact]
+    public async Task MessageWaitingForLockIsRefusedWhenCompactionStartsFirst()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository,
+            Profile: AgentPermissionProfile.Plan));
+        var driver = await CompletedTurnAsync(registry);
+        driver.ModeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        driver.CompactGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mode = registry.ChangeModeAsync(Owner, null, AgentPermissionProfile.Manual);
+        await Eventually(() => driver.Calls.Contains("mode:manual"));
+        var compact = registry.CompactContextAsync(Owner, null);
+        var message = registry.SubmitAsync(Owner, null, "concorrente");
+        Assert.False(compact.IsCompleted);
+        Assert.False(message.IsCompleted);
+
+        driver.ModeGate.SetResult();
+        Assert.True((await mode).Accepted);
+        var compaction = await compact;
+        try
+        {
+            Assert.True(compaction.Started.Accepted);
+            Assert.Equal(SubmitOutcome.Rejected, (await message).Outcome);
+            Assert.True(registry.GetActive(Owner)!.Compacting);
+            Assert.DoesNotContain("turn:concorrente", driver.Calls);
+            Assert.Equal(AgentSessionState.Idle, registry.GetActive(Owner)!.State);
+        }
+        finally { driver.CompactGate.SetResult(); }
+        Assert.True((await compaction.Completion!).Compacted);
+        Assert.Equal(SubmitOutcome.TurnStarted, (await registry.SubmitAsync(Owner, null, "segue")).Outcome);
+    }
+
+    [Fact]
     public async Task NothingToCompactUntilTheConversationHasATurn()
     {
         await using var registry = CreateRegistry();

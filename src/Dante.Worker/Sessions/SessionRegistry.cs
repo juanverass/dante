@@ -350,6 +350,9 @@ public sealed class SessionRegistry(
         await entry.Upstream.WaitAsync(cancellationToken);
         try
         {
+            // Compaction may have acquired the semaphore first while this message was waiting.
+            if (entry.Compaction is not null)
+                return SessionSubmitResult.Reject(CompactingRefusal(entry.Session.Id), entry.Session.Id);
             return await SubmitLockedAsync(entry, input, delivery, cancellationToken);
         }
         finally

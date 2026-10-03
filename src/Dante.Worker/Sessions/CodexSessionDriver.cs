@@ -233,32 +233,43 @@ public sealed class CodexSessionDriver(
         {
             try
             {
-                await SendRequestAsync("thread/compact/start", new JsonObject { ["threadId"] = thread },
-                    cancellationToken).WaitAsync(clearTimeout, cancellationToken);
-            }
-            catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
-            {
-                throw new AgentContextUnchangedException("O Codex não iniciou a compactação; a conversa anterior foi mantida.");
-            }
+                try
+                {
+                    await SendRequestAsync("thread/compact/start", new JsonObject { ["threadId"] = thread },
+                        cancellationToken).WaitAsync(clearTimeout, cancellationToken);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Only an explicit RPC rejection proves that the request was not accepted.
+                    throw new AgentContextUnchangedException(
+                        "O Codex não iniciou a compactação; a conversa anterior foi mantida.");
+                }
 
-            try
-            {
                 await compact.Result.Task.WaitAsync(compactTimeout, cancellationToken);
             }
             catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
             {
-                // The compaction turn may not have started yet: wait for its id before interrupting it.
-                var turn = await compact.Started.Task.WaitAsync(InterruptedOperationGrace, CancellationToken.None);
-                try
+                // A missing ACK does not mean rejection: notifications can already confirm completion.
+                // Otherwise keep consuming this operation's notifications until interrupt is confirmed.
+                if (!compact.Result.Task.IsCompleted)
                 {
-                    await SendRequestAsync("turn/interrupt", new JsonObject { ["threadId"] = thread, ["turnId"] = turn },
-                        CancellationToken.None).WaitAsync(InterruptedOperationGrace, CancellationToken.None);
-                }
-                catch (InvalidOperationException)
-                {
-                    // It may have ended between the timeout and the interrupt: the result below says how.
+                    var turn = await compact.Started.Task.WaitAsync(InterruptedOperationGrace, CancellationToken.None);
+                    if (!compact.Result.Task.IsCompleted)
+                    {
+                        try
+                        {
+                            await SendRequestAsync("turn/interrupt",
+                                new JsonObject { ["threadId"] = thread, ["turnId"] = turn }, CancellationToken.None)
+                                .WaitAsync(InterruptedOperationGrace, CancellationToken.None);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // It may have ended between the timeout and the interrupt: await confirmation below.
+                        }
+                    }
                 }
 
+                // Missing start/completion or failed transport remains uncertain and reaches the registry as such.
                 await compact.Result.Task.WaitAsync(InterruptedOperationGrace, CancellationToken.None);
                 if (!compact.Succeeded)
                     throw new AgentContextUnchangedException(exception is TimeoutException
