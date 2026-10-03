@@ -3,7 +3,8 @@ using System.Text.Json.Nodes;
 namespace Dante.ProcessProbe;
 
 // Simulated `claude --print` stream-json session, shaped like the messages captured from Claude Code 2.1.284.
-// Each user message picks a scenario by its text: pong, write, ask, slow, fail, garbage, crash or model.
+// Each user message picks a scenario by its text: pong, write, ask, slow, fail, garbage, crash or model. get_usage
+// answers the quota query (#117) without a turn.
 internal static class FakeClaude
 {
     public static int Run(string[] args)
@@ -70,6 +71,18 @@ internal static class FakeClaude
                         }
                         break;
                     }
+                    if ((string?)request["subtype"] == "get_usage")
+                    {
+                        // Scenarios: old-cli, hang-usage, api-key, no-auth, usage-down, partial-usage, model-limits.
+                        if (args.Contains("hang-usage")) break;
+                        Send(args.Contains("old-cli")
+                            ? ControlResponse((string)message["request_id"]!, "error",
+                                "Unsupported control request subtype: get_usage")
+                            : request["skip_behaviors"]?.GetValue<bool>() != true
+                                ? ControlResponse((string)message["request_id"]!, "error", "behaviors scan not expected")
+                                : ControlResponse((string)message["request_id"]!, "success", payload: Usage(args)));
+                        break;
+                    }
                     if ((string?)request["subtype"] == "initialize" && args.Contains("reject-init"))
                     {
                         Send(ControlResponse((string)message["request_id"]!, "error", "initialize rejected"));
@@ -77,7 +90,7 @@ internal static class FakeClaude
                     }
 
                     Send(ControlResponse((string)message["request_id"]!, "success",
-                        payload: (string?)request["subtype"] == "initialize" ? Initialize() : null));
+                        payload: (string?)request["subtype"] == "initialize" ? Initialize(args) : null));
                     if ((string?)request["subtype"] == "interrupt" && turnActive)
                     {
                         Result(false, "");
@@ -265,7 +278,7 @@ internal static class FakeClaude
 
     // The models part of the initialize response, shaped like Claude Code 2.1.286: "default" is the CLI default itself
     // and names the model it resolves to.
-    private static JsonObject Initialize()
+    private static JsonObject Initialize(string[] args)
     {
         JsonObject Model(string value, string resolved, string displayName, bool effort = true)
         {
@@ -284,11 +297,60 @@ internal static class FakeClaude
 
         return new JsonObject
         {
+            // Shaped like Claude Code 2.1.287 for a claude.ai login, an API key and no login; e-mail is fake.
+            ["account"] = args.Contains("api-key")
+                ? new JsonObject { ["tokenSource"] = "claude.ai", ["apiKeySource"] = "ANTHROPIC_API_KEY", ["apiProvider"] = "firstParty" }
+                : args.Contains("no-auth")
+                    ? new JsonObject { ["tokenSource"] = "none", ["apiProvider"] = "firstParty" }
+                    : new JsonObject
+                    {
+                        ["email"] = "fake@example.invalid", ["subscriptionType"] = "Claude Pro", ["apiProvider"] = "firstParty"
+                    },
             ["models"] = new JsonArray(
                 Model("default", "claude-opus-test", "Default (recommended)"),
                 Model("opus", "claude-opus-test", "Opus Test"),
                 Model("sonnet", "claude-sonnet-test", "Sonnet Test"),
                 Model("claude-legacy-test", "claude-legacy-test", "Legacy Test", effort: false))
+        };
+    }
+
+    // The quota part of the get_usage answer (#117), shaped like Claude Code 2.1.287: utilization is 0–100 and resets_at
+    // is ISO 8601. limits and the code-named keys are outside the documented schema, like the real answer.
+    private static JsonObject Usage(string[] args)
+    {
+        JsonObject Window(double? utilization, string? resetsAt) => new()
+        {
+            ["utilization"] = utilization, ["resets_at"] = resetsAt, ["limit_dollars"] = null
+        };
+
+        if (args.Contains("api-key") || args.Contains("no-auth"))
+            return new JsonObject { ["subscription_type"] = null, ["rate_limits_available"] = false, ["rate_limits"] = null };
+        if (args.Contains("usage-down"))
+            return new JsonObject { ["subscription_type"] = "pro", ["rate_limits_available"] = true, ["rate_limits"] = null };
+        var limits = args.Contains("partial-usage")
+            ? new JsonObject { ["five_hour"] = Window(41, null), ["seven_day"] = null }
+            : new JsonObject
+            {
+                ["five_hour"] = Window(41, "2100-01-01T05:19:59.531475+00:00"),
+                ["seven_day"] = Window(58, "2100-01-03T04:59:59.531502+00:00"),
+                ["seven_day_opus"] = args.Contains("model-limits") ? Window(73.5, "2100-01-03T04:59:59+00:00") : null,
+                ["seven_day_sonnet"] = null,
+                ["seven_day_oauth_apps"] = null,
+                ["iguana_necktie"] = Window(0, "2100-02-01T07:59:00+00:00"),
+                ["limits"] = new JsonArray(new JsonObject { ["kind"] = "session", ["group"] = "session", ["percent"] = 41 })
+            };
+        if (args.Contains("model-limits"))
+            limits["model_scoped"] = new JsonArray(new JsonObject
+            {
+                ["display_name"] = "Fable", ["utilization"] = 12, ["resets_at"] = "2100-01-03T04:59:59+00:00"
+            });
+        return new JsonObject
+        {
+            ["session"] = new JsonObject { ["total_cost_usd"] = 0 },
+            ["subscription_type"] = "pro",
+            ["rate_limits_available"] = true,
+            ["rate_limits"] = limits,
+            ["behaviors"] = null
         };
     }
 

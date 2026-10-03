@@ -912,11 +912,16 @@ Cota da conta autenticada no Codex deste host, inclusive uso fora do D.A.N.T.E.
   geral (AD-31). Não há cache: cada `/uso` lê o provedor de novo e mostra o horário da consulta.
 - **Codex**: `account/rateLimits/read` do `app-server`. As janelas são reconhecidas pela duração informada (5 h e
   7 dias), nunca pela posição; limites de outros buckets aparecem em "Outros limites", sem somar.
-- **Claude**: ainda não consultado; `/uso claude` responde indisponível sem iniciar o agente.
+- **Claude**: pedido `get_usage` do protocolo stream-json (`five_hour` = janela de sessão, `seven_day` = semana);
+  semanas por modelo (Opus, Sonnet e outras informadas pelo provedor) aparecem em "Outros limites", sem substituir a
+  semana geral. Esse pedido é **experimental** na CLI: a forma da resposta pode mudar entre versões, e uma resposta
+  fora do formato conhecido vira "CLI sem suporte", nunca um valor inventado. A própria CLI pode responder com uma
+  leitura de até 1 min (ou até 1 h quando o serviço dela falha) sem dizer a idade do dado; a resposta avisa disso.
 - Métrica que o provedor não informa aparece como "indisponível" com o motivo, nunca como 0%. Um horário de
   renovação já vencido não é tratado como renovação: o bot pede nova consulta.
-- Erros orientam a ação: CLI sem login (`codex login` no host), autenticação por API key (sem cota de assinatura),
-  CLI antiga (atualize), tempo esgotado (20 s) ou falha do serviço (tente de novo). E-mail e ids da conta não
+- Erros orientam a ação: CLI sem login (`codex login`, ou `claude` e `/login`, no host), autenticação por API key ou
+  provedor de nuvem (sem cota de assinatura), CLI antiga (atualize), tempo esgotado (20 s) ou falha do serviço (tente
+  de novo). E-mail e ids da conta não
   aparecem na resposta nem nos logs.
 
 ---

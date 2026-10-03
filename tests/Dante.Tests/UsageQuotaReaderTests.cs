@@ -6,8 +6,9 @@ using Dante.Worker.Usage;
 
 namespace Dante.Tests;
 
-// Quota query (#116, AD-31) against FakeCodex (Dante.ProcessProbe): the quotas come from account/rateLimits/read in a
-// short-lived app-server, without a thread or a turn, and every missing metric stays unavailable.
+// Quota query (#116, #117, AD-31) against FakeCodex and FakeClaude (Dante.ProcessProbe): the quotas come from
+// account/rateLimits/read in a short-lived app-server and from get_usage on stream-json, without a thread, a user message
+// or a turn, and every missing metric stays unavailable.
 public sealed class UsageQuotaReaderTests : IDisposable
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 2, 12, 0, 0, TimeSpan.Zero);
@@ -107,17 +108,111 @@ public sealed class UsageQuotaReaderTests : IDisposable
     }
 
     [Fact]
-    public async Task MissingCliIsAFailureAndClaudeIsNotQueriedYet()
+    public async Task MissingCliIsAFailure()
     {
         var missing = new UsageQuotaReader(new MissingLauncher(), Workspace());
         var exception = await Assert.ThrowsAsync<UsageQueryException>(() => missing.ReadAsync(AgentKind.Codex));
         Assert.Equal(UsageQueryFailure.Failed, exception.Failure);
+        exception = await Assert.ThrowsAsync<UsageQueryException>(() => missing.ReadAsync(AgentKind.Claude));
+        Assert.Equal(UsageQueryFailure.Failed, exception.Failure);
+    }
 
+    [Fact]
+    public async Task ClaudeSessionAndWeekComeFromGetUsageInAShortLivedGeneralProcess()
+    {
         var launcher = new ProbeLauncher();
-        exception = await Assert.ThrowsAsync<UsageQueryException>(() =>
-            new UsageQuotaReader(launcher, Workspace()).ReadAsync(AgentKind.Claude));
-        Assert.Equal(UsageQueryFailure.Unsupported, exception.Failure);
-        Assert.Empty(launcher.Requests);
+        var reader = new UsageQuotaReader(launcher, Workspace(), new FixedTime(Now));
+
+        var report = await reader.ReadAsync(AgentKind.Claude);
+
+        Assert.Equal(AgentKind.Claude, report.Agent);
+        Assert.Equal(Now, report.QueriedAt);
+        Assert.Equal(new QuotaWindow(41, DateTimeOffset.Parse("2100-01-01T05:19:59.531475+00:00"), TimeSpan.FromHours(5)),
+            report.Session.Window);
+        Assert.Equal(new QuotaWindow(58, DateTimeOffset.Parse("2100-01-03T04:59:59.531502+00:00"), TimeSpan.FromDays(7)),
+            report.Weekly.Window);
+        // Keys outside the documented schema (limits, code names) are not shown.
+        Assert.Empty(report.Additional);
+        Assert.Contains("até 1 min", report.Note);
+
+        // Same restrictions as a General Mode session, no session file, and the process does not outlive the query.
+        var request = Assert.Single(launcher.Requests);
+        Assert.True(request.IsGeneral);
+        Assert.Equal(Workspace().Path, request.WorkingDirectory);
+        Assert.Contains("--restricted", request.Arguments);
+        Assert.Contains("--no-session-persistence", request.Arguments);
+        Assert.Equal("plan", request.Arguments[request.Arguments.ToList().IndexOf("--permission-mode") + 1]);
+        await WaitUntilExitedAsync(launcher.Started.Single().ProcessId);
+    }
+
+    [Fact]
+    public async Task ClaudePerModelWeeksAreShownApartFromTheGeneralWeek()
+    {
+        var report = await new UsageQuotaReader(new ProbeLauncher("model-limits"), Workspace())
+            .ReadAsync(AgentKind.Claude);
+
+        Assert.Equal(58, report.Weekly.Window!.UsedPercent);
+        Assert.Equal([("Opus", 73.5m), ("Fable", 12m)],
+            report.Additional.Select(window => (window.Label!, window.UsedPercent)));
+        Assert.All(report.Additional, window => Assert.Equal(TimeSpan.FromDays(7), window.Duration));
+    }
+
+    [Fact]
+    public async Task ClaudePartialAnswerKeepsTheMissingMetricUnavailable()
+    {
+        var report = await new UsageQuotaReader(new ProbeLauncher("partial-usage"), Workspace())
+            .ReadAsync(AgentKind.Claude);
+
+        Assert.Equal(new QuotaWindow(41, null, TimeSpan.FromHours(5)), report.Session.Window);
+        Assert.Null(report.Weekly.Window);
+        Assert.Equal("o Claude não informou a janela semanal", report.Weekly.UnavailableReason);
+    }
+
+    [Theory]
+    [InlineData("no-auth", UsageQueryFailure.NotAuthenticated, "/login")]
+    [InlineData("api-key", UsageQueryFailure.NoSubscription, "API key")]
+    [InlineData("old-cli", UsageQueryFailure.Unsupported, "atualize a CLI")]
+    [InlineData("usage-down", UsageQueryFailure.Failed, "tente novamente")]
+    public async Task ClaudeFailuresAreClassifiedWithoutAccountData(string scenario, UsageQueryFailure failure,
+        string hint)
+    {
+        var reader = new UsageQuotaReader(new ProbeLauncher(scenario), Workspace());
+
+        var exception = await Assert.ThrowsAsync<UsageQueryException>(() => reader.ReadAsync(AgentKind.Claude));
+
+        Assert.Equal(failure, exception.Failure);
+        Assert.Contains(hint, exception.Message);
+        Assert.DoesNotContain("fake@example.invalid", exception.Message);
+    }
+
+    [Fact]
+    public async Task ClaudeSlowAnswerTimesOut()
+    {
+        var launcher = new ProbeLauncher("hang-usage");
+        var reader = new UsageQuotaReader(launcher, Workspace(), timeout: TimeSpan.FromSeconds(2));
+
+        var exception = await Assert.ThrowsAsync<UsageQueryException>(() => reader.ReadAsync(AgentKind.Claude));
+
+        Assert.Equal(UsageQueryFailure.Timeout, exception.Failure);
+        Assert.Contains("Claude", exception.Message);
+        await WaitUntilExitedAsync(launcher.Started.Single().ProcessId);
+    }
+
+    [Fact]
+    public void ClaudeAnswerOutsideTheSchemaIsUnsupportedNotInvented()
+    {
+        Assert.Throws<FormatException>(() => UsageQuotaReader.ParseClaude(JsonNode.Parse("""
+            {"rate_limits":{"five_hour":{"utilization":10,"resets_at":"amanhã"}}}
+            """)!.AsObject(), Now));
+        Assert.ThrowsAny<InvalidOperationException>(() => UsageQuotaReader.ParseClaude(JsonNode.Parse("""
+            {"rate_limits":{"five_hour":{"utilization":"dez"}}}
+            """)!.AsObject(), Now));
+
+        var report = UsageQuotaReader.ParseClaude(JsonNode.Parse("""
+            {"rate_limits":{"five_hour":{"utilization":null,"resets_at":null},"seven_day":{"utilization":-3}}}
+            """)!.AsObject(), Now);
+        Assert.Equal("o Claude não informou a janela de sessão", report.Session.UnavailableReason);
+        Assert.Equal("o Claude não informou a janela semanal", report.Weekly.UnavailableReason);
     }
 
     [Fact]
@@ -188,7 +283,7 @@ public sealed class UsageQuotaReaderTests : IDisposable
     }
 
     // Runs the fake CLI that speaks the requested agent's protocol through the real interactive launcher.
-    private sealed class ProbeLauncher(params string[] probeArguments) : IInteractiveAgentProcessLauncher
+    internal sealed class ProbeLauncher(params string[] probeArguments) : IInteractiveAgentProcessLauncher
     {
         private static readonly string ProbeAssembly = typeof(ProbeMarker).Assembly.Location;
         private static readonly string RuntimeConfig =

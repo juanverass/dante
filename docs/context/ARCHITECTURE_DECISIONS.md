@@ -1082,7 +1082,7 @@ Testes: `TelegramInputInteractionTests`, `TelegramBotApiTests` e regressões de 
 
 ## AD-31 — Cotas da assinatura lidas da própria CLI, em processo efêmero, sem cache e com métrica ausente explícita
 
-Status: vigente (#115, spike); orienta #116 (Codex) e #117 (Claude). Evidências, matriz e contrato completo em
+Status: vigente (#115, spike; `/uso` com Codex na #116 e Claude na #117). Evidências, matriz e contrato completo em
 [`docs/spikes/usage-quotas`](../spikes/usage-quotas/README.md).
 
 Validado em Claude Code 2.1.287 (claude.ai Pro) e codex-cli 0.159.3 (ChatGPT Plus), sem iniciar turno:

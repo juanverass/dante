@@ -15,7 +15,7 @@ internal static class TelegramCommandHelp
             "(não é a sessão S000001 nem o contexto da conversa) e da semana, e quanto falta para a janela de sessão renovar. " +
             "Os valores são da conta autenticada na CLI do host, inclusive uso fora do D.A.N.T.E. Não abre sessão, não inicia " +
             "turno e não altera preferências; métrica que o provedor não informar aparece como indisponível. " +
-            "Por enquanto só o Codex é consultado; o Claude responde indisponível.\n" +
+            "O Claude Code pode responder com uma leitura própria de até 1 min (até 1 h se o serviço dele falhar).\n" +
             "Resposta fictícia: Janela de sessão (5h): 37% do limite utilizado | Semana: 62% do limite utilizado | " +
             "Janela de sessão renova em: 2h 13min"),
 

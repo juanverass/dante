@@ -3,7 +3,7 @@ using Dante.Worker.Usage;
 
 namespace Dante.Worker.Telegram;
 
-// /uso claude|codex (#116): the subscription quotas of the agent's account (AD-31). It never reaches an agent's prompt
+// /uso claude|codex (#116, #117): the subscription quotas of the agent's account (AD-31). It never reaches an agent's prompt
 // and never creates, changes or interrupts a session, a job or a pending request.
 public sealed partial class TelegramPollingService
 {
