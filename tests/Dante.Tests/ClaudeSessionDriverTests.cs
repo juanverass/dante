@@ -168,6 +168,64 @@ public sealed class ClaudeSessionDriverTests
         Assert.IsType<TimeoutException>(exception);
     }
 
+    // #121: /compact is confirmed by compact_boundary with the CLI's own token counts, keeps the session_id and the
+    // history (the fake keeps counting turns) and emits no conversation event.
+    [Fact]
+    public async Task CompactIsConfirmedByTheBoundaryAndKeepsTheConversation()
+    {
+        await using var driver = new ClaudeSessionDriver(new ProbeLauncher());
+        var started = await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("pong");
+        await ReadTurnAsync(events);
+
+        var compacted = await driver.CompactContextAsync();
+
+        Assert.Equal(new AgentContextCompacted(5201, 592), compacted);
+        await driver.StartTurnAsync("session");
+        var turn = await ReadTurnAsync(events);
+        Assert.IsType<TurnStartedEvent>(turn[0]);
+        Assert.Equal($"session:{started.UpstreamSessionId};turn:2;mode:manual",
+            turn.OfType<MessageCompletedEvent>().Single().Text);
+    }
+
+    [Theory]
+    [InlineData("compact-empty", "Não havia o que compactar")]
+    [InlineData("compact-fail", "API Error: overloaded")]
+    public async Task CompactWithoutBoundaryKeepsTheHistory(string scenario, string reason)
+    {
+        await using var driver = new ClaudeSessionDriver(new ProbeLauncher(scenario));
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+
+        var exception = await Assert.ThrowsAsync<AgentContextUnchangedException>(() => driver.CompactContextAsync());
+
+        Assert.Contains(reason, exception.Message);
+        await driver.StartTurnAsync("pong");
+        Assert.Single((await ReadTurnAsync(events)).OfType<TurnStartedEvent>());
+    }
+
+    [Theory]
+    [InlineData(true, "foi cancelada")]
+    [InlineData(false, "passou do limite")]
+    public async Task CancelledOrLateCompactIsInterruptedUpstreamAndKeepsTheHistory(bool cancel, string reason)
+    {
+        await using var driver = new ClaudeSessionDriver(new ProbeLauncher("compact-hang"),
+            compactTimeout: cancel ? null : TimeSpan.FromSeconds(1));
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("pong");
+        await ReadTurnAsync(events);
+        using var cancellation = new CancellationTokenSource(cancel ? TimeSpan.FromMilliseconds(300) : Timeout);
+
+        var exception = await Assert.ThrowsAsync<AgentContextUnchangedException>(() =>
+            driver.CompactContextAsync(cancellation.Token));
+
+        Assert.Contains(reason, exception.Message);
+        await driver.StartTurnAsync("session");
+        Assert.Contains(";turn:2;", (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+    }
+
     private const long Owner = 42;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
 

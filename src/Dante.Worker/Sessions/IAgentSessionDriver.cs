@@ -27,6 +27,10 @@ public sealed class AgentInputRejectedException(string message) : Exception(mess
 // The upstream conversation after a confirmed clear (#120, AD-32): a new Claude session_id or a new Codex thread id.
 public sealed record AgentContextCleared(string UpstreamSessionId);
 
+// A confirmed compaction (#121, AD-32). The token counts are the CLI's own (Claude compact_metadata), null when it does
+// not report them (Codex): a reduction is never estimated.
+public sealed record AgentContextCompacted(int? PreTokens = null, int? PostTokens = null);
+
 // The context operation did not happen and the previous context is known to be intact: the session stays usable.
 // Any other failure of a context operation leaves the context uncertain.
 public sealed class AgentContextUnchangedException(string message) : Exception(message);
@@ -56,11 +60,14 @@ public sealed record AgentDriverCapabilities(bool NativeSteer, bool Approvals, b
     // Native clear validated in #119 (AD-32): Claude /clear on stream-json, Codex a new thread in the same process.
     public bool ClearContext { get; init; }
 
+    // Native compaction validated in #119 (AD-32): Claude /compact on stream-json, Codex thread/compact/start.
+    public bool CompactContext { get; init; }
+
     // Claude stream-json: no mid-turn steer; approvals and AskUserQuestion via --permission-prompt-tool stdio.
     // Modes map to --permission-mode manual|auto|plan (AD-18).
     public static AgentDriverCapabilities Claude { get; } = new(NativeSteer: false, Approvals: true, UserInput: true)
     {
-        ModeSwitch = AgentModeSwitch.Idle, CommandsInText = true, ClearContext = true
+        ModeSwitch = AgentModeSwitch.Idle, CommandsInText = true, ClearContext = true, CompactContext = true
     };
 
     // Codex app-server: turn/steer; approvals and item/tool/requestUserInput as server requests. User input is
@@ -68,7 +75,7 @@ public sealed record AgentDriverCapabilities(bool NativeSteer, bool Approvals, b
     // Modes map to approvalPolicy/sandbox and the plan collaboration mode (AD-19).
     public static AgentDriverCapabilities Codex { get; } = new(NativeSteer: true, Approvals: true, UserInput: true)
     {
-        ModeSwitch = AgentModeSwitch.NextTurn, ClearContext = true
+        ModeSwitch = AgentModeSwitch.NextTurn, ClearContext = true, CompactContext = true
     };
 
     public static AgentDriverCapabilities For(AgentKind agent) => agent == AgentKind.Codex ? Codex : Claude;
@@ -93,6 +100,12 @@ public interface IAgentSessionDriver : IAsyncDisposable
     // effort and mode. AgentContextUnchangedException: nothing changed; any other exception: the context is uncertain.
     Task<AgentContextCleared> ClearContextAsync(CancellationToken cancellationToken = default) =>
         Task.FromException<AgentContextCleared>(new NotSupportedException("Este agente não limpa a conversa nesta sessão."));
+
+    // Idle only (AD-32). Returns after the upstream confirms the compaction, keeping the same upstream session.
+    // Cancelling interrupts it upstream: AgentContextUnchangedException when the history is known to be intact (also
+    // when there was nothing to compact); any other exception leaves the context uncertain.
+    Task<AgentContextCompacted> CompactContextAsync(CancellationToken cancellationToken = default) =>
+        Task.FromException<AgentContextCompacted>(new NotSupportedException("Este agente não compacta a conversa nesta sessão."));
 
     // Only when Capabilities.NativeSteer; applied at the next model boundary, not preemptively.
     Task SteerAsync(AgentInput input, CancellationToken cancellationToken = default);

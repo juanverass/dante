@@ -293,6 +293,12 @@ public sealed partial class TelegramPollingService(
             return;
         }
 
+        if (string.Equals(command, "/compact", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleCompactCommandAsync(message, prompt, cancellationToken);
+            return;
+        }
+
         if (string.Equals(command, "/clear", StringComparison.OrdinalIgnoreCase))
         {
             await SendReplyAsync(message.Chat.Id, await HandleClearCommandAsync(message.From!.Id, prompt,
@@ -603,10 +609,11 @@ public sealed partial class TelegramPollingService(
         if (parts[0].Equals("stop", StringComparison.OrdinalIgnoreCase) && parts.Length <= 2)
         {
             var stopped = await sessions.InterruptAsync(userId, parts.ElementAtOrDefault(1), cancellationToken);
-            await SendReplyAsync(message.Chat.Id, stopped.Accepted
-                ? $"Interrupção solicitada para {stopped.Session!.Id}" + (stopped.DiscardedMessages == 0 ? "."
-                    : $"; {stopped.DiscardedMessages} mensagem(ns) removida(s) da fila.")
-                : stopped.Error!, cancellationToken);
+            await SendReplyAsync(message.Chat.Id, !stopped.Accepted ? stopped.Error!
+                : stopped.Session!.Compacting
+                    ? $"Cancelamento da compactação solicitado para {stopped.Session.Id}; aviso quando terminar."
+                    : $"Interrupção solicitada para {stopped.Session.Id}" + (stopped.DiscardedMessages == 0 ? "."
+                        : $"; {stopped.DiscardedMessages} mensagem(ns) removida(s) da fila."), cancellationToken);
             return;
         }
 
@@ -989,7 +996,8 @@ public sealed partial class TelegramPollingService(
             return;
         }
 
-        if (active is not null && await RefusedCommandTextAsync(userId, chatId, active.Agent, text, cancellationToken)) return;
+        if (active is not null && (await RefusedCommandTextAsync(userId, chatId, active.Agent, text, cancellationToken) ||
+                                   await RefusedWhileCompactingAsync(userId, chatId, active, cancellationToken))) return;
         var sessionId = active?.Id;
         if (sessionId is null)
         {
@@ -1084,7 +1092,7 @@ public sealed partial class TelegramPollingService(
                 cancellationToken);
             return;
         }
-        if (active is not null && (active.State != AgentSessionState.Idle || active.QueuedCount > 0))
+        if (active is not null && (active.State != AgentSessionState.Idle || active.QueuedCount > 0 || active.Compacting))
         {
             await SendReplyAsync(chatId, $"A sessão {active.Id} ainda está respondendo. Aguarde terminar (ou use " +
                 "/session stop) e peça a vitrine de novo; os prints pendentes continuam guardados.", cancellationToken);
@@ -1156,7 +1164,8 @@ public sealed partial class TelegramPollingService(
         IReadOnlyList<Attachment>? images = [];
         if (sessions.GetActive(userId) is { } active)
         {
-            if (await RefusedCommandTextAsync(userId, message.Chat.Id, active.Agent, text, cancellationToken)) return;
+            if (await RefusedCommandTextAsync(userId, message.Chat.Id, active.Agent, text, cancellationToken) ||
+                await RefusedWhileCompactingAsync(userId, message.Chat.Id, active, cancellationToken)) return;
             images = Adopt(userId, AttachmentContext(userId), active.Id);
         }
         if (images is null)
@@ -1317,6 +1326,17 @@ public sealed partial class TelegramPollingService(
     {
         if (!AgentDriverCapabilities.For(agent).CommandsInText || !AgentInput.StartsWithCommand(text)) return false;
         await SendReplyAsync(chatId, AgentInput.CommandRefusal(agent) +
+            (pending?.Get(userId) is null ? "" : " Os anexos pendentes continuam guardados."), cancellationToken);
+        return true;
+    }
+
+    // A compaction owns the conversation until it ends (#121): refused before any attachment is taken.
+    private async Task<bool> RefusedWhileCompactingAsync(long userId, long chatId, AgentSessionSnapshot active,
+        CancellationToken cancellationToken)
+    {
+        if (!active.Compacting) return false;
+        await SendReplyAsync(chatId, $"A conversa da sessão {active.Id} está sendo compactada. Aguarde o aviso de " +
+            "conclusão ou use /session stop para cancelar a compactação." +
             (pending?.Get(userId) is null ? "" : " Os anexos pendentes continuam guardados."), cancellationToken);
         return true;
     }
@@ -1582,6 +1602,7 @@ public sealed partial class TelegramPollingService(
         $"{session.Id} {session.Agent} {session.Context.Label}: {session.State}" +
         (session.IsActive ? " (ativa)" : string.Empty) +
         (session.ActiveTurnId is null ? string.Empty : $" | turno {session.ActiveTurnId}") +
+        (session.Compacting ? " | compactando" : string.Empty) +
         (session.QueuedCount == 0 ? string.Empty : $" | {session.QueuedCount} na fila") +
         (session.PendingRequestIds.Count == 0 ? string.Empty :
             $" | aguardando {string.Join(", ", session.PendingRequestIds)}") +

@@ -14,6 +14,8 @@ internal static class FakeClaude
         var turns = 0;
         string? waitingFor = null;
         var turnActive = false;
+        // A /compact waiting for an interrupt (compact-hang, #121).
+        var compacting = false;
 
         void Send(JsonObject message)
         {
@@ -92,7 +94,19 @@ internal static class FakeClaude
 
                     Send(ControlResponse((string)message["request_id"]!, "success",
                         payload: (string?)request["subtype"] == "initialize" ? Initialize(args) : null));
-                    if ((string?)request["subtype"] == "interrupt" && turnActive)
+                    if ((string?)request["subtype"] == "interrupt" && compacting)
+                    {
+                        // Shaped like Claude Code 2.1.287 (#119): the compaction fails and the history stays.
+                        compacting = false;
+                        Send(new JsonObject
+                        {
+                            ["type"] = "system", ["subtype"] = "status", ["status"] = null,
+                            ["compact_result"] = "failed", ["compact_error"] = "API Error: Request was aborted."
+                        });
+                        Assistant("Compaction canceled.");
+                        Result(true, "");
+                    }
+                    else if ((string?)request["subtype"] == "interrupt" && turnActive)
                     {
                         Result(false, "");
                     }
@@ -136,6 +150,46 @@ internal static class FakeClaude
                     }
 
                     Result(true, "done");
+                    break;
+                case "user" when message["message"]!["content"] is JsonValue compact && (string?)compact == "/compact":
+                    // Shaped like Claude Code 2.1.287 (#119): status, boundary with the token counts, the summary
+                    // replayed as a user message and a result without a turn; the session_id stays. Scenarios:
+                    // compact-empty (nothing to compact), compact-fail (failed status), compact-hang (until interrupt).
+                    if (args.Contains("compact-empty"))
+                    {
+                        Assistant("Error: No messages to compact");
+                        Result(true, "");
+                        break;
+                    }
+                    Send(new JsonObject { ["type"] = "system", ["subtype"] = "status", ["status"] = "compacting" });
+                    if (args.Contains("compact-hang"))
+                    {
+                        compacting = true;
+                        break;
+                    }
+                    if (args.Contains("compact-fail"))
+                    {
+                        Send(new JsonObject
+                        {
+                            ["type"] = "system", ["subtype"] = "status", ["status"] = null,
+                            ["compact_result"] = "failed", ["compact_error"] = "API Error: overloaded"
+                        });
+                        Result(true, "");
+                        break;
+                    }
+                    Send(new JsonObject { ["type"] = "system", ["subtype"] = "status", ["status"] = null, ["compact_result"] = "success" });
+                    Send(new JsonObject { ["type"] = "system", ["subtype"] = "init", ["cwd"] = Environment.CurrentDirectory });
+                    Send(new JsonObject
+                    {
+                        ["type"] = "system", ["subtype"] = "compact_boundary",
+                        ["compact_metadata"] = new JsonObject { ["trigger"] = "manual", ["pre_tokens"] = 5201, ["post_tokens"] = 592 }
+                    });
+                    Send(new JsonObject
+                    {
+                        ["type"] = "user",
+                        ["message"] = new JsonObject { ["role"] = "user", ["content"] = "This session is being continued..." }
+                    });
+                    Result(true, "");
                     break;
                 case "user" when message["message"]!["content"] is JsonValue clear && (string?)clear == "/clear":
                     // Shaped like Claude Code 2.1.287 (#119): conversation_reset, then init and a result under a new

@@ -27,6 +27,9 @@ public sealed record AgentSessionSnapshot(
     // Claude session_id or Codex thread id now serving the session; a clear replaces it (#120).
     public string? UpstreamSessionId { get; init; }
 
+    // A /compact is running in the background (#121): messages and other context operations wait for its end.
+    public bool Compacting { get; init; }
+
     // The model chosen when the session started, or the CLI default with the model the CLI reported, if any (#77).
     public string EffortLabel => ModelSelection?.EffortLabel ?? "padrão da CLI";
 
@@ -51,6 +54,17 @@ public sealed record SessionResult(
 {
     public static SessionResult Reject(string error) => new(false, Error: error);
 }
+
+// /compact (#121): Started says whether it was accepted; Completion, when accepted, ends with its outcome.
+public sealed record SessionCompaction(SessionResult Started, Task<SessionCompactionResult>? Completion = null);
+
+// PreTokens/PostTokens only when the agent reports them (Claude); never estimated.
+public sealed record SessionCompactionResult(
+    bool Compacted,
+    AgentSessionSnapshot? Session = null,
+    string? Error = null,
+    int? PreTokens = null,
+    int? PostTokens = null);
 
 public sealed record SessionSubmitResult(
     SubmitOutcome Outcome,
