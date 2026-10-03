@@ -61,17 +61,28 @@ public sealed class UsageQuotaReaderTests : IDisposable
     [Fact]
     public async Task WindowsAreIdentifiedByDurationAndAmbiguityIsUnavailable()
     {
-        // Two short windows (15 min and 1 h, as in the official example): neither is assumed to be the session, and
+        // Two short windows (15 min and 1 h, as in the official example): neither is the proven 5h session window, and
         // the secondary one is not taken for the week.
         var report = await new UsageQuotaReader(new ProbeLauncher("short-windows"), Workspace())
             .ReadAsync(AgentKind.Codex);
 
         Assert.Null(report.Session.Window);
-        Assert.Equal("o Codex informou mais de uma janela curta", report.Session.UnavailableReason);
+        Assert.Equal("o Codex não informou uma janela de sessão de 5h", report.Session.UnavailableReason);
         Assert.Null(report.Weekly.Window);
         Assert.Equal("o Codex não informou uma janela semanal", report.Weekly.UnavailableReason);
         Assert.Equal([25m, 42m], report.Additional.Select(window => window.UsedPercent));
         Assert.All(report.Additional, window => Assert.Equal("Codex", window.Label));
+    }
+
+    [Fact]
+    public async Task PercentageOutsideTheContractIsAnUnsupportedAnswer()
+    {
+        var reader = new UsageQuotaReader(new ProbeLauncher("percent-out-of-range"), Workspace());
+
+        var exception = await Assert.ThrowsAsync<UsageQueryException>(() => reader.ReadAsync(AgentKind.Codex));
+
+        Assert.Equal(UsageQueryFailure.Unsupported, exception.Failure);
+        Assert.Contains("versão da CLI", exception.Message);
     }
 
     [Theory]
@@ -123,7 +134,7 @@ public sealed class UsageQuotaReaderTests : IDisposable
     [Fact]
     public void MissingFieldsAreUnavailableInsteadOfZero()
     {
-        // No reset, no duration, a null secondary and a negative percentage: nothing is invented.
+        // No reset, no duration and a null secondary: nothing is invented.
         var report = UsageQuotaReader.ParseCodex(JsonNode.Parse("""
             {"rateLimits":{"limitId":"codex","primary":{"usedPercent":12,"windowDurationMins":300,"resetsAt":null},
              "secondary":null},"rateLimitsByLimitId":null}
@@ -132,9 +143,9 @@ public sealed class UsageQuotaReaderTests : IDisposable
         Assert.Equal("o Codex não informou uma janela semanal", report.Weekly.UnavailableReason);
 
         report = UsageQuotaReader.ParseCodex(JsonNode.Parse("""
-            {"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":5},"secondary":{"usedPercent":-1,"windowDurationMins":10080}}}}
+            {"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":5},"secondary":null}}}
             """)!.AsObject(), Now);
-        Assert.Equal("o Codex não informou uma janela de sessão", report.Session.UnavailableReason);
+        Assert.Equal("o Codex não informou uma janela de sessão de 5h", report.Session.UnavailableReason);
         Assert.Null(report.Weekly.Window);
         Assert.Equal(new QuotaWindow(5, null, null, "Codex"), Assert.Single(report.Additional));
 
@@ -147,6 +158,45 @@ public sealed class UsageQuotaReaderTests : IDisposable
         Assert.Equal("o Codex não informou a cota geral da conta", report.Weekly.UnavailableReason);
         Assert.Equal(["a", "B"], report.Additional.Select(window => window.Label));
     }
+
+    [Theory]
+    [InlineData("""{"rateLimitsByLimitId":{"codex_other":{"limitName":"Other","primary":{"usedPercent":42,"windowDurationMins":300},"secondary":{"usedPercent":73,"windowDurationMins":10080}}}}""")]
+    [InlineData("""{"rateLimits":{"limitId":"codex_other","limitName":"Other","primary":{"usedPercent":42,"windowDurationMins":300},"secondary":{"usedPercent":73,"windowDurationMins":10080}},"rateLimitsByLimitId":null}""")]
+    public void ASpecificBucketAloneNeverReplacesTheGeneralQuota(string json)
+    {
+        var report = UsageQuotaReader.ParseCodex(JsonNode.Parse(json)!.AsObject(), Now);
+
+        Assert.Equal("o Codex não informou a cota geral da conta", report.Session.UnavailableReason);
+        Assert.Equal("o Codex não informou a cota geral da conta", report.Weekly.UnavailableReason);
+        Assert.Equal([("Other", 42m), ("Other", 73m)],
+            report.Additional.Select(window => (window.Label!, window.UsedPercent)));
+    }
+
+    [Fact]
+    public void SingleShortWindowOfUnprovenDurationIsNotTheSession()
+    {
+        var report = UsageQuotaReader.ParseCodex(JsonNode.Parse("""
+            {"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":42,"windowDurationMins":60}}}}
+            """)!.AsObject(), Now);
+
+        Assert.Equal("o Codex não informou uma janela de sessão de 5h", report.Session.UnavailableReason);
+        Assert.Equal(new QuotaWindow(42, null, TimeSpan.FromHours(1), "Codex"), Assert.Single(report.Additional));
+
+        // A single view without limitId is not assumed to be the general quota either.
+        report = UsageQuotaReader.ParseCodex(JsonNode.Parse("""
+            {"rateLimits":{"primary":{"usedPercent":7,"windowDurationMins":300}}}
+            """)!.AsObject(), Now);
+        Assert.Equal("o Codex não informou a cota geral da conta", report.Session.UnavailableReason);
+        Assert.Equal("limite sem identificação", Assert.Single(report.Additional).Label);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public void PercentageOutsideZeroToHundredIsRefusedNotClamped(int percent) =>
+        Assert.Throws<FormatException>(() => UsageQuotaReader.ParseCodex(JsonNode.Parse(
+            """{"rateLimitsByLimitId":{"codex_other":{"primary":{"usedPercent":""" + percent +
+            ""","windowDurationMins":60}}}}""")!.AsObject(), Now));
 
     public void Dispose()
     {

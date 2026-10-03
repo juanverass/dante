@@ -182,7 +182,7 @@ Estado conhecido com #104, #105, #106, #108, #96, #98 e #116:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    673 testes aprovados, 15 pulados (evidência com CLIs e ferramentas reais, opt-in)
+dotnet test Dante.sln    679 testes aprovados, 15 pulados (evidência com CLIs e ferramentas reais, opt-in)
 ```
 
 `LiveSessionModeEvidenceTests` (#108), opt-in com `DANTE_LIVE_CLI=1`, passou para Claude Code

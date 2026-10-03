@@ -17,6 +17,7 @@ public sealed class UsageQuotaReader(
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan CloseGracePeriod = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan Week = TimeSpan.FromDays(7);
+    private static readonly TimeSpan CodexSession = TimeSpan.FromHours(5);
     private const string CodexBucket = "codex";
     private readonly TimeProvider time = time ?? TimeProvider.System;
     private readonly SemaphoreSlim queries = new(1, 1);
@@ -127,9 +128,10 @@ public sealed class UsageQuotaReader(
                 : new UsageQueryException(UsageQueryFailure.Failed,
                     "o serviço do Codex não informou as cotas; tente novamente em instantes");
 
-    // Buckets are keyed by limitId; "codex" is the general quota and the others are shown apart, never added to it.
-    // Windows are identified by their duration, not by primary/secondary: the week lasts 7 days and the session window
-    // is the only one shorter than a day. An ambiguous or missing window is unavailable, not guessed.
+    // Buckets are keyed by limitId; only "codex" is the general quota. Any other bucket, even alone, is shown apart and
+    // never replaces or adds to it. Windows are identified by the durations proven in #115, not by primary/secondary:
+    // 300 min is the session and 10080 min the week. Any other window is shown apart; an ambiguous or missing window is
+    // unavailable, not guessed.
     internal static UsageReport ParseCodex(JsonObject result, DateTimeOffset queriedAt)
     {
         var buckets = new List<(string Id, string? Name, JsonObject Snapshot)>();
@@ -142,11 +144,10 @@ public sealed class UsageQuotaReader(
         }
         else if (result["rateLimits"] is JsonObject single)
         {
-            buckets.Add(((string?)single["limitId"] ?? CodexBucket, (string?)single["limitName"], single));
+            buckets.Add(((string?)single["limitId"] ?? "limite sem identificação", (string?)single["limitName"], single));
         }
 
-        var main = buckets.FindIndex(bucket => bucket.Id == CodexBucket) is var index and >= 0 ? index
-            : buckets.Count == 1 ? 0 : -1;
+        var main = buckets.FindIndex(bucket => bucket.Id == CodexBucket);
         var additional = new List<QuotaWindow>();
         QuotaMetric session, weekly;
         if (main < 0)
@@ -157,13 +158,13 @@ public sealed class UsageQuotaReader(
         {
             var windows = Windows(buckets[main].Snapshot).ToArray();
             var weeks = windows.Where(window => window.Duration == Week).ToArray();
-            var shorts = windows.Where(window => window.Duration < TimeSpan.FromDays(1)).ToArray();
+            var sessions = windows.Where(window => window.Duration == CodexSession).ToArray();
             weekly = weeks.Length == 1 ? QuotaMetric.Of(weeks[0]) : QuotaMetric.Unavailable(weeks.Length == 0
                 ? "o Codex não informou uma janela semanal"
                 : "o Codex informou mais de uma janela semanal");
-            session = shorts.Length == 1 ? QuotaMetric.Of(shorts[0]) : QuotaMetric.Unavailable(shorts.Length == 0
-                ? "o Codex não informou uma janela de sessão"
-                : "o Codex informou mais de uma janela curta");
+            session = sessions.Length == 1 ? QuotaMetric.Of(sessions[0]) : QuotaMetric.Unavailable(sessions.Length == 0
+                ? "o Codex não informou uma janela de sessão de 5h"
+                : "o Codex informou mais de uma janela de 5h");
             additional.AddRange(windows
                 .Where(window => !ReferenceEquals(window, weekly.Window) && !ReferenceEquals(window, session.Window))
                 .Select(window => window with { Label = "Codex" }));
@@ -185,13 +186,21 @@ public sealed class UsageQuotaReader(
     private static QuotaWindow? Window(JsonNode? node)
     {
         if (node is not JsonObject window || window["usedPercent"] is not JsonValue used) return null;
-        var percent = used.GetValue<decimal>();
-        if (percent < 0) return null;
+        var percent = Percent(used);
         var minutes = window["windowDurationMins"]?.GetValue<long>();
         var resetsAt = window["resetsAt"]?.GetValue<long>();
         return new QuotaWindow(percent,
             resetsAt is null ? null : DateTimeOffset.FromUnixTimeSeconds(resetsAt.Value),
             minutes is > 0 ? TimeSpan.FromMinutes(minutes.Value) : null);
+    }
+
+    // A share of the limit outside 0–100 means the answer is not the documented one: it is refused (and read as an
+    // unsupported CLI), never clamped.
+    private static decimal Percent(JsonValue value)
+    {
+        var percent = value.GetValue<decimal>();
+        return percent is >= 0 and <= 100 ? percent
+            : throw new FormatException($"percentual de cota fora de 0–100: {percent}");
     }
 
     // stdout carries the protocol; stderr and unrelated messages (notifications, other responses) are skipped.
