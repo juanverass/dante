@@ -9,9 +9,12 @@ namespace Dante.Worker.Sessions;
 // Codex over `codex app-server --listen stdio://` (AD-15, AD-19): JSON-RPC in JSONL on one process per session, with
 // one ephemeral thread per D.A.N.T.E. session. Approvals and user input are server requests answered by id;
 // steer and interrupt are client requests on the active turn.
-public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher) : IAgentSessionDriver
+public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher, TimeSpan? contextTimeout = null)
+    : IAgentSessionDriver
 {
     private const int EventCapacity = 256;
+    // thread/start answered in under a second in #119.
+    private readonly TimeSpan clearTimeout = contextTimeout ?? TimeSpan.FromSeconds(30);
     private const string UserInputMethod = "item/tool/requestUserInput";
     private static readonly TimeSpan CloseGracePeriod = TimeSpan.FromSeconds(10);
 
@@ -129,6 +132,80 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
     }
 
     // Only with the session idle: a turn/start during an active turn is absorbed by it instead of queued (AD-16).
+    // The app-server has no reset of a thread (#119, AD-32): the clear is a fresh ephemeral thread in the same process, with
+    // the directory, model and effective policies of the session. The session moves to it only after thread/start
+    // confirms it; until then, and on any failure, the previous thread is untouched and stays in use.
+    public async Task<AgentContextCleared> ClearContextAsync(CancellationToken cancellationToken = default)
+    {
+        string previous;
+        AgentPermissionProfile current;
+        string? currentModel;
+        string? directory;
+        lock (gate)
+        {
+            previous = RequireThread();
+            if (activeTurnId is not null || pendingRequests.Count != 0 || pendingProfile is not null)
+                throw new AgentContextUnchangedException("A sessão do Codex não está ociosa; a conversa não foi limpa.");
+            (current, currentModel, directory) = (profile, model, workingDirectory);
+        }
+
+        var (approvalPolicy, sandbox) = Policy(current);
+        var approvalsReviewer = current == AgentPermissionProfile.Auto ? "auto_review" : "user";
+        var parameters = new JsonObject
+        {
+            ["cwd"] = directory,
+            ["approvalPolicy"] = approvalPolicy,
+            ["approvalsReviewer"] = approvalsReviewer,
+            ["sandbox"] = sandbox,
+            ["ephemeral"] = true
+        };
+        // The model the thread reported, so a change of the CLI default does not slip into the same session.
+        if (currentModel is not null) parameters["model"] = currentModel;
+        JsonObject thread;
+        try
+        {
+            thread = await SendRequestAsync("thread/start", parameters, cancellationToken)
+                .WaitAsync(clearTimeout, cancellationToken);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
+        {
+            throw new AgentContextUnchangedException("O Codex não abriu a conversa nova; a conversa anterior continua.");
+        }
+
+        var id = GetString(thread["thread"] as JsonObject, "id");
+        if (id is null || (current == AgentPermissionProfile.Auto &&
+                           (GetString(thread, "approvalPolicy") != approvalPolicy ||
+                            GetString(thread, "approvalsReviewer") != approvalsReviewer)))
+        {
+            if (id is not null) await UnsubscribeQuietlyAsync(id);
+            throw new AgentContextUnchangedException(
+                "O Codex não confirmou a conversa nova com as mesmas políticas; a conversa anterior continua.");
+        }
+
+        lock (gate)
+        {
+            threadId = id;
+            model = GetString(thread, "model") ?? model;
+        }
+
+        await UnsubscribeQuietlyAsync(previous);
+        return new AgentContextCleared(id);
+    }
+
+    // Best effort: an abandoned ephemeral thread is unloaded by the server after a grace period anyway.
+    private async Task UnsubscribeQuietlyAsync(string thread)
+    {
+        try
+        {
+            await SendRequestAsync("thread/unsubscribe", new JsonObject { ["threadId"] = thread }, lifetime.Token)
+                .WaitAsync(TimeSpan.FromSeconds(5), lifetime.Token);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or TimeoutException
+                                              or OperationCanceledException or AgentProtocolException)
+        {
+        }
+    }
+
     public async Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
@@ -557,6 +634,12 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
 
     private async Task HandleNotificationAsync(string method, JsonObject parameters)
     {
+        // After a clear, whatever the previous thread still says is not part of the session (#120).
+        lock (gate)
+        {
+            if (GetString(parameters, "threadId") is { } thread && threadId is not null && thread != threadId) return;
+        }
+
         switch (method)
         {
             case "thread/settings/updated":

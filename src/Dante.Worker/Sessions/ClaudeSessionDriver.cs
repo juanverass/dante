@@ -9,11 +9,14 @@ namespace Dante.Worker.Sessions;
 // Claude Code over bidirectional stream-json (AD-15, AD-18): one `claude --print` process per session receives every
 // turn on stdin. Approvals and AskUserQuestion arrive as can_use_tool control requests; interrupt is a control
 // request too. The upstream session id is fixed with --session-id, so it is known before the first turn.
-public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launcher) : IAgentSessionDriver
+public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launcher, TimeSpan? contextTimeout = null)
+    : IAgentSessionDriver
 {
     private const int EventCapacity = 256;
     private const string AskUserQuestionTool = "AskUserQuestion";
     private static readonly TimeSpan CloseGracePeriod = TimeSpan.FromSeconds(10);
+    // /clear is local to the CLI (it answered in milliseconds in #119).
+    private readonly TimeSpan clearTimeout = contextTimeout ?? TimeSpan.FromSeconds(30);
 
     // Bounded like the process output (AD-17): a slow consumer pauses the reader and, through the pipe, the agent.
     private readonly Channel<AgentEvent> events = Channel.CreateBounded<AgentEvent>(
@@ -24,6 +27,8 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
     private readonly Dictionary<string, PendingControl> pendingControls = [];
     private readonly Dictionary<string, ToolUse> tools = [];
     private InteractiveAgentProcess? process;
+    // A /clear in flight (#120): its messages are the driver's, not a turn of the conversation.
+    private ContextOperation? operation;
     private string? currentMessageId;
     private bool interruptRequested;
     private bool closing;
@@ -103,6 +108,43 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
             ["type"] = "user",
             ["message"] = new JsonObject { ["role"] = "user", ["content"] = content }
         }, cancellationToken);
+    }
+
+    // The only path that writes a slash command (AD-32): the CLI confirms /clear with conversation_reset and then a result
+    // with the new session_id. Nothing of it reaches the conversation as a turn.
+    public async Task<AgentContextCleared> ClearContextAsync(CancellationToken cancellationToken = default)
+    {
+        var agent = RequireOpen();
+        var clear = new ContextOperation();
+        lock (gate)
+        {
+            if (operation is not null || tools.Count != 0 || pendingControls.Count != 0)
+                throw new AgentContextUnchangedException("A sessão do Claude não está ociosa; a conversa não foi limpa.");
+            operation = clear;
+        }
+
+        try
+        {
+            await WriteAsync(agent, new JsonObject
+            {
+                ["type"] = "user",
+                ["message"] = new JsonObject { ["role"] = "user", ["content"] = "/clear" }
+            }, cancellationToken);
+            var result = await clear.Result.Task.WaitAsync(clearTimeout, cancellationToken);
+            if (!clear.ResetSeen)
+                throw new AgentContextUnchangedException("O Claude não confirmou a limpeza; a conversa anterior continua.");
+            if (GetString(result, "subtype") != "success" || result["is_error"]?.GetValueKind() == JsonValueKind.True)
+                throw new AgentProtocolException("O Claude reiniciou a conversa mas não concluiu o /clear.");
+            return new AgentContextCleared(GetString(result, "session_id") ?? clear.SessionId
+                ?? throw new AgentProtocolException("O Claude limpou a conversa sem informar o novo session_id."));
+        }
+        finally
+        {
+            lock (gate)
+            {
+                if (operation == clear) operation = null;
+            }
+        }
     }
 
     // Text only stays a plain string. Images go as base64 image blocks, each after a label with its position and name,
@@ -372,6 +414,9 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
 
     private async Task HandleAsync(JsonObject message)
     {
+        ContextOperation? current;
+        lock (gate) current = operation;
+        if (current is not null && HandleOperation(current, message)) return;
         switch (GetString(message, "type"))
         {
             case "control_response":
@@ -400,6 +445,28 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
                 await HandleResultAsync(message);
                 break;
             // system (init, status), rate_limit_event and future types carry nothing the session needs.
+        }
+    }
+
+    // While a context operation runs, its reset, init and result belong to it and nothing becomes a conversation event.
+    // Control messages (responses, cancellations) keep their normal path.
+    private static bool HandleOperation(ContextOperation current, JsonObject message)
+    {
+        switch (GetString(message, "type"))
+        {
+            case "conversation_reset" when GetString(message, "trigger") == "clear":
+                current.ResetSeen = true;
+                return true;
+            case "system" when GetString(message, "subtype") == "init":
+                current.SessionId = GetString(message, "session_id");
+                return true;
+            case "result":
+                current.Result.TrySetResult(message);
+                return true;
+            case "assistant" or "user" or "stream_event" or "system" or "conversation_reset":
+                return true;
+            default:
+                return false;
         }
     }
 
@@ -649,6 +716,7 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
 
             ended = true;
             waiters = [.. awaitingResponses.Values];
+            if (operation is not null) waiters = [.. waiters, operation.Result];
             awaitingResponses.Clear();
             pendingControls.Clear();
         }
@@ -696,4 +764,11 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
     private sealed record PendingControl(JsonObject Input, JsonArray? Suggestions, IReadOnlyList<AgentQuestion>? Questions);
 
     private sealed record ToolUse(AgentToolKind Kind, string? Path);
+
+    private sealed class ContextOperation
+    {
+        public TaskCompletionSource<JsonObject> Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool ResetSeen { get; set; }
+        public string? SessionId { get; set; }
+    }
 }

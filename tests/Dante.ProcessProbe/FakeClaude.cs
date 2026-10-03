@@ -137,6 +137,23 @@ internal static class FakeClaude
 
                     Result(true, "done");
                     break;
+                case "user" when message["message"]!["content"] is JsonValue clear && (string?)clear == "/clear":
+                    // Shaped like Claude Code 2.1.287 (#119): conversation_reset, then init and a result under a new
+                    // session_id. Scenarios: clear-hang (no answer), clear-unconfirmed (a result without the reset).
+                    if (args.Contains("clear-hang")) break;
+                    if (!args.Contains("clear-unconfirmed"))
+                    {
+                        Send(new JsonObject
+                        {
+                            ["type"] = "conversation_reset", ["trigger"] = "clear",
+                            ["new_conversation_id"] = Guid.NewGuid().ToString()
+                        });
+                        sessionId = Guid.NewGuid().ToString();
+                        turns = 0;
+                        Send(new JsonObject { ["type"] = "system", ["subtype"] = "init", ["cwd"] = Environment.CurrentDirectory });
+                    }
+                    Result(true, "");
+                    break;
                 case "user":
                     turns++;
                     turnActive = true;
@@ -151,6 +168,10 @@ internal static class FakeClaude
 
                     switch ((string?)message["message"]!["content"])
                     {
+                        case "session":
+                            Assistant($"session:{sessionId};turn:{turns};mode:{mode}");
+                            Result(true, "done");
+                            break;
                         case "mode":
                             Assistant($"mode:{mode}");
                             Result(true, "done");

@@ -24,6 +24,13 @@ public sealed class AgentSteerRejectedException(string message) : Exception(mess
 // A turn input the driver refuses before writing anything to the process (#128).
 public sealed class AgentInputRejectedException(string message) : Exception(message);
 
+// The upstream conversation after a confirmed clear (#120, AD-32): a new Claude session_id or a new Codex thread id.
+public sealed record AgentContextCleared(string UpstreamSessionId);
+
+// The context operation did not happen and the previous context is known to be intact: the session stays usable.
+// Any other failure of a context operation leaves the context uncertain.
+public sealed class AgentContextUnchangedException(string message) : Exception(message);
+
 public enum AgentModeSwitch { Unsupported, Idle, NextTurn }
 
 // Validated protocol capabilities (#61 and #108; docs/spikes/).
@@ -46,17 +53,23 @@ public sealed record AgentDriverCapabilities(bool NativeSteer, bool Approvals, b
     // Codex app-server treats it as plain text.
     public bool CommandsInText { get; init; }
 
+    // Native clear validated in #119 (AD-32): Claude /clear on stream-json, Codex a new thread in the same process.
+    public bool ClearContext { get; init; }
+
     // Claude stream-json: no mid-turn steer; approvals and AskUserQuestion via --permission-prompt-tool stdio.
     // Modes map to --permission-mode manual|auto|plan (AD-18).
     public static AgentDriverCapabilities Claude { get; } = new(NativeSteer: false, Approvals: true, UserInput: true)
     {
-        ModeSwitch = AgentModeSwitch.Idle, CommandsInText = true
+        ModeSwitch = AgentModeSwitch.Idle, CommandsInText = true, ClearContext = true
     };
 
     // Codex app-server: turn/steer; approvals and item/tool/requestUserInput as server requests. User input is
     // EXPERIMENTAL: it needs capabilities.experimentalApi and the plan collaboration mode on 0.157.1.
     // Modes map to approvalPolicy/sandbox and the plan collaboration mode (AD-19).
-    public static AgentDriverCapabilities Codex { get; } = new(NativeSteer: true, Approvals: true, UserInput: true) { ModeSwitch = AgentModeSwitch.NextTurn };
+    public static AgentDriverCapabilities Codex { get; } = new(NativeSteer: true, Approvals: true, UserInput: true)
+    {
+        ModeSwitch = AgentModeSwitch.NextTurn, ClearContext = true
+    };
 
     public static AgentDriverCapabilities For(AgentKind agent) => agent == AgentKind.Codex ? Codex : Claude;
 }
@@ -75,6 +88,11 @@ public interface IAgentSessionDriver : IAsyncDisposable
         Task.FromException(new NotSupportedException("Este agente não suporta troca de modo nesta sessão."));
 
     Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default);
+
+    // Idle only (AD-32). Returns after the upstream confirms an empty conversation, keeping process, directory, model,
+    // effort and mode. AgentContextUnchangedException: nothing changed; any other exception: the context is uncertain.
+    Task<AgentContextCleared> ClearContextAsync(CancellationToken cancellationToken = default) =>
+        Task.FromException<AgentContextCleared>(new NotSupportedException("Este agente não limpa a conversa nesta sessão."));
 
     // Only when Capabilities.NativeSteer; applied at the next model boundary, not preemptively.
     Task SteerAsync(AgentInput input, CancellationToken cancellationToken = default);
