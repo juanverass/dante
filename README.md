@@ -910,8 +910,9 @@ Cota da conta autenticada no Codex deste host, inclusive uso fora do D.A.N.T.E.
 - A consulta não exige conversa ativa e não abre sessão, não inicia turno, não interrompe o agente, não responde
   pedidos pendentes e não altera preferências: o D.A.N.T.E. pergunta à própria CLI num processo curto no workspace
   geral (AD-31). Não há cache: cada `/uso` lê o provedor de novo e mostra o horário da consulta.
-- **Codex**: `account/rateLimits/read` do `app-server`. As janelas são reconhecidas pela duração informada (5 h e
-  7 dias), nunca pela posição; limites de outros buckets aparecem em "Outros limites", sem somar.
+- **Codex**: `account/rateLimits/read` do `app-server`. A cota geral é só a do bucket `codex`, e as janelas são
+  reconhecidas pelas durações comprovadas (5 h e 7 dias), nunca pela posição; outras janelas e outros buckets aparecem
+  em "Outros limites", sem somar nem substituir a cota geral. Percentual fora de 0–100 é tratado como CLI sem suporte.
 - **Claude**: pedido `get_usage` do protocolo stream-json (`five_hour` = janela de sessão, `seven_day` = semana);
   semanas por modelo (Opus, Sonnet e outras informadas pelo provedor) aparecem em "Outros limites", sem substituir a
   semana geral. Esse pedido é **experimental** na CLI: a forma da resposta pode mudar entre versões, e uma resposta

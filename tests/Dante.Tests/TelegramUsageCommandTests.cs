@@ -93,17 +93,24 @@ public sealed class TelegramUsageCommandTests : IAsyncDisposable
             Assert.Contains("S000001", await api.NextMessageAsync());
             api.Enqueue("trabalho longo");
             await Eventually(() => drivers.Created[0].Calls.Contains("turn:trabalho longo"));
+            drivers.Created[0].Emit(new ApprovalRequestedEvent("upstream", AgentToolKind.Command, "dotnet test"));
+            await Eventually(() => sessions!.GetActive(123)!.PendingRequestIds.Count == 1);
             var before = sessions!.GetActive(123)!;
             var calls = drivers.Created[0].Calls;
 
             api.Enqueue("/uso codex");
-            Assert.StartsWith("Uso — Codex", await api.NextMessageAsync());
+            string reply;
+            do reply = await api.NextMessageAsync();
+            while (!reply.StartsWith("Uso — Codex", StringComparison.Ordinal));
 
             var after = sessions.GetActive(123)!;
             Assert.Equal(before.Id, after.Id);
             Assert.Equal(before.State, after.State);
             Assert.Equal(before.ModelLabel, after.ModelLabel);
             Assert.Equal(before.Profile, after.Profile);
+            Assert.Equal(before.PendingRequestIds, after.PendingRequestIds);
+            Assert.NotNull(sessions.GetPendingRequest(123, after.PendingRequestIds.Single()));
+            Assert.Empty(drivers.Created[0].Responses);
             Assert.Equal(calls, drivers.Created[0].Calls);
             Assert.Single(drivers.Created);
             Assert.Empty(jobs.GetVisible());

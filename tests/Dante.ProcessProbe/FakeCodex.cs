@@ -160,7 +160,8 @@ internal static class FakeCodex
                     });
                     break;
                 case "account/rateLimits/read":
-                    // Scenarios: old-cli, no-auth, upstream-error, hang-limits, multi-bucket, short-windows, single-view.
+                    // Scenarios: old-cli, no-auth, upstream-error, hang-limits, multi-bucket, short-windows, single-view,
+                    // percent-out-of-range.
                     if (args.Contains("hang-limits")) break;
                     if (args.Contains("old-cli"))
                     {
@@ -190,7 +191,8 @@ internal static class FakeCodex
                     };
                     var codex = args.Contains("short-windows")
                         ? Bucket("codex", null, Window(25, 15, 4102444800), Window(42, 60, 4102444800))
-                        : Bucket("codex", null, Window(37, 300, 4102444800), Window(62, 10080, 4103049600));
+                        : Bucket("codex", null, Window(37, 300, 4102444800),
+                            Window(args.Contains("percent-out-of-range") ? 140 : 62, 10080, 4103049600));
                     var buckets = new JsonObject { ["codex"] = codex };
                     if (args.Contains("multi-bucket"))
                         buckets["codex_other"] = Bucket("codex_other", "Codex Other", Window(42, 60, 4102444800), null);

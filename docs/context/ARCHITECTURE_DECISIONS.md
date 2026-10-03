@@ -1088,8 +1088,8 @@ Status: vigente (#115, spike; `/uso` com Codex na #116 e Claude na #117). Evidê
 Validado em Claude Code 2.1.287 (claude.ai Pro) e codex-cli 0.159.3 (ChatGPT Plus), sem iniciar turno:
 
 - **Codex**: `account/rateLimits/read` no `app-server`, método documentado e estável. Janelas identificadas pela
-  duração (`windowDurationMins` 300 = sessão de 5 h, 10080 = semana), nunca pela posição `primary`/`secondary`;
-  buckets por `limitId`, o `codex` é a cota geral;
+  duração comprovada (`windowDurationMins` 300 = sessão de 5 h, 10080 = semana), nunca pela posição
+  `primary`/`secondary` nem por ser "curta"; buckets por `limitId`, e só o `codex` é a cota geral;
 - **Claude**: `control_request` `get_usage` (`skip_behaviors: true`) no stream-json. É **experimental** na CLI
   (o SDK o expõe como `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`) e ausente da documentação
   pública; `five_hour` = sessão, `seven_day` = semana geral, semanas por modelo à parte. `rate_limit_event` só
@@ -1108,8 +1108,11 @@ Decisões:
 - Tempo restante calculado do reset real com relógio injetável; reset vencido não é renovação confirmada.
 - Sem cache no D.A.N.T.E.: a resposta mostra o horário da consulta. O Claude Code pode responder com leitura própria
   de até 60 s, ou até 1 h quando o serviço falha, sem sinalizar; isso fica documentado como limite.
+- Nenhum limite substitui outro: sem o bucket `codex`, sessão e semana ficam indisponíveis e os buckets presentes
+  aparecem à parte; janela de duração não comprovada também fica à parte, nunca vira sessão.
 - A forma do `get_usage` é revalidada a cada versão do Claude Code; resposta fora do schema vira "CLI sem suporte",
-  nunca valor inventado.
+  nunca valor inventado. Isso inclui percentual fora de 0–100 (nas duas CLIs, sem corte) e `rate_limits_available`
+  ausente ou não booleano: só `false` explícito é conta sem cota de assinatura.
 
 Por quê: as duas CLIs já sabem ler a cota da conta autenticada sem custo de modelo. Perguntar a elas mantém a
 autenticação e os segredos onde já estão (AD-04) e evita depender de endpoints privados, enquanto o processo
