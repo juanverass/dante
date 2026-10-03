@@ -736,6 +736,106 @@ public sealed class SessionRegistryTests
         Assert.Equal(SubmitOutcome.TurnStarted, (await registry.SubmitAsync(Owner, null, "outro")).Outcome);
     }
 
+    // #120: a confirmed clear keeps the session, its process and its settings, replaces the upstream conversation and
+    // drops the images of the previous one.
+    [Fact]
+    public async Task ClearGivesAnIdleSessionANewUpstreamConversationAndKeepsItsSettings()
+    {
+        var root = Directory.CreateTempSubdirectory("dante-clear-attachments-").FullName;
+        try
+        {
+            await using var registry = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance, sink,
+                attachments: new AttachmentStore(root));
+            var selection = new AgentModelSelection("opus", "high");
+            await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository,
+                Profile: AgentPermissionProfile.Plan, ModelSelection: selection));
+            var driver = drivers.Created.Single();
+            await registry.SubmitAsync(Owner, null, "primeira");
+            driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+            await Eventually(() => registry.GetActive(Owner)!.State == AgentSessionState.Idle);
+            var image = Path.Combine(root, Owner.ToString(), "S000001", "A000001.png");
+            Directory.CreateDirectory(Path.GetDirectoryName(image)!);
+            File.WriteAllBytes(image, TestImages.Png(1, 1));
+
+            var result = await registry.ClearContextAsync(Owner, null);
+
+            Assert.True(result.Accepted);
+            var session = result.Session!;
+            Assert.Equal(("S000001", "upstream-cleared-1", AgentSessionState.Idle),
+                (session.Id, session.UpstreamSessionId, session.State));
+            Assert.Equal((Repository, AgentPermissionProfile.Plan, selection, (AgentTurnOutcome?)null),
+                (session.Context, session.Profile, session.ModelSelection, session.LastTurnOutcome));
+            Assert.False(File.Exists(image));
+            Assert.Equal(["start", "turn:primeira", "clear"], driver.Calls);
+            Assert.Equal(SubmitOutcome.TurnStarted, (await registry.SubmitAsync(Owner, null, "nova")).Outcome);
+            Assert.Single(drivers.Created);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public async Task ClearIsRefusedUnlessTheSessionIsIdle()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var driver = drivers.Created.Single();
+        await registry.SubmitAsync(Owner, null, "tarefa");
+        Assert.Contains("sessão ociosa", (await registry.ClearContextAsync(Owner, null)).Error);
+        await registry.SubmitAsync(Owner, null, "depois");
+        driver.Emit(new ApprovalRequestedEvent("upstream", AgentToolKind.Command, "dotnet test"));
+        await Eventually(() => registry.GetActive(Owner)!.PendingRequestIds.Count == 1);
+        Assert.False((await registry.ClearContextAsync(Owner, null)).Accepted);
+
+        await registry.InterruptAsync(Owner, null);
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Interrupted));
+        await Eventually(() => registry.GetActive(Owner)!.State == AgentSessionState.Idle);
+        // A mode switch waiting for the next Codex turn is not dropped by a clear.
+        await registry.ChangeModeAsync(Owner, null, AgentPermissionProfile.Plan);
+        Assert.Contains("troca de modo aguardando", (await registry.ClearContextAsync(Owner, null)).Error);
+        Assert.DoesNotContain("clear", driver.Calls);
+    }
+
+    [Fact]
+    public async Task ClearTheAgentRefusesKeepsTheSessionAndAnUncertainOneEndsIt()
+    {
+        drivers.Configure = driver => driver.ClearFailure = new AgentContextUnchangedException("conversa anterior mantida");
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+        var refused = await registry.ClearContextAsync(Owner, null);
+        Assert.Equal((false, "conversa anterior mantida", AgentSessionState.Idle),
+            (refused.Accepted, refused.Error, refused.Session!.State));
+        Assert.Equal(SubmitOutcome.TurnStarted, (await registry.SubmitAsync(Owner, null, "segue")).Outcome);
+
+        drivers.Configure = driver => driver.ClearFailure = new TimeoutException();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var uncertain = await registry.ClearContextAsync(Owner, null);
+        Assert.Equal(AgentSessionState.Failed, uncertain.Session!.State);
+        Assert.Contains("contexto incerto", uncertain.Error);
+        Assert.True(drivers.Created[1].Disposed);
+        Assert.Equal(SubmitOutcome.Rejected, (await registry.SubmitAsync(Owner, null, "x")).Outcome);
+    }
+
+    [Fact]
+    public async Task ClearIsOnlyForTheOwnerAndIsSerializedWithMessages()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var driver = drivers.Created.Single();
+        Assert.StartsWith("Sessão S000001 não encontrada", (await registry.ClearContextAsync(Intruder, "S000001")).Error);
+
+        driver.ClearGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var clear = registry.ClearContextAsync(Owner, null);
+        await Eventually(() => driver.Calls.Contains("clear"));
+        var message = registry.SubmitAsync(Owner, null, "nova conversa");
+        await Task.Delay(100);
+        Assert.False(message.IsCompleted);
+        driver.ClearGate.SetResult();
+
+        Assert.True((await clear).Accepted);
+        Assert.Equal(SubmitOutcome.TurnStarted, (await message).Outcome);
+        Assert.Equal(["start", "clear", "turn:nova conversa"], driver.Calls);
+    }
+
     private SessionRegistry CreateRegistry() =>
         new(drivers, NullLogger<SessionRegistry>.Instance, sink);
 

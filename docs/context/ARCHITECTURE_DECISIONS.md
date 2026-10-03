@@ -1122,7 +1122,7 @@ efêmero isola a consulta das sessões vivas.
 
 ## AD-32 — Clear e compact pelos mecanismos nativos de cada CLI, confirmados upstream e só com a sessão ociosa
 
-Status: vigente (#119, spike); orienta #120 (`/clear`) e #121 (`/compact`). Evidências, matriz e contrato em
+Status: vigente (#119, spike; `/clear` implementado na #120); orienta #121 (`/compact`). Evidências, matriz e contrato em
 [`docs/spikes/clear-compact`](../spikes/clear-compact/README.md).
 
 Validado em Claude Code 2.1.287 e codex-cli 0.159.3, no mesmo processo da sessão e com os parâmetros dos drivers:

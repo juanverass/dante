@@ -83,6 +83,47 @@ public sealed class CodexSessionDriverTests
         Assert.Equal(expected, second.OfType<MessageCompletedEvent>().Single().Text);
     }
 
+    // #120: the clear is a new ephemeral thread in the same process with the model and policies of the session; the old
+    // thread is unsubscribed and whatever it still sends is ignored.
+    [Fact]
+    public async Task ClearMovesToANewThreadWithTheSameSettingsAndIgnoresTheOldOne()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new CodexSessionDriver(launcher);
+        var started = await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory,
+            Profile: AgentPermissionProfile.Plan, ModelSelection: new AgentModelSelection("fake-mini")));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("pong");
+        Assert.Equal("pong 1", (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+
+        var cleared = await driver.ClearContextAsync();
+
+        Assert.Equal(("thread-1", "thread-2"), (started.UpstreamSessionId, cleared.UpstreamSessionId));
+        await driver.StartTurnAsync("thread");
+        var turn = await ReadTurnAsync(events);
+        Assert.Equal("thread:thread-2;turn:1;model:fake-mini;sandbox:read-only;unsubscribed:thread-1",
+            turn.OfType<MessageCompletedEvent>().Single().Text);
+        Assert.Single(launcher.Requests);
+    }
+
+    [Theory]
+    [InlineData("reject-clear")]
+    [InlineData("hang-clear")]
+    public async Task ClearTheServerDoesNotConfirmKeepsThePreviousThread(string scenario)
+    {
+        await using var driver = new CodexSessionDriver(new ProbeLauncher(scenario), TimeSpan.FromSeconds(1));
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("pong");
+        await ReadTurnAsync(events);
+
+        await Assert.ThrowsAsync<AgentContextUnchangedException>(() => driver.ClearContextAsync());
+
+        await driver.StartTurnAsync("thread");
+        Assert.StartsWith("thread:thread-1;turn:2;",
+            (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+    }
+
     private const long Owner = 42;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
 

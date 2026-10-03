@@ -91,6 +91,17 @@ public sealed class AgentSession(
         }
     }
 
+    // A confirmed clear (#120) gives the same local session a new upstream conversation.
+    public void ReplaceUpstream(string upstreamSessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(upstreamSessionId);
+        lock (gate)
+        {
+            Require(state == AgentSessionState.Idle && queue.Count == 0 && pending.Count == 0, "limpar");
+            UpstreamSessionId = upstreamSessionId;
+        }
+    }
+
     public SubmitResult Submit(AgentInput input, MessageDelivery delivery = MessageDelivery.Queue)
     {
         ArgumentNullException.ThrowIfNull(input);

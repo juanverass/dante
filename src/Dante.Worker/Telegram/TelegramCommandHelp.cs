@@ -25,6 +25,11 @@ internal static class TelegramCommandHelp
             "Opções omitidas usam suas preferências; overrides valem só para essa sessão. list lista suas sessões; " +
             "select escolhe a sessão; none desmarca. stop [id] interrompe o turno e descarta a fila; close [id] encerra o processo. " +
             "Sem id, stop e close usam a sessão ativa."),
+        new("/clear", "CONVERSA E SESSÕES", "Limpe a conversa da sessão ativa e comece do zero no mesmo contexto.",
+            "/clear", "Sem argumentos. A sessão ativa precisa estar ociosa (sem turno, fila ou pedido pendente). Mantém agente, " +
+            "repositório, modo, modelo e esforço; a conversa upstream é trocada por uma vazia e o histórico anterior não volta. " +
+            "Anexos pendentes são descartados. Arquivos e instruções do repositório continuam disponíveis, e limpar não " +
+            "renova as cotas de uso (/uso)."),
         new("/steer", "CONVERSA E SESSÕES", "Oriente o turno da sessão ativa; no Claude, interrompe e prioriza a orientação.",
             "/steer não altere os arquivos de banco"),
 
