@@ -1117,3 +1117,35 @@ Decisões:
 Por quê: as duas CLIs já sabem ler a cota da conta autenticada sem custo de modelo. Perguntar a elas mantém a
 autenticação e os segredos onde já estão (AD-04) e evita depender de endpoints privados, enquanto o processo
 efêmero isola a consulta das sessões vivas.
+
+## Contexto das sessões (Epic #118)
+
+## AD-32 — Clear e compact pelos mecanismos nativos de cada CLI, confirmados upstream e só com a sessão ociosa
+
+Status: vigente (#119, spike); orienta #120 (`/clear`) e #121 (`/compact`). Evidências, matriz e contrato em
+[`docs/spikes/clear-compact`](../spikes/clear-compact/README.md).
+
+Validado em Claude Code 2.1.287 e codex-cli 0.159.3, no mesmo processo da sessão e com os parâmetros dos drivers:
+
+- **Claude**: `/compact` e `/clear` enviados como mensagem `user` no stream-json, como documenta o Agent SDK. Compact
+  confirma por `compact_boundary` (com `pre_tokens`/`post_tokens`) e mantém o `session_id`; clear confirma por
+  `conversation_reset` e troca o `session_id`;
+- **Codex**: compact por `thread/compact/start`, que roda como um turno próprio com item `contextCompaction`; não há
+  reset de thread, então clear é um novo `thread/start` efêmero no mesmo processo, com as políticas efetivas, seguido de
+  `thread/unsubscribe` da antiga.
+
+Decisões:
+
+- Cada driver implementa `ClearContextAsync`/`CompactContextAsync` com esses mecanismos; o resto do D.A.N.T.E. vê só o
+  resultado neutro (limpo com novo id upstream; compactado com métricas quando o upstream as informa; nada a compactar;
+  falha com contexto anterior intacto; incerto).
+- Sucesso só depois da confirmação upstream. Estado incerto encerra a sessão com erro, como na troca de modo (AD-24).
+- As operações exigem sessão ociosa (sem turno, fila, approval/input, preparação de mídia ou troca de modo pendente) e
+  passam pela mesma serialização do `SessionRegistry`: o Codex interrompe o turno ativo se receber a compactação, e o
+  D.A.N.T.E. não pode depender de recusa upstream.
+- Métrica de redução só do Claude (`compact_metadata`); o Codex não informa e nada é estimado.
+- Texto de usuário que comece com `/` não chega ao Claude em turno ou steer: a CLI o executaria como comando.
+
+Por quê: os dois protocolos já oferecem a operação sem endpoint privado nem prompt improvisado; manter o processo
+preserva modelo, esforço, modo e diretório sem reabrir a sessão, e a confirmação explícita evita anunciar uma limpeza
+ou compactação que não ocorreu.
