@@ -1077,3 +1077,40 @@ segurança da AD-22 mesmo com vários pedidos ou após seleção de outra sessã
 Código: `Telegram/TelegramDeliveryService.Inputs.cs`, `Telegram/TelegramPollingService.Inputs.cs`,
 `Telegram/TelegramInputCallback.cs`, `Telegram/TelegramUpdate.cs`, `Sessions/SessionRegistry.cs`.
 Testes: `TelegramInputInteractionTests`, `TelegramBotApiTests` e regressões de delivery/registry.
+
+## Cotas de uso (Epic #114)
+
+## AD-31 — Cotas da assinatura lidas da própria CLI, em processo efêmero, sem cache e com métrica ausente explícita
+
+Status: vigente (#115, spike); orienta #116 (Codex) e #117 (Claude). Evidências, matriz e contrato completo em
+[`docs/spikes/usage-quotas`](../spikes/usage-quotas/README.md).
+
+Validado em Claude Code 2.1.287 (claude.ai Pro) e codex-cli 0.159.3 (ChatGPT Plus), sem iniciar turno:
+
+- **Codex**: `account/rateLimits/read` no `app-server`, método documentado e estável. Janelas identificadas pela
+  duração (`windowDurationMins` 300 = sessão de 5 h, 10080 = semana), nunca pela posição `primary`/`secondary`;
+  buckets por `limitId`, o `codex` é a cota geral;
+- **Claude**: `control_request` `get_usage` (`skip_behaviors: true`) no stream-json. É **experimental** na CLI
+  (o SDK o expõe como `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`) e ausente da documentação
+  pública; `five_hour` = sessão, `seven_day` = semana geral, semanas por modelo à parte. `rate_limit_event` só
+  existe durante turnos e o `/usage` como prompt devolve texto para humanos, por isso nenhum dos dois é a fonte.
+
+Decisões:
+
+- A consulta roda num processo efêmero da CLI do agente pedido, no General workspace com o ambiente do General Mode
+  (o mesmo caminho do catálogo de modelos, AD-25): usa a conta que atende os agentes, não exige sessão e não toca
+  em sessão, turno, request, modo, modelo ou esforço existentes. O D.A.N.T.E. nunca chama endpoint de uso do
+  provedor diretamente nem lê credenciais.
+- Contrato neutro por agente: janela de sessão, semana e janelas adicionais rotuladas pelo provedor, cada uma com
+  percentual 0–100, reset e duração quando informados, mais o instante da consulta. Métrica ausente é
+  "indisponível" com motivo, nunca zero nem estimativa por tokens/custo; falha de consulta é erro classificado
+  (sem login, sem assinatura, CLI sem suporte, timeout, falha do serviço, cancelamento).
+- Tempo restante calculado do reset real com relógio injetável; reset vencido não é renovação confirmada.
+- Sem cache no D.A.N.T.E.: a resposta mostra o horário da consulta. O Claude Code pode responder com leitura própria
+  de até 60 s, ou até 1 h quando o serviço falha, sem sinalizar; isso fica documentado como limite.
+- A forma do `get_usage` é revalidada a cada versão do Claude Code; resposta fora do schema vira "CLI sem suporte",
+  nunca valor inventado.
+
+Por quê: as duas CLIs já sabem ler a cota da conta autenticada sem custo de modelo. Perguntar a elas mantém a
+autenticação e os segredos onde já estão (AD-04) e evita depender de endpoints privados, enquanto o processo
+efêmero isola a consulta das sessões vivas.
