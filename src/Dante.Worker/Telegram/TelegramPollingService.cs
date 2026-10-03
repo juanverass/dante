@@ -982,6 +982,7 @@ public sealed partial class TelegramPollingService(
             return;
         }
 
+        if (active is not null && await RefusedCommandTextAsync(userId, chatId, active.Agent, text, cancellationToken)) return;
         var sessionId = active?.Id;
         if (sessionId is null)
         {
@@ -1019,6 +1020,8 @@ public sealed partial class TelegramPollingService(
             return null;
         }
         var (agent, context, environment) = (resolved.Agent, resolved.Context!, resolved.Environment);
+        // "@alias /clear" would open a session only to refuse its first message (#128).
+        if (await RefusedCommandTextAsync(userId, chatId, agent, resolved.Prompt, cancellationToken)) return null;
         var mode = DefaultMode(userId);
         await SendTypingAsync(chatId, cancellationToken);
         var modelSelection = await ResolveModelAsync(userId, agent, null, chatId, cancellationToken);
@@ -1145,7 +1148,10 @@ public sealed partial class TelegramPollingService(
         }
         IReadOnlyList<Attachment>? images = [];
         if (sessions.GetActive(userId) is { } active)
+        {
+            if (await RefusedCommandTextAsync(userId, message.Chat.Id, active.Agent, text, cancellationToken)) return;
             images = Adopt(userId, AttachmentContext(userId), active.Id);
+        }
         if (images is null)
         {
             await SendReplyAsync(message.Chat.Id, ImagesUnavailable, cancellationToken);
@@ -1295,6 +1301,17 @@ public sealed partial class TelegramPollingService(
             reply = $"Arquivo não enviado: {error}.";
         }
         await SendReplyAsync(message.Chat.Id, reply, cancellationToken);
+    }
+
+    // Refused before any attachment is taken, any turn is interrupted or any session opens (#128); the registry and the
+    // Claude driver refuse it again, so no other path turns it into a CLI command.
+    private async Task<bool> RefusedCommandTextAsync(long userId, long chatId, AgentKind agent, string text,
+        CancellationToken cancellationToken)
+    {
+        if (!AgentDriverCapabilities.For(agent).CommandsInText || !AgentInput.StartsWithCommand(text)) return false;
+        await SendReplyAsync(chatId, AgentInput.CommandRefusal(agent) +
+            (pending?.Get(userId) is null ? "" : " Os anexos pendentes continuam guardados."), cancellationToken);
+        return true;
     }
 
     private const string ImagesUnavailable = "Não foi possível preparar as imagens pendentes; nada foi enviado ao agente.";

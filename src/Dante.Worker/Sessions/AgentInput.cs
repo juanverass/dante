@@ -1,3 +1,4 @@
+using Dante.Worker.Agents;
 using Dante.Worker.Attachments;
 
 namespace Dante.Worker.Sessions;
@@ -7,4 +8,13 @@ namespace Dante.Worker.Sessions;
 public sealed record AgentInput(string Text, IReadOnlyList<Attachment> Attachments)
 {
     public static implicit operator AgentInput(string text) => new(text, []);
+
+    // Claude Code runs a user message that starts with "/" as one of its own commands (/clear, /compact…), changing the
+    // conversation without the D.A.N.T.E. knowing (#119, AD-32). Leading blanks are ignored, like a prefix the user
+    // cannot see.
+    public static bool StartsWithCommand(string text) => text.TrimStart().StartsWith('/');
+
+    public static string CommandRefusal(AgentKind agent) =>
+        $"Mensagem não enviada: o {agent} executaria texto iniciado por \"/\" como comando da própria CLI (como /clear " +
+        "ou /compact) e mudaria a conversa sem o D.A.N.T.E. acompanhar. Reescreva sem a barra no início.";
 }
