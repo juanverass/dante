@@ -11,7 +11,7 @@ using Microsoft.Extensions.Options;
 
 namespace Dante.Tests;
 
-// /uso claude|codex (#116) through the Telegram polling loop: one command, never a prompt, and no effect on sessions.
+// /uso claude|codex (#116, #117) through the Telegram polling loop: one command, never a prompt, no effect on sessions.
 public sealed class TelegramUsageCommandTests : IAsyncDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "dante-uso-" + Guid.NewGuid().ToString("N"));
@@ -55,9 +55,9 @@ public sealed class TelegramUsageCommandTests : IAsyncDisposable
                               "Janela de sessão renova em: 2h ", text);
             Assert.Contains("Consultado agora", text);
 
-            api.Enqueue("/uso claude");
-            Assert.Equal("Uso — Claude\nNão foi possível consultar as cotas: " +
-                         "a consulta de cotas do Claude ainda não está disponível no D.A.N.T.E.", await api.NextMessageAsync());
+            api.Enqueue("/uso CLAUDE");
+            Assert.StartsWith("Uso — Claude\nJanela de sessão (5h): 41% do limite utilizado\nSemana: 58% do limite utilizado\n",
+                await api.NextMessageAsync());
             Assert.Equal([AgentKind.Codex, AgentKind.Claude], reader.Queries);
             Assert.Empty(drivers.Created);
             Assert.Empty(jobs.GetVisible());
@@ -133,7 +133,7 @@ public sealed class TelegramUsageCommandTests : IAsyncDisposable
         finally { await service.StopAsync(CancellationToken.None); }
     }
 
-    private TelegramPollingService CreateService()
+    private TelegramPollingService CreateService(IUsageQuotaReader? usage = null)
     {
         var options = Options.Create(new TelegramOptions { BotToken = "test", AllowedUserIds = "123" });
         var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance);
@@ -141,7 +141,7 @@ public sealed class TelegramUsageCommandTests : IAsyncDisposable
         return new TelegramPollingService(api, options, new TelegramUserAuthorizer(options), Runner.Instance,
             Runner.Instance, jobs, NullLogger<TelegramPollingService>.Instance, null,
             new GeneralWorkspace(Path.Combine(root, "general")), new AssistantSettingsStore(Path.Combine(root, "s.json")),
-            sessions, delivery, usage: reader);
+            sessions, delivery, usage: usage ?? reader);
     }
 
     private static async Task Eventually(Func<bool> condition)
@@ -156,7 +156,57 @@ public sealed class TelegramUsageCommandTests : IAsyncDisposable
         if (Directory.Exists(root)) Directory.Delete(root, true);
     }
 
-    // Answers Codex like the provider would and refuses Claude like the reader of #116.
+    [Fact]
+    public async Task BothArgumentsReachTheirOwnCliThroughTheRealReaderWithoutMixingResults()
+    {
+        var launcher = new UsageQuotaReaderTests.ProbeLauncher();
+        using var service = CreateService(new UsageQuotaReader(launcher, new GeneralWorkspace(Path.Combine(root, "general"))));
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            api.Enqueue("/uso claude");
+            var claude = await api.NextMessageAsync();
+            api.Enqueue("/uso codex");
+            var codex = await api.NextMessageAsync();
+
+            Assert.StartsWith("Uso — Claude\nJanela de sessão (5h): 41% do limite utilizado\nSemana: 58% do limite utilizado\n" +
+                              "Janela de sessão renova em: ", claude);
+            Assert.Contains("A CLI do Claude pode responder com uma leitura própria", claude);
+            Assert.StartsWith("Uso — Codex\nJanela de sessão (5h): 37% do limite utilizado\nSemana: 62% do limite utilizado\n" +
+                              "Janela de sessão renova em: ", codex);
+            Assert.DoesNotContain("37%", claude);
+            Assert.DoesNotContain("41%", codex);
+            Assert.DoesNotContain("fake@example.invalid", claude + codex);
+            Assert.Equal([AgentKind.Claude, AgentKind.Codex], launcher.Requests.Select(request => request.Agent));
+            Assert.Empty(drivers.Created);
+            Assert.Empty(jobs.GetVisible());
+        }
+        finally { await service.StopAsync(CancellationToken.None); }
+    }
+
+    [Fact]
+    public async Task UsoIsTheOnlyUsageCommand()
+    {
+        Assert.Equal(["/uso"], TelegramCommandHelp.Entries
+            .Where(entry => entry.Command.Contains("uso") || entry.Command.Contains("usage") ||
+                            entry.Description.Contains("cota", StringComparison.OrdinalIgnoreCase))
+            .Select(entry => entry.Command));
+        using var service = CreateService();
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            foreach (var command in new[] { "/usage claude", "/uso-claude", "/uso-codex", "/cota codex" })
+            {
+                api.Enqueue(command);
+                Assert.StartsWith("Comando desconhecido", await api.NextMessageAsync());
+            }
+            Assert.Empty(reader.Queries);
+            Assert.Empty(drivers.Created);
+        }
+        finally { await service.StopAsync(CancellationToken.None); }
+    }
+
+    // Answers each agent like its provider would, with different values so that results cannot be mixed up.
     private sealed class Reader : IUsageQuotaReader
     {
         private readonly ConcurrentQueue<AgentKind> queries = new();
@@ -166,14 +216,12 @@ public sealed class TelegramUsageCommandTests : IAsyncDisposable
         public Task<UsageReport> ReadAsync(AgentKind agent, CancellationToken cancellationToken = default)
         {
             queries.Enqueue(agent);
-            if (agent == AgentKind.Claude)
-                throw new UsageQueryException(UsageQueryFailure.Unsupported,
-                    "a consulta de cotas do Claude ainda não está disponível no D.A.N.T.E.");
             if (Failure is not null) throw Failure;
             var now = DateTimeOffset.UtcNow;
+            var (session, week) = agent == AgentKind.Codex ? (37, 62) : (41, 58);
             return Task.FromResult(new UsageReport(agent, now,
-                QuotaMetric.Of(new QuotaWindow(37, now + new TimeSpan(2, 13, 50), TimeSpan.FromHours(5))),
-                QuotaMetric.Of(new QuotaWindow(62, now + TimeSpan.FromDays(4), TimeSpan.FromDays(7))), []));
+                QuotaMetric.Of(new QuotaWindow(session, now + new TimeSpan(2, 13, 50), TimeSpan.FromHours(5))),
+                QuotaMetric.Of(new QuotaWindow(week, now + TimeSpan.FromDays(4), TimeSpan.FromDays(7))), []));
         }
     }
 
