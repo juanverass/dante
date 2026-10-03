@@ -184,6 +184,11 @@ public sealed class UsageQuotaReaderTests : IDisposable
     [InlineData("api-key", UsageQueryFailure.NoSubscription, "API key")]
     [InlineData("old-cli", UsageQueryFailure.Unsupported, "atualize a CLI")]
     [InlineData("usage-down", UsageQueryFailure.Failed, "tente novamente")]
+    // An unknown shape of the experimental answer is never read as an account without subscription.
+    [InlineData("usage-empty", UsageQueryFailure.Unsupported, "versão da CLI")]
+    [InlineData("usage-no-discriminator", UsageQueryFailure.Unsupported, "versão da CLI")]
+    [InlineData("usage-null-discriminator", UsageQueryFailure.Unsupported, "versão da CLI")]
+    [InlineData("percent-out-of-range", UsageQueryFailure.Unsupported, "versão da CLI")]
     public async Task ClaudeFailuresAreClassifiedWithoutAccountData(string scenario, UsageQueryFailure failure,
         string hint)
     {
@@ -219,11 +224,22 @@ public sealed class UsageQuotaReaderTests : IDisposable
             {"rate_limits":{"five_hour":{"utilization":"dez"}}}
             """)!.AsObject(), Now));
 
+        // The reviewer's case: 150/200 are refused, never shown as quotas nor clamped; additional limits too.
+        Assert.Throws<FormatException>(() => UsageQuotaReader.ParseClaude(JsonNode.Parse("""
+            {"rate_limits":{"five_hour":{"utilization":150},"seven_day":{"utilization":200}}}
+            """)!.AsObject(), Now));
+        Assert.Throws<FormatException>(() => UsageQuotaReader.ParseClaude(JsonNode.Parse("""
+            {"rate_limits":{"five_hour":{"utilization":10},"seven_day":{"utilization":-3}}}
+            """)!.AsObject(), Now));
+        Assert.Throws<FormatException>(() => UsageQuotaReader.ParseClaude(JsonNode.Parse("""
+            {"rate_limits":{"five_hour":{"utilization":10},"seven_day_opus":{"utilization":101}}}
+            """)!.AsObject(), Now));
+
         var report = UsageQuotaReader.ParseClaude(JsonNode.Parse("""
-            {"rate_limits":{"five_hour":{"utilization":null,"resets_at":null},"seven_day":{"utilization":-3}}}
+            {"rate_limits":{"five_hour":{"utilization":null,"resets_at":null},"seven_day":{"utilization":100}}}
             """)!.AsObject(), Now);
         Assert.Equal("o Claude não informou a janela de sessão", report.Session.UnavailableReason);
-        Assert.Equal("o Claude não informou a janela semanal", report.Weekly.UnavailableReason);
+        Assert.Equal(100, report.Weekly.Window!.UsedPercent);
     }
 
     [Fact]

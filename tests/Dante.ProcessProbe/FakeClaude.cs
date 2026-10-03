@@ -73,7 +73,8 @@ internal static class FakeClaude
                     }
                     if ((string?)request["subtype"] == "get_usage")
                     {
-                        // Scenarios: old-cli, hang-usage, api-key, no-auth, usage-down, partial-usage, model-limits.
+                        // Scenarios: old-cli, hang-usage, api-key, no-auth, usage-down, partial-usage, model-limits,
+                        // usage-empty, usage-no-discriminator, usage-null-discriminator, percent-out-of-range.
                         if (args.Contains("hang-usage")) break;
                         Send(args.Contains("old-cli")
                             ? ControlResponse((string)message["request_id"]!, "error",
@@ -323,6 +324,11 @@ internal static class FakeClaude
             ["utilization"] = utilization, ["resets_at"] = resetsAt, ["limit_dollars"] = null
         };
 
+        if (args.Contains("usage-empty")) return new JsonObject();
+        if (args.Contains("usage-no-discriminator"))
+            return new JsonObject { ["subscription_type"] = "pro", ["rate_limits"] = new JsonObject() };
+        if (args.Contains("usage-null-discriminator"))
+            return new JsonObject { ["subscription_type"] = "pro", ["rate_limits_available"] = null, ["rate_limits"] = null };
         if (args.Contains("api-key") || args.Contains("no-auth"))
             return new JsonObject { ["subscription_type"] = null, ["rate_limits_available"] = false, ["rate_limits"] = null };
         if (args.Contains("usage-down"))
@@ -332,7 +338,7 @@ internal static class FakeClaude
             : new JsonObject
             {
                 ["five_hour"] = Window(41, "2100-01-01T05:19:59.531475+00:00"),
-                ["seven_day"] = Window(58, "2100-01-03T04:59:59.531502+00:00"),
+                ["seven_day"] = Window(args.Contains("percent-out-of-range") ? 150 : 58, "2100-01-03T04:59:59.531502+00:00"),
                 ["seven_day_opus"] = args.Contains("model-limits") ? Window(73.5, "2100-01-03T04:59:59+00:00") : null,
                 ["seven_day_sonnet"] = null,
                 ["seven_day_oauth_apps"] = null,

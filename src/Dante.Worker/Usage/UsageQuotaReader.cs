@@ -156,8 +156,16 @@ public sealed class UsageQuotaReader(
                     "o Claude Code não informou as cotas; tente novamente em instantes");
         }
 
-        if (usage["rate_limits_available"]?.GetValue<bool>() != true)
-            throw ClaudeWithoutSubscription(initialized["account"] as JsonObject);
+        // The experimental answer must carry its boolean discriminator; anything else is an unknown shape, not an
+        // account without subscription.
+        if (usage["rate_limits_available"] is not JsonValue discriminator ||
+            !discriminator.TryGetValue<bool>(out var available))
+        {
+            throw new UsageQueryException(UsageQueryFailure.Unsupported,
+                "o Claude Code respondeu às cotas num formato desconhecido; confira a versão da CLI");
+        }
+
+        if (!available) throw ClaudeWithoutSubscription(initialized["account"] as JsonObject);
         var queriedAt = time.GetUtcNow();
         await process.StopAsync(CloseGracePeriod);
         return ParseClaude(usage, queriedAt);
@@ -218,8 +226,7 @@ public sealed class UsageQuotaReader(
     private static QuotaWindow? ClaudeWindow(JsonNode? node, TimeSpan duration)
     {
         if (node is not JsonObject window || window["utilization"] is not JsonValue used) return null;
-        var percent = used.GetValue<decimal>();
-        if (percent < 0) return null;
+        var percent = Percent(used);
         return new QuotaWindow(percent,
             (string?)window["resets_at"] is { } resetsAt
                 ? DateTimeOffset.Parse(resetsAt, System.Globalization.CultureInfo.InvariantCulture)
