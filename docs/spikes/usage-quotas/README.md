@@ -68,8 +68,10 @@ Semântica comprovada:
   **não** define tipo. A janela é identificada pela duração (`windowDurationMins`): 300 = 5 h (sessão),
   10080 = 7 dias (semana), como os rótulos "5-hour" / "Weekly" da própria CLI;
 - `usedPercent` é inteiro 0–100 do limite já usado; `resetsAt` é Unix em segundos;
-- buckets diferentes nunca se somam: o `codex` é o da cota geral, os demais são exibidos à parte pelo
-  `limitName`/`limitId`;
+- buckets diferentes nunca se somam nem se substituem: só o `limitId` `codex` é a cota geral, e os demais
+  (inclusive um bucket diferente que venha sozinho) são exibidos à parte pelo `limitName`/`limitId`;
+- só as durações comprovadas classificam janelas: 300 min é a sessão e 10080 min é a semana. Uma janela curta de
+  outra duração (como os 15 e 60 min do exemplo oficial) não é tratada como sessão: fica à parte;
 - `rateLimitResetCredits`, `credits` e `individualLimit` são créditos/gastos, não consumo da cota.
 
 ## Claude — `get_usage` no stream-json (experimental)
@@ -172,9 +174,15 @@ Regras:
 - **valor × indisponível × erro.** Métrica ausente é `indisponível` com motivo; nunca 0 %, 100 % ou
   estimativa por tokens/custo local. Erro de consulta não traz métricas. Falha de uma métrica não
   derruba as outras;
-- **identificação.** Codex: bucket `codex` (ou o único bucket); sessão = janela de duração menor que um
-  dia, semana = janela de 10080 min; janela sem duração não é classificada. Claude: `five_hour` e
-  `seven_day`. Escala sempre normalizada para 0–100;
+- **identificação.** Codex: a cota geral é só o bucket de `limitId` `codex` (na visão por bucket ou na visão
+  única); sem ele, sessão e semana ficam indisponíveis e todo bucket presente vai para `Additional`. Sessão =
+  janela de 300 min, semana = janela de 10080 min; qualquer outra duração, ou janela sem duração, vai para
+  `Additional`, e duas janelas com a mesma duração comprovada tornam a métrica indisponível. Claude:
+  `five_hour` e `seven_day`;
+- **domínio.** Percentual válido é 0–100 na escala da fonte (`usedPercent` do Codex, `utilization` do
+  `get_usage`); fora disso a resposta é "CLI sem suporte", sem corte nem normalização. No Claude, o
+  discriminador `rate_limits_available` precisa ser booleano: só `false` significa conta sem cota de
+  assinatura; ausente, nulo ou de outro tipo é "CLI sem suporte";
 - **tempo restante** = `ResetsAt − agora`, com relógio injetável, em unidade humana ("2h 13min",
   "menos de 1 min", "3d 4h"). Reset no passado não é renovação confirmada nem duração negativa: vira
   "horário de renovação já passou; consulte de novo";
@@ -182,7 +190,7 @@ Regras:
   O frescor interno do Claude fica documentado;
 - **erros acionáveis**: sem login → orientar login na CLI do host; API key/sem assinatura → "cota de
   assinatura indisponível para este tipo de autenticação"; método ausente → "atualize a CLI"; timeout
-  (30 s) e falha do serviço → tentar de novo; cancelamento → nada exibido;
+  (20 s) e falha do serviço → tentar de novo; cancelamento → nada exibido;
 - **confidencialidade**: e-mail, ids de conta/organização e créditos não aparecem na resposta nem em
   log.
 
