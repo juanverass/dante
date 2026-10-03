@@ -19,12 +19,17 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | MVP 3 — Conversational Context (Epic #32) | concluído (#33–#38); fechamento da Epic por decisão humana |
 | Interactive Agent Sessions (Epic #60) | concluído |
 | Mídias no Telegram (Epic #92) | em andamento: spike #93, recebimento #94, imagens aos agentes #95, áudio e vídeo #96, artefatos #97 e imagem para LinkedIn #98 entregues; #99 pendente |
-| Cotas de uso pelo `/uso` (Epic #114) | em andamento: spike #115 (AD-31) concluído; `/uso` com Codex (#116) e Claude (#117) pendentes |
+| Cotas de uso pelo `/uso` (Epic #114) | em andamento: spike #115 (AD-31) e `/uso` com Codex (#116) entregues; Claude (#117) pendente |
 
 ## Funcionalidades disponíveis
 
 - bot Telegram por long polling com allowlist de usuários;
 - `/ping`;
+- `/uso claude|codex` (#116, AD-31): percentual usado da janela de sessão do provedor e da semana, e tempo até a
+  janela de sessão renovar, da conta autenticada na CLI (inclusive uso fora do D.A.N.T.E.). Consulta num processo
+  efêmero da CLI no workspace geral, sem sessão, turno ou cache; janelas do Codex reconhecidas pela duração e outros
+  buckets à parte; métrica ausente é "indisponível", reset vencido não é renovação, e erros de login, API key, CLI
+  antiga, timeout (20 s) e serviço são acionáveis. O Claude ainda responde indisponível (#117);
 - `/help` mostra comandos por categoria com descrições, exemplos fictícios e escopo das
   preferências/sessões/jobs; `/help comando` ou `/help /comando` detalha a sintaxe sem consultar
   dados locais; comandos desconhecidos orientam para `/help` (#106);
@@ -166,23 +171,26 @@ Detalhes de uso: [README](../../README.md).
 ## Em andamento
 
 - **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94), imagens aos agentes (#95), áudio e vídeo (#96), artefatos (#97) e imagem para LinkedIn (#98) entregues; validação final (#99) pendente.
-- **Epic #114 — Cotas de uso pelo `/uso`**: o spike #115 comprovou consulta sem turno das janelas de sessão (5 h) e semanal nas duas CLIs — Codex por `account/rateLimits/read`, Claude pelo `get_usage` experimental — e definiu o contrato neutro (AD-31, [`docs/spikes/usage-quotas`](../spikes/usage-quotas/README.md)); comando `/uso` com Codex (#116) e Claude (#117) pendentes.
+- **Epic #114 — Cotas de uso pelo `/uso`**: spike #115 (AD-31, [`docs/spikes/usage-quotas`](../spikes/usage-quotas/README.md)) e `/uso` com Codex (#116) entregues; integração do Claude (#117) pendente.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #104, #105, #106, #108, #96 e #98:
+Estado conhecido com #104, #105, #106, #108, #96, #98 e #116:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    644 testes aprovados, 14 pulados (evidência com CLIs e ferramentas reais, opt-in)
+dotnet test Dante.sln    673 testes aprovados, 15 pulados (evidência com CLIs e ferramentas reais, opt-in)
 ```
 
 `LiveSessionModeEvidenceTests` (#108), opt-in com `DANTE_LIVE_CLI=1`, passou para Claude Code
 2.1.287 e Codex 0.159.3 nas seis transições dirigidas entre modos, mantendo conversa e esforço
 `high` no mesmo processo/session/thread.
+
+`LiveUsageEvidenceTests` (#116), opt-in com `DANTE_LIVE_CLI=1`, passou em 2026-10-02 com codex-cli 0.159.3 (login
+ChatGPT, plano Plus): janela de sessão de 5 h, semana de 7 dias e reset lidos pelo leitor de produção, sem turno.
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
 `SessionRegistry` → drivers reais → CLIs simuladas do `Dante.ProcessProbe`).

@@ -5,6 +5,7 @@ using Dante.Worker.Jobs;
 using Dante.Worker.Repositories;
 using Dante.Worker.Sessions;
 using Dante.Worker.Settings;
+using Dante.Worker.Usage;
 using System.Text;
 using System.Net;
 using Microsoft.Extensions.Options;
@@ -30,7 +31,8 @@ public sealed partial class TelegramPollingService(
     PendingAttachments? pendingAttachments = null,
     ArtifactStore? artifacts = null,
     MediaPreparer? media = null,
-    TelegramShowcase? showcase = null) : BackgroundService
+    TelegramShowcase? showcase = null,
+    IUsageQuotaReader? usage = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private const string EffortOption = "effort=";
@@ -215,6 +217,12 @@ public sealed partial class TelegramPollingService(
         {
             foreach (var part in TelegramCommandHelp.Messages(prompt))
                 await SendLongMessageAsync(message.Chat.Id, part, cancellationToken);
+            return;
+        }
+
+        if (string.Equals(command, "/uso", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendReplyAsync(message.Chat.Id, await HandleUsageCommandAsync(prompt, cancellationToken), cancellationToken);
             return;
         }
 

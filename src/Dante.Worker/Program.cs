@@ -7,6 +7,7 @@ using Dante.Worker.Repositories;
 using Dante.Worker.Sessions;
 using Dante.Worker.Settings;
 using Dante.Worker.Telegram;
+using Dante.Worker.Usage;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddSingleton<IAgentExecutableResolver, AgentExecutableResolver>();
@@ -16,6 +17,7 @@ builder.Services.AddSingleton<GeneralWorkspace>();
 builder.Services.AddSingleton<ICodexRunner, CodexRunner>();
 builder.Services.AddSingleton<IClaudeRunner, ClaudeRunner>();
 builder.Services.AddSingleton<IAgentModelCatalog, AgentModelCatalog>();
+builder.Services.AddSingleton<IUsageQuotaReader, UsageQuotaReader>();
 builder.Services.AddSingleton<JobRegistry>();
 builder.Services.AddSingleton<IMediaTools>(_ => new MediaTools());
 builder.Services.AddSingleton<MediaPreparer>();
