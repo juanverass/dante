@@ -86,6 +86,9 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentException.ThrowIfNullOrWhiteSpace(input.Text);
+        // Defense in depth (#128): the registry refuses it first; nothing is written and no turn starts here.
+        if (AgentInput.StartsWithCommand(input.Text))
+            throw new AgentInputRejectedException(AgentInput.CommandRefusal(AgentKind.Claude));
         var agent = RequireOpen();
         var content = await ContentAsync(input, cancellationToken);
         lock (gate)

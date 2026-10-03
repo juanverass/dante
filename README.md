@@ -1038,6 +1038,11 @@ falha de entrega aparece em `/status` separadamente do resultado da execução; 
 novamente as partes ainda não entregues. Resultados recentes ficam em memória enquanto o Worker
 está vivo.
 
+Numa sessão do Claude, texto que comece com `/` (mesmo depois de espaços) nunca é enviado: a CLI do Claude o
+executaria como comando próprio — `/steer /clear` limparia ou compactaria a conversa sem o D.A.N.T.E. acompanhar.
+O bot recusa antes de interromper o turno, mexer na fila ou levar anexos, que continuam pendentes; reescreva sem a
+barra no início. No Codex esse texto é uma mensagem comum (AD-32, #128).
+
 O modo `manual` é o padrão recomendado; os modos estão descritos em
 [Modos de trabalho](#modos-de-trabalho). O acesso `full` não é oferecido, e o fluxo one-shot
 continua independente dessas escolhas.

@@ -662,6 +662,80 @@ public sealed class SessionRegistryTests
         Assert.DoesNotContain(listed, session => session.Id is "S000001" or "S000002");
     }
 
+    // #128: refused before the state machine sees it, idle or not, as a turn, a queued message or a steer.
+    [Theory]
+    [InlineData("/clear", MessageDelivery.Queue)]
+    [InlineData("  /compact", MessageDelivery.Steer)]
+    public async Task ClaudeCommandTextIsRefusedWhileIdleWithoutOpeningATurn(string text, MessageDelivery delivery)
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+        var driver = drivers.Created.Single();
+
+        var refused = await registry.SubmitAsync(Owner, null, text, delivery);
+
+        Assert.Equal(SubmitOutcome.Rejected, refused.Outcome);
+        Assert.Equal(AgentInput.CommandRefusal(AgentKind.Claude), refused.Error);
+        Assert.Equal(["start"], driver.Calls);
+        var session = registry.GetActive(Owner)!;
+        Assert.Equal((AgentSessionState.Idle, null, 0), (session.State, session.ActiveTurnId, session.QueuedCount));
+        var next = await registry.SubmitAsync(Owner, null, "explique a/b");
+        Assert.Equal((SubmitOutcome.TurnStarted, "T000001"), (next.Outcome, next.TurnId));
+    }
+
+    [Fact]
+    public async Task ClaudeCommandTextDuringATurnLeavesTheTurnQueueAndRequestsUntouched()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+        var driver = drivers.Created.Single();
+        await registry.SubmitAsync(Owner, null, "tarefa");
+        await registry.SubmitAsync(Owner, null, "depois");
+
+        // A steer would interrupt the Claude turn (no native steer): the refusal comes first.
+        var steer = await registry.SubmitAsync(Owner, null, "/clear", MessageDelivery.Steer);
+        var queued = await registry.SubmitAsync(Owner, null, "/compact");
+        driver.Emit(new ApprovalRequestedEvent("upstream", AgentToolKind.Command, "dotnet test"));
+        await Eventually(() => registry.GetActive(Owner)!.PendingRequestIds.Count == 1);
+        var waiting = await registry.SubmitAsync(Owner, null, "\t/clear", MessageDelivery.Steer);
+
+        Assert.All([steer, queued, waiting], result => Assert.Equal(AgentInput.CommandRefusal(AgentKind.Claude), result.Error));
+        Assert.Equal(["start", "turn:tarefa"], driver.Calls);
+        var session = registry.GetActive(Owner)!;
+        Assert.Equal(("T000001", 1, 1), (session.ActiveTurnId, session.QueuedCount, session.PendingRequestIds.Count));
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        await Eventually(() => driver.Calls.Contains("turn:depois"));
+    }
+
+    [Fact]
+    public async Task CodexKeepsTextStartingWithASlashAsAnOrdinaryMessage()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+
+        var turn = await registry.SubmitAsync(Owner, null, "/clear");
+
+        Assert.Equal(SubmitOutcome.TurnStarted, turn.Outcome);
+        Assert.Contains("turn:/clear", drivers.Created.Single().Calls);
+    }
+
+    [Fact]
+    public async Task InputTheDriverRefusesEndsOnlyThatTurnAndKeepsTheSessionUsable()
+    {
+        // Defense in depth: a driver refusal never reaches the process, so it is not a broken session.
+        drivers.Configure = driver => driver.TurnFailure = new AgentInputRejectedException("recusado pelo driver");
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var driver = drivers.Created.Single();
+
+        var refused = await registry.SubmitAsync(Owner, null, "texto");
+
+        Assert.Equal((SubmitOutcome.Rejected, "recusado pelo driver"), (refused.Outcome, refused.Error));
+        Assert.Equal(AgentSessionState.Idle, registry.GetActive(Owner)!.State);
+        driver.TurnFailure = null;
+        Assert.Equal(SubmitOutcome.TurnStarted, (await registry.SubmitAsync(Owner, null, "outro")).Outcome);
+    }
+
     private SessionRegistry CreateRegistry() =>
         new(drivers, NullLogger<SessionRegistry>.Instance, sink);
 

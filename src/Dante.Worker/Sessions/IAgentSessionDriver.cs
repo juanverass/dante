@@ -21,6 +21,9 @@ public sealed class AgentModeUnconfirmedException(string message) : Exception(me
 // A steer refused locally before changing the active turn.
 public sealed class AgentSteerRejectedException(string message) : Exception(message);
 
+// A turn input the driver refuses before writing anything to the process (#128).
+public sealed class AgentInputRejectedException(string message) : Exception(message);
+
 public enum AgentModeSwitch { Unsupported, Idle, NextTurn }
 
 // Validated protocol capabilities (#61 and #108; docs/spikes/).
@@ -39,9 +42,16 @@ public sealed record AgentDriverCapabilities(bool NativeSteer, bool Approvals, b
     // (MediaPreparingSessionDriver). No CLI receives them natively, so only that wrapper declares it.
     public bool MediaInput { get; init; }
 
+    // The CLI runs user text that starts with "/" as its own command (Claude, #119): such text never becomes a turn.
+    // Codex app-server treats it as plain text.
+    public bool CommandsInText { get; init; }
+
     // Claude stream-json: no mid-turn steer; approvals and AskUserQuestion via --permission-prompt-tool stdio.
     // Modes map to --permission-mode manual|auto|plan (AD-18).
-    public static AgentDriverCapabilities Claude { get; } = new(NativeSteer: false, Approvals: true, UserInput: true) { ModeSwitch = AgentModeSwitch.Idle };
+    public static AgentDriverCapabilities Claude { get; } = new(NativeSteer: false, Approvals: true, UserInput: true)
+    {
+        ModeSwitch = AgentModeSwitch.Idle, CommandsInText = true
+    };
 
     // Codex app-server: turn/steer; approvals and item/tool/requestUserInput as server requests. User input is
     // EXPERIMENTAL: it needs capabilities.experimentalApi and the plan collaboration mode on 0.157.1.

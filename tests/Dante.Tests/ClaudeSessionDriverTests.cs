@@ -89,6 +89,32 @@ public sealed class ClaudeSessionDriverTests
         finally { Directory.Delete(directory, true); }
     }
 
+    // #128: Claude would run it as /clear or /compact. The driver refuses it before writing, so the fake counts the
+    // next turn as the first one.
+    [Theory]
+    [InlineData("/clear", false)]
+    [InlineData("  /compact", false)]
+    [InlineData("\n/clear agora", false)]
+    [InlineData("/clear", true)]
+    public async Task UserTextStartingWithACommandNeverReachesTheProcess(string text, bool withImage)
+    {
+        await using var driver = new ClaudeSessionDriver(new ProbeLauncher());
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        IReadOnlyList<Attachment> images = withImage
+            ? [new Attachment("A000001", Owner, AttachmentKind.Image, "image/png", "/nao/existe.png", 10, 10, 10, null)]
+            : [];
+
+        var exception = await Assert.ThrowsAsync<AgentInputRejectedException>(() =>
+            driver.StartTurnAsync(new AgentInput(text, images)));
+
+        Assert.Contains("barra no início", exception.Message);
+        await driver.StartTurnAsync("pong");
+        var turn = await ReadTurnAsync(events);
+        Assert.Single(turn.OfType<TurnStartedEvent>());
+        Assert.Equal("pong 1", turn.OfType<MessageCompletedEvent>().Single().Text);
+    }
+
     private const long Owner = 42;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
 

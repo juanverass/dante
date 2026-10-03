@@ -96,7 +96,9 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   para aquela execução (#38).
 - `/session start|list|select|stop|close` e `/steer`, com fila durante o turno e eventos
   agrupados no Telegram em linhas inteiras; `/agent set` e `/use` avisam quando a sessão ativa
-  continua com outro agente ou contexto;
+  continua com outro agente ou contexto; numa sessão Claude, texto de usuário iniciado por `/` (inclusive em
+  `/steer` e com anexos) é recusado antes de interromper, enfileirar, levar anexos ou escrever ao processo, porque a
+  CLI o executaria como comando (#128, AD-32); no Codex segue como texto;
 - entrega de resultados de jobs e eventos de sessão com retry/backoff, estado independente
   da execução em `/status` e recuperação de partes pendentes por `/resend` (AD-21).
 - `/mode` consulta e escolhe o modo de trabalho das novas sessões — `manual` (aprovação), `auto`
@@ -184,11 +186,11 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #104, #105, #106, #108, #96, #98, #116 e #117:
+Estado conhecido com #104, #105, #106, #108, #96, #98, #116, #117 e #128:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    694 testes aprovados, 16 pulados (evidência com CLIs e ferramentas reais, opt-in)
+dotnet test Dante.sln    705 testes aprovados, 16 pulados (evidência com CLIs e ferramentas reais, opt-in)
 ```
 
 `LiveSessionModeEvidenceTests` (#108), opt-in com `DANTE_LIVE_CLI=1`, passou para Claude Code

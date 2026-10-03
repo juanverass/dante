@@ -160,6 +160,12 @@ public sealed class SessionRegistry(
             return SessionSubmitResult.Reject(error!, sessionId);
         }
 
+        // Refused before the state machine sees it (#128): no turn opens, no turn is interrupted, nothing is queued.
+        if (entry.Driver.Capabilities.CommandsInText && AgentInput.StartsWithCommand(input.Text))
+        {
+            return SessionSubmitResult.Reject(AgentInput.CommandRefusal(entry.Session.Agent), entry.Session.Id);
+        }
+
         // An attachment the agent cannot receive is refused, never reduced to its file name (AD-29).
         if (input.Attachments.Any(attachment => attachment.OwnerId != userId))
         {
@@ -221,6 +227,13 @@ public sealed class SessionRegistry(
                     await entry.Driver.InterruptTurnAsync(cancellationToken);
                     break;
             }
+        }
+        catch (AgentInputRejectedException exception) when (result.Outcome == SubmitOutcome.TurnStarted)
+        {
+            // The driver wrote nothing: the turn opened here ends without reaching the agent, and the session stays usable.
+            var completed = session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Failed, exception.Message));
+            await PublishAsync(entry, completed);
+            return SessionSubmitResult.Reject(exception.Message, session.Id);
         }
         catch (AgentModeRejectedException exception)
         {
@@ -699,23 +712,34 @@ public sealed class SessionRegistry(
         await entry.Upstream.WaitAsync(cancellationToken);
         try
         {
-            if (!entry.Session.TryStartQueued(out _, out var input))
-            {
-                return;
-            }
+            await StartNextQueuedLockedAsync(entry, cancellationToken);
+        }
+        finally { entry.Upstream.Release(); }
+    }
 
+    private async Task StartNextQueuedLockedAsync(Entry entry, CancellationToken cancellationToken)
+    {
+        while (entry.Session.TryStartQueued(out _, out var input))
+        {
             try
             {
                 await entry.Driver.StartTurnAsync(input!, cancellationToken);
+                return;
+            }
+            catch (AgentInputRejectedException exception)
+            {
+                // Refused by the driver before writing: that message ends as a failed turn and the next one goes on.
+                await PublishAsync(entry, entry.Session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Failed,
+                    exception.Message)));
             }
             catch (Exception exception)
             {
                 logger.LogWarning("Falha ao iniciar turno enfileirado na sessão {SessionId} ({ErrorType}).",
                     entry.Session.Id, exception.GetType().Name);
                 await FailAsync(entry, "Não foi possível enviar a mensagem ao agente; a sessão foi encerrada.");
+                return;
             }
         }
-        finally { entry.Upstream.Release(); }
     }
 
     private async Task<SessionResult> EndIfFailedAsync(Entry entry)

@@ -210,6 +210,56 @@ public sealed class TelegramImageTurnTests : IAsyncDisposable
         Assert.True(File.Exists(Path.Combine(Attachments, "123", "S000001", "A000001.png")));
     }
 
+    // #128: a steer starting with "/" would run as a Claude command. It is refused before taking the pending images,
+    // interrupting the turn or touching the queue, during a turn and while idle.
+    [Fact]
+    public async Task ClaudeSteerWithACommandIsRefusedKeepingTurnQueueAndPendingImages()
+    {
+        api.Files["a"] = TestImages.Png(10, 10);
+        await StartAsync();
+        api.Enqueue(Text("tarefa longa"));
+        var driver = await SingleDriverAsync();
+        await Eventually(() => driver.Calls.Contains("turn:tarefa longa"));
+        api.Enqueue(Photo("a"));
+        Assert.StartsWith("Recebi 1 imagem.", await api.NextMessageAsync());
+
+        foreach (var steer in new[] { "/steer /clear", "/steer    /compact" })
+        {
+            api.Enqueue(Text(steer));
+            Assert.Equal(AgentInput.CommandRefusal(AgentKind.Claude) + " Os anexos pendentes continuam guardados.",
+                await api.NextMessageAsync());
+        }
+
+        Assert.Equal(["start", "turn:tarefa longa"], driver.Calls);
+        Assert.NotNull(pending!.Get(123));
+        var session = sessions!.GetActive(123)!;
+        Assert.Equal(("T000001", 0), (session.ActiveTurnId, session.QueuedCount));
+
+        driver.Emit(new TurnStartedEvent());
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        await Eventually(() => sessions.GetActive(123)!.State == AgentSessionState.Idle);
+        api.Enqueue(Text("/steer /clear"));
+        Assert.StartsWith(AgentInput.CommandRefusal(AgentKind.Claude), await api.NextMessageAsync());
+        Assert.Equal(["start", "turn:tarefa longa"], driver.Calls);
+
+        api.Enqueue(Text("use este print"));
+        await Eventually(() => driver.Calls.Contains("turn:use este print [A000001]"));
+    }
+
+    [Fact]
+    public async Task CodexSteerKeepsTextStartingWithASlash()
+    {
+        await StartAsync(defaultAgent: AgentKind.Codex);
+        api.Enqueue(Text("tarefa longa"));
+        var driver = await SingleDriverAsync();
+        await Eventually(() => driver.Calls.Contains("turn:tarefa longa"));
+
+        api.Enqueue(Text("/steer /clear"));
+
+        Assert.StartsWith("Orientação enviada", await api.NextMessageAsync());
+        Assert.Contains("steer:/clear", driver.Calls);
+    }
+
     [Fact]
     public async Task OneShotCaptionRunsWithTheImagesAndRemovesThemWhenTheJobEnds()
     {
