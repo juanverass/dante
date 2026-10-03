@@ -163,6 +163,35 @@ internal static class FakeCodex
                         ["model"] = (string?)parameters["model"] ?? "fake-model"
                     });
                     break;
+                case "thread/compact/start":
+                    // Shaped like codex-cli 0.159.3 (#119): {} at once, then a turn of its own with a contextCompaction
+                    // item. Scenarios: compact-reject, compact-fail, compact-hang (until turn/interrupt).
+                    if (args.Contains("compact-reject"))
+                    {
+                        Fail("compaction rejected");
+                        break;
+                    }
+                    Reply(new JsonObject());
+                    activeTurn = $"compact-{threads}";
+                    Notify("turn/started", new JsonObject
+                    {
+                        ["threadId"] = threadId, ["turn"] = new JsonObject { ["id"] = activeTurn, ["status"] = "inProgress" }
+                    });
+                    Item("item/started", new JsonObject { ["type"] = "contextCompaction", ["id"] = "cc-1" });
+                    if (args.Contains("compact-hang")) break;
+                    Notify("thread/tokenUsage/updated", new JsonObject
+                    {
+                        ["threadId"] = threadId, ["turnId"] = activeTurn,
+                        ["tokenUsage"] = new JsonObject { ["last"] = new JsonObject { ["inputTokens"] = 0 } }
+                    });
+                    if (args.Contains("compact-fail"))
+                    {
+                        Complete("failed", "compaction failed upstream");
+                        break;
+                    }
+                    Item("item/completed", new JsonObject { ["type"] = "contextCompaction", ["id"] = "cc-1" });
+                    Complete("completed");
+                    break;
                 case "thread/unsubscribe":
                     unsubscribed.Add((string?)parameters!["threadId"] ?? "?");
                     Reply(new JsonObject { ["status"] = "unsubscribed" });

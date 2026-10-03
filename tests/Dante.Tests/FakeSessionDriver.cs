@@ -25,6 +25,10 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
     // /clear (#120): failure to throw, or a gate that holds the operation until the test completes it.
     public Exception? ClearFailure { get; set; }
     public TaskCompletionSource? ClearGate { get; set; }
+    // /compact (#121): like the real drivers, cancelling while held by the gate ends as "unchanged".
+    public Exception? CompactFailure { get; set; }
+    public TaskCompletionSource? CompactGate { get; set; }
+    public AgentContextCompacted Compacted { get; set; } = new(5201, 592);
     private int clears;
     public Exception? SteerFailure { get; set; }
     public Exception? InterruptFailure { get; set; }
@@ -70,6 +74,22 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
         if (ClearGate is { } gate) await gate.Task.WaitAsync(cancellationToken);
         if (ClearFailure is not null) throw ClearFailure;
         return new AgentContextCleared($"upstream-cleared-{Interlocked.Increment(ref clears)}");
+    }
+
+    public async Task<AgentContextCompacted> CompactContextAsync(CancellationToken cancellationToken = default)
+    {
+        calls.Enqueue("compact");
+        if (CompactGate is { } gate)
+        {
+            try { await gate.Task.WaitAsync(cancellationToken); }
+            catch (OperationCanceledException)
+            {
+                calls.Enqueue("compact-interrupt");
+                throw new AgentContextUnchangedException("A compactação foi cancelada; a conversa anterior foi mantida.");
+            }
+        }
+        if (CompactFailure is not null) throw CompactFailure;
+        return Compacted;
     }
 
     public Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default)

@@ -836,6 +836,100 @@ public sealed class SessionRegistryTests
         Assert.Equal(["start", "clear", "turn:nova conversa"], driver.Calls);
     }
 
+    // #121: a compaction runs in the background; meanwhile the session refuses messages and other context operations,
+    // and when it ends the same session (same upstream id) goes on with its settings.
+    [Fact]
+    public async Task CompactRunsInTheBackgroundAndRefusesEverythingElseMeanwhile()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository,
+            Profile: AgentPermissionProfile.Plan));
+        var driver = await CompletedTurnAsync(registry);
+        driver.CompactGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var upstream = registry.GetActive(Owner)!.UpstreamSessionId;
+
+        var compaction = await registry.CompactContextAsync(Owner, null);
+
+        Assert.True(compaction.Started.Accepted);
+        Assert.True(registry.GetActive(Owner)!.Compacting);
+        Assert.Contains("está sendo compactada", (await registry.SubmitAsync(Owner, null, "outra")).Error);
+        Assert.Contains("está sendo compactada", (await registry.ClearContextAsync(Owner, null)).Error);
+        Assert.Contains("está sendo compactada", (await registry.ChangeModeAsync(Owner, null, AgentPermissionProfile.Manual)).Error);
+        Assert.Contains("está sendo compactada", (await registry.CompactContextAsync(Owner, null)).Started.Error);
+        driver.CompactGate.SetResult();
+
+        var result = await compaction.Completion!;
+        Assert.Equal((true, 5201, 592), (result.Compacted, result.PreTokens, result.PostTokens));
+        var session = registry.GetActive(Owner)!;
+        Assert.Equal((false, upstream, AgentPermissionProfile.Plan, AgentSessionState.Idle),
+            (session.Compacting, session.UpstreamSessionId, session.Profile, session.State));
+        Assert.Equal(["start", "turn:primeira", "compact"], driver.Calls);
+        Assert.Equal(SubmitOutcome.TurnStarted, (await registry.SubmitAsync(Owner, null, "segue")).Outcome);
+    }
+
+    [Fact]
+    public async Task NothingToCompactUntilTheConversationHasATurn()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        Assert.StartsWith("Nada a compactar", (await registry.CompactContextAsync(Owner, null)).Started.Error);
+
+        await CompletedTurnAsync(registry);
+        await registry.ClearContextAsync(Owner, null);
+
+        Assert.StartsWith("Nada a compactar", (await registry.CompactContextAsync(Owner, null)).Started.Error);
+        Assert.DoesNotContain("compact", drivers.Created.Single().Calls);
+        Assert.StartsWith("Sessão S000001 não encontrada",
+            (await registry.CompactContextAsync(Intruder, "S000001")).Started.Error);
+    }
+
+    [Fact]
+    public async Task StopCancelsTheCompactionAndKeepsTheSession()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var driver = await CompletedTurnAsync(registry);
+        driver.CompactGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var compaction = await registry.CompactContextAsync(Owner, null);
+
+        var stopped = await registry.InterruptAsync(Owner, null);
+
+        Assert.True(stopped.Accepted);
+        var result = await compaction.Completion!;
+        Assert.Equal((false, "A compactação foi cancelada; a conversa anterior foi mantida."), (result.Compacted, result.Error));
+        Assert.Equal(AgentSessionState.Idle, result.Session!.State);
+        Assert.Contains("compact-interrupt", driver.Calls);
+        Assert.Equal(SubmitOutcome.TurnStarted, (await registry.SubmitAsync(Owner, null, "segue")).Outcome);
+    }
+
+    [Fact]
+    public async Task UncertainCompactionEndsTheSessionAndCloseEndsAPendingOne()
+    {
+        await using var registry = CreateRegistry();
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository));
+        var driver = await CompletedTurnAsync(registry);
+        driver.CompactFailure = new TimeoutException();
+        var uncertain = await (await registry.CompactContextAsync(Owner, null)).Completion!;
+        Assert.Equal(AgentSessionState.Failed, uncertain.Session!.State);
+        Assert.Contains("contexto incerto", uncertain.Error);
+
+        await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, Repository));
+        var second = await CompletedTurnAsync(registry, drivers.Created[1]);
+        second.CompactGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = await registry.CompactContextAsync(Owner, null);
+        Assert.True((await registry.CloseAsync(Owner, null)).Accepted);
+        Assert.False((await pending.Completion!).Compacted);
+    }
+
+    private async Task<FakeSessionDriver> CompletedTurnAsync(SessionRegistry registry, FakeSessionDriver? driver = null)
+    {
+        driver ??= drivers.Created.Single();
+        await registry.SubmitAsync(Owner, null, "primeira");
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        await Eventually(() => registry.GetActive(Owner)!.State == AgentSessionState.Idle);
+        return driver;
+    }
+
     private SessionRegistry CreateRegistry() =>
         new(drivers, NullLogger<SessionRegistry>.Instance, sink);
 
