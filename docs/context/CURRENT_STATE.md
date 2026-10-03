@@ -20,7 +20,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | Interactive Agent Sessions (Epic #60) | concluído |
 | Mídias no Telegram (Epic #92) | em andamento: spike #93, recebimento #94, imagens aos agentes #95, áudio e vídeo #96, artefatos #97 e imagem para LinkedIn #98 entregues; #99 pendente |
 | Cotas de uso pelo `/uso` (Epic #114) | entregue: spike #115 (AD-31), `/uso` com Codex (#116) e Claude (#117); fechamento da Epic por decisão humana |
-| Limpar e compactar contexto (Epic #118) | em andamento: spike #119 (AD-32) e `/clear` (#120) entregues; `/compact` (#121) pendente |
+| Limpar e compactar contexto (Epic #118) | entregue: spike #119 (AD-32), `/clear` (#120) e `/compact` (#121); fechamento da Epic por decisão humana |
 
 ## Funcionalidades disponíveis
 
@@ -103,6 +103,11 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   esforço — Claude pelo `/clear` interno do driver (confirmado por `conversation_reset`, novo `session_id`), Codex por
   thread nova no mesmo processo, trocada só após confirmação; recusa mantém a conversa anterior, confirmação incerta
   encerra a sessão; anexos pendentes e imagens da conversa anterior são descartados;
+- `/compact` (#121, AD-32): compacta a conversa da sessão ativa ociosa com ao menos uma resposta, mantendo sessão, id
+  upstream e configurações — Claude pelo `/compact` interno (confirmado por `compact_boundary`, com tokens antes/depois
+  exibidos), Codex por `thread/compact/start` (turno próprio da CLI, sem métrica). Roda em segundo plano com aviso de
+  início e de fim; enquanto isso a sessão recusa mensagens, `/clear` e troca de modo, `/status` mostra "compactando" e
+  `/session stop` cancela (histórico mantido); limite de 10 min; confirmação incerta encerra a sessão;
 - entrega de resultados de jobs e eventos de sessão com retry/backoff, estado independente
   da execução em `/status` e recuperação de partes pendentes por `/resend` (AD-21).
 - `/mode` consulta e escolhe o modo de trabalho das novas sessões — `manual` (aprovação), `auto`
@@ -183,18 +188,18 @@ Detalhes de uso: [README](../../README.md).
 
 - **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94), imagens aos agentes (#95), áudio e vídeo (#96), artefatos (#97) e imagem para LinkedIn (#98) entregues; validação final (#99) pendente.
 - **Epic #114 — Cotas de uso pelo `/uso`**: spike #115 (AD-31, [`docs/spikes/usage-quotas`](../spikes/usage-quotas/README.md)), Codex (#116) e Claude (#117) entregues; aguarda revisão e fechamento humano.
-- **Epic #118 — Limpar e compactar contexto**: o spike #119 comprovou, nas duas CLIs reais, compactação e limpeza no mesmo processo da sessão — Claude por `/compact`/`/clear` no stream-json, Codex por `thread/compact/start` e nova thread — e definiu contrato e regras (AD-32, [`docs/spikes/clear-compact`](../spikes/clear-compact/README.md)); `/clear` entregue (#120), `/compact` (#121) pendente.
+- **Epic #118 — Limpar e compactar contexto**: o spike #119 comprovou, nas duas CLIs reais, compactação e limpeza no mesmo processo da sessão — Claude por `/compact`/`/clear` no stream-json, Codex por `thread/compact/start` e nova thread — e definiu contrato e regras (AD-32, [`docs/spikes/clear-compact`](../spikes/clear-compact/README.md)); `/clear` (#120) e `/compact` (#121) entregues; aguarda revisão e fechamento humano.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #104, #105, #106, #108, #96, #98, #116, #117, #128 e #120:
+Estado conhecido com #104, #105, #106, #108, #96, #98, #116, #117, #128, #120 e #121:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    720 testes aprovados, 17 pulados (evidência com CLIs e ferramentas reais, opt-in)
+dotnet test Dante.sln    744 testes aprovados, 18 pulados (evidência com CLIs e ferramentas reais, opt-in)
 ```
 
 `LiveSessionModeEvidenceTests` (#108), opt-in com `DANTE_LIVE_CLI=1`, passou para Claude Code
@@ -205,9 +210,10 @@ dotnet test Dante.sln    720 testes aprovados, 17 pulados (evidência com CLIs e
 (login ChatGPT, plano Plus) e Claude Code 2.1.287 (login claude.ai, plano Pro): janela de sessão de 5 h, semana de
 7 dias e reset lidos pelo leitor de produção nas duas CLIs, sem turno.
 
-`LiveContextEvidenceTests` (#120), opt-in com `DANTE_LIVE_CLI=1`, passou em 2026-10-03 com Claude Code 2.1.287 e
+`LiveContextEvidenceTests` (#120, #121), opt-in com `DANTE_LIVE_CLI=1`, passou em 2026-10-03 com Claude Code 2.1.287 e
 codex-cli 0.159.3: com os drivers de produção (General, modo plan), o marcador dito antes do `/clear` não foi
-recuperado depois ("UNKNOWN") e o id upstream mudou nas duas CLIs.
+recuperado depois ("UNKNOWN") e o id upstream mudou nas duas CLIs; depois do `/compact`, marcador e instrução
+(maiúsculas) seguiram válidos nas duas, com 6517 → 1837 tokens informados pelo Claude e nenhuma métrica do Codex.
 
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
 `SessionRegistry` → drivers reais → CLIs simuladas do `Dante.ProcessProbe`).

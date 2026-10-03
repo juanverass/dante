@@ -9,14 +9,19 @@ namespace Dante.Worker.Sessions;
 // Claude Code over bidirectional stream-json (AD-15, AD-18): one `claude --print` process per session receives every
 // turn on stdin. Approvals and AskUserQuestion arrive as can_use_tool control requests; interrupt is a control
 // request too. The upstream session id is fixed with --session-id, so it is known before the first turn.
-public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launcher, TimeSpan? contextTimeout = null)
-    : IAgentSessionDriver
+public sealed class ClaudeSessionDriver(
+    IInteractiveAgentProcessLauncher launcher,
+    TimeSpan? contextTimeout = null,
+    TimeSpan? compactTimeout = null) : IAgentSessionDriver
 {
     private const int EventCapacity = 256;
     private const string AskUserQuestionTool = "AskUserQuestion";
     private static readonly TimeSpan CloseGracePeriod = TimeSpan.FromSeconds(10);
     // /clear is local to the CLI (it answered in milliseconds in #119).
     private readonly TimeSpan clearTimeout = contextTimeout ?? TimeSpan.FromSeconds(30);
+    // Compaction summarizes the conversation with the model: it grows with the context (6–12 s on short ones in #119).
+    private readonly TimeSpan compactTimeout = compactTimeout ?? TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan InterruptedOperationGrace = TimeSpan.FromSeconds(30);
 
     // Bounded like the process output (AD-17): a slow consumer pauses the reader and, through the pipe, the agent.
     private readonly Channel<AgentEvent> events = Channel.CreateBounded<AgentEvent>(
@@ -27,7 +32,7 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
     private readonly Dictionary<string, PendingControl> pendingControls = [];
     private readonly Dictionary<string, ToolUse> tools = [];
     private InteractiveAgentProcess? process;
-    // A /clear in flight (#120): its messages are the driver's, not a turn of the conversation.
+    // A /clear or /compact in flight (#120, #121): its messages are the driver's, not a turn of the conversation.
     private ContextOperation? operation;
     private string? currentMessageId;
     private bool interruptRequested;
@@ -143,6 +148,69 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
             lock (gate)
             {
                 if (operation == clear) operation = null;
+            }
+        }
+    }
+
+    // /compact (#121, AD-32): confirmed only by compact_boundary, which carries the CLI's own token counts and keeps the
+    // session_id. Without a boundary the result means there was nothing to compact, or the compaction failed with the
+    // history intact. Cancelling or running out of time interrupts it upstream and waits for the CLI to say so.
+    public async Task<AgentContextCompacted> CompactContextAsync(CancellationToken cancellationToken = default)
+    {
+        var agent = RequireOpen();
+        var compact = new ContextOperation();
+        lock (gate)
+        {
+            if (operation is not null || tools.Count != 0 || pendingControls.Count != 0)
+                throw new AgentContextUnchangedException("A sessão do Claude não está ociosa; a conversa não foi compactada.");
+            operation = compact;
+        }
+
+        try
+        {
+            await WriteAsync(agent, new JsonObject
+            {
+                ["type"] = "user",
+                ["message"] = new JsonObject { ["role"] = "user", ["content"] = "/compact" }
+            }, cancellationToken);
+            try
+            {
+                await compact.Result.Task.WaitAsync(compactTimeout, cancellationToken);
+            }
+            catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
+            {
+                await WriteAsync(agent, new JsonObject
+                {
+                    ["type"] = "control_request",
+                    ["request_id"] = NextControlId(),
+                    ["request"] = new JsonObject { ["subtype"] = "interrupt" }
+                }, CancellationToken.None);
+                try
+                {
+                    await compact.Result.Task.WaitAsync(InterruptedOperationGrace, CancellationToken.None);
+                }
+                catch (TimeoutException)
+                {
+                    throw new TimeoutException("O Claude não encerrou a compactação interrompida.");
+                }
+
+                if (!compact.Compacted)
+                    throw new AgentContextUnchangedException(exception is TimeoutException
+                        ? "A compactação passou do limite e foi interrompida; a conversa anterior foi mantida."
+                        : "A compactação foi cancelada; a conversa anterior foi mantida.");
+            }
+
+            if (compact.Compacted) return new AgentContextCompacted(compact.PreTokens, compact.PostTokens);
+            throw new AgentContextUnchangedException(compact.CompactFailed
+                ? $"O Claude não concluiu a compactação ({compact.CompactError ?? "erro desconhecido"}); a conversa " +
+                  "anterior foi mantida."
+                : "Não havia o que compactar: a conversa ainda não tem mensagens suficientes.");
+        }
+        finally
+        {
+            lock (gate)
+            {
+                if (operation == compact) operation = null;
             }
         }
     }
@@ -460,6 +528,16 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
             case "system" when GetString(message, "subtype") == "init":
                 current.SessionId = GetString(message, "session_id");
                 return true;
+            case "system" when GetString(message, "subtype") == "compact_boundary":
+                current.Compacted = true;
+                current.PreTokens = TokenCount(message["compact_metadata"]?["pre_tokens"]);
+                current.PostTokens = TokenCount(message["compact_metadata"]?["post_tokens"]);
+                return true;
+            case "system" when GetString(message, "subtype") == "status" &&
+                               GetString(message, "compact_result") == "failed":
+                current.CompactFailed = true;
+                current.CompactError = GetString(message, "compact_error");
+                return true;
             case "result":
                 current.Result.TrySetResult(message);
                 return true;
@@ -765,10 +843,18 @@ public sealed class ClaudeSessionDriver(IInteractiveAgentProcessLauncher launche
 
     private sealed record ToolUse(AgentToolKind Kind, string? Path);
 
+    private static int? TokenCount(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<int>(out var count) && count >= 0 ? count : null;
+
     private sealed class ContextOperation
     {
         public TaskCompletionSource<JsonObject> Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool ResetSeen { get; set; }
         public string? SessionId { get; set; }
+        public bool Compacted { get; set; }
+        public int? PreTokens { get; set; }
+        public int? PostTokens { get; set; }
+        public bool CompactFailed { get; set; }
+        public string? CompactError { get; set; }
     }
 }

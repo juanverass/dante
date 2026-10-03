@@ -30,6 +30,9 @@ public sealed class MediaPreparingSessionDriver(IAgentSessionDriver inner, Media
     public Task<AgentContextCleared> ClearContextAsync(CancellationToken cancellationToken = default) =>
         inner.ClearContextAsync(cancellationToken);
 
+    public Task<AgentContextCompacted> CompactContextAsync(CancellationToken cancellationToken = default) =>
+        inner.CompactContextAsync(cancellationToken);
+
     public Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default)
     {
         if (!MediaPreparer.NeedsPreparation(input.Attachments))

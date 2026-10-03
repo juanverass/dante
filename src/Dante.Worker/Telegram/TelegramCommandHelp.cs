@@ -30,6 +30,12 @@ internal static class TelegramCommandHelp
             "repositório, modo, modelo e esforço; a conversa upstream é trocada por uma vazia e o histórico anterior não volta. " +
             "Anexos pendentes são descartados. Arquivos e instruções do repositório continuam disponíveis, e limpar não " +
             "renova as cotas de uso (/uso)."),
+        new("/compact", "CONVERSA E SESSÕES", "Compacte a conversa da sessão ativa num resumo e continue de onde parou.",
+            "/compact", "Sem argumentos. A sessão ativa precisa estar ociosa e ter ao menos uma resposta. O agente resume a " +
+            "conversa pelo mecanismo próprio da CLI e segue nela com o resumo, mantendo sessão, agente, repositório, modo, " +
+            "modelo e esforço. Um aviso chega no início e outro no fim; até lá, mensagens são recusadas e /session stop " +
+            "cancela. O Claude informa os tokens antes e depois; o Codex não informa. Compactar não apaga a conversa " +
+            "(use /clear) nem renova as cotas de uso (/uso)."),
         new("/steer", "CONVERSA E SESSÕES", "Oriente o turno da sessão ativa; no Claude, interrompe e prioriza a orientação.",
             "/steer não altere os arquivos de banco"),
 

@@ -735,6 +735,28 @@ fila ou aprovação/pergunta pendente, o bot recusa e nada muda — aguarde ou u
 - Anexos pendentes e imagens da conversa anterior são descartados. Arquivos e instruções do repositório
   (`CLAUDE.md`, `AGENTS.md`…) continuam disponíveis, e limpar não renova as cotas de uso (`/uso`).
 
+## Compactar a conversa (`/compact`)
+
+```text
+/compact
+```
+
+Troca o histórico da sessão ativa por um resumo feito pelo próprio agente e segue a **mesma** conversa: fatos,
+instruções e o andamento da tarefa continuam utilizáveis, com a mesma sessão, agente, repositório, modo, modelo e
+esforço. Diferenças em relação ao `/clear`: compactar não apaga a conversa, e o id upstream não muda.
+
+- Exige a sessão ociosa e ao menos uma resposta do agente; sem isso, o bot responde "nada a compactar" sem chamar a CLI.
+- O bot avisa no início ("Compactando…") e de novo quando o agente confirma ou recusa. Até lá, mensagens, `/clear` e
+  `/mode session` para essa sessão são recusados (anexos pendentes continuam guardados), `/status` mostra
+  "compactando" e `/session stop` cancela a compactação — a conversa anterior é mantida.
+- **Claude**: `/compact` interno do driver, confirmado pelo `compact_boundary`, que informa os tokens antes e depois; o
+  bot mostra esses números.
+- **Codex**: `thread/compact/start`, que roda como um turno próprio da CLI (não aparece como resposta); o Codex não
+  informa o tamanho do contexto, e o bot diz isso em vez de estimar.
+- Limite de 10 min por compactação; se estourar, ela é interrompida e a conversa anterior continua. Se a CLI não
+  confirmar nem recusar, a sessão é encerrada com erro em vez de continuar num contexto incerto.
+- Compactar chama o modelo (consome cota) e não renova as cotas de uso (`/uso`).
+
 ## Imagens e prints
 
 Fotos e prints enviados ao bot, inclusive como arquivo e em álbum, chegam ao agente junto com o pedido.
@@ -1032,6 +1054,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/session stop [id]` | Interrompe o turno e descarta a fila, mantendo a sessão |
 | `/session close [id]` | Encerra a sessão e seu processo |
 | `/clear` | Limpa a conversa da sessão ativa ociosa, mantendo sessão, agente, contexto, modo, modelo e esforço |
+| `/compact` | Compacta a conversa da sessão ativa ociosa num resumo do agente e segue a mesma conversa; avisa início e fim |
 | `/model` | Consulta os modelos padrão de Claude e Codex para o usuário |
 | `/model claude\|codex [<modelo>\|default]` | Lista modelos da CLI instalada, escolhe um modelo ou volta ao padrão da CLI |
 | `/effort` | Consulta esforço e níveis suportados por agente/modelo |

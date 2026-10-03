@@ -9,12 +9,17 @@ namespace Dante.Worker.Sessions;
 // Codex over `codex app-server --listen stdio://` (AD-15, AD-19): JSON-RPC in JSONL on one process per session, with
 // one ephemeral thread per D.A.N.T.E. session. Approvals and user input are server requests answered by id;
 // steer and interrupt are client requests on the active turn.
-public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher, TimeSpan? contextTimeout = null)
-    : IAgentSessionDriver
+public sealed class CodexSessionDriver(
+    IInteractiveAgentProcessLauncher launcher,
+    TimeSpan? contextTimeout = null,
+    TimeSpan? compactTimeout = null) : IAgentSessionDriver
 {
     private const int EventCapacity = 256;
     // thread/start answered in under a second in #119.
     private readonly TimeSpan clearTimeout = contextTimeout ?? TimeSpan.FromSeconds(30);
+    // A compaction summarizes the thread with the model (9–32 s on short threads in #119).
+    private readonly TimeSpan compactTimeout = compactTimeout ?? TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan InterruptedOperationGrace = TimeSpan.FromSeconds(30);
     private const string UserInputMethod = "item/tool/requestUserInput";
     private static readonly TimeSpan CloseGracePeriod = TimeSpan.FromSeconds(10);
 
@@ -27,6 +32,8 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
     private readonly Dictionary<string, PendingServerRequest> pendingRequests = [];
     private InteractiveAgentProcess? process;
     private string? threadId;
+    // A compaction in flight (#121): its turn is the driver's, not a turn of the conversation.
+    private Compaction? compaction;
     private string? model;
     private string? effort;
     private string? activeTurnId;
@@ -203,6 +210,106 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
         catch (Exception exception) when (exception is InvalidOperationException or TimeoutException
                                               or OperationCanceledException or AgentProtocolException)
         {
+        }
+    }
+
+    // thread/compact/start (#121, AD-32) answers {} at once; the compaction then runs as a turn of its own with a
+    // contextCompaction item, on the same thread. That turn is correlated here and never reaches the session as a turn.
+    // Completed with the item completed is success; interrupted or failed leaves the history intact. The app-server
+    // reports no context size for it, so no reduction is returned.
+    public async Task<AgentContextCompacted> CompactContextAsync(CancellationToken cancellationToken = default)
+    {
+        var compact = new Compaction();
+        string thread;
+        lock (gate)
+        {
+            thread = RequireThread();
+            if (compaction is not null || activeTurnId is not null || pendingRequests.Count != 0)
+                throw new AgentContextUnchangedException("A sessão do Codex não está ociosa; a conversa não foi compactada.");
+            compaction = compact;
+        }
+
+        try
+        {
+            try
+            {
+                try
+                {
+                    await SendRequestAsync("thread/compact/start", new JsonObject { ["threadId"] = thread },
+                        cancellationToken).WaitAsync(clearTimeout, cancellationToken);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Only an explicit RPC rejection proves that the request was not accepted.
+                    throw new AgentContextUnchangedException(
+                        "O Codex não iniciou a compactação; a conversa anterior foi mantida.");
+                }
+
+                await compact.Result.Task.WaitAsync(compactTimeout, cancellationToken);
+            }
+            catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
+            {
+                // A missing ACK does not mean rejection: notifications can already confirm completion.
+                // Otherwise keep consuming this operation's notifications until interrupt is confirmed.
+                if (!compact.Result.Task.IsCompleted)
+                {
+                    var turn = await compact.Started.Task.WaitAsync(InterruptedOperationGrace, CancellationToken.None);
+                    if (!compact.Result.Task.IsCompleted)
+                    {
+                        try
+                        {
+                            await SendRequestAsync("turn/interrupt",
+                                new JsonObject { ["threadId"] = thread, ["turnId"] = turn }, CancellationToken.None)
+                                .WaitAsync(InterruptedOperationGrace, CancellationToken.None);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // It may have ended between the timeout and the interrupt: await confirmation below.
+                        }
+                    }
+                }
+
+                // Missing start/completion or failed transport remains uncertain and reaches the registry as such.
+                await compact.Result.Task.WaitAsync(InterruptedOperationGrace, CancellationToken.None);
+                if (!compact.Succeeded)
+                    throw new AgentContextUnchangedException(exception is TimeoutException
+                        ? "A compactação passou do limite e foi interrompida; a conversa anterior foi mantida."
+                        : "A compactação foi cancelada; a conversa anterior foi mantida.");
+            }
+
+            if (compact.Succeeded) return new AgentContextCompacted();
+            throw new AgentContextUnchangedException(
+                $"O Codex não concluiu a compactação ({compact.Error ?? compact.Status ?? "sem detalhes"}); a conversa " +
+                "anterior foi mantida.");
+        }
+        finally
+        {
+            lock (gate)
+            {
+                if (compaction == compact) compaction = null;
+            }
+        }
+    }
+
+    // While a compaction runs, every notification of the thread belongs to its turn and nothing becomes a session event.
+    private static void HandleCompaction(Compaction compact, string method, JsonObject parameters)
+    {
+        switch (method)
+        {
+            case "turn/started" when GetString(parameters["turn"] as JsonObject, "id") is { } turn:
+                compact.Started.TrySetResult(turn);
+                break;
+            case "item/completed" when GetString(parameters["item"] as JsonObject, "type") == "contextCompaction":
+                compact.ItemCompleted = true;
+                break;
+            case "error" when parameters["error"] is JsonObject error:
+                compact.Error = GetString(error, "message");
+                break;
+            case "turn/completed" when parameters["turn"] is JsonObject turn:
+                compact.Status = GetString(turn, "status");
+                compact.Error ??= GetString(turn["error"] as JsonObject, "message");
+                compact.Result.TrySetResult();
+                break;
         }
     }
 
@@ -635,9 +742,17 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
     private async Task HandleNotificationAsync(string method, JsonObject parameters)
     {
         // After a clear, whatever the previous thread still says is not part of the session (#120).
+        Compaction? compact;
         lock (gate)
         {
             if (GetString(parameters, "threadId") is { } thread && threadId is not null && thread != threadId) return;
+            compact = compaction;
+        }
+
+        if (compact is not null)
+        {
+            HandleCompaction(compact, method, parameters);
+            return;
         }
 
         switch (method)
@@ -880,6 +995,8 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
             waiters = [.. awaitingResponses.Values];
             awaitingResponses.Clear();
             pendingRequests.Clear();
+            compaction?.Result.TrySetException(error ?? new AgentProtocolException("A sessão do Codex foi encerrada."));
+            compaction?.Started.TrySetException(error ?? new AgentProtocolException("A sessão do Codex foi encerrada."));
         }
 
         foreach (var waiter in waiters)
@@ -906,4 +1023,14 @@ public sealed class CodexSessionDriver(IInteractiveAgentProcessLauncher launcher
             : null;
 
     private sealed record PendingServerRequest(JsonNode Id, string Method, IReadOnlyCollection<string> QuestionIds);
+
+    private sealed class Compaction
+    {
+        public TaskCompletionSource<string> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool ItemCompleted { get; set; }
+        public string? Status { get; set; }
+        public string? Error { get; set; }
+        public bool Succeeded => Status == "completed" && ItemCompleted;
+    }
 }
