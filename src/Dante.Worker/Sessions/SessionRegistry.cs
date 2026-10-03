@@ -148,6 +148,58 @@ public sealed class SessionRegistry(
         finally { entry.Upstream.Release(); }
     }
 
+    // /clear (#120, AD-32): the same session, process, directory, model, effort and mode with an empty upstream
+    // conversation. Idle only, serialized with turns, answers, mode changes and close. A refusal keeps the previous
+    // conversation; an unconfirmed result fails the session instead of letting turns reach an unknown context.
+    public async Task<SessionResult> ClearContextAsync(long userId, string? sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        var entry = Find(userId, sessionId, out var error);
+        if (entry is null) return SessionResult.Reject(error!);
+        if (!entry.Driver.Capabilities.ClearContext)
+            return SessionResult.Reject($"O {entry.Session.Agent} não oferece limpeza da conversa nesta sessão.");
+        await entry.Upstream.WaitAsync(cancellationToken);
+        try
+        {
+            var snapshot = Snapshot(entry);
+            if (snapshot.State != AgentSessionState.Idle || snapshot.QueuedCount != 0 ||
+                snapshot.PendingRequestIds.Count != 0 || snapshot.PendingProfile is not null)
+            {
+                return SessionResult.Reject(snapshot.PendingProfile is not null
+                    ? "Há uma troca de modo aguardando o próximo turno do Codex; envie uma mensagem para aplicá-la ou " +
+                      "volte ao modo atual e então use /clear."
+                    : "Só é possível limpar a conversa com a sessão ociosa. Aguarde o turno, a fila e as solicitações " +
+                      "pendentes terminarem, ou use /session stop para interromper explicitamente.");
+            }
+
+            try
+            {
+                var cleared = await entry.Driver.ClearContextAsync(cancellationToken);
+                entry.Session.ReplaceUpstream(cleared.UpstreamSessionId);
+                lock (gate) entry.LastTurnOutcome = null;
+            }
+            catch (AgentContextUnchangedException exception)
+            {
+                return new SessionResult(false, Snapshot(entry), exception.Message);
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning("Limpeza não confirmada na sessão {SessionId} ({ErrorType}).", snapshot.Id,
+                    exception.GetType().Name);
+                await FailAsync(entry, "O agente não confirmou a limpeza da conversa; a sessão foi encerrada para não " +
+                    "continuar num contexto incerto. Inicie outra com /session start.");
+                await entry.DisposeDriverAsync();
+                if (exception is OperationCanceledException && cancellationToken.IsCancellationRequested) throw;
+                return new SessionResult(false, Snapshot(entry), entry.Session.Error);
+            }
+
+            // Images of the previous conversation are not part of the new one (a later /vitrine must not reuse them).
+            ReleaseAttachments(entry);
+            return new SessionResult(true, Snapshot(entry));
+        }
+        finally { entry.Upstream.Release(); }
+    }
+
     // sessionId null routes to the user's active session.
     public async Task<SessionSubmitResult> SubmitAsync(long userId, string? sessionId, AgentInput input,
         MessageDelivery delivery = MessageDelivery.Queue, CancellationToken cancellationToken = default)
@@ -868,7 +920,10 @@ public sealed class SessionRegistry(
                 entry.Profile, session.State, session.ActiveTurnId, session.QueuedCount, session.PendingRequestIds,
                 activeSessions.TryGetValue(session.OwnerUserId, out var active) && active == session.Id,
                 entry.CreatedAtUtc, entry.EndedAtUtc, session.Error, entry.LastTurnOutcome, entry.ModelSelection,
-                entry.ReportedModel) { PendingProfile = entry.PendingProfile };
+                entry.ReportedModel)
+            {
+                PendingProfile = entry.PendingProfile, UpstreamSessionId = session.UpstreamSessionId
+            };
         }
     }
 

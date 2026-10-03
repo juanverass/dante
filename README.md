@@ -716,6 +716,25 @@ repositório ativo que deixou de existir é recusado com a instrução `/use @al
 
 ---
 
+## Limpar a conversa (`/clear`)
+
+```text
+/clear
+```
+
+Começa do zero a conversa da sessão ativa, sem o histórico anterior, mantendo a mesma sessão (`S000001`), o mesmo
+agente, repositório (ou General), modo, modelo e esforço. Exige a sessão ociosa: com turno em andamento, mensagens na
+fila ou aprovação/pergunta pendente, o bot recusa e nada muda — aguarde ou use `/session stop`.
+
+- **Claude**: o D.A.N.T.E. envia o `/clear` da própria CLI e só confirma ao receber o reinício da conversa; o
+  `session_id` do Claude muda (a conversa anterior continua no disco do Claude, como hoje).
+- **Codex**: o `app-server` não limpa uma thread; o D.A.N.T.E. abre uma thread nova no mesmo processo, com o mesmo
+  diretório, modelo e políticas, e só troca de thread depois que ela é confirmada. A anterior é descartada.
+- A resposta informa o novo id upstream. Se o agente recusar, a conversa anterior continua e a sessão segue utilizável;
+  se a limpeza não puder ser confirmada, a sessão é encerrada com erro em vez de continuar num contexto incerto.
+- Anexos pendentes e imagens da conversa anterior são descartados. Arquivos e instruções do repositório
+  (`CLAUDE.md`, `AGENTS.md`…) continuam disponíveis, e limpar não renova as cotas de uso (`/uso`).
+
 ## Imagens e prints
 
 Fotos e prints enviados ao bot, inclusive como arquivo e em álbum, chegam ao agente junto com o pedido.
@@ -1012,6 +1031,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/session select <id\|none>` | Seleciona uma sessão; `none` faz a próxima mensagem abrir uma sessão nova |
 | `/session stop [id]` | Interrompe o turno e descarta a fila, mantendo a sessão |
 | `/session close [id]` | Encerra a sessão e seu processo |
+| `/clear` | Limpa a conversa da sessão ativa ociosa, mantendo sessão, agente, contexto, modo, modelo e esforço |
 | `/model` | Consulta os modelos padrão de Claude e Codex para o usuário |
 | `/model claude\|codex [<modelo>\|default]` | Lista modelos da CLI instalada, escolhe um modelo ou volta ao padrão da CLI |
 | `/effort` | Consulta esforço e níveis suportados por agente/modelo |

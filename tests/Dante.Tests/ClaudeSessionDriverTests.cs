@@ -115,6 +115,59 @@ public sealed class ClaudeSessionDriverTests
         Assert.Equal("pong 1", turn.OfType<MessageCompletedEvent>().Single().Text);
     }
 
+    // #120: /clear is the driver's own message; it is confirmed by conversation_reset and the result, gives a new
+    // session_id, emits no conversation event and keeps the process and the mode changed at runtime.
+    [Fact]
+    public async Task ClearIsConfirmedByTheResetAndStartsAnEmptyConversationInTheSameProcess()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new ClaudeSessionDriver(launcher);
+        var started = await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.ChangeModeAsync(AgentPermissionProfile.Plan);
+        await driver.StartTurnAsync("pong");
+        Assert.Equal("pong 1", (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+
+        var cleared = await driver.ClearContextAsync();
+
+        Assert.NotEqual(started.UpstreamSessionId, cleared.UpstreamSessionId);
+        await driver.StartTurnAsync("session");
+        var turn = await ReadTurnAsync(events);
+        Assert.IsType<TurnStartedEvent>(turn[0]);
+        Assert.Equal($"session:{cleared.UpstreamSessionId};turn:1;mode:plan",
+            turn.OfType<MessageCompletedEvent>().Single().Text);
+        Assert.Single(launcher.Requests);
+        Assert.False(HasExited(started.ProcessId));
+    }
+
+    [Fact]
+    public async Task ClearWithoutTheResetKeepsThePreviousConversation()
+    {
+        await using var driver = new ClaudeSessionDriver(new ProbeLauncher("clear-unconfirmed"));
+        var started = await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("pong");
+        await ReadTurnAsync(events);
+
+        await Assert.ThrowsAsync<AgentContextUnchangedException>(() => driver.ClearContextAsync());
+
+        await driver.StartTurnAsync("session");
+        Assert.Equal($"session:{started.UpstreamSessionId};turn:2;mode:manual",
+            (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+    }
+
+    [Fact]
+    public async Task ClearWithoutAnyAnswerIsUncertainNotUnchanged()
+    {
+        await using var driver = new ClaudeSessionDriver(new ProbeLauncher("clear-hang"), TimeSpan.FromSeconds(1));
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() => driver.ClearContextAsync());
+
+        Assert.IsNotType<AgentContextUnchangedException>(exception);
+        Assert.IsType<TimeoutException>(exception);
+    }
+
     private const long Owner = 42;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
 

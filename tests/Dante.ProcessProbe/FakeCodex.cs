@@ -8,11 +8,14 @@ namespace Dante.ProcessProbe;
 // account/rateLimits/read answer the quota query (#116).
 internal static class FakeCodex
 {
-    private const string ThreadId = "thread-1";
-
     public static int Run(string[] args)
     {
         var turns = 0;
+        // Every thread/start opens a new thread (a clear, #120); turns are counted per thread, like a new context.
+        var threads = 0;
+        var threadId = "thread-1";
+        string? previousThread = null;
+        var unsubscribed = new List<string>();
         var nextServerRequest = 100;
         string? activeTurn = null;
         string? waitingScenario = null;
@@ -27,7 +30,7 @@ internal static class FakeCodex
 
         void Item(string method, JsonObject item) => Notify(method, new JsonObject
         {
-            ["threadId"] = ThreadId, ["turnId"] = activeTurn, ["item"] = item
+            ["threadId"] = threadId, ["turnId"] = activeTurn, ["item"] = item
         });
 
         void Message(string text) => Item("item/completed", new JsonObject
@@ -46,14 +49,14 @@ internal static class FakeCodex
             activeTurn = null;
             waitingFor = null;
             waitingScenario = null;
-            Notify("turn/completed", new JsonObject { ["threadId"] = ThreadId, ["turn"] = turn });
+            Notify("turn/completed", new JsonObject { ["threadId"] = threadId, ["turn"] = turn });
         }
 
         void ServerRequest(string scenario, string method, JsonObject parameters)
         {
             waitingScenario = scenario;
             waitingFor = ++nextServerRequest;
-            parameters["threadId"] = ThreadId;
+            parameters["threadId"] = threadId;
             parameters["turnId"] = activeTurn;
             Send(new JsonObject { ["id"] = waitingFor, ["method"] = method, ["params"] = parameters });
         }
@@ -139,15 +142,30 @@ internal static class FakeCodex
                         break;
                     }
 
+                    // Scenarios for a second thread/start (the clear): reject-clear, hang-clear.
+                    if (threads > 0 && args.Contains("reject-clear"))
+                    {
+                        Fail("thread rejected");
+                        break;
+                    }
+                    if (threads > 0 && args.Contains("hang-clear")) break;
+                    threads++;
+                    if (threads > 1) previousThread = threadId;
+                    threadId = $"thread-{threads}";
+                    turns = 0;
                     threadParams = parameters;
                     Reply(new JsonObject
                     {
-                        ["thread"] = new JsonObject { ["id"] = ThreadId, ["cwd"] = (string?)parameters!["cwd"] },
+                        ["thread"] = new JsonObject { ["id"] = threadId, ["cwd"] = (string?)parameters!["cwd"] },
                         ["approvalPolicy"] = (string?)parameters["approvalPolicy"],
                         ["approvalsReviewer"] = args.Contains("wrong-reviewer") ? "user" :
                             args.Contains("missing-reviewer") ? null : (string?)parameters["approvalsReviewer"],
                         ["model"] = (string?)parameters["model"] ?? "fake-model"
                     });
+                    break;
+                case "thread/unsubscribe":
+                    unsubscribed.Add((string?)parameters!["threadId"] ?? "?");
+                    Reply(new JsonObject { ["status"] = "unsubscribed" });
                     break;
                 case "account/read":
                     // Shaped like codex-cli 0.159.3. Scenarios: no-auth, api-key; ids and e-mail are fake.
@@ -223,7 +241,7 @@ internal static class FakeCodex
                         });
                     break;
                 case "turn/start":
-                    if ((string?)parameters!["threadId"] != ThreadId)
+                    if ((string?)parameters!["threadId"] != threadId)
                     {
                         Fail("unknown thread");
                         break;
@@ -250,7 +268,7 @@ internal static class FakeCodex
                         if (!args.Contains("missing-mode-confirmation"))
                             Notify("thread/settings/updated", new JsonObject
                             {
-                                ["threadId"] = ThreadId,
+                                ["threadId"] = threadId,
                                 ["threadSettings"] = new JsonObject
                                 {
                                     ["cwd"] = threadParams["cwd"]!.DeepClone(),
@@ -275,7 +293,7 @@ internal static class FakeCodex
                     });
                     Notify("turn/started", new JsonObject
                     {
-                        ["threadId"] = ThreadId, ["turn"] = new JsonObject { ["id"] = activeTurn, ["status"] = "inProgress" }
+                        ["threadId"] = threadId, ["turn"] = new JsonObject { ["id"] = activeTurn, ["status"] = "inProgress" }
                     });
                     var text = (string?)parameters["input"]![0]!["text"];
                     if (text?.StartsWith("generate-image ", StringComparison.Ordinal) == true)
@@ -293,12 +311,24 @@ internal static class FakeCodex
 
                     switch (text)
                     {
+                        case "thread":
+                            // A late item of the previous thread must not reach the session after a clear (#120).
+                            if (previousThread is not null)
+                                Notify("item/completed", new JsonObject
+                                {
+                                    ["threadId"] = previousThread, ["turnId"] = "old-turn",
+                                    ["item"] = new JsonObject { ["type"] = "agentMessage", ["id"] = "stale", ["text"] = "stale" }
+                                });
+                            Message($"thread:{threadId};turn:{turns};model:{(string?)threadParams!["model"] ?? "-"};" +
+                                    $"sandbox:{(string?)threadParams["sandbox"]};unsubscribed:{string.Join(",", unsubscribed)}");
+                            Complete("completed");
+                            break;
                         case "pong":
                             foreach (var part in new[] { "po", "ng" })
                             {
                                 Notify("item/agentMessage/delta", new JsonObject
                                 {
-                                    ["threadId"] = ThreadId, ["turnId"] = activeTurn, ["itemId"] = $"msg-{turns}",
+                                    ["threadId"] = threadId, ["turnId"] = activeTurn, ["itemId"] = $"msg-{turns}",
                                     ["delta"] = part
                                 });
                             }
@@ -374,7 +404,7 @@ internal static class FakeCodex
                             Notify("warning", new JsonObject { ["message"] = "cuidado" });
                             Notify("error", new JsonObject
                             {
-                                ["threadId"] = ThreadId, ["turnId"] = activeTurn, ["willRetry"] = true,
+                                ["threadId"] = threadId, ["turnId"] = activeTurn, ["willRetry"] = true,
                                 ["error"] = new JsonObject { ["message"] = "tentando de novo" }
                             });
                             Complete("completed");

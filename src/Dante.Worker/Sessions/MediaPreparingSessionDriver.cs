@@ -27,6 +27,9 @@ public sealed class MediaPreparingSessionDriver(IAgentSessionDriver inner, Media
     public Task ChangeModeAsync(AgentPermissionProfile profile, CancellationToken cancellationToken = default) =>
         UpstreamAsync(token => inner.ChangeModeAsync(profile, token), cancellationToken);
 
+    public Task<AgentContextCleared> ClearContextAsync(CancellationToken cancellationToken = default) =>
+        inner.ClearContextAsync(cancellationToken);
+
     public Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default)
     {
         if (!MediaPreparer.NeedsPreparation(input.Attachments))

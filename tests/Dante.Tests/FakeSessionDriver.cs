@@ -22,6 +22,10 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
     public TaskCompletionSource? ModeGate { get; set; }
     private AgentPermissionProfile? pendingMode;
     public Exception? TurnFailure { get; set; }
+    // /clear (#120): failure to throw, or a gate that holds the operation until the test completes it.
+    public Exception? ClearFailure { get; set; }
+    public TaskCompletionSource? ClearGate { get; set; }
+    private int clears;
     public Exception? SteerFailure { get; set; }
     public Exception? InterruptFailure { get; set; }
     public Exception? ResponseFailure { get; set; }
@@ -58,6 +62,14 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
         if (ModeGate is not null) await ModeGate.Task.WaitAsync(cancellationToken);
         if (ModeFailure is not null) throw ModeFailure;
         if (Capabilities.ModeSwitch == AgentModeSwitch.NextTurn) pendingMode = profile;
+    }
+
+    public async Task<AgentContextCleared> ClearContextAsync(CancellationToken cancellationToken = default)
+    {
+        calls.Enqueue("clear");
+        if (ClearGate is { } gate) await gate.Task.WaitAsync(cancellationToken);
+        if (ClearFailure is not null) throw ClearFailure;
+        return new AgentContextCleared($"upstream-cleared-{Interlocked.Increment(ref clears)}");
     }
 
     public Task StartTurnAsync(AgentInput input, CancellationToken cancellationToken = default)

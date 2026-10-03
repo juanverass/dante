@@ -293,6 +293,13 @@ public sealed partial class TelegramPollingService(
             return;
         }
 
+        if (string.Equals(command, "/clear", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendReplyAsync(message.Chat.Id, await HandleClearCommandAsync(message.From!.Id, prompt,
+                cancellationToken), cancellationToken);
+            return;
+        }
+
         if (string.Equals(command, "/mode", StringComparison.OrdinalIgnoreCase))
         {
             await SendReplyAsync(message.Chat.Id, await HandleModeCommandAsync(message.From!.Id, prompt, cancellationToken), cancellationToken);
