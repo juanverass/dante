@@ -20,6 +20,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | Interactive Agent Sessions (Epic #60) | concluído |
 | Mídias no Telegram (Epic #92) | em andamento: spike #93, recebimento #94, imagens aos agentes #95, áudio e vídeo #96, artefatos #97 e imagem para LinkedIn #98 entregues; #99 pendente |
 | Cotas de uso pelo `/uso` (Epic #114) | entregue: spike #115 (AD-31), `/uso` com Codex (#116) e Claude (#117); fechamento da Epic por decisão humana |
+| Limpar e compactar contexto (Epic #118) | em andamento: spike #119 (AD-32) concluído; `/clear` (#120) e `/compact` (#121) pendentes |
 
 ## Funcionalidades disponíveis
 
@@ -176,6 +177,7 @@ Detalhes de uso: [README](../../README.md).
 
 - **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94), imagens aos agentes (#95), áudio e vídeo (#96), artefatos (#97) e imagem para LinkedIn (#98) entregues; validação final (#99) pendente.
 - **Epic #114 — Cotas de uso pelo `/uso`**: spike #115 (AD-31, [`docs/spikes/usage-quotas`](../spikes/usage-quotas/README.md)), Codex (#116) e Claude (#117) entregues; aguarda revisão e fechamento humano.
+- **Epic #118 — Limpar e compactar contexto**: o spike #119 comprovou, nas duas CLIs reais, compactação e limpeza no mesmo processo da sessão — Claude por `/compact`/`/clear` no stream-json, Codex por `thread/compact/start` e nova thread — e definiu contrato e regras (AD-32, [`docs/spikes/clear-compact`](../spikes/clear-compact/README.md)); `/clear` (#120) e `/compact` (#121) pendentes.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
