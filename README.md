@@ -22,6 +22,11 @@ resultado
 Telegram
 ```
 
+## Instalar pela primeira vez
+
+Siga o [guia de instalação local](docs/setup/LOCAL_INSTALLATION.md): dependências, login nas CLIs,
+bot e User ID do Telegram, primeiro pedido, ffmpeg/whisper/modelo/fontes e ambiente do serviço.
+
 ## Documentação para mantenedores
 
 Se você vai **manter, depurar ou evoluir** o D.A.N.T.E., consulte o [Guia de manutenção](docs/maintainer/README.md).
@@ -129,23 +134,12 @@ Antes de iniciar o Worker, confirme que as CLIs funcionam diretamente no mesmo u
 
 ---
 
-## Executando o projeto
-
-Clone o repositório e execute:
-
-```bash
-dotnet build Dante.sln
-dotnet test Dante.sln
-dotnet run --project src/Dante.Worker
-```
-
-O Worker permanece em execução até receber um sinal de encerramento, como `Ctrl+C`.
-
----
-
 ## Configuração do Telegram
 
-Crie um bot usando o **BotFather** e configure o token no ambiente.
+Crie um bot usando o **[@BotFather](https://t.me/BotFather)** (`/newbot`), abra a conversa com o novo bot
+e clique em **Iniciar**. Configure o token no ambiente. Para obter seu User ID sem usar um bot de terceiros,
+siga a [consulta de getUpdates no guia de instalação](docs/setup/LOCAL_INSTALLATION.md#3-baixar-o-projeto-e-configurar-o-telegram),
+antes de iniciar o Worker.
 
 ### Bash / WSL
 
@@ -175,6 +169,27 @@ O Telegram usa **long polling**. Não é necessário webhook, domínio público 
 
 ---
 
+## Executando o projeto
+
+Com as CLIs instaladas/autenticadas e o Telegram configurado no mesmo terminal:
+
+```bash
+git clone https://github.com/juanverass/dante.git
+cd dante
+```
+
+Depois execute:
+
+```bash
+dotnet build Dante.sln
+dotnet test Dante.sln
+dotnet run --project src/Dante.Worker
+```
+
+O Worker permanece em execução até receber um sinal de encerramento, como `Ctrl+C`.
+
+---
+
 ## Primeiro teste
 
 Com o Worker rodando:
@@ -188,6 +203,10 @@ Resposta esperada:
 ```text
 pong
 ```
+
+Se instalou só Codex, envie `/agent set codex` antes de uma mensagem comum (o padrão é Claude).
+Envie `/use general` e `Responda apenas: funcionando`. `/ping` valida o Telegram; a resposta ao
+pedido valida também a CLI e o login.
 
 ---
 
@@ -204,7 +223,8 @@ logon no Windows → tarefa "DANTE WSL" abre a distro (sem janela)
 
 Pré-requisitos: `systemd=true` na seção `[boot]` de `/etc/wsl.conf`, .NET SDK e as CLIs autenticadas no
 mesmo usuário Linux. O serviço roda como esse usuário, sem root, e usa as mesmas credenciais locais das CLIs
-(`~/.claude`, `~/.codex`).
+(`~/.claude`, `~/.codex`). Para habilitar systemd e reiniciar a distro, veja o
+[passo a passo](docs/setup/LOCAL_INSTALLATION.md#6-rodar-sem-terminal-aberto).
 
 ### Instalar
 
@@ -230,6 +250,11 @@ invertida ou comentário na mesma linha (`export` é removido na conversão). Um
 indicando apenas o número da linha, antes de qualquer instalação — por exemplo,
 `export DANTE_GENERAL_WORKSPACE="$HOME/general"` precisa virar `DANTE_GENERAL_WORKSPACE=/home/<usuario>/general`.
 Valide um arquivo com `bash deploy/dante-env.sh check ~/.config/dante/dante.env`.
+
+O serviço não lê `~/.bashrc` nem NVM. Se uma CLI, Node ou uma ferramenta estiver fora do PATH padrão,
+defina um `PATH` literal completo no `dante.env`; instalações por usuário do SDK podem precisar de
+`DOTNET_ROOT`. O guia mostra [exemplos e verificações](docs/setup/LOCAL_INSTALLATION.md#6-rodar-sem-terminal-aberto).
+`DANTE_WHISPER_MODEL` também deve estar nesse arquivo se o modelo não estiver no caminho padrão.
 
 O `dante.env` guarda segredos: fica fora do repositório, com permissão `600`, e também recebe
 `DANTE_GENERAL_WORKSPACE` e as variáveis do host usadas por `/repo env bind`. Se o linger não puder ser ativado
@@ -841,11 +866,16 @@ Nada é instalado ou contratado automaticamente. Sem as ferramentas, voz, áudio
 download**, com o que falta:
 
 ```bash
-sudo apt install ffmpeg whisper.cpp
+sudo apt install ffmpeg
+# Se disponível na sua distribuição:
+sudo apt install whisper.cpp
 mkdir -p ~/.dante/models
-curl -L -o ~/.dante/models/ggml-small.bin \
+curl -fL --retry 3 -o ~/.dante/models/ggml-small.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
 ```
+
+Se o pacote `whisper.cpp` não existir, use a [compilação da versão validada no guia](docs/setup/LOCAL_INSTALLATION.md#5-dependências-opcionais-de-mídia).
+O guia também cobre as fontes da `/vitrine`, verificação dos binários e teste de mídia com o serviço.
 
 - `ffmpeg` e `ffprobe` leem o arquivo e extraem quadros e áudio; sozinhos, bastam para os quadros dos vídeos (a
   trilha de áudio fica sem transcrição, e a mensagem diz isso);

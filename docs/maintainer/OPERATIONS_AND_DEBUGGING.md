@@ -1,6 +1,7 @@
 # Operação e debugging do D.A.N.T.E.
 
-Este documento é o manual operacional do projeto.
+Este documento é o manual operacional do projeto. Para instalar do zero, siga primeiro
+[Instalação local](../setup/LOCAL_INSTALLATION.md), incluindo dependências opcionais de mídia.
 
 ---
 
@@ -14,7 +15,13 @@ No mesmo usuário e ambiente em que o Worker roda:
 - Claude Code e/ou Codex CLI instalados;
 - CLIs autenticadas;
 - token de bot do Telegram;
-- Telegram User ID autorizado.
+- Telegram User ID autorizado;
+- para quadros de vídeo: ffmpeg e ffprobe;
+- para voz/áudio e transcrição de vídeo: também whisper-cli (whisper.cpp) e modelo multilíngue;
+- para `/vitrine`: ffmpeg com drawtext e fontes nos caminhos suportados.
+
+Instalação por pacote ou compilação, modelo e verificações estão na
+[seção de mídia do guia](../setup/LOCAL_INSTALLATION.md#5-dependências-opcionais-de-mídia).
 
 Valide as CLIs diretamente antes de culpar o D.A.N.T.E.
 
@@ -42,6 +49,9 @@ O D.A.N.T.E. usa dois grupos de configuração:
 Telegram__BotToken
 Telegram__AllowedUserIds
 DANTE_GENERAL_WORKSPACE   (opcional)
+DANTE_WHISPER_MODEL       (opcional; caminho absoluto, padrão ~/.dante/models/ggml-small.bin)
+PATH                     (ajuste para as CLIs/ferramentas no serviço)
+DOTNET_ROOT              (se o SDK/runtime foi instalado por usuário)
 OPENAI_API_KEY            (opcional)
 ANTHROPIC_API_KEY         (opcional)
 ```
@@ -794,8 +804,14 @@ Só então deixe o processo executando por longos períodos.
 
 # 25. Limitação operacional atual
 
-No estado documentado, o Worker ainda é iniciado manualmente.
+O Worker pode rodar manualmente ou pelo serviço systemd do usuário, já implementado em
+`deploy/dante-service.sh`. No WSL, a tarefa do Windows inicia a distro no logon, não no boot.
+Veja [Executando como serviço](../../README.md#executando-como-serviço).
 
-A execução automática como serviço está separada como trabalho próprio.
-
-Até isso ser implementado, abrir um terminal novo exige que o ambiente necessário esteja carregado — por isso a configuração persistente do shell é importante.
+O serviço lê `~/.config/dante/dante.env`, não `~/.bashrc` nem NVM. Se funcionar no terminal e
+falhar como serviço, confira os caminhos de dotnet, Node, CLIs e ferramentas de mídia, e o modelo.
+Use valores literais e absolutos para PATH, DOTNET_ROOT e DANTE_WHISPER_MODEL; os
+[exemplos de ambiente](../setup/LOCAL_INSTALLATION.md#6-rodar-sem-terminal-aberto) mostram o formato.
+Valide com `bash deploy/dante-env.sh check ~/.config/dante/dante.env`, reinicie o serviço e
+repita `/ping`, um pedido ao agente e os testes de mídia. Uma atualização de Node/NVM pode exigir
+atualizar o PATH literal. Sessões e jobs em memória não sobrevivem ao reinício do Worker.
