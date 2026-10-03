@@ -19,6 +19,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 | MVP 3 — Conversational Context (Epic #32) | concluído (#33–#38); fechamento da Epic por decisão humana |
 | Interactive Agent Sessions (Epic #60) | concluído |
 | Mídias no Telegram (Epic #92) | em andamento: spike #93, recebimento #94, imagens aos agentes #95, áudio e vídeo #96, artefatos #97 e imagem para LinkedIn #98 entregues; #99 pendente |
+| Cotas de uso pelo `/uso` (Epic #114) | em andamento: spike #115 (AD-31) concluído; `/uso` com Codex (#116) e Claude (#117) pendentes |
 
 ## Funcionalidades disponíveis
 
@@ -165,6 +166,7 @@ Detalhes de uso: [README](../../README.md).
 ## Em andamento
 
 - **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94), imagens aos agentes (#95), áudio e vídeo (#96), artefatos (#97) e imagem para LinkedIn (#98) entregues; validação final (#99) pendente.
+- **Epic #114 — Cotas de uso pelo `/uso`**: o spike #115 comprovou consulta sem turno das janelas de sessão (5 h) e semanal nas duas CLIs — Codex por `account/rateLimits/read`, Claude pelo `get_usage` experimental — e definiu o contrato neutro (AD-31, [`docs/spikes/usage-quotas`](../spikes/usage-quotas/README.md)); comando `/uso` com Codex (#116) e Claude (#117) pendentes.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
