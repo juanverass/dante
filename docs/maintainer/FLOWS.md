@@ -812,3 +812,59 @@ Jobs e sessões não são restaurados na próxima inicialização.
 | job one-shot trava | runner + `AgentProcessExecutor` |
 | subprocesso fica vivo | `InteractiveAgentProcess` / `ProcessTree` |
 | `/resend` não encontra saída | retention do `TelegramDeliveryService` |
+
+# 22. Fluxos alvo do Brain (#134, ainda não implementados)
+
+Estes fluxos concretizam a [AD-33](../context/ARCHITECTURE_DECISIONS.md#ad-33--brain-como-núcleo-de-conhecimento-com-recuperação-seletiva-separado-da-sessão-e-do-histórico).
+Os nomes representam responsabilidades conceituais; nenhum caminho abaixo existe
+no Worker atual. Detalhes físicos pertencem à #135/#160.
+
+## Capturar e consolidar
+
+```text
+"guarde esta solução" / fonte selecionada
+  → identidade + Space/Project + autorização
+  → classificação de sensibilidade e evidência
+  → KnowledgeCandidate (MemoryCandidate)
+  → deduplicação / conflitos
+  → confirmação, rejeição ou correção pelo usuário/policy
+  → Knowledge Core valida status, origem e revisão
+  → commit do item + proveniência + relações
+  → índices derivados atualizados (ou marcados para reconstrução)
+  → confirmação ao usuário somente após commit canônico
+```
+
+Falha de gravação não confirma captura; falha de índice não perde conhecimento.
+Nenhum turno inteiro é consolidado automaticamente como fato. Uma inferência pode
+ser registrada como inferred, nunca silenciosamente confirmada pelo agente.
+
+## Retomar em outra sessão ou agente
+
+```text
+pedido novo → resolver identidade/Space/Project
+  → carregar snapshot operacional elegível
+  → Brain Search com autorização e filtros antes do ranking
+  → relações autorizadas, expansão limitada
+  → priorizar / deduplicar / aplicar budget ao conjunto enviado
+  → Context Pack com IDs, revisões, status, origem e tokens estimados
+  → revalidar elegibilidade / sensibilidade
+  → adapter injeta contexto como dado, preservando permissões
+  → nova sessão Claude/Codex executa o pedido
+```
+
+A sessão anterior não é restaurada. Snapshot não é histórico infinito e não cria
+Knowledge Items automaticamente. `/clear` e `/compact` controlam a conversa upstream,
+sem apagar o Brain. Pack vazio ou busca indisponível não causam fallback ao chat
+inteiro nem acesso implícito a outro Space; comunicar a diferença ao usuário.
+
+## Corrigir, excluir e exportar
+
+Identidade/escopo → policy → localizar IDs/revisões autorizados → operação explícita.
+Correção/substituição registra proveniência e supersession; revisão concorrente
+produz conflito, não sobrescrita silenciosa. Exclusão invalida derivados/caches e
+impede que snapshots/relações reintroduzam conteúdo excluído. Export aplica policy
+por item/fonte e explica omissões, preservando IDs/origens dos dados permitidos.
+
+O Context Builder registra candidatos, selecionados e efetivamente injetados. A
+validação da #147 compara continuidade entre Claude/Codex e contexto enviado versus
+baseline de histórico; logs de métricas não carregam conteúdo sensível.

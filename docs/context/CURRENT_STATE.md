@@ -226,4 +226,10 @@ completa durante a #94 e de novo no baseline da #95; passa isolado e nas execuç
 
 ## Próximos marcos
 
+A Epic #133 tem [arquitetura alvo documentada](../maintainer/ARCHITECTURE.md#16-arquitetura-alvo-do-dante-brain-133-134)
+(AD-33, #134). Brain/Knowledge Core/Search/Snapshot/Context Pack ainda não existem
+no runtime; a #135 formaliza armazenamento, e #160 depende da conclusão de ambas.
+A arquitetura separa conhecimento, memória de trabalho e histórico; não altera
+persistência ou permissões do Worker atual.
+
 1. mídias no Telegram (#92): validação final (#99).

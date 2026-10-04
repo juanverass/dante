@@ -17,6 +17,10 @@ O README principal continua sendo a documentação de uso. Aqui o foco é arquit
 5. [Testes](TESTING.md) — estratégia, ProcessProbe e como localizar testes por comportamento.
 6. [Glossário](GLOSSARY.md) — termos e IDs usados pelo projeto.
 
+Para a evolução Brain (#133), leia a [arquitetura alvo](ARCHITECTURE.md#16-arquitetura-alvo-do-dante-brain-133-134),
+a AD-33 e os [fluxos futuros](FLOWS.md#22-fluxos-alvo-do-brain-134-ainda-não-implementados).
+Essas seções são direção para as Issues filhas, não descrição de código já disponível.
+
 ## Modelo mental em uma frase
 
 O D.A.N.T.E. é um **monólito modular local em .NET**, executado como um único Worker, que usa o Telegram como adaptador de entrada/saída e controla Claude Code e Codex CLI como processos filhos por meio de dois caminhos:
