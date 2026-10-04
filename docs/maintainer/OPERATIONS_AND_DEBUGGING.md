@@ -815,3 +815,22 @@ Use valores literais e absolutos para PATH, DOTNET_ROOT e DANTE_WHISPER_MODEL; o
 Valide com `bash deploy/dante-env.sh check ~/.config/dante/dante.env`, reinicie o serviço e
 repita `/ping`, um pedido ao agente e os testes de mídia. Uma atualização de Node/NVM pode exigir
 atualizar o PATH literal. Sessões e jobs em memória não sobrevivem ao reinício do Worker.
+
+# 26. Operação futura do Brain (AD-34, #135)
+
+O Worker atual não lê configuração de banco nem executa migrations Brain. A
+[ADR de armazenamento](../brain/POSTGRESQL_STORAGE.md) define PostgreSQL local,
+full-text lexical, pgvector derivado, fontes privadas e export independente. Seu
+roteiro WSL é preparatório; a #160 implementará bootstrap/configuração/health.
+
+Na operação futura, canônico/schema/fontes e índices têm estados separados.
+Vector indisponível não deve impedir consulta lexical; falha de banco não pode
+confirmar uma gravação. O runtime usará role limitada, nunca o administrador de
+bootstrap; conexão/credenciais ficam fora do Git e dos logs.
+
+Backup/restore precisa incluir dump canônico, originais e manifesto. Parar todos
+os writers/ingestão/GC antes da cópia, restaurar primeiro em ambiente vazio,
+validar IDs/hashes/escopos e reconstruir índices. A
+[estratégia e os comandos](../brain/POSTGRESQL_STORAGE.md#backup-restore-e-portabilidade)
+não substituem a evidência de restore real exigida pela #160. Não apagar volume
+ou sobrescrever instalação saudável como procedimento de diagnóstico.

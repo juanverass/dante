@@ -1118,6 +1118,48 @@ Por quê: as duas CLIs já sabem ler a cota da conta autenticada sem custo de mo
 autenticação e os segredos onde já estão (AD-04) e evita depender de endpoints privados, enquanto o processo
 efêmero isola a consulta das sessões vivas.
 
+## Persistência do D.A.N.T.E. Brain (Epic #133)
+
+## AD-34 — PostgreSQL canônico, índices derivados e portabilidade lógica do Brain
+
+Status: decisão de armazenamento (#135), para implementação pela #160 após a
+arquitetura conceitual da #134. O Worker atual continua sem banco; não há adapter
+ou migrations Brain disponíveis nesta decisão.
+
+PostgreSQL é a fonte de verdade estruturada escolhida pelo humano: identidade,
+Spaces/Projects, itens/relações/proveniência/validade/sensibilidade, fontes e
+snapshots. Full-text nativo é o mecanismo lexical; pgvector armazena embeddings
+com modelo/versão/dimensão e origem revisada, como índice reconstruível. Filesystem
+privado guarda originais quando apropriado, com ID lógico/hash/referência no banco.
+
+Separar dados canônicos (`brain_data`), ledger/metadados (`brain_meta`) e derivados
+(`brain_index`); o canônico não depende de tipos/funções de vector. Falha de
+semântica permite lexical; falha de indexação não perde commit canônico. Geração
+nova de embedding/reindexação não altera identidade/proveniência do conhecimento.
+
+Migrations explícitas e imutáveis, checksum/lock/versão, runtime sem superuser/DDL,
+queries parametrizadas com escopo obrigatório e concorrência por revisão. IDs e
+contratos do domínio não expõem SQL, provider ou tipos físicos. Não migrar estado
+volátil das sessões/jobs nem substituir stores JSON existentes nesta Epic.
+
+Backup local mínimo congela writers/ingestão/GC, combina dump canônico + originais
+e manifesto de hashes/versões/contagens, e valida restore em banco vazio com
+rebuild derivado. PostgreSQL não garante atomicidade com filesystem; referências
+só são publicadas após finalizar bytes imutáveis. Export autorizado em Markdown +
+JSON versionado preserva IDs/metadados/relações/proveniência, sem aprisionamento no
+provider. Backup privado e export redigido têm finalidades distintas.
+
+Por quê: PostgreSQL atende integridade/transações e recuperação lexical/vetorial
+no mesmo armazenamento, preservando domínio e export independentes; índices
+reconstruíveis evitam tornar o serviço/modelo de embeddings fonte de verdade.
+Não reabrir PostgreSQL versus SQLite/Markdown nesta Issue.
+
+ADR completa, operação preparatória WSL, backup/restore e contrato/testes para
+#160: [PostgreSQL Storage](../brain/POSTGRESQL_STORAGE.md).
+Roteiro local documentado, não executado com banco real nesta Issue: daemon Docker
+indisponível na distro. #160 deve produzir evidência de migrations, isolamento,
+integridade, restore canônico sem vector e reconstrução dos índices.
+
 ## Contexto das sessões (Epic #118)
 
 ## AD-32 — Clear e compact pelos mecanismos nativos de cada CLI, confirmados upstream e só com a sessão ociosa
