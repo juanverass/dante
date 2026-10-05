@@ -8,6 +8,7 @@
     <ProjectReference Include="../Dante.Domain/Dante.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Mapster" Version="10.0.13" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.6" />
   </ItemGroup>
 </Project>
