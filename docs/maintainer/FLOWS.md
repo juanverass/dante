@@ -868,3 +868,17 @@ por item/fonte e explica omissões, preservando IDs/origens dos dados permitidos
 O Context Builder registra candidatos, selecionados e efetivamente injetados. A
 validação da #147 compara continuidade entre Claude/Codex e contexto enviado versus
 baseline de histórico; logs de métricas não carregam conteúdo sensível.
+
+## 23. Composição hexagonal e fluxo alvo de casos de uso (#165)
+
+No startup, Worker/WebApi criam seu builder → AddApplication →
+AddInfrastructure(configuration) → registro dos serviços de entrada do host →
+build/run. O Worker usa AddWorker para a composição legada, sem mudar seus fluxos
+anteriores; o scaffold WebApi não registra Telegram/CLIs/hosted services do Worker.
+
+Código novo segue: entrada do host → DTO → AppService/caso de uso em Application →
+regra/entidade de Domain → porta/repository → adapter de Infrastructure → resultado
+DTO de Application → resposta do host. Endpoint não consulta repository/DbContext
+diretamente; Domain não conhece provider/mapper/transporte. Este fluxo é convenção,
+não um caso de uso implementado nesta fundação. CRUD/EF/Mapster e endpoints ficam
+nas respectivas issues, com vocabulário PT-BR e identidade Guid Id (AD-36).
