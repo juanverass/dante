@@ -329,6 +329,19 @@ os nomes/rótulos dos modos seguem no Worker como apresentação. Comportamento 
 suíte com 800 aprovados e 18 pulados. Sessões/drivers, jobs, mídia, artefatos e Telegram seguem no
 Worker; EF Core/PostgreSQL é a #168.
 
+## Projetos (#136)
+
+Projeto no Domain, preso a um EspacoDeConhecimento (fixo na criação), com nome e
+descrição/objetivo de apresentação, estado Ativo/Arquivado (arquivado somente leitura até
+reativar) e repositório cadastrado como associação opcional por alias, nunca identidade.
+IProjetoRepository, IProjetoAppService, ProjetoAppService, ProjetoDto e ProjetoSearchDto na
+Application, sobre a base CRUD: criação só em espaço existente e ativo, associação validada
+pelo catálogo de repositórios, arquivar/reativar e pesquisa sempre escopada ao espaço
+(AD-42). Mappings registrados em AddApplication. Vinte e cinco testes de Domain/Application,
+sem banco; suíte com 848 aprovados e 18 pulados. Repository Mode e /use não mudam. Sem
+persistência concreta (#160), registro DI do AppService, seleção de projeto ativo ou
+autorização (#150).
+
 ## Fundação EF Core + PostgreSQL (#168)
 
 Persistência opcional via ConnectionStrings:Dante em AddInfrastructure: DanteDbContext,

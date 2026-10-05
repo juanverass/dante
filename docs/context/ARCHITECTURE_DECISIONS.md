@@ -1440,9 +1440,41 @@ fica restrito a host, Telegram e o núcleo de sessões ainda não extraído, sem
 Código: `src/Dante.Infrastructure/{Contextos,Agentes,Uso}`, `src/Dante.Application/{Agentes,Uso,Anexos}`,
 `src/Dante.Domain/Agentes/AgentPermissionProfile.cs`; testes em `HexagonalArchitectureTests`.
 
+## AD-42 — Projeto preso a um EspacoDeConhecimento, com repositório Git como associação opcional
+
+Status: vigente (#136, Epic #133). Segunda entidade funcional sobre a base CRUD (AD-39), no
+padrão da AD-40.
+
+`Projeto : EntidadeBase` fica em `Dante.Domain.Projetos`; contratos, DTOs e AppService em
+`Dante.Application.Projetos`. O projeto pertence a exatamente um espaço
+(`IdEspacoDeConhecimento` obrigatório, fixo na criação), tem nome obrigatório (aparado, até
+100 caracteres, sem caracteres de controle), descrição/objetivo opcional (até 1000) e estado
+`Ativo`/`Arquivado`. `Atualizar` troca nome e descrição de forma atômica, sem mudar Id nem
+espaço. Projeto arquivado é somente leitura até `Reativar`, e arquivar/reativar exige o
+estado oposto.
+
+Repositório Git é associação opcional, nunca identidade: `AliasDoRepositorio` guarda o alias
+de um repositório cadastrado, trocado ou removido sem mudar o Id. `AssociarRepositorioAsync`
+valida o alias pela porta `ICatalogoDeRepositorios` e grava o alias do catálogo; repositório
+removido do catálogo depois não invalida o projeto. O projeto não guarda caminho, working
+directory nem GitHub, e não muda o Repository Mode, o `/use` nem o diretório das sessões.
+
+A criação exige espaço existente e ativo (espaço arquivado é somente leitura, AD-40). O
+mapping de criação usa o constructor do domínio e ignora Id, alias e estado do DTO; a
+atualização não muda espaço, associação nem estado, que só mudam pelas operações próprias.
+A pesquisa exige o espaço (sem listagem global) e por padrão omite arquivados. Como na AD-40,
+o AppService não é registrado em DI até haver persistência (#160); seleção do projeto ativo,
+autorização por usuário (#150) e unicidade de nome por espaço ficam para as respectivas issues.
+
+Por quê: o trabalho persistente precisa sobreviver a sessões, troca de agente e troca de
+repositório sem que caminho, alias ou contexto de execução virem sua identidade ou escopo.
+
+Código: `src/Dante.Domain/Projetos`, `src/Dante.Application/Projetos`; testes em `ProjetoTests` e
+`ProjetoAppServiceTests`.
+
 ## AD-43 — Fundação EF opcional, transação por UoW e xmin shadow
 
-Status: vigente (#168, Epic #164). AD-42 é reservada ao Projeto da #136.
+Status: vigente (#168, Epic #164). AD-42 define o Projeto da #136.
 
 AddInfrastructure registra persistência scoped somente com ConnectionStrings:Dante;
 não aplica migrations automaticamente. DanteDbContext usa configurations concretas
