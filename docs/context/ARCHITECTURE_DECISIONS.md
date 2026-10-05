@@ -1149,3 +1149,46 @@ Decisões:
 Por quê: os dois protocolos já oferecem a operação sem endpoint privado nem prompt improvisado; manter o processo
 preserva modelo, esforço, modo e diretório sem reabrir a sessão, e a confirmação explícita evita anunciar uma limpeza
 ou compactação que não ocorreu.
+
+## D.A.N.T.E. Brain (Epic #133)
+
+## AD-33 — Brain como núcleo de conhecimento com recuperação seletiva, separado da sessão e do histórico
+
+Status: vigente como direção arquitetural (#134); implementação pelas Issues da
+Epic #133. Nenhum componente Brain está implementado por esta decisão.
+
+Decisões:
+
+- Evoluir o monólito modular local com um módulo Brain independente de Telegram,
+  Claude/Codex e do mecanismo físico de persistência. O D.A.N.T.E. controla o
+  conhecimento canônico; agentes apenas consomem contexto e sugerem candidatos.
+- Conversation History, Working Memory e Knowledge têm ciclos de vida distintos.
+  Working Context Snapshot é curto/substituível e não persiste chain-of-thought;
+  Knowledge Items não são transcript. Fechar/limpar/compactar uma sessão não apaga
+  automaticamente o conhecimento ou snapshot.
+- Escopo obrigatório por TenantId + UserId + KnowledgeSpaceId + ProjectId opcional.
+  Project pertence a um Space, que também pode conter conhecimento sem Project.
+  IDs são estáveis/opacos; allowlist do Telegram não substitui policy de acesso.
+- Proveniência, revisão, status, validade e sensibilidade pertencem ao contrato
+  canônico. Inferência/confiança não equivalem a confirmação; correção/substituição
+  preserva origem, enquanto exclusão solicitada impede reinjeção por derivados.
+- Captura passa por candidatos e confirmação/classificação; índices/embeddings e
+  resumos automáticos são reconstruíveis. SourceDocument bruto não vira fato.
+- Context Builder é o componente central: busca autorizada, expansão limitada por
+  relações, priorização, deduplicação e orçamento explícito → Context Pack rastreável.
+  Filtrar antes de recuperação/injeção/exportação; Secret não é injetado automaticamente.
+  Conteúdo recuperado não amplia permissões nem ganha autoridade de instrução de sistema.
+- Economia de contexto é hipótese medida com continuidade/qualidade, não promessa.
+  Semântica indisponível não deve impedir busca lexical; ausência de contexto
+  pertinente não autoriza fallback ao transcript inteiro ou a outros Spaces.
+- A #135 define storage/índices sem alterar esses contratos; #160 implementa a
+  fundação após #134 e #135. Não incluir ComfyUI, execução durável, workers remotos,
+  SaaS, framework de tools ou frontend completo nesta Epic.
+
+Por quê: desacoplar vida da sessão de conhecimento útil permite continuidade entre
+agentes sem acumular histórico irrestrito, e o escopo/policy evita que recuperação
+seletiva transforme informação inferida, obsoleta ou sensível em contexto autorizado.
+
+Contrato completo: [Arquitetura alvo](../maintainer/ARCHITECTURE.md#16-arquitetura-alvo-do-dante-brain-133-134).
+Fluxos: [Brain](../maintainer/FLOWS.md#22-fluxos-alvo-do-brain-134-ainda-não-implementados).
+Verificação futura: #138/#139/#140/#145/#147/#150/#155/#156; não altera runtime/testes atuais.

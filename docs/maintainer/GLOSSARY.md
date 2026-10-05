@@ -525,3 +525,29 @@ Não é uma feature runtime do D.A.N.T.E.
 ## Decision Lock
 
 Decisão tomada durante desenvolvimento que agentes seguintes não devem reabrir por preferência pessoal.
+
+## Vocabulário alvo do Brain (AD-33, #134)
+
+Contratos conceituais, ainda não componentes implementados; veja
+[Arquitetura alvo](ARCHITECTURE.md#16-arquitetura-alvo-do-dante-brain-133-134).
+
+| Termo | Significado |
+| --- | --- |
+| Brain | Núcleo de conhecimento do D.A.N.T.E., independente da vida de sessões, de agentes, do canal e do provider físico. |
+| Conversation History | Mensagens/eventos de conversa; pode fornecer evidência selecionada, não é Knowledge automaticamente. |
+| Working Memory | Estado operacional limitado para retomar tarefa, sem chain-of-thought nem restauração de processos/requests. |
+| Working Context Snapshot | Representação persistida, curta e substituível de Working Memory, por Space/Project, com origem/revisão/timestamp/validade. |
+| KnowledgeSpace | Limite lógico de organização/isolamento, semelhante conceitualmente a um vault; pode conter Projects e conhecimento sem Project. |
+| Project | Contexto persistente de trabalho dentro de um Space; não equivale a repositório Git ou sessão. |
+| KnowledgeItem | Conhecimento consolidado com ID, escopo, conteúdo/tipo, revisão, status, sensibilidade, proveniência e validade. |
+| KnowledgeRelation | Ligação semântica entre itens com origem e tipo; permite navegar Incident → Solution → Lesson sem impor banco de grafos. |
+| SourceDocument / Source | Evidência identificada logicamente, com revisão/origem/trecho/hash quando aplicável; bruto não é fato confirmado. |
+| Provenance | Origem e responsáveis por captura/confirmação/correção, com timestamps e referência à evidência. |
+| MemoryCandidate / KnowledgeCandidate | Proposta com evidência antes da consolidação; rejeitar não polui o Knowledge Core. |
+| Context Builder | Responsabilidade central de selecionar contexto autorizado/relevante dentro do budget. |
+| Context Pack | Conjunto derivado para um pedido, com IDs/revisões/origens/status, justificativa e tokens estimados, não armazenamento canônico. |
+| Sensitivity | Public, Personal, Work, Confidential ou Secret; policy decide leitura/injeção/export, Secret não é enviado automaticamente ao agente. |
+| Knowledge status | confirmed, inferred, temporary, superseded ou inactive; separado de confidence e validade temporal. |
+| Knowledge validity | Intervalo validFrom/validUntil quando aplicável; item confirmado pode expirar ou ser substituído. |
+| TenantId / UserId | Identidades persistentes do acesso ao Brain; não são os IDs de chat/sessão/CLI. |
+| Índice derivado | Embedding, chunk/indexação lexical ou resumo automático reconstruível a partir do conteúdo canônico e sua versão. |

@@ -126,3 +126,17 @@ Fora do sistema hoje, por decisão (ver [ARCHITECTURE_DECISIONS](ARCHITECTURE_DE
 
 O desenvolvimento **do** D.A.N.T.E. por agentes (o Agent Harness em `docs/development/`)
 é processo de engenharia do repositório, não funcionalidade do produto.
+
+## Evolução aprovada: D.A.N.T.E. Brain (Epic #133)
+
+A [AD-33](ARCHITECTURE_DECISIONS.md#ad-33--brain-como-núcleo-de-conhecimento-com-recuperação-seletiva-separado-da-sessão-e-do-histórico)
+define a arquitetura alvo, ainda não implementada: conhecimento por Space/Project,
+com proveniência/status/validade/sensibilidade, separado de histórico e Working
+Context Snapshot. O Context Builder monta um Context Pack seletivo e autorizado
+para o pedido; agentes consomem/sugerem, o D.A.N.T.E. controla a fonte de verdade.
+Economia de tokens será medida junto de continuidade e qualidade, não presumida.
+
+O Worker atual continua sem banco e com jobs/sessões em memória. A #135 define
+armazenamento/índices e a #160 implementará persistência após #134/#135. Não há
+ComfyUI, framework de tools, workers remotos, SaaS ou frontend completo nesta Epic.
+Contrato detalhado em [Arquitetura](../maintainer/ARCHITECTURE.md#16-arquitetura-alvo-do-dante-brain-133-134).

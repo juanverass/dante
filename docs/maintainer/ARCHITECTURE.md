@@ -532,3 +532,185 @@ Exemplos:
 | seleção de modelo | `AgentModelCatalog` |
 
 Se uma alteração começar a atravessar muitos desses limites ao mesmo tempo, é um sinal para revisar a responsabilidade antes de continuar.
+
+## 16. Arquitetura alvo do D.A.N.T.E. Brain (#133, #134)
+
+Esta seção define **contratos conceituais para implementação futura** (AD-33).
+O Brain ainda não está implementado: as seções anteriores descrevem o runtime
+atual. A persistência física e os índices são responsabilidade da #135; esta
+arquitetura não escolhe backend, provider, biblioteca ou formato de banco.
+
+O Brain entra como módulo do monólito local, composto em `Program.cs`. Não muda
+as máquinas de estado dos agentes nem torna jobs/sessões duráveis. Telegram é
+uma borda de apresentação; Claude/Codex consomem contexto e sugerem candidatos.
+Nenhum desses adapters é dono do conhecimento canônico.
+
+### 16.1 Três informações com ciclos de vida diferentes
+
+| Informação | Finalidade | Autoridade e ciclo de vida |
+| --- | --- | --- |
+| Conversation History | Mensagens e eventos de uma conversa | Evidência de origem quando selecionada; não equivale a conhecimento. A Epic não promete persistir transcript completo. |
+| Working Memory | Estado operacional necessário para retomar uma tarefa | Working Context Snapshot curto, substituível, com origem, timestamp, revisão e possível expiração (#156). Não recupera processo, requests ou fila. |
+| Knowledge | Conteúdo consolidado reutilizável | Knowledge Items com escopo, status, validade, sensibilidade e proveniência; independentes da sessão/CLI. |
+
+Fechar sessão, reiniciar Worker, trocar Claude por Codex ou limpar/compactar o
+contexto upstream não deve apagar conhecimento ou snapshot automaticamente.
+Uma sessão nova poderá retomar **a tarefa**, não a sessão/processo anterior.
+Não persistir raciocínio privado/chain-of-thought como snapshot ou conhecimento.
+
+### 16.2 Identidade e escopo
+
+O contexto de acesso é composto por `TenantId`, `UserId`, `KnowledgeSpaceId` e
+`ProjectId` opcional. IDs são estáveis e opacos, gerados pelo D.A.N.T.E.; não são
+paths, usernames, alias de repositório, chat IDs ou IDs de sessão da CLI.
+
+O MVP pode usar um tenant local, mas deve mapear cada usuário autorizado do
+Telegram a uma identidade persistente. A allowlist de Telegram permite entrar;
+não substitui autorização para ler/injetar/exportar conhecimento (#150).
+
+- **KnowledgeSpace** é o limite de organização e isolamento: Personal, Work,
+  estudos ou outro contexto escolhido pelo usuário (#152). Possui owner, nome,
+  descrição e estado de arquivamento. Conhecimento pode pertencer diretamente ao
+  Space, sem Project.
+- **Project** pertence a exatamente um Space e delimita um trabalho persistente
+  (#136). Um repositório pode ser referência do Project; Project não é alias Git
+  nem muda permissões de execução ou o diretório da sessão.
+- Seleção ativa de Space/Project é preferência do usuário; a identidade e o
+  escopo efetivo devem ser resolvidos/validados pelo núcleo para cada operação.
+  A UX pode usar nomes amigáveis, sem exigir IDs internos em cada mensagem.
+- Nenhum escopo é inferido da saída do agente. Escopo ausente/ambíguo impede
+  acesso ao Brain até resolução explícita, sem busca global de fallback.
+- Consulta por Project pode combinar itens desse Project e itens do mesmo Space
+  sem Project, quando permitido pela intenção/policy. Não inclui outros Projects
+  automaticamente. Busca entre Spaces exige seleção explícita e autorização de
+  cada Space, nunca um wildcard implícito.
+- Relações, fontes, snapshots, índices, caches e exports carregam o mesmo escopo.
+  Filtrar só depois do ranking ou da injeção é insuficiente.
+
+### 16.3 Conceitos e contratos de dados
+
+| Conceito | Contrato semântico mínimo |
+| --- | --- |
+| KnowledgeItem | ID e revisão; tenant/user/space e Project opcional; tipo, conteúdo, dados estruturados opcionais, tags, status, sensibilidade, autoria/timestamps, proveniência e intervalo de validade opcional (#138). |
+| KnowledgeRelation | Source/target item, tipo direcional quando aplicável, escopo, proveniência e timestamps; endpoints existentes e autorizados, sem relações órfãs (#153). |
+| SourceDocument / Source | Identidade lógica e revisão de uma evidência: nota, documento ou trecho selecionado de conversa. Origem, hash quando aplicável, referência e localização do trecho. Fonte bruta não é fato confirmado (#158). |
+| Provenance | Quem/qual processo registrou, fonte e revisão/trecho usado, quando, e quem confirmou/corrigiu. Deve sobreviver à consolidação e à substituição enquanto o conteúdo não for excluído por solicitação do usuário. |
+| MemoryCandidate / KnowledgeCandidate | Dois nomes para o mesmo estágio conceitual de proposta: conteúdo/tipo sugerido, origem/evidência, justificativa, escopo e classificação; decisão pendente, confirmada, rejeitada ou corrigida, com ator/timestamp (#139). Não é automaticamente KnowledgeItem. |
+| Working Context Snapshot | Working Memory persistida: objetivo, progresso, referências, pendências, próximos passos explícitos e último resultado útil; revisão ativa limitada por Space/Project, timestamp, origem e possível expiração (#156). |
+| Context Pack | Representação derivada e limitada preparada para um pedido: itens/revisões/origens/status, trechos selecionados, snapshot elegível, motivo de seleção, tokens estimados, descartes e escopo efetivo (#140). Não é o repositório canônico. |
+| Sensitivity | Public, Personal, Work, Confidential ou Secret (#155); dirige leitura, captura, injeção e exportação por policy, não por decisão do modelo. |
+
+Tipos iniciais de KnowledgeItem seguem a #138: Fact, Decision, Preference,
+Instruction, Note, Reference, Incident, Solution, Lesson, Procedure, Summary e
+Inference. Um Summary produzido para índice/recuperação é derivado; um item
+Summary explicitamente consolidado tem sua própria proveniência/status e não
+substitui as fontes que resume. Não promover um resumo automático a conhecimento.
+
+Status e validade são eixos distintos: `confirmed`, `inferred`, `temporary`,
+`superseded` e `inactive`; `validFrom`/`validUntil` delimitam o intervalo quando
+aplicável. Confidence pode acompanhar inferência, mas não equivale a confirmação.
+A ausência de `validUntil` não comprova verdade permanente. A policy de recuperação
+exclui expirados, ainda não válidos, superseded e inactive; inferidos/temporários,
+se pertinentes, devem aparecer com sua classificação e nunca como fatos confirmados.
+
+Relações iniciais: RELATES_TO, BELONGS_TO, SUPERSEDES, DERIVED_FROM, RESOLVED_BY,
+PRODUCED_LESSON, DEPENDS_ON, REFERENCES e CONTRADICTS. O grafo expressa semântica,
+sem impor banco de grafos. Expansão tem limites de profundidade/quantidade/custo.
+Um conflito é representado e explicado; o agente não escolhe silenciosamente uma
+versão como verdadeira. Exemplo: Incident → RESOLVED_BY → Solution → PRODUCED_LESSON → Lesson.
+
+### 16.4 Responsabilidades do módulo
+
+Os nomes abaixo designam responsabilidades, não classes/interfaces já existentes.
+
+| Componente | Entrada/saída e limite |
+| --- | --- |
+| Brain Access Policy | Resolve identidade/escopo e autoriza leitura, escrita, injeção/exportação. Reutilizada em todos os caminhos; fail-closed (#150, #155). |
+| Capture / Consolidation | Fonte/evento selecionado → candidato → confirmação/rejeição/correção auditável → item/relações. Detecta duplicatas/conflitos sem consolidar automaticamente todo o chat (#139, #159). |
+| Knowledge Core | Valida os conceitos, status, validade, relações, revisões e operações de correção/exclusão. Não conhece Telegram, protocolos de CLI ou tipos físicos de banco (#138). |
+| Persistence ports | Operações de leitura/gravação/commit com escopo obrigatório, revisão esperada e resultados de não encontrado, conflito ou indisponibilidade. Sem APIs específicas de backend; provider definido na #135/#160. |
+| Source handling | Preserva identidade/proveniência de fontes selecionadas e processa ingestão sem transformar documento inteiro em fato confirmado (#158). |
+| Brain Search | Busca lexical/semântica com filtros obrigatórios, top-k limitado e retorno de IDs/revisões/scores/origens. Índices são derivados; lexical continua quando semântica faltar (#154). |
+| Context Builder | Centro da recuperação: aplica policy, busca, expande relações, ordena, deduplica e monta Context Pack dentro do orçamento (#140). |
+| Working Memory | Atualiza/consulta snapshot operacional limitado; valida revisão, origem, validade e escopo (#156). |
+| Conversation adapter | Traduz intenção do usuário para casos de uso do Brain e apresenta confirmação/origem; injeta somente Context Pack autorizado antes do envio ao driver (#145, #157). |
+| Inspection / Export | Consulta, correção, exclusão e exportação sob a mesma policy. Não depende de acesso direto ao armazenamento pelo usuário (#149). |
+| Measurement | Registra IDs, contagens, tamanhos estimados e decisões de seleção sem logar conteúdo sensível; compara continuidade/qualidade/custo com baseline (#148, #147). |
+
+Persistência entrega dados/revisões ao domínio; índices entregam candidatos ao
+Context Builder. Nem o índice nem o driver pode promover conhecimento, ampliar
+escopo ou conceder permissão. Composição/infraestrutura dependem dos contratos do
+núcleo, mantendo provider, protocolo e canal fora dos conceitos centrais.
+
+### 16.5 Captura e consolidação
+
+Fonte selecionada → autorização/classificação → candidato com evidência →
+deduplicação/conflitos → política de confirmação → KnowledgeItem e relações →
+commit canônico → atualização reconstruível dos índices.
+
+Captura explícita ("guarde esta solução") e sugestão automática passam pela mesma
+policy. Confirmar/rejeitar/corrigir registra ator e evidência; afirmação do usuário
+e conclusão do agente continuam distinguíveis. Repetição ou confiança alta do
+agente não são confirmação. Falha de persistência não pode produzir confirmação
+falsa ao usuário; falha de indexação não desfaz nem perde o item confirmado.
+
+Correção usa revisão esperada para evitar sobrescrita silenciosa. Substituição
+mantém ligação/proveniência da versão anterior como superseded; não é exclusão.
+Exclusão solicitada precisa remover conteúdo elegível, derivados e referências
+que o reintroduziriam; auditoria mínima não preserva o texto excluído. Backups e
+retenção precisam explicitar limites de remoção (estratégia física na #135).
+
+### 16.6 Recuperação seletiva e Context Builder
+
+Pedido + identidade/escopo resolvidos → filtros de policy/status/validade → Brain
+Search → expansão autorizada e limitada por relações → rerank → deduplicação com
+snapshot/prompt/itens → orçamento → Context Pack → revalidação → adapter do agente.
+
+O builder prioriza instruções/decisões confirmadas e relevantes, mas conteúdo do
+Brain permanece **dado de contexto**, não instrução de sistema privilegiada.
+Documentos importados e saídas de agentes são fontes não confiáveis: não podem
+alterar policy, escopo, permissões de execução ou comandos de controle da CLI.
+
+O orçamento abrange snapshot, itens, proveniência e formatação efetivamente
+enviados. Deve reservar espaço para pedido atual e resposta; configurações e
+estimativas são explícitas, não percentuais inventados. Limites de itens, tokens
+e expansão são testáveis. Tokens estimados não são consumo cobrado pela CLI.
+
+Antes da injeção, verificar que revisões continuam elegíveis e autorizadas. Cache
+ou embedding de versão excluída/classificada novamente não concede acesso ao
+conteúdo. Secret não é injetado automaticamente; credenciais preferem referências
+seguras fora do conhecimento comum. Exportação respeita classificação/redaction.
+
+Pack vazio é um resultado válido. Falha de busca/índice/policy não autoriza
+reenviar o transcript completo nem buscar outro Space. O adapter deve distinguir
+"sem conhecimento relevante" de "recuperação indisponível". Pode informar e seguir
+com o pedido sem Brain, quando permitido, sem afirmar continuidade não comprovada.
+
+### 16.7 Continuidade, UX e validação
+
+Na sessão nova, o adapter monta snapshot + Context Pack do escopo autorizado e
+mantém configurações/diretório pelos mecanismos atuais. Alterar Space/Project não
+move a sessão existente silenciosamente. A integração deverá definir o escopo
+fixado na abertura e recusar ambiguidades, preservando AD-14/23/27 (#145).
+
+Consultar, guardar, corrigir e excluir deve funcionar por conversa natural (#157),
+com confirmação quando necessária e possibilidade de explicar "de onde veio".
+Acesso por nomes amigáveis não dispensa resolver identidades internamente.
+
+Medir conhecimento armazenado versus contexto recuperado/selecionado/injetado e
+baseline de histórico. A #147 compara retomada entre sessões/agentes, repetição
+exigida do usuário, relevância e tarefa concluída. Redução de tokens é hipótese:
+pack pequeno com resposta errada não é sucesso. Registrar versões do builder e
+estimador para comparar execuções. Semântica indisponível deve ser identificável.
+
+### 16.8 Limites desta Epic e desta decisão
+
+Fora da Epic: ComfyUI, framework/marketplace de integrações, jobs duráveis, Artifact
+Catalog, workers remotos, autenticação hosted, SaaS comercial, frontend web completo,
+microserviços e Kubernetes. Não transformar o Brain em sistema de execução.
+
+A #134 entrega arquitetura/documentação, não persistência, Knowledge Core, Search,
+UI ou injeção em produção. #134 e #135 são frentes independentes; a #160 só inicia
+após conclusão de ambas. As Issues filhas da #133 implementam e validam os contratos
+em sequência, conforme suas dependências. O Brain não passa a ser requisito para
+executar o Worker atual só porque a arquitetura alvo foi documentada.
