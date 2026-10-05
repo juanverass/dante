@@ -1280,3 +1280,23 @@ entidades EF e não podem contornar invariantes ou redefinir identidade.
 
 Por quê: uma identidade global simples e vocabulário consistente reduzem contratos
 incompatíveis entre funcionalidades e evitam tradução duplicada pelos hosts.
+
+## AD-37 — Mapster na Application com projeções/fábricas explícitas e configuração isolada
+
+Status: vigente (#169, Epic #164).
+
+Mapster 10.0.13 fica na Application, sem referência no Domain. AddApplication
+registra IMapsterTypeAdapter; mappings são centralizados na Application e
+compartilhados pelos hosts. Configuração própria por service provider, compilada
+antes do uso e finalizada, sem GlobalSettings/scan automático. Registro explícito
+por par/direção, com expressão MapWith que define todos os membros/constructor.
+
+Sem cópia automática por nomes, direção inversa implícita ou atualização sobre
+entidade existente. Saída expõe somente campos explicitamente escolhidos; criação
+usa constructor/fábrica com invariantes e identidade do domínio. Atualização
+chama métodos da entidade a partir do AppService, nunca map-to-target. SearchDto
+não é transformado automaticamente em consulta. DTOs específicos usam PT-BR.
+
+Por quê: compartilhar conversões sem transferir autorização/invariantes aos
+hosts ou permitir que campos novos/sensíveis/Ids sejam copiados por convenção.
+Operação/limites e exemplos no [guia de mapping](../development/mapping.md).
