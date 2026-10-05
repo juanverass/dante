@@ -29,6 +29,18 @@ public sealed class RelacaoDeConhecimento : EntidadeBase
             (IdOrigem, IdDestino) = (IdDestino, IdOrigem);
         Proveniencia = proveniencia; CriadaEm = instante;
     }
+    public Guid? IdConhecimentoEscolhido { get; private set; }
+    public DateTimeOffset? ResolvidaEm { get; private set; }
+    public ProvenienciaDoConhecimento? ProvenienciaDaResolucao { get; private set; }
+    public void ResolverContradicao(Conhecimento escolhido, ProvenienciaDoConhecimento responsavel, DateTimeOffset instante)
+    {
+        ArgumentNullException.ThrowIfNull(escolhido); ArgumentNullException.ThrowIfNull(responsavel);
+        if (Tipo != TipoDeRelacao.Contradiz || ResolvidaEm is not null || instante < CriadaEm ||
+            (escolhido.Id != IdOrigem && escolhido.Id != IdDestino) || escolhido.IdEspacoDeConhecimento != IdEspacoDeConhecimento ||
+            escolhido.IdProjeto != IdProjeto || escolhido.Status != StatusDoConhecimento.Confirmado || !escolhido.EstaValidoEm(instante))
+            throw new InvalidOperationException("Resolução exige decisão explícita sobre item confirmado e válido do conflito.");
+        IdConhecimentoEscolhido = escolhido.Id; ResolvidaEm = instante; ProvenienciaDaResolucao = responsavel;
+    }
     public Guid IdEspacoDeConhecimento { get; private set; }
     public Guid? IdProjeto { get; private set; }
     public Guid IdOrigem { get; private set; }

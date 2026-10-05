@@ -99,6 +99,27 @@ public sealed class Conhecimento : EntidadeBase
         Registrar(proveniencia, instante);
     }
 
+    // Consolidação explícita mantém o conteúdo/status e incorpora todas as fontes das revisões originais.
+    public void IncorporarFontesDe(IReadOnlyList<Conhecimento> duplicatas, int revisaoEsperada,
+        ProvenienciaDoConhecimento responsavel, DateTimeOffset instante)
+    {
+        GarantirAlteravel(revisaoEsperada, responsavel, instante);
+        if (duplicatas.Count is < 1 or > 20) throw new ArgumentException("Consolidação exige de uma a vinte fontes.");
+        foreach (var fonte in duplicatas)
+        {
+            if (fonte.Id == Id || fonte.IdEspacoDeConhecimento != IdEspacoDeConhecimento || fonte.IdProjeto != IdProjeto ||
+                fonte.Sensibilidade > Sensibilidade || fonte.Status == StatusDoConhecimento.Confirmado && Status != StatusDoConhecimento.Confirmado ||
+                fonte.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido)
+                throw new ArgumentException("Consolidação exige fontes ativas e compatíveis no mesmo escopo.");
+            foreach (var revisao in fonte.Historico)
+                if (revisao.Sensibilidade > Sensibilidade) throw new ArgumentException("Consolidação não reduz sensibilidade de fontes históricas.");
+        }
+        var fontes = duplicatas.SelectMany(x => x.Historico.Select(r => r.Proveniencia)).Distinct().ToArray();
+        var anteriores = historico.Select(x => x.Proveniencia).ToHashSet();
+        foreach (var fonte in fontes) if (anteriores.Add(fonte)) Registrar(fonte, instante);
+        Registrar(responsavel, instante);
+    }
+
     private void GarantirAlteravel(int revisaoEsperada, ProvenienciaDoConhecimento proveniencia, DateTimeOffset instante)
     {
         if (revisaoEsperada != Revisao) throw new InvalidOperationException("Revisão do conhecimento desatualizada.");
