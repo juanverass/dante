@@ -1,3 +1,5 @@
+using Dante.Application.Anexos;
+
 namespace Dante.Worker.Attachments;
 
 public sealed record PendingBatch(long OwnerId, long ChatId, string ContextKey, IReadOnlyList<Attachment> Items,

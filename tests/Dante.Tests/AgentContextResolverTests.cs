@@ -1,8 +1,6 @@
 using System.Diagnostics;
-using Dante.Worker.Agents;
+using Dante.Infrastructure.Contextos;
 using Dante.Worker.Jobs;
-using Dante.Worker.Repositories;
-using Dante.Worker.Settings;
 
 namespace Dante.Tests;
 
@@ -129,6 +127,30 @@ public sealed class AgentContextResolverTests : IDisposable
         Assert.True(resolver.Resolve(UserId, null, "@repo olá").Succeeded);
     }
 
+    // #166: the use case lives in the Application and runs on its ports alone, without any Worker adapter.
+    [Fact]
+    public void ResolvesThroughApplicationPortsWithoutWorkerAdapters()
+    {
+        var catalog = new InMemoryCatalog(new RepositorioCadastrado("@dante", "/repos/dante"));
+        var preferences = new InMemoryPreferences(AgentKind.Codex, "@dante");
+        var resolver = new AgentContextResolver(new InMemoryWorkspace("/workspaces/general"), catalog, preferences);
+
+        var active = resolver.Resolve(UserId, null, "revise");
+        Assert.Equal((AgentKind.Codex, ContextSource.Active, "/repos/dante", true),
+            (active.Agent, active.ContextSource, active.Context!.WorkingDirectory, active.Environment!.HasSecrets));
+        Assert.Equal(ContextResolutionFailure.InvalidAlias, resolver.Resolve(UserId, null, "@inválido x").Failure);
+        Assert.Equal(ContextResolutionFailure.UnknownAlias, resolver.Resolve(UserId, null, "@outro x").Failure);
+
+        preferences.Active = "@removido";
+        Assert.Equal(ContextResolutionFailure.StaleActiveRepository, resolver.Resolve(UserId, null, "x").Failure);
+        preferences.Active = null;
+        var general = resolver.Resolve(UserId, AgentKind.Claude, "x");
+        Assert.Equal((AgentKind.Claude, AgentSource.Explicit, "/workspaces/general"),
+            (general.Agent, general.AgentSource, general.Context!.WorkingDirectory));
+        Assert.DoesNotContain(typeof(AgentContextResolver).Assembly.GetReferencedAssemblies(),
+            assembly => assembly.Name == "Dante.Worker");
+    }
+
     private (AgentContextResolver Resolver, AssistantSettingsStore Settings) Create(AgentKind defaultAgent,
         string? active) => Create(defaultAgent, active, out _);
 
@@ -164,5 +186,30 @@ public sealed class AgentContextResolverTests : IDisposable
     public void Dispose()
     {
         if (Directory.Exists(root)) Directory.Delete(root, true);
+    }
+
+    private sealed class InMemoryWorkspace(string path) : IWorkspaceGeral
+    {
+        public string Caminho => path;
+    }
+
+    private sealed class InMemoryPreferences(AgentKind defaultAgent, string? active) : IPreferenciasDoAssistente
+    {
+        public string? Active { get; set; } = active;
+        public AssistantSettings Atual { get; } = new(defaultAgent);
+        public string? ObterRepositorioAtivo(long idUsuario) => Active;
+    }
+
+    private sealed class InMemoryCatalog(params RepositorioCadastrado[] repositories) : ICatalogoDeRepositorios
+    {
+        public IReadOnlyList<RepositorioCadastrado> Listar() => repositories;
+
+        public RepositorioCadastrado? Obter(string alias) =>
+            alias.All(character => char.IsAsciiLetterOrDigit(character) || character is '@' or '_')
+                ? repositories.FirstOrDefault(repository => repository.Alias == alias)
+                : throw new ArgumentException("Alias inválido.", nameof(alias));
+
+        public ResolvedRepositoryEnvironment ResolverAmbiente(string alias) =>
+            new(new Dictionary<string, string> { ["API_TOKEN"] = "valor" }, true);
     }
 }

@@ -199,6 +199,41 @@ exercitado. Sem configuração Brain, o Worker continua sem exigir banco. Knowle
 Core, policy/UX, ingestão, busca de produto, embeddings e export lógico permanecem
 nas respectivas issues; sessões/jobs/settings atuais não foram migrados.
 
+## Fundação hexagonal (#165)
+
+Solution com Dante.Domain, Dante.Application, Dante.Infrastructure, Dante.Worker
+e Dante.WebApi em .NET 10. Referências para o núcleo e dependências do Domain/
+Application são verificadas por testes arquiteturais. Hosts compartilham
+AddApplication/AddInfrastructure; Program do Worker delega a composição legada a
+AddWorker, sem alteração funcional. WebApi oferece host independente com health,
+ProblemDetails e OpenAPI em Development (#170).
+
+AD-35/AD-36 formalizam a migração incremental, Guid Id via EntidadeBase (base a
+implementar na #171), FKs com Id no início e vocabulário PT-BR. Não há entidades
+Brain, EF, CRUD ou Mapster nesta fundação. PR #163 não foi incorporado.
+
+## Extração do núcleo (#166)
+
+Primeiro lote do legado fora do Worker, sem mudança de comportamento (AD-38):
+AgentKind e AssistantSettings no Domain; AgentContextResolver, JobExecutionContext
+e ResolvedRepositoryEnvironment na Application, sobre as portas PT-BR
+IWorkspaceGeral, ICatalogoDeRepositorios (RepositorioCadastrado) e
+IPreferenciasDoAssistente, implementadas por adapters hoje na Infrastructure (#167). O Domain não
+carrega caminho, GitHub, variável do host nem ambiente; RepositoryDefinition segue
+no adapter. Nomes legados em inglês ficam como exceção temporária explícita, e
+`<Using>` globais no Worker/testes evitam big-bang. Testes arquiteturais cobrem
+referências do núcleo compilado, ausência de TId, de IO no núcleo e de conceitos
+operacionais no modelo do Domain. Sessões, jobs, drivers e Telegram seguem no
+Worker; adapters externos foram migrados em parte pela #167.
+
+## Host HTTP (#170)
+
+Dante.WebApi compõe Application/Infrastructure, sem referência ao Worker/Telegram.
+GET /health operacional retorna DTO PT-BR; falhas/status HTTP têm ProblemDetails
+neutro com traceId. OpenAPI apenas em Development. Nenhum endpoint Brain, regra de
+negócio, EF ou repository foi introduzido. Oito testes HTTP cobrem inicialização,
+health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/WEBAPI.md).
+
 ## Em andamento
 
 - **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94), imagens aos agentes (#95), áudio e vídeo (#96), artefatos (#97) e imagem para LinkedIn (#98) entregues; validação final (#99) pendente.
@@ -210,12 +245,16 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #104, #105, #106, #108, #96, #98, #116, #117, #128, #120 e #121:
+Estado conhecido após a extração do núcleo #166:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    744 testes aprovados, 18 pulados (evidência com CLIs e ferramentas reais, opt-in)
+dotnet test Dante.sln    784 testes aprovados, 18 pulados (evidência com CLIs e ferramentas reais, opt-in)
 ```
+
+`LocalServiceDeploymentTests.InstallWithoutTokenLeavesTheServiceDisabled` falhou no baseline da #166, antes de
+qualquer mudança, e segue falhando na mesma working tree; a causa (provavelmente ambiental) não foi
+investigada nesta Issue.
 
 `LiveSessionModeEvidenceTests` (#108), opt-in com `DANTE_LIVE_CLI=1`, passou para Claude Code
 2.1.287 e Codex 0.159.3 nas seis transições dirigidas entre modos, mantendo conversa e esforço
@@ -242,9 +281,91 @@ completa durante a #94 e de novo no baseline da #95; passa isolado e nas execuç
 ## Próximos marcos
 
 A Epic #133 tem [arquitetura alvo documentada](../maintainer/ARCHITECTURE.md#16-arquitetura-alvo-do-dante-brain-133-134)
-(AD-33, #134). Brain/Knowledge Core/Search/Snapshot/Context Pack ainda não existem
-no runtime; a #135 formaliza armazenamento, e #160 depende da conclusão de ambas.
+(AD-33, #134). Brain ainda não é integrado ao runtime; Knowledge Core existe em Domain/Application
+(#138), sem persistência ou entrada de canal. Search/Snapshot/Context Pack ainda não
+existem; a #135 formaliza armazenamento, e #160 depende da conclusão de ambas.
 A arquitetura separa conhecimento, memória de trabalho e histórico; não altera
 persistência ou permissões do Worker atual.
 
 1. mídias no Telegram (#92): validação final (#99).
+
+## Mapper compartilhado da Application (#169)
+
+Mapster registrado por AddApplication via IMapsterTypeAdapter, com configurações
+centralizadas, expressões explícitas por par/direção e sem automapping de campos
+sensíveis/identidade ou atualização direta de entidades existentes. Domain continua
+sem Mapster. AppServices podem receber o adapter; hosts não duplicam mappings.
+Seis testes novos cobrem contratos/invariantes/DI/concurrency. Guia e convenções:
+[mappings da Application](../development/mapping.md). Nenhum DTO/entidade funcional
+Brain ou base CRUD foi antecipado.
+
+
+## Base CRUD (#171)
+
+EntidadeBase (Guid Id gerado pelo domínio, setter protegido) no Domain e
+IRepository, IUnitOfWork, ICrudBasicoAppService e CrudBasicoAppService na
+Application, sem TId (AD-39). Criação pelo mapping explícito com constructor do
+domínio, atualização por métodos do domínio no AppService específico e pesquisa
+por consulta do repository específico. Onze testes cobrem as operações sobre
+consumidores fictícios em PT-BR e a convenção de nomes por reflexão; suíte com
+790 aprovados e 18 pulados; LocalServiceDeploymentTests.InstallWithoutTokenLeavesTheServiceDisabled
+já falhava no baseline, antes de qualquer mudança, e não foi investigado. Guia: [base CRUD](../development/crud.md). Nenhuma entidade
+funcional, implementação EF de repository/unit of work (#168) ou registro DI foi
+antecipado.
+
+## Espaços de Conhecimento (#152)
+
+EspacoDeConhecimento no Domain (proprietário IdUsuario imutável, nome/descrição de
+apresentação, estado Ativo/Arquivado, arquivado somente leitura até reativar) e
+IEspacoDeConhecimentoRepository, IEspacoDeConhecimentoAppService,
+EspacoDeConhecimentoAppService, EspacoDeConhecimentoDto e EspacoDeConhecimentoSearchDto
+na Application, sobre a base CRUD, com arquivar/reativar e pesquisa sempre escopada ao
+proprietário (AD-40). Mappings registrados em AddApplication. Vinte e três testes de
+Domain/Application, sem banco; suíte com 820 aprovados e 18 pulados. Sem persistência
+concreta (#160), registro DI do AppService, Projeto, tenant ou autorização (#150).
+
+## Adapters na Infrastructure (#167)
+
+Workspace geral, catálogo de repositórios, preferências persistidas, execução das CLIs
+(one-shot, processo interativo, catálogo de modelos) e leitura de cotas saíram do Worker
+para Dante.Infrastructure, compostos por AddInfrastructure e portanto disponíveis aos dois
+hosts (AD-41). Portas usadas pelo Worker (runners, catálogo, cotas, anexo neutro) estão na
+Application, assim como a seleção de modelo; o Domain recebe só o perfil de permissão, e
+os nomes/rótulos dos modos seguem no Worker como apresentação. Comportamento inalterado:
+suíte com 800 aprovados e 18 pulados. Sessões/drivers, jobs, mídia, artefatos e Telegram seguem no
+Worker; EF Core/PostgreSQL é a #168.
+
+## Projetos (#136)
+
+Projeto no Domain, preso a um EspacoDeConhecimento (fixo na criação), com nome e
+descrição/objetivo de apresentação, estado Ativo/Arquivado (arquivado somente leitura até
+reativar) e repositório cadastrado como associação opcional por alias, nunca identidade.
+IProjetoRepository, IProjetoAppService, ProjetoAppService, ProjetoDto e ProjetoSearchDto na
+Application, sobre a base CRUD: criação só em espaço existente e ativo, associação validada
+pelo catálogo de repositórios, arquivar/reativar e pesquisa sempre escopada ao espaço
+(AD-42). Mappings registrados em AddApplication. Vinte e cinco testes de Domain/Application,
+sem banco; suíte com 848 aprovados e 18 pulados. Repository Mode e /use não mudam. Sem
+persistência concreta (#160), registro DI do AppService, seleção de projeto ativo ou
+autorização (#150).
+
+## Fundação EF Core + PostgreSQL (#168)
+
+Persistência opcional via ConnectionStrings:Dante em AddInfrastructure: DanteDbContext,
+Repository<TEntity>, UnitOfWork scoped e configuração base Guid/xmin. Migration EF
+inicial prepara schemas, sem mapear entidades funcionais Brain nem alterar stores JSON.
+Conflitos são traduzidos em exception da Application; commit transacional e conexões
+fora do checkout/ambiente dos agentes. Guia: [persistência](../development/persistence.md).
+Full-text/pgvector e persistência funcional seguem na #160.
+
+## Núcleo de Conhecimento (#138)
+
+Conhecimento no Domain com escopo espaço/projeto, tipos/status/sensibilidade PT-BR,
+proveniência, autoria, validade, tags, conteúdo/JSON e revisões imutáveis. Confirmar,
+Corrigir, Invalidar e Substituir preservam evidência e exigem revisão esperada;
+inferência não vira confirmação por confiança e correção de confirmado exige nova
+confirmação (AD-44). ConhecimentoAppService e ports/DTOs na Application sobre CRUD,
+com validação de escopo ativo, pesquisa limitada e mappings explícitos. Sem DI do
+AppService/repository específico, EF/tabelas (#160), captura (#139), relações gerais
+(#153), autorização (#150) ou policy (#155). 49 testes novos sem banco com fakes;
+build aprovado e suíte final com 903 aprovados, 19 pulados e zero falhas.
+Guia: [núcleo de Conhecimento](../development/knowledge.md).

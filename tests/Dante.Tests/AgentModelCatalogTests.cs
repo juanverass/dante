@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using Dante.Application.Agentes;
+using Dante.Infrastructure.Agentes;
+using Dante.Infrastructure.Contextos;
 using Dante.ProcessProbe;
-using Dante.Worker.Agents;
 
 namespace Dante.Tests;
 

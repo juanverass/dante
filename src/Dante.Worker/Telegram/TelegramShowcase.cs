@@ -1,3 +1,4 @@
+using Dante.Application.Anexos;
 using Dante.Worker.Artifacts;
 using Dante.Worker.Attachments;
 using Dante.Worker.Sessions;

@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
-using Dante.Worker.Agents;
 using Dante.Worker.Attachments;
 using Dante.Worker.Sessions;
 

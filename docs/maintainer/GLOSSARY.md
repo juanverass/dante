@@ -551,3 +551,29 @@ Contratos conceituais, ainda não componentes implementados; veja
 | Knowledge validity | Intervalo validFrom/validUntil quando aplicável; item confirmado pode expirar ou ser substituído. |
 | TenantId / UserId | Identidades persistentes do acesso ao Brain; não são os IDs de chat/sessão/CLI. |
 | Índice derivado | Embedding, chunk/indexação lexical ou resumo automático reconstruível a partir do conteúdo canônico e sua versão. |
+
+## Vocabulário canônico do Brain na arquitetura hexagonal (AD-36)
+
+Os termos ingleses da arquitetura conceitual descrevem conceitos; código novo de
+domínio/aplicação usa os nomes PT-BR abaixo, sem renomear o legado nesta fundação.
+
+| Conceito | Nome de código canônico |
+| --- | --- |
+| KnowledgeSpace | EspacoDeConhecimento |
+| Project | Projeto |
+| KnowledgeItem | Conhecimento |
+| KnowledgeRelation | RelacaoDeConhecimento |
+| KnowledgeCandidate | CandidatoDeConhecimento |
+| SourceDocument | DocumentoFonte |
+| WorkingContextSnapshot | ContextoDeTrabalho |
+| Sensitivity | Sensibilidade |
+| Base de entidade persistente | EntidadeBase, com Guid Id |
+
+Tipos de conhecimento: Fato, Decisao, Preferencia, Instrucao, Nota, Referencia,
+Incidente, Solucao, Aprendizado, Procedimento, Resumo e Inferencia.
+Exemplos de contratos: IEspacoDeConhecimentoRepository,
+EspacoDeConhecimentoAppService, EspacoDeConhecimentoDto e
+EspacoDeConhecimentoSearchDto. Sufixos técnicos não mudam. IDs/FKs têm Id no início.
+
+Domain é o núcleo de invariantes; Application reúne casos de uso/portas;
+Infrastructure implementa adapters; Worker/WebApi são hosts de entrada e composição.

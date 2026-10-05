@@ -1,4 +1,4 @@
-using Dante.Worker.Repositories;
+using Dante.Infrastructure.Contextos;
 using System.Diagnostics;
 
 namespace Dante.Tests;

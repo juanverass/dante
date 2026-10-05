@@ -34,7 +34,7 @@ processos.
 Por quê: reutiliza a instalação e a autenticação que o usuário já tem, sem SDK próprio
 para cada agente.
 
-Código: `Agents/AgentProcessExecutor.cs`, `Agents/AgentExecutableResolver.cs`; testes em
+Código: `Dante.Infrastructure/Agentes/AgentProcessExecutor.cs`, `Dante.Infrastructure/Agentes/AgentExecutableResolver.cs`; testes em
 `AgentProcessExecutorTests`.
 
 ## AD-03 — Nenhum shell arbitrário
@@ -46,7 +46,7 @@ internos. O prompt é sempre um único argumento posicional depois de `--`.
 
 Por quê: o D.A.N.T.E. é orquestrador de agentes, não shell remoto.
 
-Código: `Agents/ClaudeRunner.cs`, `Agents/CodexRunner.cs`; testes em
+Código: `Dante.Infrastructure/Agentes/ClaudeRunner.cs`, `Dante.Infrastructure/Agentes/CodexRunner.cs`; testes em
 `ClaudeRunnerTests`, `CodexRunnerTests`.
 
 ## AD-04 — Autenticação local das CLIs; API keys opcionais
@@ -86,7 +86,7 @@ Repositórios são cadastrados com alias `@nome`, path absoluto que precisa ser 
 um repositório Git e, opcionalmente, `owner/repo` do GitHub conferido contra o
 `remote.origin.url`. O catálogo persiste em `~/.dante/repositories.json`.
 
-Código: `Repositories/RepositoryRegistry.cs`; testes em `RepositoryRegistryTests`.
+Código: `Dante.Infrastructure/Contextos/RepositoryRegistry.cs`; testes em `RepositoryRegistryTests`.
 
 ## AD-08 — Contexto explícito, sem inferência de repositório
 
@@ -114,7 +114,7 @@ Consultas gerais rodam em `~/.dante/workspaces/general` (ou `DANTE_GENERAL_WORKS
 que precisa ser absoluto), com ambiente reduzido e perfil restrito das CLIs. Um
 workspace geral que coincida com um repositório cadastrado é rejeitado.
 
-Código: `Agents/GeneralWorkspace.cs`, `Agents/AgentProcessExecutor.cs`; testes em
+Código: `Dante.Infrastructure/Contextos/GeneralWorkspace.cs`, `Dante.Infrastructure/Agentes/AgentProcessExecutor.cs`; testes em
 `GeneralWorkspaceTests`.
 
 ## AD-10 — Ambiente por repositório; segredos por host binding
@@ -129,7 +129,7 @@ bindings omitem a saída do agente no Telegram. Variáveis com nome de aparênci
 
 Por quê: segredos nunca trafegam pelo Telegram nem ficam em arquivo do D.A.N.T.E.
 
-Código: `Repositories/RepositoryRegistry.cs`; testes em `RepositoryRegistryTests` e
+Código: `Dante.Infrastructure/Contextos/RepositoryRegistry.cs`; testes em `RepositoryRegistryTests` e
 `TelegramRepositoryCommandTests`.
 
 ## AD-11 — Contexto imutável por job
@@ -139,7 +139,7 @@ Status: vigente (MVP 2, #23)
 Cada job registra o contexto resolvido no início (`General` ou alias + path). Alterar o
 catálogo depois não muda jobs existentes; `/status` mostra o contexto de cada job.
 
-Código: `Jobs/JobExecutionContext.cs`; testes em `JobRegistryTests` e
+Código: `Dante.Application/Contextos/JobExecutionContext.cs` (no Worker até a #166); testes em `JobRegistryTests` e
 `TelegramJobCommandTests`.
 
 ## AD-12 — Desenvolvimento por agentes guiado por contrato persistido
@@ -174,7 +174,7 @@ no `Worker`), então um arquivo inválido impede o Worker de iniciar.
 Por quê: o agente padrão decide qual CLI roda com o prompt do usuário; um valor ambíguo
 deve parar o Worker, não ser adivinhado.
 
-Código: `Settings/AssistantSettingsStore.cs`; testes em `AssistantSettingsStoreTests` e
+Código: `Dante.Infrastructure/Contextos/AssistantSettingsStore.cs`; testes em `AssistantSettingsStoreTests` e
 `WorkerLifecycleTests`.
 
 ## AD-14 — Repositório ativo por usuário, persistido; contexto stale exige nova seleção
@@ -199,7 +199,7 @@ Por quê: o usuário que selecionou um repositório espera que o agente trabalhe
 executar em outro contexto sem aviso seria uma escolha implícita. A precedência completa
 de agente e contexto está centralizada no resolvedor da AD-27.
 
-Código: `Settings/AssistantSettingsStore.cs`, `Telegram/TelegramPollingService.cs`;
+Código: `Dante.Infrastructure/Contextos/AssistantSettingsStore.cs`, `Telegram/TelegramPollingService.cs`;
 testes em `AssistantSettingsStoreTests` e `TelegramActiveRepositoryTests`.
 
 ## AD-27 — Resolvedor único de agente e contexto com precedência determinística
@@ -235,7 +235,8 @@ Por quê: as regras estavam duplicadas entre o caminho one-shot e o de sessões,
 ordens de validação e mensagens divergentes. Um ponto único torna a precedência
 testável por tabela e impede que um caminho novo esqueça uma recusa.
 
-Código: `Jobs/AgentContextResolver.cs`, `Telegram/TelegramPollingService.cs`; testes em
+Código: `Dante.Application/Contextos/AgentContextResolver.cs` (no Worker até a #166, AD-38),
+`Telegram/TelegramPollingService.cs`; testes em
 `AgentContextResolverTests` (tabela de precedência e recusas), `TelegramAgentRoutingTests`,
 `TelegramActiveRepositoryTests` e `TelegramPlainMessageTests`.
 
@@ -367,8 +368,8 @@ Por quê: os protocolos estruturados (AD-15) são JSONL sobre um único processo
 linha intercalada ou um processo esquecido quebraria a sessão ou vazaria recursos no
 host.
 
-Código: `Agents/InteractiveAgentProcess.cs`, `Agents/InteractiveAgentProcessLauncher.cs`,
-`Agents/AgentProcessStartInfo.cs`, `Agents/ProcessTree.cs`; testes em
+Código: `Dante.Infrastructure/Agentes/InteractiveAgentProcess.cs`, `Dante.Infrastructure/Agentes/InteractiveAgentProcessLauncher.cs`,
+`Dante.Infrastructure/Agentes/AgentProcessStartInfo.cs`, `Dante.Infrastructure/Agentes/ProcessTree.cs`; testes em
 `InteractiveAgentProcessTests`.
 
 ## AD-18 — Driver Claude: stream-json com `--session-id` fixo e perfis mapeados para `--permission-mode`
@@ -419,7 +420,7 @@ Por quê: `--session-id` torna o id upstream conhecido no início, como o contra
 exige; os formatos de resposta foram confirmados contra a CLI instalada em vez de
 inferidos.
 
-Código: `Sessions/ClaudeSessionDriver.cs`, `Sessions/AgentPermissionProfile.cs`,
+Código: `Sessions/ClaudeSessionDriver.cs`, `Dante.Domain/Agentes/AgentPermissionProfile.cs`,
 `Sessions/AgentProtocolException.cs`; testes em `ClaudeSessionDriverTests`, contra o
 Claude simulado de `tests/Dante.ProcessProbe/FakeClaude.cs`.
 
@@ -487,7 +488,7 @@ one-shot (`CodexRunner`, `codex exec`) continua inalterado.
 Por quê: a thread efêmera acompanha a vida da sessão em memória (Epic #60), e cancelar os
 requests pendentes no interrupt evita um turno preso esperando resposta que nunca virá.
 
-Código: `Sessions/CodexSessionDriver.cs`, `Sessions/AgentPermissionProfile.cs`,
+Código: `Sessions/CodexSessionDriver.cs`, `Dante.Domain/Agentes/AgentPermissionProfile.cs`,
 `Sessions/AgentProtocolException.cs`; testes em `CodexSessionDriverTests`, contra o
 app-server simulado de `tests/Dante.ProcessProbe/FakeCodex.cs`.
 
@@ -733,7 +734,7 @@ internos de cada CLI; um padrão que se perde no reinício mudaria silenciosamen
 das próximas conversas.
 
 Código: `Sessions/AgentSessionModes.cs`, `Sessions/IAgentSessionDriver.cs`,
-`Sessions/SessionRegistry.cs`, `Settings/AssistantSettingsStore.cs`,
+`Sessions/SessionRegistry.cs`, `Dante.Infrastructure/Contextos/AssistantSettingsStore.cs`,
 `Telegram/TelegramPollingService.cs`; testes em `TelegramModeCommandTests`, `SessionRegistryTests`
 e `AssistantSettingsStoreTests`.
 
@@ -771,8 +772,8 @@ Por quê: modelos e aliases variam por CLI e versão; consultar a CLI evita mant
 lista estática e impede que uma preferência de Claude chegue ao Codex. Recusar uma
 preferência obsoleta preserva a escolha do usuário e torna a recuperação explícita.
 
-Código: `Agents/AgentModelCatalog.cs`, `Agents/AgentModelSelection.cs`,
-`Settings/AssistantSettingsStore.cs`, `Sessions/SessionRegistry.cs`, drivers,
+Código: `Dante.Infrastructure/Agentes/AgentModelCatalog.cs`, `Dante.Application/Agentes/AgentModelSelection.cs`,
+`Dante.Infrastructure/Contextos/AssistantSettingsStore.cs`, `Sessions/SessionRegistry.cs`, drivers,
 runners e `Telegram/TelegramPollingService.cs`. Testes: `AgentModelCatalogTests`,
 `TelegramModelCommandTests`, settings, runners e drivers.
 
@@ -811,7 +812,7 @@ Por quê: esforço é uma capacidade do modelo, não uma permissão do agente. U
 nomes anunciados por cada CLI evita aceitar níveis inexistentes ou reinterpretar a
 intenção do usuário. A escolha fixa mantém a sessão coerente entre turnos.
 
-Código: `Agents/AgentModelSelection.cs`, catálogo, runners, settings, drivers e
+Código: `Dante.Application/Agentes/AgentModelSelection.cs`, catálogo, runners, settings, drivers e
 `Telegram/TelegramPollingService.cs`. Testes: settings, runners, drivers reais com
 ProcessProbe e `TelegramModelCommandTests` (seleção combinada de modelo e esforço).
 
@@ -1242,3 +1243,292 @@ seletiva transforme informação inferida, obsoleta ou sensível em contexto aut
 Contrato completo: [Arquitetura alvo](../maintainer/ARCHITECTURE.md#16-arquitetura-alvo-do-dante-brain-133-134).
 Fluxos: [Brain](../maintainer/FLOWS.md#22-fluxos-alvo-do-brain-134-ainda-não-implementados).
 Verificação futura: #138/#139/#140/#145/#147/#150/#155/#156; não altera runtime/testes atuais.
+
+## AD-35 — Arquitetura hexagonal explícita com migração incremental do legado
+
+Status: vigente (#165, Epic #164).
+
+Domain não referencia camadas internas nem providers. Application referencia
+Domain e define casos de uso/portas. Infrastructure referencia Application/Domain
+e implementa portas. Worker e WebApi referenciam Application/Infrastructure,
+como composition roots/adapters de entrada, sem referência entre os hosts.
+`AddApplication()` e `AddInfrastructure(configuration)` são os contratos comuns.
+Testes arquiteturais impedem referências proibidas e providers no núcleo.
+
+O legado permanece temporariamente no Worker (#166/#167); somente seu registro
+DI foi agrupado em AddWorker. Código novo do Brain e adapters não nasce no Worker.
+Não introduzir regras funcionais ou reescrever Telegram/CLIs nesta fundação.
+WebApi tem scaffold independente; operação HTTP fica na #170. EF Core (#168),
+Mapster (#169) e CRUD (#171) são entregas separadas. O PR #163 não é incorporado;
+a #160 aguarda os gates definidos na Epic #164.
+
+Por quê: separar decisões do núcleo de detalhes de infraestrutura e dos hosts
+permite crescer sem transformar Worker/WebApi em fonte de regras de negócio.
+
+## AD-36 — Identidade Guid Id e vocabulário PT-BR no código novo do núcleo
+
+Status: vigente (#165, Epic #164). Refina o vocabulário conceitual inglês da AD-33
+para a implementação; não renomeia oportunisticamente o legado.
+
+Toda entidade persistente usa `Guid Id` através de `EntidadeBase`; sem parâmetro
+`TId`. A implementação das bases é da #171. Propriedades identificadoras/FKs têm
+prefixo Id: IdTenant, IdUsuario, IdEspacoDeConhecimento, IdProjeto.
+
+Entidades, value objects, enums/valores, propriedades, métodos, DTOs/SearchDtos,
+AppServices, repositories específicos e casos de uso novos usam PT-BR sem acentos
+nos identificadores. Sufixos estruturais permanecem Repository, AppService, Dto e
+SearchDto; nomes técnicos externos (DbContext, EF Core, Mapster, Telegram, Claude,
+Codex) permanecem como estabelecidos. Namespaces/pastas seguem as camadas e o
+conceito/caso de uso/adapter. Vocabulário canônico no glossário.
+
+Assinaturas padrão: IRepository<TEntity>, Repository<TEntity>,
+ICrudBasicoAppService<TDto,TSearchDto,TEntity> e
+CrudBasicoAppService<TDto,TSearchDto,TEntity>. Bases e regras ficam na #171;
+entidades semânticas do Brain ficam nas respectivas issues. DTOs não expõem
+entidades EF e não podem contornar invariantes ou redefinir identidade.
+
+Por quê: uma identidade global simples e vocabulário consistente reduzem contratos
+incompatíveis entre funcionalidades e evitam tradução duplicada pelos hosts.
+
+## AD-37 — Mapster na Application com projeções/fábricas explícitas e configuração isolada
+
+Status: vigente (#169, Epic #164).
+
+Mapster 10.0.13 fica na Application, sem referência no Domain. AddApplication
+registra IMapsterTypeAdapter; mappings são centralizados na Application e
+compartilhados pelos hosts. Configuração própria por service provider, compilada
+antes do uso e finalizada, sem GlobalSettings/scan automático. Registro explícito
+por par/direção, com expressão MapWith que define todos os membros/constructor.
+
+Sem cópia automática por nomes, direção inversa implícita ou atualização sobre
+entidade existente. Saída expõe somente campos explicitamente escolhidos; criação
+usa constructor/fábrica com invariantes e identidade do domínio. Atualização
+chama métodos da entidade a partir do AppService, nunca map-to-target. SearchDto
+não é transformado automaticamente em consulta. DTOs específicos usam PT-BR.
+
+Por quê: compartilhar conversões sem transferir autorização/invariantes aos
+hosts ou permitir que campos novos/sensíveis/Ids sejam copiados por convenção.
+Operação/limites e exemplos no [guia de mapping](../development/mapping.md).
+
+## AD-38 — Extração do legado em lotes: nome legado preservado, portas novas em PT-BR
+
+Status: vigente (#166, Epic #164). Aplica AD-35/AD-36 à migração do legado.
+
+O legado sai do Worker em lotes com fronteira clara e sem mudança de comportamento.
+Domain recebe só conceito com regra/invariante e sem detalhe operacional: nenhum
+caminho de execução, workspace, GitHub, variável do host ou ambiente/segredo no seu
+modelo. Caso de uso e seus contratos de entrada/saída operacionais vão para a
+Application, que recebe as dependências externas por portas novas implementadas
+pelos adapters do Worker (implementação explícita da interface, sem mudar a API
+pública do adapter). Modelo persistido de adapter permanece no adapter; a porta
+expõe só o que o caso de uso precisa.
+
+Tipo legado movido mantém o nome em inglês, marcado no arquivo como exceção
+temporária até uma migração explícita; isso não vale para código novo. Portas e
+contratos criados na extração nascem em PT-BR. Para evitar big-bang de `using`,
+Worker e testes importam os namespaces que receberam tipos movidos por `<Using>`
+global no `.csproj`, também marcado como compatibilidade temporária.
+
+Primeiro lote: `AgentKind` (`Dante.Domain.Agentes`) e `AssistantSettings`
+(`Dante.Domain.Preferencias`) no Domain; `AgentContextResolver`, `JobExecutionContext`
+e `ResolvedRepositoryEnvironment` em `Dante.Application.Contextos`, sobre as portas
+`IWorkspaceGeral`, `ICatalogoDeRepositorios` (que expõe `RepositorioCadastrado`:
+alias e caminho) e `IPreferenciasDoAssistente`, implementadas por `GeneralWorkspace`,
+`RepositoryRegistry` e `AssistantSettingsStore`. `RepositoryDefinition` e
+`RepositoryEnvironmentEntry` (caminho, GitHub, bindings do host) seguem no adapter.
+
+Por quê: mover em lotes pequenos mantém cada PR revisável e o comportamento
+coberto pelos testes existentes, sem renomeação em massa do legado.
+
+Código: `src/Dante.Domain`, `src/Dante.Application/Contextos`; testes em
+`HexagonalArchitectureTests` (referências do núcleo compilado, ausência de `TId`,
+Domain sem conceitos operacionais/de host,
+ausência de IO no código do núcleo, adapters das portas) e `AgentContextResolverTests`.
+
+
+## AD-39 — Base CRUD com identidade do domínio, atualização por métodos e pesquisa específica
+
+Status: vigente (#171, Epic #164). Implementa as bases previstas na AD-36.
+
+`EntidadeBase` fica no Domain com `Guid Id` gerado pelo domínio e setter protegido.
+`IRepository<TEntity>`, `IUnitOfWork`, `ICrudBasicoAppService<TDto,TSearchDto,TEntity>` e
+`CrudBasicoAppService<TDto,TSearchDto,TEntity>` ficam em `Dante.Application.Comum`, com
+`TEntity : EntidadeBase` e sem `TId`. A base recebe repository, unit of work e
+`IMapsterTypeAdapter` explicitamente no construtor e confirma cada escrita uma vez.
+
+Criação usa o mapping `TDto → TEntity` registrado (constructor/fábrica do domínio,
+AD-37). Atualização carrega a entidade e chama o hook abstrato `AplicarAlteracoes`,
+em que o AppService específico chama métodos do domínio; o Id vem do parâmetro, nunca
+do DTO. Pesquisa chama o hook abstrato `ConsultarAsync`, que valida o SearchDto e usa
+uma consulta do repository específico. Operações são virtuais para extensão.
+
+Por quê: compartilhar o fluxo comum sem permitir que mapping ou base genérica
+contornem invariantes, redefinam identidade ou transformem SearchDto em consulta
+arbitrária. Implementações EF de repository/unit of work ficam na #168.
+
+Código: `src/Dante.Domain/Comum`, `src/Dante.Application/Comum`; testes em
+`CrudBasicoAppServiceTests`. Guia: [base CRUD](../development/crud.md).
+
+## AD-40 — EspacoDeConhecimento como limite do Brain, com proprietário fixo e arquivamento somente leitura
+
+Status: vigente (#152, Epic #133). Primeira entidade funcional sobre a base CRUD (AD-39).
+
+`EspacoDeConhecimento : EntidadeBase` fica em `Dante.Domain.EspacosDeConhecimento`; contratos,
+DTOs e AppService em `Dante.Application.EspacosDeConhecimento`. O espaço tem proprietário
+`IdUsuario` obrigatório e imutável, nome obrigatório (aparado, até 100 caracteres, sem
+caracteres de controle), descrição opcional (até 1000) e estado `Ativo`/`Arquivado`. Nome
+e descrição são apresentação: `Atualizar` os troca de forma atômica sem mudar Id nem
+proprietário. Espaço arquivado é somente leitura até `Reativar`; arquivar/reativar exige o
+estado oposto. Arquivar não apaga nem move o conteúdo.
+
+O espaço não referencia Projeto, Telegram, EF Core ou PostgreSQL: Projetos e conhecimento
+apontam para ele por `IdEspacoDeConhecimento`, e conhecimento pode pertencer direto ao
+espaço, sem Projeto. A pesquisa exige o proprietário — não existe listagem global — e por
+padrão omite arquivados. O mapping de criação usa o constructor do domínio e ignora Id e
+estado do DTO; a atualização não muda proprietário nem estado, que só mudam por
+`ArquivarAsync`/`ReativarAsync`.
+
+O AppService não é registrado em DI enquanto não houver implementação de
+`IEspacoDeConhecimentoRepository` e `IUnitOfWork` (#160 sobre a #168): registrá-lo antes
+quebraria a validação de DI dos hosts. Tenant e autorização por usuário (#150), seleção
+do espaço ativo e unicidade de nome por proprietário ficam para as respectivas issues.
+
+Por quê: um limite de isolamento com proprietário estável e transições explícitas impede
+que a apresentação (nomes) ou o mapping redefinam identidade e escopo do conhecimento.
+
+Código: `src/Dante.Domain/EspacosDeConhecimento`, `src/Dante.Application/EspacosDeConhecimento`;
+testes em `EspacoDeConhecimentoTests` e `EspacoDeConhecimentoAppServiceTests`.
+
+## AD-41 — Adapters de saída do legado na Infrastructure, compostos por AddInfrastructure
+
+Status: vigente (#167, Epic #164). Aplica AD-35/AD-38 aos adapters externos do Worker. A AD-40
+é reservada à #152, desenvolvida em paralelo.
+
+Lote da #167, sem mudança de comportamento:
+
+| Antes (Worker) | Agora |
+| --- | --- |
+| `GeneralWorkspace`, `RepositoryRegistry`/`RepositoryDefinition`, `AssistantSettingsStore` | `Dante.Infrastructure.Contextos` |
+| processos, runners, `InteractiveAgentProcess`, `AgentModelCatalog` | `Dante.Infrastructure.Agentes` |
+| `UsageQuotaReader` | `Dante.Infrastructure.Uso` |
+| `IClaudeRunner`, `ICodexRunner`, `AgentProcessResult`/`Status`, `IAgentModelCatalog`/`AgentModelInfo`, `AgentModelSelection` | `Dante.Application.Agentes` |
+| `IUsageQuotaReader` e o relatório de cotas | `Dante.Application.Uso` |
+| `Attachment`/`AttachmentKind` (anexo neutro da AD-29) | `Dante.Application.Anexos` |
+| `AgentPermissionProfile` | `Dante.Domain.Agentes` |
+
+Portas consumidas pelos casos de uso do Worker ficam na Application; abstrações técnicas
+usadas só por adapters (`IAgentProcessExecutor`, `IAgentExecutableResolver`,
+`IInteractiveAgentProcessLauncher`, `AgentProcessRequest`) ficam na Infrastructure com
+eles. `AddInfrastructure` registra os adapters migrados para os dois hosts; nas portas de
+contexto, porta e tipo concreto resolvem a mesma instância, porque o Telegram ainda usa
+a API de escrita dos adapters legados. `AddWorker` compõe só o que continua no Worker.
+
+O Domain recebe só o perfil de permissão, conceito independente de agente e de canal.
+`AgentSessionModes` (nomes, alias `approval`, rótulos e descrições exibidos) é apresentação
+e continua no Worker; `AgentModelSelection` (padrão e sintaxe de modelo/esforço das CLIs) é
+contrato operacional da execução e vai para a Application. O formato persistido do modo no
+`settings.json` (nome do perfil em minúsculas, o mesmo exibido) é definido pelo próprio
+adapter, sem depender da apresentação. Um teste arquitetural impede rótulos, textos de
+exibição, Telegram e semântica de CLI nos membros e no código-fonte do Domain.
+
+Nomes legados continuam em inglês, marcados no arquivo como na AD-38. Diferente da #166,
+os namespaces esvaziados (`Dante.Worker.Agents`, `.Repositories`, `.Settings`, `.Usage`)
+deixam de existir, então cada consumidor troca o `using` antigo pelos namespaces novos que
+de fato usa, sem `<Using>` global adicional. Infrastructure expõe internals só a
+`Dante.Tests`, como o Worker.
+
+Seguem no Worker para lotes futuros: drivers e contratos de sessão (`Sessions/`), jobs,
+anexos e mídia (`Attachments/`: store, ferramentas ffmpeg/whisper), artefatos e `/vitrine`
+(`Artifacts/`) e o cliente da Bot API, que é transporte do Telegram. EF Core/PostgreSQL
+ficam na #168; nenhum `Repository<TEntity>` existe ainda para ser reutilizado.
+
+Por quê: Worker e WebApi passam a compartilhar os adapters pela Infrastructure, e o Worker
+fica restrito a host, Telegram e o núcleo de sessões ainda não extraído, sem big-bang.
+
+Código: `src/Dante.Infrastructure/{Contextos,Agentes,Uso}`, `src/Dante.Application/{Agentes,Uso,Anexos}`,
+`src/Dante.Domain/Agentes/AgentPermissionProfile.cs`; testes em `HexagonalArchitectureTests`.
+
+## AD-42 — Projeto preso a um EspacoDeConhecimento, com repositório Git como associação opcional
+
+Status: vigente (#136, Epic #133). Segunda entidade funcional sobre a base CRUD (AD-39), no
+padrão da AD-40.
+
+`Projeto : EntidadeBase` fica em `Dante.Domain.Projetos`; contratos, DTOs e AppService em
+`Dante.Application.Projetos`. O projeto pertence a exatamente um espaço
+(`IdEspacoDeConhecimento` obrigatório, fixo na criação), tem nome obrigatório (aparado, até
+100 caracteres, sem caracteres de controle), descrição/objetivo opcional (até 1000) e estado
+`Ativo`/`Arquivado`. `Atualizar` troca nome e descrição de forma atômica, sem mudar Id nem
+espaço. Projeto arquivado é somente leitura até `Reativar`, e arquivar/reativar exige o
+estado oposto.
+
+Repositório Git é associação opcional, nunca identidade: `AliasDoRepositorio` guarda o alias
+de um repositório cadastrado, trocado ou removido sem mudar o Id. `AssociarRepositorioAsync`
+valida o alias pela porta `ICatalogoDeRepositorios` e grava o alias do catálogo; repositório
+removido do catálogo depois não invalida o projeto. O projeto não guarda caminho, working
+directory nem GitHub, e não muda o Repository Mode, o `/use` nem o diretório das sessões.
+
+A criação exige espaço existente e ativo (espaço arquivado é somente leitura, AD-40). O
+mapping de criação usa o constructor do domínio e ignora Id, alias e estado do DTO; a
+atualização não muda espaço, associação nem estado, que só mudam pelas operações próprias.
+A pesquisa exige o espaço (sem listagem global) e por padrão omite arquivados. Como na AD-40,
+o AppService não é registrado em DI até haver persistência (#160); seleção do projeto ativo,
+autorização por usuário (#150) e unicidade de nome por espaço ficam para as respectivas issues.
+
+Por quê: o trabalho persistente precisa sobreviver a sessões, troca de agente e troca de
+repositório sem que caminho, alias ou contexto de execução virem sua identidade ou escopo.
+
+Código: `src/Dante.Domain/Projetos`, `src/Dante.Application/Projetos`; testes em `ProjetoTests` e
+`ProjetoAppServiceTests`.
+
+## AD-43 — Fundação EF opcional, transação por UoW e xmin shadow
+
+Status: vigente (#168, Epic #164). AD-42 define o Projeto da #136.
+
+AddInfrastructure registra persistência scoped somente com ConnectionStrings:Dante;
+não aplica migrations automaticamente. DanteDbContext usa configurations concretas
+na Infrastructure e migrations EF explícitas com histórico em brain_meta. Tabelas/
+colunas usam snake_case PT-BR em brain_data; brain_index é reservado a derivados.
+A primeira migration prepara schemas sem tabelas funcionais (#160). Down preserva
+schemas compartilhados. Nenhum EF/provider entra no Domain/Application.
+
+EntidadeConfiguration fixa Guid Id gerado pelo domínio e token shadow uint Versao
+(xmin). Repository exige tracking do mesmo contexto para atualizar/remover, preservando
+o token original. UoW confirma alterações de todos os repositories numa transação
+SaveChanges; conflitos viram ConflitoDeConcorrenciaException sem expor EF. Não há
+retry automático; descarte do escopo e reload são necessários após falha.
+
+Por quê: permite consumo pela #160 sem acoplar domínio a tipos físicos ou exigir
+banco no Worker atual, e evita lost updates/commits parciais. A conexão fica externa
+e não é herdada pelas CLIs. Full-text/pgvector não entram na fundação canônica.
+
+Código e limites: [guia de persistência](../development/persistence.md); testes
+PersistenciaTests com entidade fictícia e PostgreSQL real opt-in.
+
+## AD-44 — Conhecimento canônico com evidência e revisões, separado de confirmação e validade
+
+Status: vigente (#138, Epic #133). Aplica os conceitos da AD-33 no Domain/Application.
+
+Conhecimento usa Guid Id, espaço obrigatório/projeto opcional imutáveis, tipos/status
+PT-BR, conteúdo e/ou JSON, tags, confiança opcional e Sensibilidade. Proveniência
+identifica ator, origem e referência/revisão/trecho de evidência. Autor original é
+fixo; snapshots imutáveis registram cada criação/confirmação/correção/invalidação/
+substituição com ator e instante. Correções validam revisão esperada e preservam
+versões anteriores. Não há transcript, captura automática ou índice derivado.
+
+Criação só em Inferido/Temporario. Confirmar é explícito e Tipo Inferencia exige
+reclassificação com evidência antes de confirmação. Confiança não confirma; corrigir
+Confirmado devolve Inferido. Validade temporal [desde, até) é independente de status.
+Substituição liga item anterior a outro ativo no mesmo espaço/projeto e mantém
+conteúdo/proveniência; Substituido/Inativo não recebem novas mutações. Exclusão
+explícita do CRUD é distinta de invalidar, e sua implementação física/derivados
+permanece nas #160/#149/#153.
+
+Application valida existência/associação de espaço e projeto e recusa escrituras
+em escopos arquivados. Pesquisa é sempre por espaço, limitada e com filtros explícitos;
+DTOs não redefinem identidade/escopo/autor/histórico/timestamps. UoW confirma cada
+escrita uma vez. Sem DI do AppService até repository concreto, como AD-40/AD-42.
+
+Por quê: preservar fonte e evolução do conteúdo evita transformar confiança ou
+repetição em fato confirmado e permite correção sem perder evidência. Autorização
+por identidade e policy de sensibilidade ainda são #150/#155; PostgreSQL/EF não
+entram no núcleo. Contratos, limites e operações: [Conhecimento](../development/knowledge.md).

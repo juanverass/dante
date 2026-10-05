@@ -1,4 +1,4 @@
-using Dante.Worker.Settings;
+using Dante.Infrastructure.Contextos;
 
 namespace Dante.Worker;
 

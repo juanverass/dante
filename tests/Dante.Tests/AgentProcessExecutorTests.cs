@@ -1,5 +1,6 @@
+using Dante.Application.Agentes;
+using Dante.Infrastructure.Agentes;
 using Dante.ProcessProbe;
-using Dante.Worker.Agents;
 
 namespace Dante.Tests;
 
@@ -59,6 +60,29 @@ public sealed class AgentProcessExecutorTests
             var general = await executor.ExecuteAsync(Request("env", name) with { IsGeneral = true });
             Assert.Equal("project-value", ordinary.StandardOutput.Trim());
             Assert.Equal("<unset>", general.StandardOutput.Trim());
+        }
+        finally { Environment.SetEnvironmentVariable(name, previous); }
+    }
+
+    [Fact]
+    public async Task DatabaseConnectionIsNeverInheritedByAgents()
+    {
+        const string name = "ConnectionStrings__Dante";
+        var previous = Environment.GetEnvironmentVariable(name);
+        Environment.SetEnvironmentVariable(name, "dante-test-database-secret");
+        try
+        {
+            foreach (var request in new[]
+            {
+                Request("env", name), Request("env", name) with { IsGeneral = true },
+                Request("env", name) with
+                { EnvironmentVariables = new Dictionary<string, string> { [name] = "override-secret" } }
+            })
+            {
+                var result = await CreateExecutor().ExecuteAsync(request);
+                Assert.Equal(AgentProcessStatus.Succeeded, result.Status);
+                Assert.Equal("<unset>", result.StandardOutput.Trim());
+            }
         }
         finally { Environment.SetEnvironmentVariable(name, previous); }
     }

@@ -1493,10 +1493,15 @@ implementação estiver concluída, abra o PR, mova a Issue para `status:review`
 `## TURNO FINALIZADO` na Issue. Os [registros de turno](docs/development/handoff.md#onde-vivem-os-registros)
 ficam nos comentários da Issue, nunca em arquivos do repositório.
 
-### Persistência opcional do Brain
+## Host HTTP opcional
 
-A fundação PostgreSQL da #160 é opt-in e ainda não oferece captura/busca pelo
-Telegram. O serviço atual não precisa de banco. Para preparar roles, migrations,
-health e backup/restore, siga o [guia de persistência local](docs/brain/LOCAL_STORAGE.md).
-Não conecte o Worker como administrador; credenciais de migrations pertencem
-somente às operações administrativas explícitas.
+`Dante.WebApi` inicia independentemente do Worker, sem configurar Telegram ou banco:
+
+```bash
+dotnet run --project src/Dante.WebApi -- --urls http://127.0.0.1:5080
+curl http://127.0.0.1:5080/health
+```
+
+Health operacional do host retorna `{"estado":"saudavel"}`. OpenAPI em
+`/openapi/v1.json` está disponível apenas em Development. O host ainda não oferece
+endpoints funcionais do Brain. Veja [operação e contratos HTTP](docs/maintainer/WEBAPI.md).

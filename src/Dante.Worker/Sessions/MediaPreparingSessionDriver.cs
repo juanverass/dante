@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
+using Dante.Application.Anexos;
 using Dante.Worker.Attachments;
 
 namespace Dante.Worker.Sessions;

@@ -77,6 +77,9 @@ Isso explica um diagnóstico importante:
 # 2. Módulo `Agents`
 
 O módulo `Agents` cuida da execução local das CLIs e de capacidades que não pertencem a uma conversa específica.
+Desde a #167 os adapters vivem em `Dante.Infrastructure/Agentes`; as portas consumidas pelo Worker (`IClaudeRunner`,
+`ICodexRunner`, `IAgentModelCatalog`, `AgentProcessResult`) e `AgentModelSelection` em `Dante.Application/Agentes`
+(AD-41).
 
 ```text
 Agents/
@@ -326,7 +329,6 @@ Jobs representam somente execuções one-shot.
 
 ```text
 Jobs/
-├── JobExecutionContext
 ├── JobRegistry
 ├── JobSnapshot
 └── JobStatus
@@ -336,7 +338,7 @@ Jobs/
 
 ## `JobExecutionContext`
 
-Representa onde uma execução acontece.
+Representa onde uma execução acontece. Desde a #166 vive em `Dante.Application/Contextos` (AD-38).
 
 Dois modos:
 
@@ -358,7 +360,9 @@ O mesmo tipo é reutilizado por sessões para descrever contexto, mas isso **nã
 ## `AgentContextResolver`
 
 Ponto único de decisão de agente e contexto (AD-27), usado por mensagens comuns que abrem sessão,
-`/session start`, `/claude` e `/codex`.
+`/session start`, `/claude` e `/codex`. Desde a #166 vive em `Dante.Application/Contextos` e lê
+workspace geral, catálogo e preferências pelas portas `IWorkspaceGeral`, `ICatalogoDeRepositorios`
+e `IPreferenciasDoAssistente` (AD-38).
 
 ```text
 Agente:       explícito → agente padrão
@@ -416,11 +420,14 @@ Repositories/
 └── RepositoryRegistry
 ```
 
+Desde a #167 vive em `Dante.Infrastructure/Contextos` e é composto por `AddInfrastructure` (AD-41).
+
 ---
 
 ## `RepositoryDefinition`
 
-Modelo persistido de um repositório cadastrado.
+Modelo persistido de um repositório cadastrado. A resolução de contexto (#166) o lê como
+`RepositorioCadastrado` (alias e caminho) pela porta `ICatalogoDeRepositorios` (AD-38).
 
 Representa:
 
@@ -506,6 +513,9 @@ Settings/
 └── AssistantSettingsStore
 ```
 
+`AssistantSettings` vive em `Dante.Domain/Preferencias` (#166) e `AssistantSettingsStore` em
+`Dante.Infrastructure/Contextos` (#167, AD-41).
+
 ---
 
 ## `AssistantSettings`
@@ -574,6 +584,9 @@ Sessions/
 ├── AgentSessionModes
 └── MessageDelivery
 ```
+
+`AgentPermissionProfile` vive em `Dante.Domain/Agentes` desde a #167; `AgentSessionModes`, que é apresentação dos
+modos, continua em `Sessions/` (AD-41).
 
 ---
 

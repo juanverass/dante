@@ -1,4 +1,4 @@
-using Dante.Worker.Settings;
+using Dante.Infrastructure.Contextos;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 

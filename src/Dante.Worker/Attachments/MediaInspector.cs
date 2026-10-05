@@ -1,3 +1,5 @@
+using Dante.Application.Anexos;
+
 namespace Dante.Worker.Attachments;
 
 public sealed record MediaInfo(string MediaType, string Extension);

@@ -1,4 +1,4 @@
-using Dante.Worker.Agents;
+using Dante.Application.Agentes;
 using Dante.Worker.Jobs;
 using Dante.Worker.Sessions;
 using Microsoft.Extensions.Logging.Abstractions;

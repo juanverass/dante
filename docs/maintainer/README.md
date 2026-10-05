@@ -69,12 +69,17 @@ Não use histórico de conversa como fonte técnica superior ao repositório.
 ## Estrutura resumida
 
 ```text
+src/Dante.Domain/          conceitos e invariantes (Agentes, Preferencias, Comum)
+src/Dante.Application/     casos de uso e portas (Contextos, Agentes, Uso, Anexos, Comum, Mapeamento)
+src/Dante.Infrastructure/  adapters de saída (#167)
+├── Contextos/     workspace geral, catálogo de repositórios e preferências persistidas
+├── Agentes/       processos, runners e catálogo de modelos das CLIs
+└── Uso/           leitura de cotas pelas CLIs
 src/Dante.Worker/
-├── Agents/        processos, runners e catálogo de modelos
+├── Artifacts/     arquivos produzidos e /vitrine
+├── Attachments/   anexos recebidos e preparação de mídia
 ├── Jobs/          execuções one-shot
-├── Repositories/ catálogo de repositórios e ambientes
-├── Sessions/      núcleo das sessões interativas
-├── Settings/      preferências persistidas do usuário
+├── Sessions/      núcleo das sessões interativas e drivers das CLIs
 ├── Telegram/      entrada, comandos, formatação e entrega
 ├── Program.cs     composição/DI
 └── Worker.cs      lifecycle básico do host
