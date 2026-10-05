@@ -393,3 +393,7 @@ Sem observador de transcripts/turnos; adapter natural Telegram e policy seguem #
 ## Política de sensibilidade (#155)
 
 Leitura protegida valida proprietário/escopo, limita Confidencial e impede Secreto em contexto automático, exportação e embeddings externos. Redaction centralizada e defesa de captura/correção rejeitam credenciais óbvias, incluindo evidências; referências secret://host/NOME não resolvem valores. Classificação corrigível com histórico; adapters futuros devem consumir a projeção protegida. Guia: [sensibilidade](../development/sensitivity.md).
+
+## Busca do Brain (#154)
+
+Busca full-text PostgreSQL com fallback lexical, filtros de escopo/sensibilidade/validade e paginação. Semântica pgvector exata e ranking híbrido por modelo/revisão; índices derivados com pendências duráveis e reindexação explícita, embeddings HTTP opcionais sem presumir assinatura das CLIs. Conteúdo protegido nunca aparece nos matches; consulta por ID pode devolver metadados. Fontes brutas aguardam #158. Guia: [busca](../development/search.md).
