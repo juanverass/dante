@@ -292,3 +292,17 @@ sem Mapster. AppServices podem receber o adapter; hosts não duplicam mappings.
 Seis testes novos cobrem contratos/invariantes/DI/concurrency. Guia e convenções:
 [mappings da Application](../development/mapping.md). Nenhum DTO/entidade funcional
 Brain ou base CRUD foi antecipado.
+
+
+## Base CRUD (#171)
+
+EntidadeBase (Guid Id gerado pelo domínio, setter protegido) no Domain e
+IRepository, IUnitOfWork, ICrudBasicoAppService e CrudBasicoAppService na
+Application, sem TId (AD-39). Criação pelo mapping explícito com constructor do
+domínio, atualização por métodos do domínio no AppService específico e pesquisa
+por consulta do repository específico. Onze testes cobrem as operações sobre
+consumidores fictícios em PT-BR e a convenção de nomes por reflexão; suíte com
+790 aprovados e 18 pulados; LocalServiceDeploymentTests.InstallWithoutTokenLeavesTheServiceDisabled
+já falhava no baseline, antes de qualquer mudança, e não foi investigado. Guia: [base CRUD](../development/crud.md). Nenhuma entidade
+funcional, implementação EF de repository/unit of work (#168) ou registro DI foi
+antecipado.

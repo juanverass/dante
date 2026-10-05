@@ -28,7 +28,8 @@ inclusive casos negativos que comprovam a rejeição de violações.
 Pastas/namespaces seguem `Dante.Domain.<Conceito>`,
 `Dante.Application.<CasoDeUso>` e `Dante.Infrastructure.<Adapter>`. Hosts traduzem
 entrada/saída e registram serviços; não definem regra de negócio. Código novo usa
-vocabulário PT-BR e `Guid Id` via `EntidadeBase` (AD-36); a base CRUD é da #171.
+vocabulário PT-BR e `Guid Id` via `EntidadeBase` (AD-36); a base CRUD genérica
+existe desde a #171 (AD-39, [guia](../development/crud.md)).
 
 O runtime Telegram mantém sessões/jobs em memória, persistência JSON local,
 long polling e subprocessos Claude/Codex. A mudança física não introduz banco,
