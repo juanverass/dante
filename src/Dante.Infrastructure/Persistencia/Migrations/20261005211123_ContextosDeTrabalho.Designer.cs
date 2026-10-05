@@ -3,6 +3,7 @@ using System;
 using Dante.Infrastructure.Persistencia;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Dante.Infrastructure.Persistencia.Migrations
 {
     [DbContext(typeof(DanteDbContext))]
-    partial class DanteDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261005211123_ContextosDeTrabalho")]
+    partial class ContextosDeTrabalho
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

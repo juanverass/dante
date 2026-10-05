@@ -20,6 +20,9 @@ internal static class MapeamentosDaApplication
         RegistrarEspacosDeConhecimento(configuracao);
         RegistrarProjetos(configuracao);
         RegistrarConhecimentos(configuracao);
+        configuracao.Registrar<Dante.Domain.ContextosDeTrabalho.ContextoDeTrabalho, Dante.Application.ContextosDeTrabalho.ContextoDeTrabalhoDto>(x =>
+            new Dante.Application.ContextosDeTrabalho.ContextoDeTrabalhoDto(x.Id, x.IdEspacoDeConhecimento, x.IdProjeto, x.Dados,
+                x.Sensibilidade, x.Revisao, x.IdResponsavel, x.Origem, x.AtualizadoEm, x.ExpiraEm, x.AuditoriaAnterior));
         configuracao.Registrar<CandidatoDeConhecimento, CandidatoDeConhecimentoDto>(x => new CandidatoDeConhecimentoDto(
             x.Id, x.IdEspacoDeConhecimento, x.IdProjeto, x.Tipo, x.Conteudo, x.Sensibilidade, x.Natureza,
             x.Modo, x.Estado, x.Revisao, x.IdConhecimento, x.Historico.Select(a => new AtoDoCandidatoDto(a.Revisao, a.Acao,
