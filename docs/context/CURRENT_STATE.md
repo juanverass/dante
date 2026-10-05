@@ -184,15 +184,20 @@ Detalhes de uso: [README](../../README.md).
   `DANTE_LIVE_CLI=1`, executado em 2026-10-02 com Claude Code 2.1.287 e codex-cli 0.159.3: os quatro caminhos
   (sessão e one-shot de cada CLI) identificaram a imagem sintética; o bot do Telegram real não foi exercitado.
 
-## Direção de armazenamento do Brain
+## Fundação de persistência do Brain (#160)
 
-A #135 formaliza a AD-34: [PostgreSQL canônico](../brain/POSTGRESQL_STORAGE.md),
-full-text lexical, pgvector derivado, originais em filesystem quando apropriado e
-export Markdown/JSON. Há estratégia de migrations, backup/restore consistente com
-fontes e roteiro preparatório para WSL. Isso ainda não é funcionalidade do Worker:
-#160 depende da conclusão de #134 e #135 e deverá validar a persistência real.
-O roteiro de banco não foi executado nesta entrega; Docker não está acessível na
-distro utilizada. Não é necessário instalar PostgreSQL para rodar o produto atual.
+PostgreSQL canônico opcional implementado conforme AD-34, com envelopes de
+persistência independentes do provider, IDs/FKs com prefixo `Id`, identidade local,
+escopos explícitos, revisões/links transacionais, ledger/checksum/locks de migrations,
+fontes privadas verificadas e rebuild lexical derivado. CLI administrativa oferece
+migrate/health/rebuild/backup/restore, com roles segregadas e credenciais excluídas
+dos processos dos agentes. [Operação local](../brain/LOCAL_STORAGE.md).
+
+Validado em PostgreSQL 17.11 nativo temporário, incluindo restore em banco separado
+sem schema de índices, bootstrap e TCP/SCRAM com runtime limitado. Docker não foi
+exercitado. Sem configuração Brain, o Worker continua sem exigir banco. Knowledge
+Core, policy/UX, ingestão, busca de produto, embeddings e export lógico permanecem
+nas respectivas issues; sessões/jobs/settings atuais não foram migrados.
 
 ## Em andamento
 

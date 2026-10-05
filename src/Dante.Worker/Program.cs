@@ -1,5 +1,6 @@
 using Dante.Worker;
 using Dante.Worker.Agents;
+using Dante.Worker.Brain;
 using Dante.Worker.Artifacts;
 using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
@@ -9,7 +10,13 @@ using Dante.Worker.Settings;
 using Dante.Worker.Telegram;
 using Dante.Worker.Usage;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = Host.CreateApplicationBuilder(args.Length > 0 && args[0] == "--brain" ? [] : args);
+if (args.Length > 0 && args[0] == "--brain")
+{
+    Environment.ExitCode = await BrainConfiguration.RunAsync(args, builder.Configuration);
+    return;
+}
+BrainConfiguration.Register(builder.Services, builder.Configuration);
 builder.Services.AddSingleton<IAgentExecutableResolver, AgentExecutableResolver>();
 builder.Services.AddSingleton<IAgentProcessExecutor, AgentProcessExecutor>();
 builder.Services.AddSingleton<IInteractiveAgentProcessLauncher, InteractiveAgentProcessLauncher>();

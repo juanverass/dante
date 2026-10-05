@@ -1492,3 +1492,11 @@ inacabado, faça checkpoint e push, depois publique `## HANDOFF` na Issue. Se a
 implementação estiver concluída, abra o PR, mova a Issue para `status:review` e publique
 `## TURNO FINALIZADO` na Issue. Os [registros de turno](docs/development/handoff.md#onde-vivem-os-registros)
 ficam nos comentários da Issue, nunca em arquivos do repositório.
+
+### Persistência opcional do Brain
+
+A fundação PostgreSQL da #160 é opt-in e ainda não oferece captura/busca pelo
+Telegram. O serviço atual não precisa de banco. Para preparar roles, migrations,
+health e backup/restore, siga o [guia de persistência local](docs/brain/LOCAL_STORAGE.md).
+Não conecte o Worker como administrador; credenciais de migrations pertencem
+somente às operações administrativas explícitas.

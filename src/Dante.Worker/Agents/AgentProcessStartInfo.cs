@@ -59,6 +59,13 @@ internal static class AgentProcessStartInfo
                 startInfo.Environment[name] = value;
         }
 
+        // Brain credentials belong only to the host, including legacy unfiltered repository launches.
+        foreach (var name in startInfo.Environment.Keys.Where(name =>
+                     name.StartsWith("Brain__", StringComparison.OrdinalIgnoreCase) ||
+                     name.StartsWith("Brain:", StringComparison.OrdinalIgnoreCase) ||
+                     name.StartsWith("PG", StringComparison.OrdinalIgnoreCase)).ToArray())
+            startInfo.Environment.Remove(name);
+
         foreach (var argument in request.Arguments)
         {
             startInfo.ArgumentList.Add(argument);
