@@ -328,3 +328,12 @@ Application, assim como a seleção de modelo; o Domain recebe só o perfil de p
 os nomes/rótulos dos modos seguem no Worker como apresentação. Comportamento inalterado:
 suíte com 800 aprovados e 18 pulados. Sessões/drivers, jobs, mídia, artefatos e Telegram seguem no
 Worker; EF Core/PostgreSQL é a #168.
+
+## Fundação EF Core + PostgreSQL (#168)
+
+Persistência opcional via ConnectionStrings:Dante em AddInfrastructure: DanteDbContext,
+Repository<TEntity>, UnitOfWork scoped e configuração base Guid/xmin. Migration EF
+inicial prepara schemas, sem mapear entidades funcionais Brain nem alterar stores JSON.
+Conflitos são traduzidos em exception da Application; commit transacional e conexões
+fora do checkout/ambiente dos agentes. Guia: [persistência](../development/persistence.md).
+Full-text/pgvector e persistência funcional seguem na #160.

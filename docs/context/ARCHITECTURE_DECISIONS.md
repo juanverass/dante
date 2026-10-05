@@ -1439,3 +1439,27 @@ fica restrito a host, Telegram e o núcleo de sessões ainda não extraído, sem
 
 Código: `src/Dante.Infrastructure/{Contextos,Agentes,Uso}`, `src/Dante.Application/{Agentes,Uso,Anexos}`,
 `src/Dante.Domain/Agentes/AgentPermissionProfile.cs`; testes em `HexagonalArchitectureTests`.
+
+## AD-43 — Fundação EF opcional, transação por UoW e xmin shadow
+
+Status: vigente (#168, Epic #164). AD-42 é reservada ao Projeto da #136.
+
+AddInfrastructure registra persistência scoped somente com ConnectionStrings:Dante;
+não aplica migrations automaticamente. DanteDbContext usa configurations concretas
+na Infrastructure e migrations EF explícitas com histórico em brain_meta. Tabelas/
+colunas usam snake_case PT-BR em brain_data; brain_index é reservado a derivados.
+A primeira migration prepara schemas sem tabelas funcionais (#160). Down preserva
+schemas compartilhados. Nenhum EF/provider entra no Domain/Application.
+
+EntidadeConfiguration fixa Guid Id gerado pelo domínio e token shadow uint Versao
+(xmin). Repository exige tracking do mesmo contexto para atualizar/remover, preservando
+o token original. UoW confirma alterações de todos os repositories numa transação
+SaveChanges; conflitos viram ConflitoDeConcorrenciaException sem expor EF. Não há
+retry automático; descarte do escopo e reload são necessários após falha.
+
+Por quê: permite consumo pela #160 sem acoplar domínio a tipos físicos ou exigir
+banco no Worker atual, e evita lost updates/commits parciais. A conexão fica externa
+e não é herdada pelas CLIs. Full-text/pgvector não entram na fundação canônica.
+
+Código e limites: [guia de persistência](../development/persistence.md); testes
+PersistenciaTests com entidade fictícia e PostgreSQL real opt-in.

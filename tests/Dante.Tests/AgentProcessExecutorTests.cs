@@ -65,6 +65,29 @@ public sealed class AgentProcessExecutorTests
     }
 
     [Fact]
+    public async Task DatabaseConnectionIsNeverInheritedByAgents()
+    {
+        const string name = "ConnectionStrings__Dante";
+        var previous = Environment.GetEnvironmentVariable(name);
+        Environment.SetEnvironmentVariable(name, "dante-test-database-secret");
+        try
+        {
+            foreach (var request in new[]
+            {
+                Request("env", name), Request("env", name) with { IsGeneral = true },
+                Request("env", name) with
+                { EnvironmentVariables = new Dictionary<string, string> { [name] = "override-secret" } }
+            })
+            {
+                var result = await CreateExecutor().ExecuteAsync(request);
+                Assert.Equal(AgentProcessStatus.Succeeded, result.Status);
+                Assert.Equal("<unset>", result.StandardOutput.Trim());
+            }
+        }
+        finally { Environment.SetEnvironmentVariable(name, previous); }
+    }
+
+    [Fact]
     public async Task RepositoryEnvironmentIsAppliedPerChildProcess()
     {
         const string name = "DANTE_TEST_REPO_VALUE";

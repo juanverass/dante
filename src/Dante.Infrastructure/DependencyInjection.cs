@@ -1,3 +1,6 @@
+using Dante.Application.Comum;
+using Dante.Infrastructure.Persistencia;
+using Microsoft.EntityFrameworkCore;
 using Dante.Application.Agentes;
 using Dante.Application.Contextos;
 using Dante.Application.Uso;
@@ -15,7 +18,15 @@ public static class DependencyInjection
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
-        // Adapters e persistência serão registrados pelas respectivas issues.
+        // Sem configuração, os hosts continuam operando sem banco.
+        var connectionString = configuration.GetConnectionString("Dante");
+        if (!string.IsNullOrWhiteSpace(connectionString))
+        {
+            services.AddDbContext<DanteDbContext>(options => options.UseNpgsql(connectionString,
+                provider => provider.MigrationsHistoryTable("__EFMigrationsHistory", "brain_meta")));
+            services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+            services.AddScoped<IUnitOfWork, UnitOfWork>();
+        }
         AddContextos(services);
         AddAgentes(services);
         return services;
