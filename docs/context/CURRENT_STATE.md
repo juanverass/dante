@@ -189,8 +189,8 @@ Detalhes de uso: [README](../../README.md).
 A #135 formaliza a AD-34: [PostgreSQL canônico](../brain/POSTGRESQL_STORAGE.md),
 full-text lexical, pgvector derivado, originais em filesystem quando apropriado e
 export Markdown/JSON. Há estratégia de migrations, backup/restore consistente com
-fontes e roteiro preparatório para WSL. Isso ainda não é funcionalidade do Worker:
-#160 depende da conclusão de #134 e #135 e deverá validar a persistência real.
+fontes e roteiro preparatório para WSL. A persistência opcional EF/PostgreSQL foi entregue pela #160 na Infrastructure;
+os canais Worker/WebApi ainda não expõem operações funcionais Brain aos usuários.
 O roteiro de banco não foi executado nesta entrega; Docker não está acessível na
 distro utilizada. Não é necessário instalar PostgreSQL para rodar o produto atual.
 
@@ -350,7 +350,7 @@ Repository<TEntity>, UnitOfWork scoped e configuração base Guid/xmin. Migratio
 inicial prepara schemas, sem mapear entidades funcionais Brain nem alterar stores JSON.
 Conflitos são traduzidos em exception da Application; commit transacional e conexões
 fora do checkout/ambiente dos agentes. Guia: [persistência](../development/persistence.md).
-Full-text/pgvector e persistência funcional seguem na #160.
+Persistência funcional está na #160; full-text/pgvector seguem na #154.
 
 ## Núcleo de Conhecimento (#138)
 
@@ -359,9 +359,8 @@ proveniência, autoria, validade, tags, conteúdo/JSON e revisões imutáveis. C
 Corrigir, Invalidar e Substituir preservam evidência e exigem revisão esperada;
 inferência não vira confirmação por confiança e correção de confirmado exige nova
 confirmação (AD-44). ConhecimentoAppService e ports/DTOs na Application sobre CRUD,
-com validação de escopo ativo, pesquisa limitada e mappings explícitos. Sem DI do
-AppService/repository específico, EF/tabelas (#160), captura (#139), relações gerais
-(#153), autorização (#150) ou policy (#155). 49 testes novos sem banco com fakes;
+com validação de escopo ativo, pesquisa limitada e mappings explícitos. DI/repositories/EF estão na #160, captura na #139 e relações na #153.
+Autorização (#150) e policy (#155) ainda não foram implementadas. 49 testes novos sem banco com fakes;
 build aprovado e suíte final com 903 aprovados, 19 pulados e zero falhas.
 Guia: [núcleo de Conhecimento](../development/knowledge.md).
 
@@ -381,3 +380,12 @@ migration específica na Infrastructure. Nove tipos explícitos, proveniência,
 deduplicação simétrica, FKs e substituição integrada ao histórico transacional.
 Vizinhança escopada com BFS, profundidade/custo limitados e sinal de truncamento.
 Guia: [relações](../development/relations.md). Sem UX Telegram ou policy/busca.
+
+## Captura de Conhecimento (#139)
+
+Pipeline neutro selecionado → CandidatoDeConhecimento → correção/decisão explícita →
+Conhecimento, com natureza de origem, evidência/justificativa, auditoria por revisão,
+deduplicação conservadora e confirmação transacional. Sugestões permanecem pendentes;
+inferências não viram fatos por confirmação. EF/migration de candidatos e consolidação
+Incidente/Solucao/Aprendizado com relações na mesma transação. Guia: [captura](../development/capture.md).
+Sem observador de transcripts/turnos; adapter natural Telegram e policy seguem #157/#150.

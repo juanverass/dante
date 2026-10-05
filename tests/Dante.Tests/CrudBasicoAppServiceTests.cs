@@ -180,12 +180,12 @@ public sealed class CrudBasicoAppServiceTests : IDisposable
                 verificados.Add(tipo);
             }
         }
-        Assert.Equal([typeof(Application.Conhecimentos.ConhecimentoAppService), typeof(EspacoDeConhecimentoAppService), typeof(Application.Conhecimentos.IConhecimentoAppService),
-                typeof(Application.Conhecimentos.IConhecimentoRepository), typeof(IEspacoDeConhecimentoAppService),
+        Assert.Equal(new[] { typeof(Application.Conhecimentos.ConhecimentoAppService), typeof(EspacoDeConhecimentoAppService), typeof(Application.Conhecimentos.IConhecimentoAppService),
+                typeof(Application.CapturaDeConhecimento.ICandidatoDeConhecimentoRepository), typeof(Application.Conhecimentos.IConhecimentoRepository), typeof(IEspacoDeConhecimentoAppService),
                 typeof(IEspacoDeConhecimentoRepository), typeof(Application.Projetos.IProjetoAppService),
                 typeof(IProjetoAppService), typeof(Application.Projetos.IProjetoRepository), typeof(IProjetoRepository),
                 typeof(Application.RelacoesDeConhecimento.IRelacaoDeConhecimentoRepository),
-                typeof(Application.Projetos.ProjetoAppService), typeof(ProjetoAppService)],
+                typeof(Application.Projetos.ProjetoAppService), typeof(ProjetoAppService) }.OrderBy(tipo => tipo.Name, StringComparer.Ordinal).ThenBy(tipo => tipo.Namespace, StringComparer.Ordinal),
             verificados.OrderBy(tipo => tipo.Name, StringComparer.Ordinal)
                 .ThenBy(tipo => tipo.Namespace, StringComparer.Ordinal));
     }
