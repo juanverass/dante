@@ -55,14 +55,30 @@ public sealed class HexagonalArchitectureTests
 
     [Theory]
     [InlineData("Dante.Domain", "Mapster")]
+    [InlineData("Dante.Domain", "Mapster.DependencyInjection")]
     [InlineData("Dante.Domain", "Microsoft.EntityFrameworkCore")]
+    [InlineData("Dante.Domain", "Npgsql")]
+    [InlineData("Dante.Domain", "Telegram.Bot")]
+    [InlineData("Dante.Domain", "Microsoft.AspNetCore.Http.Abstractions")]
     [InlineData("Dante.Application", "Npgsql")]
     [InlineData("Dante.Application", "Microsoft.EntityFrameworkCore")]
     [InlineData("Dante.Application", "Telegram.Bot")]
+    [InlineData("Dante.Application", "Microsoft.AspNetCore.Http.Abstractions")]
     public void ArchitectureGuardRejectsProviderDependenciesInTheCore(string camada, string pacote)
     {
         var xml = XDocument.Parse($"<Project><ItemGroup><PackageReference Include='{pacote}' Version='1.0'/></ItemGroup></Project>");
         Assert.NotEmpty(Violacoes(camada, xml));
+    }
+
+    [Theory]
+    [InlineData("Dante.Domain", "System.Collections.Immutable")]
+    [InlineData("Dante.Application", "System.Collections.Immutable")]
+    [InlineData("Dante.Application", "Microsoft.Extensions.DependencyInjection.Abstractions")]
+    [InlineData("Dante.Application", "Mapster")]
+    public void ArchitectureGuardAllowsSupportedDependenciesInTheCore(string camada, string pacote)
+    {
+        var xml = XDocument.Parse($"<Project><ItemGroup><PackageReference Include='{pacote}' Version='1.0'/></ItemGroup></Project>");
+        Assert.Empty(Violacoes(camada, xml));
     }
 
     [Fact]
@@ -93,10 +109,17 @@ public sealed class HexagonalArchitectureTests
             if (destino.StartsWith("Dante.") && !Permitidas[projeto].Contains(destino)) yield return $"{projeto} → {destino}";
         }
         foreach (var pacote in xml.Descendants("PackageReference").Select(x => x.Attribute("Include")!.Value))
-            if (projeto == "Dante.Domain" || projeto == "Dante.Application" &&
-               (pacote.Contains("EntityFrameworkCore") || pacote.StartsWith("Npgsql") || pacote.StartsWith("Telegram.") || pacote.StartsWith("Microsoft.AspNetCore")))
+            if ((projeto == "Dante.Domain" || projeto == "Dante.Application") &&
+                EhProviderProibido(projeto, pacote))
                 yield return $"Provider no núcleo: {pacote}";
     }
+
+    private static bool EhProviderProibido(string projeto, string pacote) =>
+        pacote.Contains("EntityFrameworkCore", StringComparison.OrdinalIgnoreCase) ||
+        pacote.StartsWith("Npgsql", StringComparison.OrdinalIgnoreCase) ||
+        pacote.StartsWith("Telegram.", StringComparison.OrdinalIgnoreCase) ||
+        pacote.StartsWith("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase) ||
+        (projeto == "Dante.Domain" && pacote.StartsWith("Mapster", StringComparison.OrdinalIgnoreCase));
 
     private static string Raiz()
     {
