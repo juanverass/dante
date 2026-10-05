@@ -180,7 +180,8 @@ public sealed class CrudBasicoAppServiceTests : IDisposable
                 verificados.Add(tipo);
             }
         }
-        Assert.Equal([typeof(EspacoDeConhecimentoAppService), typeof(IEspacoDeConhecimentoAppService),
+        Assert.Equal([typeof(Application.Conhecimentos.ConhecimentoAppService), typeof(EspacoDeConhecimentoAppService), typeof(Application.Conhecimentos.IConhecimentoAppService),
+                typeof(Application.Conhecimentos.IConhecimentoRepository), typeof(IEspacoDeConhecimentoAppService),
                 typeof(IEspacoDeConhecimentoRepository), typeof(Application.Projetos.IProjetoAppService),
                 typeof(IProjetoAppService), typeof(Application.Projetos.IProjetoRepository), typeof(IProjetoRepository),
                 typeof(Application.Projetos.ProjetoAppService), typeof(ProjetoAppService)],

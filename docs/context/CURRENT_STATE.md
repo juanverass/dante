@@ -276,8 +276,9 @@ completa durante a #94 e de novo no baseline da #95; passa isolado e nas execuç
 ## Próximos marcos
 
 A Epic #133 tem [arquitetura alvo documentada](../maintainer/ARCHITECTURE.md#16-arquitetura-alvo-do-dante-brain-133-134)
-(AD-33, #134). Brain/Knowledge Core/Search/Snapshot/Context Pack ainda não existem
-no runtime; a #135 formaliza armazenamento, e #160 depende da conclusão de ambas.
+(AD-33, #134). Brain ainda não é integrado ao runtime; Knowledge Core existe em Domain/Application
+(#138), sem persistência ou entrada de canal. Search/Snapshot/Context Pack ainda não
+existem; a #135 formaliza armazenamento, e #160 depende da conclusão de ambas.
 A arquitetura separa conhecimento, memória de trabalho e histórico; não altera
 persistência ou permissões do Worker atual.
 
@@ -350,3 +351,16 @@ inicial prepara schemas, sem mapear entidades funcionais Brain nem alterar store
 Conflitos são traduzidos em exception da Application; commit transacional e conexões
 fora do checkout/ambiente dos agentes. Guia: [persistência](../development/persistence.md).
 Full-text/pgvector e persistência funcional seguem na #160.
+
+## Núcleo de Conhecimento (#138)
+
+Conhecimento no Domain com escopo espaço/projeto, tipos/status/sensibilidade PT-BR,
+proveniência, autoria, validade, tags, conteúdo/JSON e revisões imutáveis. Confirmar,
+Corrigir, Invalidar e Substituir preservam evidência e exigem revisão esperada;
+inferência não vira confirmação por confiança e correção de confirmado exige nova
+confirmação (AD-44). ConhecimentoAppService e ports/DTOs na Application sobre CRUD,
+com validação de escopo ativo, pesquisa limitada e mappings explícitos. Sem DI do
+AppService/repository específico, EF/tabelas (#160), captura (#139), relações gerais
+(#153), autorização (#150) ou policy (#155). 49 testes novos sem banco com fakes;
+build aprovado e suíte final com 903 aprovados, 19 pulados e zero falhas.
+Guia: [núcleo de Conhecimento](../development/knowledge.md).

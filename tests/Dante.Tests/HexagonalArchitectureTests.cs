@@ -161,7 +161,8 @@ public sealed class HexagonalArchitectureTests
         var nomes = typeof(AgentKind).Assembly.GetTypes().SelectMany(tipo => tipo.GetProperties(membros)
             .Select(propriedade => $"{tipo.Name}.{propriedade.Name}")
             .Concat(tipo.GetFields(membros).Select(campo => $"{tipo.Name}.{campo.Name}")).Prepend(tipo.Name));
-        Assert.DoesNotContain(nomes, nome => operacional.IsMatch(nome));
+        // #138: Secreto é uma classificação semântica, sem credencial/ambiente do host.
+        Assert.DoesNotContain(nomes, nome => nome != "Sensibilidade.Secreto" && operacional.IsMatch(nome));
         Assert.Equal("Dante.Application", typeof(JobExecutionContext).Assembly.GetName().Name);
         Assert.Equal("Dante.Application", typeof(ResolvedRepositoryEnvironment).Assembly.GetName().Name);
         Assert.Equal("Dante.Infrastructure", typeof(RepositoryDefinition).Assembly.GetName().Name);
