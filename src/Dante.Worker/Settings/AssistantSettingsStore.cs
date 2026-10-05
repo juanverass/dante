@@ -1,13 +1,14 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Dante.Application.Contextos;
 using Dante.Worker.Agents;
 using Dante.Worker.Repositories;
 using Dante.Worker.Sessions;
 
 namespace Dante.Worker.Settings;
 
-public sealed class AssistantSettingsStore
+public sealed class AssistantSettingsStore : IPreferenciasDoAssistente
 {
     private readonly object gate = new();
     private readonly string filePath;
@@ -50,6 +51,10 @@ public sealed class AssistantSettingsStore
     {
         lock (gate) return activeRepositories.GetValueOrDefault(userId);
     }
+
+    AssistantSettings IPreferenciasDoAssistente.Atual => Current;
+
+    string? IPreferenciasDoAssistente.ObterRepositorioAtivo(long idUsuario) => GetActiveRepository(idUsuario);
 
     public void SetActiveRepository(long userId, string? alias)
     {

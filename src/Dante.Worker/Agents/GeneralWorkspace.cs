@@ -1,8 +1,12 @@
+using Dante.Application.Contextos;
+
 namespace Dante.Worker.Agents;
 
-public sealed class GeneralWorkspace
+public sealed class GeneralWorkspace : IWorkspaceGeral
 {
     public string Path { get; }
+
+    string IWorkspaceGeral.Caminho => Path;
 
     public GeneralWorkspace(string? path = null)
     {

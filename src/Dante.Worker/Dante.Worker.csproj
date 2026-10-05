@@ -15,6 +15,14 @@
     <ProjectReference Include="../Dante.Infrastructure/Dante.Infrastructure.csproj" />
   </ItemGroup>
 
+  <!-- Compatibilidade temporária da #166 (AD-38): tipos legados movidos para o núcleo mantêm o uso sem namespace. -->
+  <ItemGroup>
+    <Using Include="Dante.Application.Contextos" />
+    <Using Include="Dante.Domain.Agentes" />
+    <Using Include="Dante.Domain.Contextos" />
+    <Using Include="Dante.Domain.Preferencias" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Dante.Tests" />
   </ItemGroup>

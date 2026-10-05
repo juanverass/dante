@@ -139,7 +139,7 @@ Status: vigente (MVP 2, #23)
 Cada job registra o contexto resolvido no início (`General` ou alias + path). Alterar o
 catálogo depois não muda jobs existentes; `/status` mostra o contexto de cada job.
 
-Código: `Jobs/JobExecutionContext.cs`; testes em `JobRegistryTests` e
+Código: `Dante.Domain/Contextos/JobExecutionContext.cs` (no Worker até a #166); testes em `JobRegistryTests` e
 `TelegramJobCommandTests`.
 
 ## AD-12 — Desenvolvimento por agentes guiado por contrato persistido
@@ -235,7 +235,8 @@ Por quê: as regras estavam duplicadas entre o caminho one-shot e o de sessões,
 ordens de validação e mensagens divergentes. Um ponto único torna a precedência
 testável por tabela e impede que um caminho novo esqueça uma recusa.
 
-Código: `Jobs/AgentContextResolver.cs`, `Telegram/TelegramPollingService.cs`; testes em
+Código: `Dante.Application/Contextos/AgentContextResolver.cs` (no Worker até a #166, AD-38),
+`Telegram/TelegramPollingService.cs`; testes em
 `AgentContextResolverTests` (tabela de precedência e recusas), `TelegramAgentRoutingTests`,
 `TelegramActiveRepositoryTests` e `TelegramPlainMessageTests`.
 
@@ -1300,3 +1301,31 @@ não é transformado automaticamente em consulta. DTOs específicos usam PT-BR.
 Por quê: compartilhar conversões sem transferir autorização/invariantes aos
 hosts ou permitir que campos novos/sensíveis/Ids sejam copiados por convenção.
 Operação/limites e exemplos no [guia de mapping](../development/mapping.md).
+
+## AD-38 — Extração do legado em lotes: nome legado preservado, portas novas em PT-BR
+
+Status: vigente (#166, Epic #164). Aplica AD-35/AD-36 à migração do legado.
+
+O legado sai do Worker em lotes com fronteira clara e sem mudança de comportamento.
+Conceito sem IO vai para o Domain; caso de uso vai para a Application, que recebe
+suas dependências externas por portas novas implementadas pelos adapters do Worker
+(implementação explícita da interface, sem mudar a API pública do adapter).
+
+Tipo legado movido mantém o nome em inglês, marcado no arquivo como exceção
+temporária até uma migração explícita; isso não vale para código novo. Portas e
+contratos criados na extração nascem em PT-BR. Para evitar big-bang de `using`,
+Worker e testes importam os namespaces que receberam tipos movidos por `<Using>`
+global no `.csproj`, também marcado como compatibilidade temporária.
+
+Primeiro lote: `AgentKind` (`Dante.Domain.Agentes`), `AssistantSettings`
+(`Dante.Domain.Preferencias`), `JobExecutionContext` e `RepositoryDefinition`
+(`Dante.Domain.Contextos`); `AgentContextResolver` (`Dante.Application.Contextos`)
+sobre `IWorkspaceGeral`, `ICatalogoDeRepositorios` e `IPreferenciasDoAssistente`,
+implementadas por `GeneralWorkspace`, `RepositoryRegistry` e `AssistantSettingsStore`.
+
+Por quê: mover em lotes pequenos mantém cada PR revisável e o comportamento
+coberto pelos testes existentes, sem renomeação em massa do legado.
+
+Código: `src/Dante.Domain`, `src/Dante.Application/Contextos`; testes em
+`HexagonalArchitectureTests` (referências do núcleo compilado, ausência de `TId`,
+ausência de IO no código do núcleo, adapters das portas) e `AgentContextResolverTests`.

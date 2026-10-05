@@ -1,9 +1,13 @@
+using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Dante.Application;
 using Dante.Infrastructure;
 using Dante.Worker;
 using Dante.Worker.Agents;
+using Dante.Worker.Repositories;
 using Dante.Worker.Sessions;
+using Dante.Worker.Settings;
 using Dante.Worker.Telegram;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -94,6 +98,56 @@ public sealed class HexagonalArchitectureTests
         Assert.Contains(services, s => s.ServiceType == typeof(SessionRegistry));
         Assert.Contains(services, s => s.ServiceType == typeof(IHostedService) && s.ImplementationType == typeof(Dante.Worker.Worker));
         Assert.Contains(services, s => s.ServiceType == typeof(IHostedService) && s.ImplementationType == typeof(TelegramPollingService));
+    }
+
+    private static readonly Assembly[] Nucleo = [typeof(AgentKind).Assembly, typeof(AgentContextResolver).Assembly];
+
+    // #166: o núcleo compilado não alcança hosts, adapters nem providers, nem mesmo por referência indireta.
+    [Fact]
+    public void CoreAssembliesDoNotReferenceHostsAdaptersOrProviders()
+    {
+        Assert.Equal(["Dante.Application", "Dante.Domain"], Nucleo.Select(a => a.GetName().Name).Order());
+        foreach (var assembly in Nucleo)
+            Assert.DoesNotContain(assembly.GetReferencedAssemblies().Select(a => a.Name!), nome =>
+                nome is "Dante.Worker" or "Dante.Infrastructure" or "Dante.WebApi" ||
+                nome.StartsWith("Telegram", StringComparison.OrdinalIgnoreCase) ||
+                nome.StartsWith("Npgsql", StringComparison.OrdinalIgnoreCase) ||
+                nome.Contains("EntityFrameworkCore", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void CoreContractsDoNotIntroduceTId()
+    {
+        var tipos = Nucleo.SelectMany(a => a.GetTypes()).ToArray();
+        var parametros = tipos.Where(t => t.IsGenericTypeDefinition).SelectMany(t => t.GetGenericArguments())
+            .Concat(tipos.SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic |
+                    BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+                .Where(m => m.IsGenericMethodDefinition).SelectMany(m => m.GetGenericArguments()));
+        Assert.DoesNotContain(parametros, parametro => parametro.Name == "TId");
+    }
+
+    // O núcleo não faz IO de filesystem, processos, rede ou banco; manipular texto de caminho (Path) é permitido.
+    [Fact]
+    public void CoreSourcesDoNotPerformFilesystemProcessOrNetworkAccess()
+    {
+        var proibido = new Regex(@"\b(File|Directory|FileInfo|DirectoryInfo|FileStream|Process|HttpClient|NpgsqlConnection)\b\s*[.(]");
+        var violacoes = new[] { "Dante.Domain", "Dante.Application" }
+            .SelectMany(projeto => Directory.EnumerateFiles(Path.Combine(Raiz(), "src", projeto), "*.cs",
+                SearchOption.AllDirectories))
+            .Where(arquivo => !arquivo.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
+            .SelectMany(arquivo => File.ReadLines(arquivo).Where(linha => proibido.IsMatch(linha))
+                .Select(linha => $"{Path.GetFileName(arquivo)}: {linha.Trim()}"));
+        Assert.Empty(violacoes);
+    }
+
+    [Fact]
+    public void WorkerAdaptersImplementTheApplicationContextPorts()
+    {
+        Assert.True(typeof(IWorkspaceGeral).IsAssignableFrom(typeof(GeneralWorkspace)));
+        Assert.True(typeof(ICatalogoDeRepositorios).IsAssignableFrom(typeof(RepositoryRegistry)));
+        Assert.True(typeof(IPreferenciasDoAssistente).IsAssignableFrom(typeof(AssistantSettingsStore)));
+        Assert.All(new[] { typeof(IWorkspaceGeral), typeof(ICatalogoDeRepositorios), typeof(IPreferenciasDoAssistente) },
+            porta => Assert.Equal("Dante.Application", porta.Assembly.GetName().Name));
     }
 
     private static IEnumerable<string> Violacoes(string projeto, XDocument xml)

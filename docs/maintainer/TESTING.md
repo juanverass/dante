@@ -249,7 +249,8 @@ Especificam a allowlist fail-closed.
 ## `AgentContextResolverTests`
 
 Tabela de precedência de agente e contexto (default, override, repo ativo, General) e recusas sem fallback
-(prompt vazio, alias inválido/desconhecido, ativo stale, binding ausente, workspace sobreposto).
+(prompt vazio, alias inválido/desconhecido, ativo stale, binding ausente, workspace sobreposto). Desde a #166, um
+caso roda o resolvedor da Application só com portas em memória, sem nenhum adapter do Worker.
 
 ---
 
