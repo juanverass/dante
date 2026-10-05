@@ -16,7 +16,9 @@ A solução está em migração incremental para **arquitetura hexagonal explíc
 Os hosts compõem `AddApplication()` e `AddInfrastructure(configuration)`. O Worker
 registra seu legado em `AddWorker(configuration)`; isso extrai somente composição,
 sem mover regras/adapters antes das #166/#167. WebApi tem bootstrap compilável;
-health/ProblemDetails/OpenAPI pertencem à #170. Não há EF/CRUD/Mapster nesta fundação.
+a #170 entrega health operacional, ProblemDetails e OpenAPI em Development,
+sem acesso a repositories/DbContext. [Operação HTTP](WEBAPI.md). EF/CRUD/Mapster
+continuam em entregas próprias.
 
 Domain/Application não dependem de hosts ou providers. Código novo do Brain e
 adapters nasce nas camadas próprias; o legado continua temporariamente no Worker.

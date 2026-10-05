@@ -200,11 +200,20 @@ Solution com Dante.Domain, Dante.Application, Dante.Infrastructure, Dante.Worker
 e Dante.WebApi em .NET 10. Referências para o núcleo e dependências do Domain/
 Application são verificadas por testes arquiteturais. Hosts compartilham
 AddApplication/AddInfrastructure; Program do Worker delega a composição legada a
-AddWorker, sem alteração funcional. WebApi compila como scaffold, sem endpoints.
+AddWorker, sem alteração funcional. WebApi oferece host independente com health,
+ProblemDetails e OpenAPI em Development (#170).
 
 AD-35/AD-36 formalizam a migração incremental, Guid Id via EntidadeBase (base a
 implementar na #171), FKs com Id no início e vocabulário PT-BR. Não há entidades
 Brain, EF, CRUD ou Mapster nesta fundação. PR #163 não foi incorporado.
+
+## Host HTTP (#170)
+
+Dante.WebApi compõe Application/Infrastructure, sem referência ao Worker/Telegram.
+GET /health operacional retorna DTO PT-BR; falhas/status HTTP têm ProblemDetails
+neutro com traceId. OpenAPI apenas em Development. Nenhum endpoint Brain, regra de
+negócio, EF ou repository foi introduzido. Oito testes HTTP cobrem inicialização,
+health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/WEBAPI.md).
 
 ## Em andamento
 

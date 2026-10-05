@@ -8,4 +8,9 @@
     <ProjectReference Include="../Dante.Application/Dante.Application.csproj" />
     <ProjectReference Include="../Dante.Infrastructure/Dante.Infrastructure.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Versão corrigida da dependência transitiva: GHSA-v5pm-xwqc-g5wc. -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.6" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.6" />
+  </ItemGroup>
 </Project>
