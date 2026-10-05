@@ -2,37 +2,40 @@
 
 ## 1. Qual arquitetura o projeto utiliza?
 
-A melhor definição para a arquitetura atual é:
+A solução está em migração incremental para **arquitetura hexagonal explícita**
+(AD-35, #165), mantendo o monólito local e o comportamento do Worker.
 
-> **Monólito modular local, orientado a serviços e eventos, com adapters explícitos nas bordas e máquinas de estado para sessões interativas.**
+| Projeto | Papel | Referências internas permitidas |
+| --- | --- | --- |
+| `Dante.Domain` | Entidades e invariantes; núcleo independente. | Nenhuma. |
+| `Dante.Application` | Casos de uso, AppServices, DTOs e portas. | Domain. |
+| `Dante.Infrastructure` | Implementações de portas e integrações. | Application + Domain. |
+| `Dante.Worker` | Host/background e entrada Telegram. | Application + Infrastructure. |
+| `Dante.WebApi` | Host/entrada HTTP independente. | Application + Infrastructure. |
 
-Isso significa que o D.A.N.T.E. **não é um conjunto de microserviços** e também **não implementa arquitetura hexagonal estrita**.
+Os hosts compõem `AddApplication()` e `AddInfrastructure(configuration)`. O Worker
+registra seu legado em `AddWorker(configuration)`; isso extrai somente composição,
+sem mover regras/adapters antes das #166/#167. WebApi tem bootstrap compilável;
+health/ProblemDetails/OpenAPI pertencem à #170. Não há EF/CRUD/Mapster nesta fundação.
 
-Existe um único executável principal:
+Domain/Application não dependem de hosts ou providers. Código novo do Brain e
+adapters nasce nas camadas próprias; o legado continua temporariamente no Worker.
+Testes arquiteturais verificam a solution, referências e dependências do núcleo,
+inclusive casos negativos que comprovam a rejeição de violações.
 
-```text
-Dante.Worker
-```
+Pastas/namespaces seguem `Dante.Domain.<Conceito>`,
+`Dante.Application.<CasoDeUso>` e `Dante.Infrastructure.<Adapter>`. Hosts traduzem
+entrada/saída e registram serviços; não definem regra de negócio. Código novo usa
+vocabulário PT-BR e `Guid Id` via `EntidadeBase` (AD-36); a base CRUD é da #171.
 
-Ele é um `Generic Host` do .NET 10. Todos os módulos principais vivem no mesmo processo e são compostos por injeção de dependência em `Program.cs`.
-
-### Classificação por dimensão
-
-| Dimensão | Escolha atual |
-|---|---|
-| Deploy | monólito: um único Worker |
-| Organização interna | modular por responsabilidade |
-| Integrações externas | adapters explícitos para Telegram e CLIs |
-| Comunicação interna | chamadas de serviço + fluxo de eventos |
-| Estado interativo | máquinas de estado em memória |
-| Persistência | arquivos JSON locais; sem banco |
-| Concorrência | Tasks, Channels, locks, semáforos e CancellationToken |
-| Processos externos | Claude Code e Codex CLI como processos filhos |
-| Interface remota | Telegram Bot API via long polling |
+O runtime Telegram mantém sessões/jobs em memória, persistência JSON local,
+long polling e subprocessos Claude/Codex. A mudança física não introduz banco,
+serviços distribuídos ou alteração nas máquinas de estado.
 
 ## 2. Por que chamar de monólito modular?
 
-Porque há **um único processo implantável**, mas o código não está organizado como um bloco único.
+O produto continua local e modular. O legado funcional do Worker está organizado
+por responsabilidade; o host HTTP é independente e não exige execução conjunta.
 
 Os limites são visíveis pelas pastas:
 
@@ -58,7 +61,8 @@ Portanto, o projeto tem modularidade arquitetural mesmo estando no mesmo execut�
 
 ## 3. Há elementos de Ports & Adapters?
 
-Sim, mas o projeto **não deve ser descrito como arquitetura hexagonal completa**.
+Sim. A #165 estabelece projetos/regras hexagonais para código novo; a extração
+do legado em ports/adapters continua nas #166/#167.
 
 Existem abstrações que funcionam como ports:
 
@@ -87,7 +91,8 @@ Essa separação traz benefícios típicos de Ports & Adapters:
 - sessões não conhecem HTTP;
 - os detalhes de Claude e Codex ficam encapsulados em drivers.
 
-Porém o projeto não possui uma divisão formal em `Domain/Application/Adapters` nem aplica todas as regras de dependência de uma arquitetura hexagonal clássica.
+A divisão física Domain/Application/Infrastructure/hosts já existe. As abstrações
+e implementações legadas acima ainda vivem no Worker, aguardando extração.
 
 A descrição correta é:
 
@@ -491,7 +496,7 @@ Para não criar um modelo mental errado:
 - não há fila durável;
 - não há event sourcing;
 - não há CQRS formal;
-- não há arquitetura hexagonal formal.
+- estrutura hexagonal criada; migração do legado ainda pendente (#166/#167).
 
 ## 14. Decisões arquiteturais formais
 

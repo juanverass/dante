@@ -103,8 +103,12 @@ Regras:
 
 ## Convenções de código
 
-* identificadores de código (tipos, membros, arquivos) em **inglês**, como o código
-  existente;
+* código novo de domínio/aplicação usa **PT-BR**, conforme AD-36 e Epic #164:
+  entidades, propriedades/métodos, enums, DTOs/SearchDtos, AppServices, repositories
+  específicos e casos de uso. Sufixos técnicos Repository/AppService/Dto/SearchDto
+  e conceitos externos estabelecidos permanecem; legado mantém o idioma existente
+  até sua migração explícita. Entidades persistentes usam Guid Id via EntidadeBase,
+  IDs/FKs com prefixo Id, sem TId;
 * textos voltados ao usuário final (respostas do Telegram, mensagens de erro exibidas)
   em **português**, como o código existente;
 * documentação do repositório em português;

@@ -194,6 +194,18 @@ fontes e roteiro preparatório para WSL. Isso ainda não é funcionalidade do Wo
 O roteiro de banco não foi executado nesta entrega; Docker não está acessível na
 distro utilizada. Não é necessário instalar PostgreSQL para rodar o produto atual.
 
+## Fundação hexagonal (#165)
+
+Solution com Dante.Domain, Dante.Application, Dante.Infrastructure, Dante.Worker
+e Dante.WebApi em .NET 10. Referências para o núcleo e dependências do Domain/
+Application são verificadas por testes arquiteturais. Hosts compartilham
+AddApplication/AddInfrastructure; Program do Worker delega a composição legada a
+AddWorker, sem alteração funcional. WebApi compila como scaffold, sem endpoints.
+
+AD-35/AD-36 formalizam a migração incremental, Guid Id via EntidadeBase (base a
+implementar na #171), FKs com Id no início e vocabulário PT-BR. Não há entidades
+Brain, EF, CRUD ou Mapster nesta fundação. PR #163 não foi incorporado.
+
 ## Em andamento
 
 - **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94), imagens aos agentes (#95), áudio e vídeo (#96), artefatos (#97) e imagem para LinkedIn (#98) entregues; validação final (#99) pendente.
@@ -205,11 +217,11 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com #104, #105, #106, #108, #96, #98, #116, #117, #128, #120 e #121:
+Estado conhecido com as features anteriores e a fundação hexagonal #165:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    744 testes aprovados, 18 pulados (evidência com CLIs e ferramentas reais, opt-in)
+dotnet test Dante.sln    757 testes aprovados, 18 pulados (evidência com CLIs e ferramentas reais, opt-in)
 ```
 
 `LiveSessionModeEvidenceTests` (#108), opt-in com `DANTE_LIVE_CLI=1`, passou para Claude Code

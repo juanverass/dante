@@ -1234,3 +1234,49 @@ seletiva transforme informação inferida, obsoleta ou sensível em contexto aut
 Contrato completo: [Arquitetura alvo](../maintainer/ARCHITECTURE.md#16-arquitetura-alvo-do-dante-brain-133-134).
 Fluxos: [Brain](../maintainer/FLOWS.md#22-fluxos-alvo-do-brain-134-ainda-não-implementados).
 Verificação futura: #138/#139/#140/#145/#147/#150/#155/#156; não altera runtime/testes atuais.
+
+## AD-35 — Arquitetura hexagonal explícita com migração incremental do legado
+
+Status: vigente (#165, Epic #164).
+
+Domain não referencia camadas internas nem providers. Application referencia
+Domain e define casos de uso/portas. Infrastructure referencia Application/Domain
+e implementa portas. Worker e WebApi referenciam Application/Infrastructure,
+como composition roots/adapters de entrada, sem referência entre os hosts.
+`AddApplication()` e `AddInfrastructure(configuration)` são os contratos comuns.
+Testes arquiteturais impedem referências proibidas e providers no núcleo.
+
+O legado permanece temporariamente no Worker (#166/#167); somente seu registro
+DI foi agrupado em AddWorker. Código novo do Brain e adapters não nasce no Worker.
+Não introduzir regras funcionais ou reescrever Telegram/CLIs nesta fundação.
+WebApi tem scaffold independente; operação HTTP fica na #170. EF Core (#168),
+Mapster (#169) e CRUD (#171) são entregas separadas. O PR #163 não é incorporado;
+a #160 aguarda os gates definidos na Epic #164.
+
+Por quê: separar decisões do núcleo de detalhes de infraestrutura e dos hosts
+permite crescer sem transformar Worker/WebApi em fonte de regras de negócio.
+
+## AD-36 — Identidade Guid Id e vocabulário PT-BR no código novo do núcleo
+
+Status: vigente (#165, Epic #164). Refina o vocabulário conceitual inglês da AD-33
+para a implementação; não renomeia oportunisticamente o legado.
+
+Toda entidade persistente usa `Guid Id` através de `EntidadeBase`; sem parâmetro
+`TId`. A implementação das bases é da #171. Propriedades identificadoras/FKs têm
+prefixo Id: IdTenant, IdUsuario, IdEspacoDeConhecimento, IdProjeto.
+
+Entidades, value objects, enums/valores, propriedades, métodos, DTOs/SearchDtos,
+AppServices, repositories específicos e casos de uso novos usam PT-BR sem acentos
+nos identificadores. Sufixos estruturais permanecem Repository, AppService, Dto e
+SearchDto; nomes técnicos externos (DbContext, EF Core, Mapster, Telegram, Claude,
+Codex) permanecem como estabelecidos. Namespaces/pastas seguem as camadas e o
+conceito/caso de uso/adapter. Vocabulário canônico no glossário.
+
+Assinaturas padrão: IRepository<TEntity>, Repository<TEntity>,
+ICrudBasicoAppService<TDto,TSearchDto,TEntity> e
+CrudBasicoAppService<TDto,TSearchDto,TEntity>. Bases e regras ficam na #171;
+entidades semânticas do Brain ficam nas respectivas issues. DTOs não expõem
+entidades EF e não podem contornar invariantes ou redefinir identidade.
+
+Por quê: uma identidade global simples e vocabulário consistente reduzem contratos
+incompatíveis entre funcionalidades e evitam tradução duplicada pelos hosts.

@@ -20,8 +20,11 @@ review — sem depender de o usuário estar no terminal.
 
 ## Arquitetura de alto nível
 
-Um único processo `Dante.Worker` (Generic Host do .NET), sem banco e sem porta de
-entrada:
+A solução possui Domain/Application/Infrastructure e os hosts Worker/WebApi,
+com dependências para o núcleo (AD-35). A migração do legado é incremental:
+o comportamento Telegram atual permanece em `Dante.Worker` (Generic Host .NET),
+sem banco ou entrada HTTP. A WebApi é scaffold independente, sem regras novas.
+Código novo do núcleo usa PT-BR e Guid Id (AD-36). Fluxo legado:
 
 ```text
 Telegram (long polling)
