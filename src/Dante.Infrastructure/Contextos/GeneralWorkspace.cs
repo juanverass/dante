@@ -1,7 +1,8 @@
 using Dante.Application.Contextos;
 
-namespace Dante.Worker.Agents;
+namespace Dante.Infrastructure.Contextos;
 
+// Adapter legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
 public sealed class GeneralWorkspace : IWorkspaceGeral
 {
     public string Path { get; }

@@ -1,11 +1,12 @@
-using Dante.Worker.Agents;
+using Dante.Application.Agentes;
+using Dante.Application.Anexos;
+using Dante.Application.Uso;
+using Dante.Infrastructure.Agentes;
+using Dante.Infrastructure.Contextos;
 using Dante.Worker.Artifacts;
 using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
-using Dante.Worker.Repositories;
 using Dante.Worker.Sessions;
-using Dante.Worker.Settings;
-using Dante.Worker.Usage;
 using System.Text;
 using System.Net;
 using Microsoft.Extensions.Options;

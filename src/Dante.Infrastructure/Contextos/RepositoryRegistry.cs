@@ -3,8 +3,9 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Dante.Application.Contextos;
 
-namespace Dante.Worker.Repositories;
+namespace Dante.Infrastructure.Contextos;
 
+// Adapter legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
 public sealed class RepositoryRegistry : ICatalogoDeRepositorios
 {
     private static readonly Regex AliasPattern = new("^@[a-zA-Z][a-zA-Z0-9_]*$", RegexOptions.Compiled);

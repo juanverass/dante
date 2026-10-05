@@ -1,8 +1,11 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using Dante.Application.Agentes;
+using Dante.Domain.Agentes;
 
-namespace Dante.Worker.Agents;
+namespace Dante.Infrastructure.Agentes;
 
+// Legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
 public sealed class AgentProcessExecutor(IAgentExecutableResolver executableResolver) : IAgentProcessExecutor
 {
     public bool IsAvailable(AgentKind agent) => executableResolver.Resolve(agent) is not null;

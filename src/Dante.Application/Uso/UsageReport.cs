@@ -1,7 +1,9 @@
-using Dante.Worker.Agents;
+using Dante.Domain.Agentes;
 
-namespace Dante.Worker.Usage;
 
+namespace Dante.Application.Uso;
+
+// Legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
 // A subscription quota window as the provider reports it (AD-31): share of the limit already used (0–100), when it
 // resets and how long it lasts. Label names a window that is neither the session nor the week (another bucket/model).
 public sealed record QuotaWindow(decimal UsedPercent, DateTimeOffset? ResetsAt, TimeSpan? Duration, string? Label = null);

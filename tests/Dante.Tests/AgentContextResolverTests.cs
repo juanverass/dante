@@ -1,8 +1,6 @@
 using System.Diagnostics;
-using Dante.Worker.Agents;
+using Dante.Infrastructure.Contextos;
 using Dante.Worker.Jobs;
-using Dante.Worker.Repositories;
-using Dante.Worker.Settings;
 
 namespace Dante.Tests;
 

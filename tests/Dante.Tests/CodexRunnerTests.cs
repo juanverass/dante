@@ -1,5 +1,6 @@
-using Dante.Worker.Agents;
-using Dante.Worker.Attachments;
+using Dante.Application.Agentes;
+using Dante.Application.Anexos;
+using Dante.Infrastructure.Agentes;
 
 namespace Dante.Tests;
 

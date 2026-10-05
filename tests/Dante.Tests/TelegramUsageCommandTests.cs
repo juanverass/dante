@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
-using Dante.Worker.Agents;
+using Dante.Application.Agentes;
+using Dante.Application.Anexos;
+using Dante.Application.Uso;
+using Dante.Infrastructure.Contextos;
+using Dante.Infrastructure.Uso;
 using Dante.Worker.Jobs;
 using Dante.Worker.Sessions;
-using Dante.Worker.Settings;
 using Dante.Worker.Telegram;
-using Dante.Worker.Usage;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -232,7 +234,7 @@ public sealed class TelegramUsageCommandTests : IAsyncDisposable
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
             CancellationToken cancellationToken = default, bool generalMode = false,
             IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null,
-            IReadOnlyList<Dante.Worker.Attachments.Attachment>? attachments = null) =>
+            IReadOnlyList<Dante.Application.Anexos.Attachment>? attachments = null) =>
             throw new InvalidOperationException("no one-shot expected");
     }
 

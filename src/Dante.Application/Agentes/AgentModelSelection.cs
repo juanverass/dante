@@ -1,5 +1,6 @@
-namespace Dante.Worker.Agents;
+namespace Dante.Application.Agentes;
 
+// Legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
 // Model chosen for one agent execution (#77); a null Model keeps the CLI's own default. It is fixed when a session or
 // job starts and always belongs to one agent: a Claude model never reaches Codex or vice versa.
 public sealed record AgentModelSelection(string? Model = null, string? Effort = null)

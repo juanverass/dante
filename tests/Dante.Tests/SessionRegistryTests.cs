@@ -1,4 +1,6 @@
-using Dante.Worker.Agents;
+using Dante.Application.Agentes;
+using Dante.Application.Anexos;
+using Dante.Infrastructure.Agentes;
 using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 using Dante.Worker.Sessions;

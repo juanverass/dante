@@ -1,6 +1,7 @@
-using Dante.Worker.Agents;
+using Dante.Application.Agentes;
+using Dante.Application.Anexos;
+using Dante.Infrastructure.Contextos;
 using Dante.Worker.Jobs;
-using Dante.Worker.Repositories;
 using Dante.Worker.Telegram;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -254,7 +255,7 @@ public sealed class TelegramAgentCommandTests
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
             CancellationToken cancellationToken = default, bool generalMode = false,
             IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null,
-            IReadOnlyList<Dante.Worker.Attachments.Attachment>? attachments = null)
+            IReadOnlyList<Dante.Application.Anexos.Attachment>? attachments = null)
         {
             Calls++;
             Prompt = prompt;

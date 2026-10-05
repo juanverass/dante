@@ -1,8 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
-using Dante.Worker.Agents;
-using Dante.Worker.Attachments;
+using Dante.Application.Anexos;
+using Dante.Infrastructure.Agentes;
 
 namespace Dante.Worker.Sessions;
 

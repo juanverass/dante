@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Dante.Application.Anexos;
 
 namespace Dante.Worker.Attachments;
 

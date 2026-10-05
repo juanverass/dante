@@ -1,9 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Dante.Worker.Agents;
+using Dante.Application.Uso;
+using Dante.Domain.Agentes;
+using Dante.Infrastructure.Agentes;
+using Dante.Infrastructure.Contextos;
 
-namespace Dante.Worker.Usage;
+namespace Dante.Infrastructure.Uso;
 
+// Legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
 // Asks the agent's own CLI for the subscription quotas (AD-31), in a short-lived process in the General workspace with
 // the General Mode environment, like the model catalog: the account is the one that serves the agents, no session is
 // needed or touched, and no turn starts. Codex answers account/rateLimits/read on the app-server; Claude answers the

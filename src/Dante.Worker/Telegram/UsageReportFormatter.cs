@@ -1,5 +1,5 @@
 using System.Globalization;
-using Dante.Worker.Usage;
+using Dante.Application.Uso;
 
 namespace Dante.Worker.Telegram;
 

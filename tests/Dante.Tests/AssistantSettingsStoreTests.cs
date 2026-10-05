@@ -1,6 +1,5 @@
-using Dante.Worker.Agents;
+using Dante.Infrastructure.Contextos;
 using Dante.Worker.Sessions;
-using Dante.Worker.Settings;
 
 namespace Dante.Tests;
 

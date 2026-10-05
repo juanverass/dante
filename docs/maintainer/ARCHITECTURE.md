@@ -14,8 +14,9 @@ A solução está em migração incremental para **arquitetura hexagonal explíc
 | `Dante.WebApi` | Host/entrada HTTP independente. | Application + Infrastructure. |
 
 Os hosts compõem `AddApplication()` e `AddInfrastructure(configuration)`. O Worker
-registra seu legado em `AddWorker(configuration)`; isso extrai somente composição,
-sem mover regras/adapters antes das #166/#167. WebApi tem bootstrap compilável;
+registra seu legado em `AddWorker(configuration)`. Desde a #167 os adapters de
+contexto e de execução das CLIs vivem na Infrastructure e são compostos por
+`AddInfrastructure`, comuns aos dois hosts (AD-41). WebApi tem bootstrap compilável;
 a #170 entrega health operacional, ProblemDetails e OpenAPI em Development,
 sem acesso a repositories/DbContext. [Operação HTTP](WEBAPI.md). EF/CRUD/Mapster
 continuam em entregas próprias.
@@ -65,7 +66,7 @@ Portanto, o projeto tem modularidade arquitetural mesmo estando no mesmo execut�
 ## 3. Há elementos de Ports & Adapters?
 
 Sim. A #165 estabelece projetos/regras hexagonais para código novo; a extração
-do legado em ports/adapters continua nas #166/#167.
+do legado em ports/adapters começou nas #166/#167 (AD-38, AD-41) e segue em lotes.
 
 Existem abstrações que funcionam como ports:
 
@@ -503,7 +504,7 @@ Para não criar um modelo mental errado:
 - não há fila durável;
 - não há event sourcing;
 - não há CQRS formal;
-- estrutura hexagonal criada; migração do legado ainda pendente (#166/#167).
+- estrutura hexagonal criada; migração do legado em lotes (#166/#167): sessões, drivers, mídia e artefatos ainda no Worker.
 
 ## 14. Decisões arquiteturais formais
 
@@ -539,7 +540,7 @@ Exemplos:
 | comportamento comum de sessão | `AgentSession` / `SessionRegistry` |
 | comportamento específico do Claude | `ClaudeSessionDriver` |
 | comportamento específico do Codex | `CodexSessionDriver` |
-| processo one-shot | `Agents/*Runner` / `AgentProcessExecutor` |
+| processo one-shot | `Dante.Infrastructure/Agentes/*Runner` / `AgentProcessExecutor` |
 | repo/alias/env | `RepositoryRegistry` |
 | preferência persistente | `AssistantSettingsStore` |
 | seleção de modelo | `AgentModelCatalog` |

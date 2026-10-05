@@ -1,6 +1,7 @@
-using Dante.Worker.Agents;
+using Dante.Infrastructure.Agentes;
+using Dante.Infrastructure.Contextos;
+using Dante.Infrastructure.Uso;
 using Dante.Worker.Telegram;
-using Dante.Worker.Usage;
 using Xunit.Abstractions;
 
 namespace Dante.Tests;

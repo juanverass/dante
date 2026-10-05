@@ -1,16 +1,20 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using Dante.Application.Agentes;
+using Dante.Application.Anexos;
+using Dante.Application.Uso;
 using Dante.Application;
+using Dante.Infrastructure.Agentes;
+using Dante.Infrastructure.Contextos;
+using Dante.Infrastructure.Uso;
 using Dante.Infrastructure;
-using Dante.Worker;
-using Dante.Worker.Agents;
-using Dante.Worker.Repositories;
 using Dante.Worker.Sessions;
-using Dante.Worker.Settings;
 using Dante.Worker.Telegram;
+using Dante.Worker;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 
 namespace Dante.Tests;
@@ -92,9 +96,14 @@ public sealed class HexagonalArchitectureTests
         var services = new ServiceCollection();
         Assert.Same(services, services.AddApplication().AddInfrastructure(configuration));
         Assert.DoesNotContain(services, s => s.ServiceType == typeof(ITelegramBotApi) || s.ServiceType == typeof(IHostedService));
+        // #167: os adapters de saída migrados vêm de AddInfrastructure, comuns aos dois hosts; AddWorker não os repete.
+        Type[] adaptersComuns = [typeof(IWorkspaceGeral), typeof(ICatalogoDeRepositorios), typeof(IPreferenciasDoAssistente),
+            typeof(IClaudeRunner), typeof(ICodexRunner), typeof(IAgentModelCatalog), typeof(IUsageQuotaReader),
+            typeof(IAgentProcessExecutor), typeof(IInteractiveAgentProcessLauncher)];
+        Assert.All(adaptersComuns, porta => Assert.Single(services, s => s.ServiceType == porta));
         services.AddLogging();
         services.AddWorker(configuration);
-        Assert.Contains(services, s => s.ServiceType == typeof(IAgentProcessExecutor));
+        Assert.All(adaptersComuns, porta => Assert.Single(services, s => s.ServiceType == porta));
         Assert.Contains(services, s => s.ServiceType == typeof(SessionRegistry));
         Assert.Contains(services, s => s.ServiceType == typeof(IHostedService) && s.ImplementationType == typeof(Dante.Worker.Worker));
         Assert.Contains(services, s => s.ServiceType == typeof(IHostedService) && s.ImplementationType == typeof(TelegramPollingService));
@@ -155,17 +164,101 @@ public sealed class HexagonalArchitectureTests
         Assert.DoesNotContain(nomes, nome => operacional.IsMatch(nome));
         Assert.Equal("Dante.Application", typeof(JobExecutionContext).Assembly.GetName().Name);
         Assert.Equal("Dante.Application", typeof(ResolvedRepositoryEnvironment).Assembly.GetName().Name);
-        Assert.Equal("Dante.Worker", typeof(RepositoryDefinition).Assembly.GetName().Name);
+        Assert.Equal("Dante.Infrastructure", typeof(RepositoryDefinition).Assembly.GetName().Name);
     }
 
+    // #167: os adapters das portas de contexto vivem na Infrastructure e são compostos por AddInfrastructure, de modo
+    // que Worker e WebApi os reutilizam; porta e tipo concreto resolvem a mesma instância.
     [Fact]
-    public void WorkerAdaptersImplementTheApplicationContextPorts()
+    public void InfrastructureAdaptersImplementTheApplicationContextPortsAndAreSharedByTheHosts()
     {
         Assert.True(typeof(IWorkspaceGeral).IsAssignableFrom(typeof(GeneralWorkspace)));
         Assert.True(typeof(ICatalogoDeRepositorios).IsAssignableFrom(typeof(RepositoryRegistry)));
         Assert.True(typeof(IPreferenciasDoAssistente).IsAssignableFrom(typeof(AssistantSettingsStore)));
         Assert.All(new[] { typeof(IWorkspaceGeral), typeof(ICatalogoDeRepositorios), typeof(IPreferenciasDoAssistente) },
             porta => Assert.Equal("Dante.Application", porta.Assembly.GetName().Name));
+        Assert.All(new[] { typeof(GeneralWorkspace), typeof(RepositoryRegistry), typeof(AssistantSettingsStore) },
+            adapter => Assert.Equal("Dante.Infrastructure", adapter.Assembly.GetName().Name));
+
+        var raiz = Path.Combine(Path.GetTempPath(), "dante-infra-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var services = new ServiceCollection().AddInfrastructure(new ConfigurationBuilder().Build());
+            // Instâncias em diretório temporário: resolver os padrões tocaria ~/.dante.
+            services.Replace(ServiceDescriptor.Singleton(new GeneralWorkspace(Path.Combine(raiz, "general"))));
+            services.Replace(ServiceDescriptor.Singleton(new RepositoryRegistry(Path.Combine(raiz, "repositories.json"))));
+            services.Replace(ServiceDescriptor.Singleton(new AssistantSettingsStore(Path.Combine(raiz, "settings.json"))));
+            using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
+
+            Assert.Same(provider.GetRequiredService<GeneralWorkspace>(), provider.GetRequiredService<IWorkspaceGeral>());
+            Assert.Same(provider.GetRequiredService<RepositoryRegistry>(),
+                provider.GetRequiredService<ICatalogoDeRepositorios>());
+            Assert.Same(provider.GetRequiredService<AssistantSettingsStore>(),
+                provider.GetRequiredService<IPreferenciasDoAssistente>());
+        }
+        finally
+        {
+            if (Directory.Exists(raiz)) Directory.Delete(raiz, recursive: true);
+        }
+    }
+
+    // #167: as portas de execução dos agentes, de cotas e o anexo neutro ficam na Application; os adapters que as
+    // implementam, na Infrastructure. O Worker não implementa portas da Application nem declara conceitos do Domain.
+    [Fact]
+    public void AgentExecutionAdaptersLiveInInfrastructureBehindApplicationPorts()
+    {
+        (Type Porta, Type Adapter)[] pares =
+        [
+            (typeof(IClaudeRunner), typeof(ClaudeRunner)), (typeof(ICodexRunner), typeof(CodexRunner)),
+            (typeof(IAgentModelCatalog), typeof(AgentModelCatalog)), (typeof(IUsageQuotaReader), typeof(UsageQuotaReader))
+        ];
+        Assert.All(pares, par =>
+        {
+            Assert.Equal("Dante.Application", par.Porta.Assembly.GetName().Name);
+            Assert.Equal("Dante.Infrastructure", par.Adapter.Assembly.GetName().Name);
+            Assert.True(par.Porta.IsAssignableFrom(par.Adapter), par.Adapter.Name);
+        });
+        Assert.All(new[] { typeof(AgentProcessResult), typeof(AgentModelInfo), typeof(AgentModelSelection),
+                typeof(UsageReport), typeof(Attachment) },
+            contrato => Assert.Equal("Dante.Application", contrato.Assembly.GetName().Name));
+        Assert.Equal("Dante.Domain", typeof(AgentPermissionProfile).Assembly.GetName().Name);
+        // Nomes, aliases, rótulos e descrições dos modos são apresentação do host (review do PR #178).
+        Assert.Equal("Dante.Worker", typeof(AgentSessionModes).Assembly.GetName().Name);
+    }
+
+    // Review do PR #178: além de não referenciar providers, o Domain não carrega semântica de CLI nem de apresentação
+    // (rótulos, textos de exibição, padrões ou sintaxe das CLIs, Telegram), nem nos membros nem no código-fonte.
+    [Fact]
+    public void DomainCarriesNoAgentCliOrPresentationSemantics()
+    {
+        var apresentacao = new Regex("Label|Rotulo|Display|Exibicao|Telegram|Cli(?![a-z])");
+        const BindingFlags membros = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance |
+            BindingFlags.Static | BindingFlags.DeclaredOnly;
+        var nomes = typeof(AgentKind).Assembly.GetTypes().SelectMany(tipo => tipo.GetMembers(membros)
+            .Select(membro => $"{tipo.Name}.{membro.Name}").Prepend(tipo.Name));
+        Assert.DoesNotContain(nomes, nome => apresentacao.IsMatch(nome));
+
+        var cli = new Regex(@"\bCLIs?\b|Telegram|stream-json|app-server", RegexOptions.IgnoreCase);
+        var violacoes = Directory.EnumerateFiles(Path.Combine(Raiz(), "src", "Dante.Domain"), "*.cs",
+                SearchOption.AllDirectories)
+            .Where(arquivo => !arquivo.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
+            .SelectMany(arquivo => File.ReadLines(arquivo).Where(linha => cli.IsMatch(linha))
+                .Select(linha => $"{Path.GetFileName(arquivo)}: {linha.Trim()}"));
+        Assert.Empty(violacoes);
+    }
+
+    [Fact]
+    public void WorkerNeitherImplementsApplicationPortsNorDeclaresDomainOrPersistenceTypes()
+    {
+        var worker = typeof(TelegramPollingService).Assembly;
+        var application = typeof(AgentContextResolver).Assembly;
+        Assert.Empty(worker.GetTypes().SelectMany(tipo => tipo.GetInterfaces()
+                .Where(interfaceImplementada => interfaceImplementada.Assembly == application)
+                .Select(interfaceImplementada => $"{tipo.Name} : {interfaceImplementada.Name}")));
+        Assert.DoesNotContain(worker.GetTypes(), tipo => tipo.Namespace?.StartsWith("Dante.Domain", StringComparison.Ordinal) == true);
+        Assert.DoesNotContain(worker.GetReferencedAssemblies().Select(a => a.Name!), nome =>
+            nome.StartsWith("Npgsql", StringComparison.OrdinalIgnoreCase) ||
+            nome.Contains("EntityFrameworkCore", StringComparison.OrdinalIgnoreCase));
     }
 
     private static IEnumerable<string> Violacoes(string projeto, XDocument xml)

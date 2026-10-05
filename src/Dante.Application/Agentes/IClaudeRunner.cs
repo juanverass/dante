@@ -1,8 +1,9 @@
-using Dante.Worker.Attachments;
+using Dante.Application.Anexos;
 
-namespace Dante.Worker.Agents;
+namespace Dante.Application.Agentes;
 
-public interface ICodexRunner
+// Legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
+public interface IClaudeRunner
 {
     Task<AgentProcessResult> RunAsync(
         string prompt,
