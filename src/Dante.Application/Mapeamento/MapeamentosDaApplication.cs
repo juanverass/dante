@@ -1,3 +1,5 @@
+using Dante.Application.CapturaDeConhecimento;
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application.RelacoesDeConhecimento;
 using Dante.Domain.RelacoesDeConhecimento;
 using Dante.Application.Conhecimentos;
@@ -18,6 +20,10 @@ internal static class MapeamentosDaApplication
         RegistrarEspacosDeConhecimento(configuracao);
         RegistrarProjetos(configuracao);
         RegistrarConhecimentos(configuracao);
+        configuracao.Registrar<CandidatoDeConhecimento, CandidatoDeConhecimentoDto>(x => new CandidatoDeConhecimentoDto(
+            x.Id, x.IdEspacoDeConhecimento, x.IdProjeto, x.Tipo, x.Conteudo, x.Sensibilidade, x.Natureza,
+            x.Modo, x.Estado, x.Revisao, x.IdConhecimento, x.Historico.Select(a => new AtoDoCandidatoDto(a.Revisao, a.Acao,
+                a.Tipo, a.Conteudo, a.Sensibilidade, a.Justificativa, ParaProvenienciaDto(a.Proveniencia), a.Instante, a.Estado, a.IdConhecimento)).ToArray()));
         configuracao.Registrar<RelacaoDeConhecimento, RelacaoDeConhecimentoDto>(x =>
             new RelacaoDeConhecimentoDto(x.Id, x.IdOrigem, x.IdDestino, x.Tipo, ParaProvenienciaDto(x.Proveniencia), x.CriadaEm));
     }

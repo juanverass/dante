@@ -1,3 +1,4 @@
+using Npgsql;
 using Dante.Application.Comum;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,6 +12,11 @@ public sealed class UnitOfWork(DanteDbContext context) : IUnitOfWork
         try
         {
             await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            // Corrida entre capturas equivalentes: UNIQUE protege a canônica e o erro público não expõe dados/SQL.
+            throw new ConflitoDeConcorrenciaException();
         }
         catch (DbUpdateConcurrencyException)
         {

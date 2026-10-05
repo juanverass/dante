@@ -10,6 +10,8 @@ public class DanteDbContext(DbContextOptions options) : DbContext(options)
 
     public DbSet<Dante.Domain.RelacoesDeConhecimento.RelacaoDeConhecimento> RelacoesDeConhecimento => Set<Dante.Domain.RelacoesDeConhecimento.RelacaoDeConhecimento>();
 
+    public DbSet<Dante.Domain.CapturaDeConhecimento.CandidatoDeConhecimento> CandidatosDeConhecimento => Set<Dante.Domain.CapturaDeConhecimento.CandidatoDeConhecimento>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
