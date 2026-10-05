@@ -3,7 +3,8 @@
 Mapster 10.0.13 é o mapper padrão da Application. Domain não tem dependência do
 pacote. Worker/WebApi usam `AddApplication()` e não definem conversões próprias.
 AppServices recebem `IMapsterTypeAdapter` por DI; a #171 pode usar esse contrato
-na base CRUD sem depender de um host ou de configuração estática do Mapster.
+na base CRUD sem depender de um host ou de configuração estática do Mapster
+(ver [base CRUD](crud.md)).
 
 ## Registro e operação
 
