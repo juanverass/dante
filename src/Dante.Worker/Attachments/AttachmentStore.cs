@@ -1,18 +1,6 @@
+using Dante.Application.Anexos;
+
 namespace Dante.Worker.Attachments;
-
-public enum AttachmentKind { Image, Audio, Video, Document }
-
-// The neutral attachment of AD-29: no Telegram type reaches sessions, drivers or runners. Name is only metadata.
-public sealed record Attachment(
-    string Id,
-    long OwnerId,
-    AttachmentKind Kind,
-    string MediaType,
-    string Path,
-    long Bytes,
-    int? Width,
-    int? Height,
-    string? Name);
 
 public sealed class AttachmentRejectedException(string message) : Exception(message);
 

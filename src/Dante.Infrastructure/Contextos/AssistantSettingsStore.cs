@@ -1,13 +1,14 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Dante.Application.Agentes;
 using Dante.Application.Contextos;
-using Dante.Worker.Agents;
-using Dante.Worker.Repositories;
-using Dante.Worker.Sessions;
+using Dante.Domain.Agentes;
+using Dante.Domain.Preferencias;
 
-namespace Dante.Worker.Settings;
+namespace Dante.Infrastructure.Contextos;
 
+// Adapter legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
 public sealed class AssistantSettingsStore : IPreferenciasDoAssistente
 {
     private readonly object gate = new();
@@ -83,7 +84,7 @@ public sealed class AssistantSettingsStore : IPreferenciasDoAssistente
 
     public void SetSessionMode(long userId, AgentPermissionProfile mode)
     {
-        if (!AgentSessionModes.All.Contains(mode))
+        if (!Enum.IsDefined(mode))
             throw new ArgumentOutOfRangeException(nameof(mode), "Modo inválido. Use manual, auto ou plan.");
         lock (gate)
         {
@@ -157,6 +158,9 @@ public sealed class AssistantSettingsStore : IPreferenciasDoAssistente
         else return false;
         return true;
     }
+
+    // Persisted format of a mode: the profile name in lower case (manual, auto, plan), the same names /mode shows.
+    private static string ModeName(AgentPermissionProfile mode) => mode.ToString().ToLowerInvariant();
 
     private static string? GetAgentValue(Dictionary<long, Dictionary<AgentKind, string>> map, long userId,
         AgentKind agent) => map.TryGetValue(userId, out var byAgent) ? byAgent.GetValueOrDefault(agent) : null;
@@ -236,7 +240,8 @@ public sealed class AssistantSettingsStore : IPreferenciasDoAssistente
             if (!long.TryParse(user, NumberStyles.None, CultureInfo.InvariantCulture, out var userId))
                 throw new InvalidDataException($"SessionModes inválido em {path}: usuário \"{user}\".");
             // Only the canonical names are stored; an alias or unknown value is never guessed.
-            if (!AgentSessionModes.TryParse(mode, out var parsed) || AgentSessionModes.Name(parsed) != mode)
+            if (Enum.GetValues<AgentPermissionProfile>().Where(profile => ModeName(profile) == mode)
+                    .Cast<AgentPermissionProfile?>().SingleOrDefault() is not { } parsed)
                 throw new InvalidDataException(
                     $"SessionModes inválido em {path}: modo \"{mode}\". Valores permitidos: manual, auto ou plan.");
             sessionModes[userId] = parsed;
@@ -286,7 +291,7 @@ public sealed class AssistantSettingsStore : IPreferenciasDoAssistente
                         entry => entry.Key.ToString(CultureInfo.InvariantCulture), entry => entry.Value),
                     sessionModes.Count == 0 ? null : sessionModes.OrderBy(entry => entry.Key).ToDictionary(
                         entry => entry.Key.ToString(CultureInfo.InvariantCulture),
-                        entry => AgentSessionModes.Name(entry.Value)),
+                        entry => ModeName(entry.Value)),
                     SaveAgentMap(models), SaveAgentMap(efforts)),
                 new JsonSerializerOptions
                 {

@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
+using Dante.Application.Uso;
+using Dante.Infrastructure.Agentes;
+using Dante.Infrastructure.Contextos;
+using Dante.Infrastructure.Uso;
 using Dante.ProcessProbe;
-using Dante.Worker.Agents;
-using Dante.Worker.Usage;
 
 namespace Dante.Tests;
 

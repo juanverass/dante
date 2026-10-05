@@ -1,4 +1,5 @@
-using Dante.Worker.Agents;
+using Dante.Application.Agentes;
+
 
 namespace Dante.Worker.Sessions;
 

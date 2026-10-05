@@ -1,4 +1,4 @@
-using Dante.Worker.Agents;
+using Dante.Infrastructure.Agentes;
 using Dante.Worker.Sessions;
 using Xunit.Abstractions;
 

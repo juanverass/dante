@@ -1,26 +1,12 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Dante.Application.Agentes;
+using Dante.Domain.Agentes;
+using Dante.Infrastructure.Contextos;
 
-namespace Dante.Worker.Agents;
+namespace Dante.Infrastructure.Agentes;
 
-// A model the installed CLI offers. ResolvedId is the full id behind an alias (Claude "opus" → "claude-opus-5-5").
-// EffortLevels are the reasoning effort levels the CLI advertises for the model, in its own names.
-public sealed record AgentModelInfo(
-    string Id,
-    string DisplayName,
-    bool IsDefault,
-    IReadOnlyList<string> EffortLevels,
-    string? ResolvedId = null);
-
-public sealed class AgentModelCatalogException(string message, Exception? innerException = null)
-    : Exception(message, innerException);
-
-public interface IAgentModelCatalog
-{
-    // Models the installed CLI offers now; throws AgentModelCatalogException when the CLI cannot be queried.
-    Task<IReadOnlyList<AgentModelInfo>> GetModelsAsync(AgentKind agent, CancellationToken cancellationToken = default);
-}
-
+// Legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
 // Asks each CLI for its own model list instead of keeping a list in the D.A.N.T.E. (#77): Claude reports it in the
 // stream-json initialize response and Codex answers model/list on the app-server. Neither call starts a turn, so no
 // model is invoked. The query runs in the General workspace with the General Mode environment, and successful answers

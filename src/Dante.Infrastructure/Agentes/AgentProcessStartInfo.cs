@@ -1,8 +1,9 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
-namespace Dante.Worker.Agents;
+namespace Dante.Infrastructure.Agentes;
 
+// Legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
 // Shared by the one-shot executor and interactive processes: fixed executable, ArgumentList, no shell,
 // and the same environment filtering for General Mode and repository environments.
 internal static class AgentProcessStartInfo

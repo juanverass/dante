@@ -1,11 +1,12 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
-using Dante.Worker.Agents;
+using Dante.Application.Agentes;
+using Dante.Application.Anexos;
+using Dante.Infrastructure.Contextos;
 using Dante.Worker.Artifacts;
 using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 using Dante.Worker.Sessions;
-using Dante.Worker.Settings;
 using Dante.Worker.Telegram;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;

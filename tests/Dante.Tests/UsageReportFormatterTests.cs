@@ -1,6 +1,5 @@
-using Dante.Worker.Agents;
+using Dante.Application.Uso;
 using Dante.Worker.Telegram;
-using Dante.Worker.Usage;
 
 namespace Dante.Tests;
 

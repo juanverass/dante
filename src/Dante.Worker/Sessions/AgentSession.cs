@@ -1,4 +1,3 @@
-using Dante.Worker.Agents;
 using Dante.Worker.Jobs;
 
 namespace Dante.Worker.Sessions;

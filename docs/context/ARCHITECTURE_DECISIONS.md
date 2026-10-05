@@ -34,7 +34,7 @@ processos.
 Por quê: reutiliza a instalação e a autenticação que o usuário já tem, sem SDK próprio
 para cada agente.
 
-Código: `Agents/AgentProcessExecutor.cs`, `Agents/AgentExecutableResolver.cs`; testes em
+Código: `Dante.Infrastructure/Agentes/AgentProcessExecutor.cs`, `Dante.Infrastructure/Agentes/AgentExecutableResolver.cs`; testes em
 `AgentProcessExecutorTests`.
 
 ## AD-03 — Nenhum shell arbitrário
@@ -46,7 +46,7 @@ internos. O prompt é sempre um único argumento posicional depois de `--`.
 
 Por quê: o D.A.N.T.E. é orquestrador de agentes, não shell remoto.
 
-Código: `Agents/ClaudeRunner.cs`, `Agents/CodexRunner.cs`; testes em
+Código: `Dante.Infrastructure/Agentes/ClaudeRunner.cs`, `Dante.Infrastructure/Agentes/CodexRunner.cs`; testes em
 `ClaudeRunnerTests`, `CodexRunnerTests`.
 
 ## AD-04 — Autenticação local das CLIs; API keys opcionais
@@ -86,7 +86,7 @@ Repositórios são cadastrados com alias `@nome`, path absoluto que precisa ser 
 um repositório Git e, opcionalmente, `owner/repo` do GitHub conferido contra o
 `remote.origin.url`. O catálogo persiste em `~/.dante/repositories.json`.
 
-Código: `Repositories/RepositoryRegistry.cs`; testes em `RepositoryRegistryTests`.
+Código: `Dante.Infrastructure/Contextos/RepositoryRegistry.cs`; testes em `RepositoryRegistryTests`.
 
 ## AD-08 — Contexto explícito, sem inferência de repositório
 
@@ -114,7 +114,7 @@ Consultas gerais rodam em `~/.dante/workspaces/general` (ou `DANTE_GENERAL_WORKS
 que precisa ser absoluto), com ambiente reduzido e perfil restrito das CLIs. Um
 workspace geral que coincida com um repositório cadastrado é rejeitado.
 
-Código: `Agents/GeneralWorkspace.cs`, `Agents/AgentProcessExecutor.cs`; testes em
+Código: `Dante.Infrastructure/Contextos/GeneralWorkspace.cs`, `Dante.Infrastructure/Agentes/AgentProcessExecutor.cs`; testes em
 `GeneralWorkspaceTests`.
 
 ## AD-10 — Ambiente por repositório; segredos por host binding
@@ -129,7 +129,7 @@ bindings omitem a saída do agente no Telegram. Variáveis com nome de aparênci
 
 Por quê: segredos nunca trafegam pelo Telegram nem ficam em arquivo do D.A.N.T.E.
 
-Código: `Repositories/RepositoryRegistry.cs`; testes em `RepositoryRegistryTests` e
+Código: `Dante.Infrastructure/Contextos/RepositoryRegistry.cs`; testes em `RepositoryRegistryTests` e
 `TelegramRepositoryCommandTests`.
 
 ## AD-11 — Contexto imutável por job
@@ -174,7 +174,7 @@ no `Worker`), então um arquivo inválido impede o Worker de iniciar.
 Por quê: o agente padrão decide qual CLI roda com o prompt do usuário; um valor ambíguo
 deve parar o Worker, não ser adivinhado.
 
-Código: `Settings/AssistantSettingsStore.cs`; testes em `AssistantSettingsStoreTests` e
+Código: `Dante.Infrastructure/Contextos/AssistantSettingsStore.cs`; testes em `AssistantSettingsStoreTests` e
 `WorkerLifecycleTests`.
 
 ## AD-14 — Repositório ativo por usuário, persistido; contexto stale exige nova seleção
@@ -199,7 +199,7 @@ Por quê: o usuário que selecionou um repositório espera que o agente trabalhe
 executar em outro contexto sem aviso seria uma escolha implícita. A precedência completa
 de agente e contexto está centralizada no resolvedor da AD-27.
 
-Código: `Settings/AssistantSettingsStore.cs`, `Telegram/TelegramPollingService.cs`;
+Código: `Dante.Infrastructure/Contextos/AssistantSettingsStore.cs`, `Telegram/TelegramPollingService.cs`;
 testes em `AssistantSettingsStoreTests` e `TelegramActiveRepositoryTests`.
 
 ## AD-27 — Resolvedor único de agente e contexto com precedência determinística
@@ -368,8 +368,8 @@ Por quê: os protocolos estruturados (AD-15) são JSONL sobre um único processo
 linha intercalada ou um processo esquecido quebraria a sessão ou vazaria recursos no
 host.
 
-Código: `Agents/InteractiveAgentProcess.cs`, `Agents/InteractiveAgentProcessLauncher.cs`,
-`Agents/AgentProcessStartInfo.cs`, `Agents/ProcessTree.cs`; testes em
+Código: `Dante.Infrastructure/Agentes/InteractiveAgentProcess.cs`, `Dante.Infrastructure/Agentes/InteractiveAgentProcessLauncher.cs`,
+`Dante.Infrastructure/Agentes/AgentProcessStartInfo.cs`, `Dante.Infrastructure/Agentes/ProcessTree.cs`; testes em
 `InteractiveAgentProcessTests`.
 
 ## AD-18 — Driver Claude: stream-json com `--session-id` fixo e perfis mapeados para `--permission-mode`
@@ -420,7 +420,7 @@ Por quê: `--session-id` torna o id upstream conhecido no início, como o contra
 exige; os formatos de resposta foram confirmados contra a CLI instalada em vez de
 inferidos.
 
-Código: `Sessions/ClaudeSessionDriver.cs`, `Sessions/AgentPermissionProfile.cs`,
+Código: `Sessions/ClaudeSessionDriver.cs`, `Dante.Domain/Agentes/AgentPermissionProfile.cs`,
 `Sessions/AgentProtocolException.cs`; testes em `ClaudeSessionDriverTests`, contra o
 Claude simulado de `tests/Dante.ProcessProbe/FakeClaude.cs`.
 
@@ -488,7 +488,7 @@ one-shot (`CodexRunner`, `codex exec`) continua inalterado.
 Por quê: a thread efêmera acompanha a vida da sessão em memória (Epic #60), e cancelar os
 requests pendentes no interrupt evita um turno preso esperando resposta que nunca virá.
 
-Código: `Sessions/CodexSessionDriver.cs`, `Sessions/AgentPermissionProfile.cs`,
+Código: `Sessions/CodexSessionDriver.cs`, `Dante.Domain/Agentes/AgentPermissionProfile.cs`,
 `Sessions/AgentProtocolException.cs`; testes em `CodexSessionDriverTests`, contra o
 app-server simulado de `tests/Dante.ProcessProbe/FakeCodex.cs`.
 
@@ -734,7 +734,7 @@ internos de cada CLI; um padrão que se perde no reinício mudaria silenciosamen
 das próximas conversas.
 
 Código: `Sessions/AgentSessionModes.cs`, `Sessions/IAgentSessionDriver.cs`,
-`Sessions/SessionRegistry.cs`, `Settings/AssistantSettingsStore.cs`,
+`Sessions/SessionRegistry.cs`, `Dante.Infrastructure/Contextos/AssistantSettingsStore.cs`,
 `Telegram/TelegramPollingService.cs`; testes em `TelegramModeCommandTests`, `SessionRegistryTests`
 e `AssistantSettingsStoreTests`.
 
@@ -772,8 +772,8 @@ Por quê: modelos e aliases variam por CLI e versão; consultar a CLI evita mant
 lista estática e impede que uma preferência de Claude chegue ao Codex. Recusar uma
 preferência obsoleta preserva a escolha do usuário e torna a recuperação explícita.
 
-Código: `Agents/AgentModelCatalog.cs`, `Agents/AgentModelSelection.cs`,
-`Settings/AssistantSettingsStore.cs`, `Sessions/SessionRegistry.cs`, drivers,
+Código: `Dante.Infrastructure/Agentes/AgentModelCatalog.cs`, `Dante.Application/Agentes/AgentModelSelection.cs`,
+`Dante.Infrastructure/Contextos/AssistantSettingsStore.cs`, `Sessions/SessionRegistry.cs`, drivers,
 runners e `Telegram/TelegramPollingService.cs`. Testes: `AgentModelCatalogTests`,
 `TelegramModelCommandTests`, settings, runners e drivers.
 
@@ -812,7 +812,7 @@ Por quê: esforço é uma capacidade do modelo, não uma permissão do agente. U
 nomes anunciados por cada CLI evita aceitar níveis inexistentes ou reinterpretar a
 intenção do usuário. A escolha fixa mantém a sessão coerente entre turnos.
 
-Código: `Agents/AgentModelSelection.cs`, catálogo, runners, settings, drivers e
+Código: `Dante.Application/Agentes/AgentModelSelection.cs`, catálogo, runners, settings, drivers e
 `Telegram/TelegramPollingService.cs`. Testes: settings, runners, drivers reais com
 ProcessProbe e `TelegramModelCommandTests` (seleção combinada de modelo e esforço).
 
@@ -1390,3 +1390,52 @@ que a apresentação (nomes) ou o mapping redefinam identidade e escopo do conhe
 
 Código: `src/Dante.Domain/EspacosDeConhecimento`, `src/Dante.Application/EspacosDeConhecimento`;
 testes em `EspacoDeConhecimentoTests` e `EspacoDeConhecimentoAppServiceTests`.
+
+## AD-41 — Adapters de saída do legado na Infrastructure, compostos por AddInfrastructure
+
+Status: vigente (#167, Epic #164). Aplica AD-35/AD-38 aos adapters externos do Worker. A AD-40
+é reservada à #152, desenvolvida em paralelo.
+
+Lote da #167, sem mudança de comportamento:
+
+| Antes (Worker) | Agora |
+| --- | --- |
+| `GeneralWorkspace`, `RepositoryRegistry`/`RepositoryDefinition`, `AssistantSettingsStore` | `Dante.Infrastructure.Contextos` |
+| processos, runners, `InteractiveAgentProcess`, `AgentModelCatalog` | `Dante.Infrastructure.Agentes` |
+| `UsageQuotaReader` | `Dante.Infrastructure.Uso` |
+| `IClaudeRunner`, `ICodexRunner`, `AgentProcessResult`/`Status`, `IAgentModelCatalog`/`AgentModelInfo`, `AgentModelSelection` | `Dante.Application.Agentes` |
+| `IUsageQuotaReader` e o relatório de cotas | `Dante.Application.Uso` |
+| `Attachment`/`AttachmentKind` (anexo neutro da AD-29) | `Dante.Application.Anexos` |
+| `AgentPermissionProfile` | `Dante.Domain.Agentes` |
+
+Portas consumidas pelos casos de uso do Worker ficam na Application; abstrações técnicas
+usadas só por adapters (`IAgentProcessExecutor`, `IAgentExecutableResolver`,
+`IInteractiveAgentProcessLauncher`, `AgentProcessRequest`) ficam na Infrastructure com
+eles. `AddInfrastructure` registra os adapters migrados para os dois hosts; nas portas de
+contexto, porta e tipo concreto resolvem a mesma instância, porque o Telegram ainda usa
+a API de escrita dos adapters legados. `AddWorker` compõe só o que continua no Worker.
+
+O Domain recebe só o perfil de permissão, conceito independente de agente e de canal.
+`AgentSessionModes` (nomes, alias `approval`, rótulos e descrições exibidos) é apresentação
+e continua no Worker; `AgentModelSelection` (padrão e sintaxe de modelo/esforço das CLIs) é
+contrato operacional da execução e vai para a Application. O formato persistido do modo no
+`settings.json` (nome do perfil em minúsculas, o mesmo exibido) é definido pelo próprio
+adapter, sem depender da apresentação. Um teste arquitetural impede rótulos, textos de
+exibição, Telegram e semântica de CLI nos membros e no código-fonte do Domain.
+
+Nomes legados continuam em inglês, marcados no arquivo como na AD-38. Diferente da #166,
+os namespaces esvaziados (`Dante.Worker.Agents`, `.Repositories`, `.Settings`, `.Usage`)
+deixam de existir, então cada consumidor troca o `using` antigo pelos namespaces novos que
+de fato usa, sem `<Using>` global adicional. Infrastructure expõe internals só a
+`Dante.Tests`, como o Worker.
+
+Seguem no Worker para lotes futuros: drivers e contratos de sessão (`Sessions/`), jobs,
+anexos e mídia (`Attachments/`: store, ferramentas ffmpeg/whisper), artefatos e `/vitrine`
+(`Artifacts/`) e o cliente da Bot API, que é transporte do Telegram. EF Core/PostgreSQL
+ficam na #168; nenhum `Repository<TEntity>` existe ainda para ser reutilizado.
+
+Por quê: Worker e WebApi passam a compartilhar os adapters pela Infrastructure, e o Worker
+fica restrito a host, Telegram e o núcleo de sessões ainda não extraído, sem big-bang.
+
+Código: `src/Dante.Infrastructure/{Contextos,Agentes,Uso}`, `src/Dante.Application/{Agentes,Uso,Anexos}`,
+`src/Dante.Domain/Agentes/AgentPermissionProfile.cs`; testes em `HexagonalArchitectureTests`.

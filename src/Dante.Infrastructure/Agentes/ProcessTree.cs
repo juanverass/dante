@@ -3,8 +3,9 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
-namespace Dante.Worker.Agents;
+namespace Dante.Infrastructure.Agentes;
 
+// Legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
 // Descendant discovery that .NET does not expose: once the root exits, its children are no longer reachable through
 // Process.Kill(entireProcessTree), so InteractiveAgentProcess records them while the root is alive. Each process is
 // identified by PID and start time, so a reused PID is never mistaken for a tracked process.

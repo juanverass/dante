@@ -62,16 +62,16 @@ vivo que recebe todos os turnos. O one-shot continua disponível por comando exp
 | `TelegramBotApi` | `Telegram/` | Cliente HTTP da Bot API (`getUpdates`, `sendMessage`, `sendChatAction`). |
 | `TelegramDeliveryService` | `Telegram/` | Agrupa, formata, redige e entrega eventos de sessão e resultados de jobs, com retry, `/resend` e indicador de digitação. |
 | `TelegramUserAuthorizer` | `Telegram/` | Allowlist por `message.from.id`; fail-closed. |
-| `RepositoryRegistry` | `Repositories/` | Catálogo persistente de aliases, paths, GitHub e ambiente por repositório. |
-| `AssistantSettingsStore` | `Settings/` | Agente padrão, repositório ativo e modo padrão por usuário, persistidos em `~/.dante/settings.json`. |
-| `GeneralWorkspace` | `Agents/` | Diretório neutro para consultas gerais. |
+| `RepositoryRegistry` | `Dante.Infrastructure/Contextos/` | Catálogo persistente de aliases, paths, GitHub e ambiente por repositório. |
+| `AssistantSettingsStore` | `Dante.Infrastructure/Contextos/` | Agente padrão, repositório ativo e modo padrão por usuário, persistidos em `~/.dante/settings.json`. |
+| `GeneralWorkspace` | `Dante.Infrastructure/Contextos/` | Diretório neutro para consultas gerais. |
 | `JobRegistry` | `Jobs/` | Estado, contexto e cancelamento dos jobs, em memória. |
 | `SessionRegistry` | `Sessions/` | Sessões interativas em memória: dono, contexto fixo, sessão ativa por usuário e roteamento de turnos aos drivers. |
 | `ClaudeSessionDriver` / `CodexSessionDriver` | `Sessions/` | Traduzem `stream-json` (Claude) e `app-server` (Codex) para o contrato neutro de eventos. |
-| `InteractiveAgentProcessLauncher` | `Agents/` | Processo interativo sem shell: saída incremental limitada, stdin serializado, parada sem órfãos. |
-| `ClaudeRunner` / `CodexRunner` | `Agents/` | Argumentos fixos de cada CLI por modo. |
-| `AgentProcessExecutor` | `Agents/` | Inicia o processo sem shell, filtra ambiente, captura saída, cancela a árvore. |
-| `AgentExecutableResolver` | `Agents/` | Resolve apenas `claude`/`codex` em entradas absolutas do `PATH`. |
+| `InteractiveAgentProcessLauncher` | `Dante.Infrastructure/Agentes/` | Processo interativo sem shell: saída incremental limitada, stdin serializado, parada sem órfãos. |
+| `ClaudeRunner` / `CodexRunner` | `Dante.Infrastructure/Agentes/` | Argumentos fixos de cada CLI por modo. |
+| `AgentProcessExecutor` | `Dante.Infrastructure/Agentes/` | Inicia o processo sem shell, filtra ambiente, captura saída, cancela a árvore. |
+| `AgentExecutableResolver` | `Dante.Infrastructure/Agentes/` | Resolve apenas `claude`/`codex` em entradas absolutas do `PATH`. |
 
 ## Stack
 

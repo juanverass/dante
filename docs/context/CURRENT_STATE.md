@@ -213,13 +213,13 @@ Primeiro lote do legado fora do Worker, sem mudança de comportamento (AD-38):
 AgentKind e AssistantSettings no Domain; AgentContextResolver, JobExecutionContext
 e ResolvedRepositoryEnvironment na Application, sobre as portas PT-BR
 IWorkspaceGeral, ICatalogoDeRepositorios (RepositorioCadastrado) e
-IPreferenciasDoAssistente, implementadas pelos adapters do Worker. O Domain não
+IPreferenciasDoAssistente, implementadas por adapters hoje na Infrastructure (#167). O Domain não
 carrega caminho, GitHub, variável do host nem ambiente; RepositoryDefinition segue
 no adapter. Nomes legados em inglês ficam como exceção temporária explícita, e
 `<Using>` globais no Worker/testes evitam big-bang. Testes arquiteturais cobrem
 referências do núcleo compilado, ausência de TId, de IO no núcleo e de conceitos
-operacionais no modelo do Domain. Sessões,
-jobs, drivers, Telegram e adapters externos seguem no Worker (#167 e lotes futuros).
+operacionais no modelo do Domain. Sessões, jobs, drivers e Telegram seguem no
+Worker; adapters externos foram migrados em parte pela #167.
 
 ## Host HTTP (#170)
 
@@ -317,3 +317,14 @@ na Application, sobre a base CRUD, com arquivar/reativar e pesquisa sempre escop
 proprietário (AD-40). Mappings registrados em AddApplication. Vinte e três testes de
 Domain/Application, sem banco; suíte com 820 aprovados e 18 pulados. Sem persistência
 concreta (#160), registro DI do AppService, Projeto, tenant ou autorização (#150).
+
+## Adapters na Infrastructure (#167)
+
+Workspace geral, catálogo de repositórios, preferências persistidas, execução das CLIs
+(one-shot, processo interativo, catálogo de modelos) e leitura de cotas saíram do Worker
+para Dante.Infrastructure, compostos por AddInfrastructure e portanto disponíveis aos dois
+hosts (AD-41). Portas usadas pelo Worker (runners, catálogo, cotas, anexo neutro) estão na
+Application, assim como a seleção de modelo; o Domain recebe só o perfil de permissão, e
+os nomes/rótulos dos modos seguem no Worker como apresentação. Comportamento inalterado:
+suíte com 800 aprovados e 18 pulados. Sessões/drivers, jobs, mídia, artefatos e Telegram seguem no
+Worker; EF Core/PostgreSQL é a #168.

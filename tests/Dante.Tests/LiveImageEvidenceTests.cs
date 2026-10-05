@@ -1,7 +1,8 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
-using Dante.Worker.Agents;
-using Dante.Worker.Attachments;
+using Dante.Application.Agentes;
+using Dante.Application.Anexos;
+using Dante.Infrastructure.Agentes;
 using Dante.Worker.Sessions;
 using Xunit.Abstractions;
 

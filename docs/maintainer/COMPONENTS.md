@@ -77,6 +77,9 @@ Isso explica um diagnóstico importante:
 # 2. Módulo `Agents`
 
 O módulo `Agents` cuida da execução local das CLIs e de capacidades que não pertencem a uma conversa específica.
+Desde a #167 os adapters vivem em `Dante.Infrastructure/Agentes`; as portas consumidas pelo Worker (`IClaudeRunner`,
+`ICodexRunner`, `IAgentModelCatalog`, `AgentProcessResult`) e `AgentModelSelection` em `Dante.Application/Agentes`
+(AD-41).
 
 ```text
 Agents/
@@ -417,6 +420,8 @@ Repositories/
 └── RepositoryRegistry
 ```
 
+Desde a #167 vive em `Dante.Infrastructure/Contextos` e é composto por `AddInfrastructure` (AD-41).
+
 ---
 
 ## `RepositoryDefinition`
@@ -508,6 +513,9 @@ Settings/
 └── AssistantSettingsStore
 ```
 
+`AssistantSettings` vive em `Dante.Domain/Preferencias` (#166) e `AssistantSettingsStore` em
+`Dante.Infrastructure/Contextos` (#167, AD-41).
+
 ---
 
 ## `AssistantSettings`
@@ -576,6 +584,9 @@ Sessions/
 ├── AgentSessionModes
 └── MessageDelivery
 ```
+
+`AgentPermissionProfile` vive em `Dante.Domain/Agentes` desde a #167; `AgentSessionModes`, que é apresentação dos
+modos, continua em `Sessions/` (AD-41).
 
 ---
 
