@@ -1360,3 +1360,33 @@ arbitrária. Implementações EF de repository/unit of work ficam na #168.
 
 Código: `src/Dante.Domain/Comum`, `src/Dante.Application/Comum`; testes em
 `CrudBasicoAppServiceTests`. Guia: [base CRUD](../development/crud.md).
+
+## AD-40 — EspacoDeConhecimento como limite do Brain, com proprietário fixo e arquivamento somente leitura
+
+Status: vigente (#152, Epic #133). Primeira entidade funcional sobre a base CRUD (AD-39).
+
+`EspacoDeConhecimento : EntidadeBase` fica em `Dante.Domain.EspacosDeConhecimento`; contratos,
+DTOs e AppService em `Dante.Application.EspacosDeConhecimento`. O espaço tem proprietário
+`IdUsuario` obrigatório e imutável, nome obrigatório (aparado, até 100 caracteres, sem
+caracteres de controle), descrição opcional (até 1000) e estado `Ativo`/`Arquivado`. Nome
+e descrição são apresentação: `Atualizar` os troca de forma atômica sem mudar Id nem
+proprietário. Espaço arquivado é somente leitura até `Reativar`; arquivar/reativar exige o
+estado oposto. Arquivar não apaga nem move o conteúdo.
+
+O espaço não referencia Projeto, Telegram, EF Core ou PostgreSQL: Projetos e conhecimento
+apontam para ele por `IdEspacoDeConhecimento`, e conhecimento pode pertencer direto ao
+espaço, sem Projeto. A pesquisa exige o proprietário — não existe listagem global — e por
+padrão omite arquivados. O mapping de criação usa o constructor do domínio e ignora Id e
+estado do DTO; a atualização não muda proprietário nem estado, que só mudam por
+`ArquivarAsync`/`ReativarAsync`.
+
+O AppService não é registrado em DI enquanto não houver implementação de
+`IEspacoDeConhecimentoRepository` e `IUnitOfWork` (#160 sobre a #168): registrá-lo antes
+quebraria a validação de DI dos hosts. Tenant e autorização por usuário (#150), seleção
+do espaço ativo e unicidade de nome por proprietário ficam para as respectivas issues.
+
+Por quê: um limite de isolamento com proprietário estável e transições explícitas impede
+que a apresentação (nomes) ou o mapping redefinam identidade e escopo do conhecimento.
+
+Código: `src/Dante.Domain/EspacosDeConhecimento`, `src/Dante.Application/EspacosDeConhecimento`;
+testes em `EspacoDeConhecimentoTests` e `EspacoDeConhecimentoAppServiceTests`.
