@@ -373,3 +373,11 @@ canônico transacionais, FKs compostas e xmin; health e backup/restore explícit
 dois hosts. PR #163 reestruturada na mesma branch; modelo genérico/SQL manual removido.
 Sem banco obrigatório, busca funcional, fontes ou identidade Telegram no storage.
 Guia: [operação local](../brain/LOCAL_STORAGE.md).
+
+## Relações de Conhecimento (#153)
+
+RelacaoDeConhecimento no Domain e AppService/ports/DTOs na Application, com EF e
+migration específica na Infrastructure. Nove tipos explícitos, proveniência,
+deduplicação simétrica, FKs e substituição integrada ao histórico transacional.
+Vizinhança escopada com BFS, profundidade/custo limitados e sinal de truncamento.
+Guia: [relações](../development/relations.md). Sem UX Telegram ou policy/busca.

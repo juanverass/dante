@@ -1,3 +1,5 @@
+using Dante.Application.RelacoesDeConhecimento;
+using Dante.Domain.RelacoesDeConhecimento;
 using Dante.Application.Comum;
 using Dante.Application.EspacosDeConhecimento;
 using Dante.Application.Mapeamento;
@@ -13,9 +15,10 @@ public sealed class ConhecimentoAppService : CrudBasicoAppService<ConhecimentoDt
     private readonly IConhecimentoRepository conhecimentos;
     private readonly IEspacoDeConhecimentoRepository espacos;
     private readonly IProjetoRepository projetos;
+    private readonly IRelacaoDeConhecimentoRepository? relacoes;
 
     public ConhecimentoAppService(IConhecimentoRepository conhecimentos, IEspacoDeConhecimentoRepository espacos,
-        IProjetoRepository projetos, IUnitOfWork unitOfWork, IMapsterTypeAdapter typeAdapter)
+        IProjetoRepository projetos, IUnitOfWork unitOfWork, IMapsterTypeAdapter typeAdapter, IRelacaoDeConhecimentoRepository? relacoes = null)
         : base(conhecimentos, unitOfWork, typeAdapter)
     {
         ArgumentNullException.ThrowIfNull(espacos);
@@ -23,6 +26,7 @@ public sealed class ConhecimentoAppService : CrudBasicoAppService<ConhecimentoDt
         this.conhecimentos = conhecimentos;
         this.espacos = espacos;
         this.projetos = projetos;
+        this.relacoes = relacoes;
     }
 
     public override async Task<ConhecimentoDto> AdicionarAsync(ConhecimentoDto dto, CancellationToken cancellationToken = default)
@@ -65,7 +69,11 @@ public sealed class ConhecimentoAppService : CrudBasicoAppService<ConhecimentoDt
         var substituto = await conhecimentos.ObterPorIdAsync(idSubstituto, cancellationToken) ??
             throw new ArgumentException("Conhecimento substituto não encontrado.", nameof(idSubstituto));
         await GarantirEscopoGravavelAsync(entidade.IdEspacoDeConhecimento, entidade.IdProjeto, cancellationToken);
-        entidade.SubstituirPor(substituto, revisaoEsperada, ParaProveniencia(proveniencia), DateTimeOffset.UtcNow);
+        var instante = DateTimeOffset.UtcNow;
+        entidade.SubstituirPor(substituto, revisaoEsperada, ParaProveniencia(proveniencia), instante);
+        if (relacoes is not null)
+            await relacoes.AdicionarAsync(new RelacaoDeConhecimento(substituto, entidade, TipoDeRelacao.Substitui,
+                ParaProveniencia(proveniencia), instante), cancellationToken);
         conhecimentos.Atualizar(entidade);
         await UnitOfWork.SalvarAlteracoesAsync(cancellationToken);
         return true;

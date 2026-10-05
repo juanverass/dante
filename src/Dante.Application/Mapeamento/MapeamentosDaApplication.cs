@@ -1,3 +1,5 @@
+using Dante.Application.RelacoesDeConhecimento;
+using Dante.Domain.RelacoesDeConhecimento;
 using Dante.Application.Conhecimentos;
 using Dante.Domain.Conhecimentos;
 using Dante.Application.EspacosDeConhecimento;
@@ -16,6 +18,8 @@ internal static class MapeamentosDaApplication
         RegistrarEspacosDeConhecimento(configuracao);
         RegistrarProjetos(configuracao);
         RegistrarConhecimentos(configuracao);
+        configuracao.Registrar<RelacaoDeConhecimento, RelacaoDeConhecimentoDto>(x =>
+            new RelacaoDeConhecimentoDto(x.Id, x.IdOrigem, x.IdDestino, x.Tipo, ParaProvenienciaDto(x.Proveniencia), x.CriadaEm));
     }
 
     // #152: a criação passa pelo constructor do domínio, sem aceitar Id nem estado do DTO.
