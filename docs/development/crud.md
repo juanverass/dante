@@ -66,7 +66,9 @@ public sealed class ProjetoAppService
 }
 ```
 
-Exemplo ilustrativo: `Projeto` e os demais conceitos do Brain nascem nas próprias issues.
+Exemplo ilustrativo e simplificado: o `Projeto` real do Brain vive em `Dante.Domain.Projetos` e
+`Dante.Application.Projetos` (#136, AD-42); os consumidores fictícios dos testes ficam em
+`Dante.Tests.CrudDeExemplo`.
 A implementação EF de `Repository<TEntity>` e de `IUnitOfWork` pertence à #168.
 
 ## Validação
