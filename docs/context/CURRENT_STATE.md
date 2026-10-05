@@ -306,3 +306,14 @@ consumidores fictícios em PT-BR e a convenção de nomes por reflexão; suíte 
 já falhava no baseline, antes de qualquer mudança, e não foi investigado. Guia: [base CRUD](../development/crud.md). Nenhuma entidade
 funcional, implementação EF de repository/unit of work (#168) ou registro DI foi
 antecipado.
+
+## Espaços de Conhecimento (#152)
+
+EspacoDeConhecimento no Domain (proprietário IdUsuario imutável, nome/descrição de
+apresentação, estado Ativo/Arquivado, arquivado somente leitura até reativar) e
+IEspacoDeConhecimentoRepository, IEspacoDeConhecimentoAppService,
+EspacoDeConhecimentoAppService, EspacoDeConhecimentoDto e EspacoDeConhecimentoSearchDto
+na Application, sobre a base CRUD, com arquivar/reativar e pesquisa sempre escopada ao
+proprietário (AD-40). Mappings registrados em AddApplication. Vinte e três testes de
+Domain/Application, sem banco; suíte com 820 aprovados e 18 pulados. Sem persistência
+concreta (#160), registro DI do AppService, Projeto, tenant ou autorização (#150).

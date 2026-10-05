@@ -1,5 +1,6 @@
 using Dante.Application;
 using Dante.Application.Comum;
+using Dante.Application.EspacosDeConhecimento;
 using Dante.Application.Mapeamento;
 using Dante.Domain.Comum;
 using Dante.Tests.CrudDeExemplo;
@@ -179,7 +180,9 @@ public sealed class CrudBasicoAppServiceTests : IDisposable
                 verificados.Add(tipo);
             }
         }
-        Assert.Equal([typeof(IProjetoAppService), typeof(IProjetoRepository), typeof(ProjetoAppService)],
+        Assert.Equal([typeof(EspacoDeConhecimentoAppService), typeof(IEspacoDeConhecimentoAppService),
+                typeof(IEspacoDeConhecimentoRepository), typeof(IProjetoAppService), typeof(IProjetoRepository),
+                typeof(ProjetoAppService)],
             verificados.OrderBy(tipo => tipo.Name, StringComparer.Ordinal));
     }
 
