@@ -114,7 +114,7 @@ public sealed class ManutencaoDoBrainAppService(IConsultaDeQualidade consulta, I
     {
         await leitura.ValidarAcessoAsync(acesso,cancellationToken); if(limite is <1 or >100)throw new ArgumentOutOfRangeException(nameof(limite));
         var itens=await consulta.ElegiveisParaContextoAsync(acesso,DateTimeOffset.UtcNow,limite,cancellationToken);
-        // Ainda não é o Context Pack (#141): somente seleção segura, sem interpretar conflitos como verdade.
+        // Ainda não é o Context Pack (#140): somente seleção segura, sem interpretar conflitos como verdade.
         return itens.Where(x=>politica.PermiteConteudo(x,acesso,FinalidadeDeLeitura.ContextoAutomatico))
             .Select(x=>politica.Projetar(x,acesso,FinalidadeDeLeitura.ContextoAutomatico)).ToArray();
     }

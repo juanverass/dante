@@ -28,7 +28,7 @@ inferência resolve conflito automaticamente. `InvalidarAsync` preserva históri
 inativar item expirado, sem apagar evidência. Dispose da scope após falha/concurrency;
 UoW faz rollback e scope nova recupera estado atual.
 
-`SelecionarParaContextoAsync` é uma capacidade neutra anterior ao Context Pack (#141):
+`SelecionarParaContextoAsync` é uma capacidade neutra anterior ao Context Pack (#140):
 filtra no banco inativos/substituídos, fora da validade, Secreto/Confidencial sem permissão
 e qualquer item ligado a CONTRADIZ ainda aberto, mesmo fora da página de revisão. Prioriza
 confirmados sobre inferidos e devolve status/projeção protegida; não declara inferência verdade.

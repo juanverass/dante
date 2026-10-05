@@ -79,6 +79,9 @@ public sealed class QualidadeDoBrainTests
         {
             var s=scope.ServiceProvider.GetRequiredService<ManutencaoDoBrainAppService>();var report=await s.RevisarAsync(acesso);
             Assert.NotNull(Assert.Single(report.Conflitos).ResolvidoEm);Assert.Equal(x.Id,report.Conflitos[0].IdEscolhido);
+            var grafo=await scope.ServiceProvider.GetRequiredService<Dante.Application.RelacoesDeConhecimento.IRelacaoDeConhecimentoAppService>().ConsultarVizinhancaAsync(e.Id,null,x.Id);
+            var resolvida=Assert.Single(grafo.Relacoes.Where(r=>r.Tipo==TipoDeRelacao.Contradiz));
+            Assert.Equal(x.Id,resolvida.IdConhecimentoEscolhido);Assert.Equal(e.IdUsuario,resolvida.ProvenienciaDaResolucao!.IdResponsavel);
             var selecionados=await s.SelecionarParaContextoAsync(acesso);Assert.Contains(selecionados,r=>r.Id==x.Id);Assert.DoesNotContain(selecionados,r=>r.Id==y.Id);
             await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>s.RevisarAsync(acesso with{IdUsuario=Guid.NewGuid()}));
         }
