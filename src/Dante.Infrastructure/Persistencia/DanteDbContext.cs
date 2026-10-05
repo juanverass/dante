@@ -8,6 +8,8 @@ public class DanteDbContext(DbContextOptions options) : DbContext(options)
     public DbSet<Dante.Domain.Projetos.Projeto> Projetos => Set<Dante.Domain.Projetos.Projeto>();
     public DbSet<Dante.Domain.Conhecimentos.Conhecimento> Conhecimentos => Set<Dante.Domain.Conhecimentos.Conhecimento>();
 
+    public DbSet<Dante.Domain.RelacoesDeConhecimento.RelacaoDeConhecimento> RelacoesDeConhecimento => Set<Dante.Domain.RelacoesDeConhecimento.RelacaoDeConhecimento>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
