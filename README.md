@@ -1492,3 +1492,16 @@ inacabado, faça checkpoint e push, depois publique `## HANDOFF` na Issue. Se a
 implementação estiver concluída, abra o PR, mova a Issue para `status:review` e publique
 `## TURNO FINALIZADO` na Issue. Os [registros de turno](docs/development/handoff.md#onde-vivem-os-registros)
 ficam nos comentários da Issue, nunca em arquivos do repositório.
+
+## Host HTTP opcional
+
+`Dante.WebApi` inicia independentemente do Worker, sem configurar Telegram ou banco:
+
+```bash
+dotnet run --project src/Dante.WebApi -- --urls http://127.0.0.1:5080
+curl http://127.0.0.1:5080/health
+```
+
+Health operacional do host retorna `{"estado":"saudavel"}`. OpenAPI em
+`/openapi/v1.json` está disponível apenas em Development. O host ainda não oferece
+endpoints funcionais do Brain. Veja [operação e contratos HTTP](docs/maintainer/WEBAPI.md).
