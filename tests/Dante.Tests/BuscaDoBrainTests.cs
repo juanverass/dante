@@ -10,6 +10,9 @@ using Dante.Infrastructure.Persistencia;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql;
 namespace Dante.Tests;
 
 public sealed class BuscaDoBrainTests
@@ -78,6 +81,126 @@ public sealed class BuscaDoBrainTests
             Assert.Equal(1,await busca.ReindexarAsync(acesso));
         }
     }
+    [PostgreSqlFact]
+    public async Task SecretNaoPermaneceNosIndicesAposCriacaoReclassificacaoERebuild()
+    {
+        await using var banco = await Banco.CriarAsync();
+        var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "Reservado");
+        var secreto = Novo(espaco.Id, "sentinelaconfidencial", Sensibilidade.Secreto,
+            tags: ["etiquetareservada"]);
+        var publico = Novo(espaco.Id, "conteudopermitido", Sensibilidade.Publico);
+        await using var c = banco.Contexto();
+        c.AddRange(espaco, secreto, publico); await c.SaveChangesAsync();
+        Assert.Equal(new[] { publico.Id }, await IdsLexicaisAsync(c));
+        var indice = new IndiceDeBuscaPostgreSql(c);
+        await indice.PrepararVetoresAsync();
+        var modelo = new ModeloEmbedding("teste", "controlado", "1", 3);
+        Assert.True(await indice.GravarAsync(publico.Id, publico.Revisao, modelo, [1, 0, 0]));
+        publico.Corrigir(1, publico.Tipo, publico.Conteudo, null, null, Sensibilidade.Secreto,
+            null, null, [], publico.Proveniencia, DateTimeOffset.UtcNow);
+        await c.SaveChangesAsync();
+        Assert.Empty(await IdsLexicaisAsync(c));
+        Assert.Empty(await c.Database.SqlQuery<Guid>($"SELECT id_conhecimento AS \"Value\" FROM brain_index.representacoes").ToListAsync());
+        Assert.False(await indice.GravarAsync(publico.Id, 1, modelo, [1, 0, 0]));
+        Assert.False(await indice.GravarAsync(publico.Id, publico.Revisao, modelo, [1, 0, 0]));
+        await indice.ReconstruirLexicalAsync();
+        Assert.Empty(await IdsLexicaisAsync(c));
+        Assert.Equal("sentinelaconfidencial", secreto.Conteudo);
+        Assert.Equal("conteudopermitido", publico.Conteudo);
+        // Ao reclassificar de volta para permitido, apenas a revisão atual volta ao índice.
+        publico.Corrigir(2, publico.Tipo, "revisaopermitida", null, null, Sensibilidade.Publico,
+            null, null, [], publico.Proveniencia, DateTimeOffset.UtcNow);
+        await c.SaveChangesAsync();
+        Assert.Equal(new[] { publico.Id }, await IdsLexicaisAsync(c));
+        await indice.ReconstruirLexicalAsync();
+        Assert.Equal(new[] { publico.Id }, await IdsLexicaisAsync(c));
+        Assert.False(await c.Database.SqlQuery<bool>($"SELECT EXISTS(SELECT 1 FROM brain_index.trabalhos WHERE documento @@ to_tsquery('portuguese', 'sentinelaconfidencial | etiquetareservada | conteudopermitido')) AS \"Value\"").SingleAsync());
+    }
+    [PostgreSqlFact]
+    public async Task MigrationCorrigeIndiceExistenteSemAlterarConhecimentoCanonico()
+    {
+        await using var banco = await Banco.CriarAsync(migrar: false);
+        await using var c = banco.Contexto();
+        var migrator = c.GetService<IMigrator>();
+        await migrator.MigrateAsync("20261005211631_IndicesDerivadosDeBusca");
+        var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "Legado");
+        var secreto = Novo(espaco.Id, "reservadolegadoteste", Sensibilidade.Secreto);
+        var publico = Novo(espaco.Id, "permitido", Sensibilidade.Publico);
+        c.AddRange(espaco, secreto, publico); await c.SaveChangesAsync();
+        Assert.Contains(secreto.Id, await IdsLexicaisAsync(c));
+        await c.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO brain_index.representacoes(id_conhecimento,revisao,modelo,provedor,nome,versao,dimensao,gerado_em) VALUES({secreto.Id},1,'legado','teste','teste','1',3,now())");
+        await migrator.MigrateAsync();
+        Assert.Equal(new[] { publico.Id }, await IdsLexicaisAsync(c));
+        Assert.Empty(await c.Database.SqlQuery<Guid>($"SELECT id_conhecimento AS \"Value\" FROM brain_index.representacoes").ToListAsync());
+        c.ChangeTracker.Clear();
+        var canonico = await c.Conhecimentos.SingleAsync(x => x.Id == secreto.Id);
+        Assert.Equal("reservadolegadoteste", canonico.Conteudo); Assert.Equal(1, canonico.Revisao);
+        var indice = new IndiceDeBuscaPostgreSql(c);
+        // Simula resíduo derivado do banco antigo; rebuild também faz a limpeza defensiva.
+        await c.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO brain_index.trabalhos(id_conhecimento,revisao,documento) VALUES({secreto.Id},1,to_tsvector('portuguese','reservadolegadoteste'))");
+        await indice.ReconstruirLexicalAsync();
+        Assert.Equal(new[] { publico.Id }, await IdsLexicaisAsync(c));
+    }
+    [PostgreSqlFact]
+    public async Task IndexacaoConcorrenteNaoRecriaEntradaDepoisDeVirarSecret()
+    {
+        await using var banco = await Banco.CriarAsync();
+        var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "Concorrência");
+        var item = Novo(espaco.Id, "conteudoantesdaclassificacao", Sensibilidade.Publico);
+        await using (var c = banco.Contexto()) { c.AddRange(espaco, item); await c.SaveChangesAsync(); await new IndiceDeBuscaPostgreSql(c).PrepararVetoresAsync(); }
+        var modelo = new ModeloEmbedding("teste", "controlado", "1", 3);
+        var nome = "brain_indice_" + Guid.NewGuid().ToString("N");
+        var connection = new NpgsqlConnectionStringBuilder(banco.ConnectionString) { ApplicationName = nome }.ConnectionString;
+        // Testa escritor de embedding e rebuild contra a mesma troca de classificação.
+        foreach (var rebuild in new[] { false, true })
+        {
+            await using var classificacao = banco.Contexto();
+            var atual = await classificacao.Conhecimentos.SingleAsync(x => x.Id == item.Id);
+            if (atual.Sensibilidade == Sensibilidade.Secreto)
+            {
+                atual.Corrigir(atual.Revisao, atual.Tipo, atual.Conteudo, null, null, Sensibilidade.Publico,
+                    null, null, [], atual.Proveniencia, DateTimeOffset.UtcNow);
+                await classificacao.SaveChangesAsync();
+            }
+            var revisaoAnterior = atual.Revisao;
+            await using var transacao = await classificacao.Database.BeginTransactionAsync();
+            atual.Corrigir(revisaoAnterior, atual.Tipo, atual.Conteudo, null, null, Sensibilidade.Secreto,
+                null, null, [], atual.Proveniencia, DateTimeOffset.UtcNow);
+            await classificacao.SaveChangesAsync();
+            await using var escrita = Banco.Contexto(connection);
+            var indice = new IndiceDeBuscaPostgreSql(escrita);
+            using var prazo = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            Task operacao = rebuild ? indice.ReconstruirLexicalAsync(prazo.Token) : indice.GravarAsync(item.Id, revisaoAnterior, modelo, [1, 0, 0], prazo.Token);
+            try
+            {
+                await AguardarBloqueioAsync(connection, nome, prazo.Token);
+                await transacao.CommitAsync(prazo.Token);
+                await operacao;
+                if (!rebuild) Assert.False(await (Task<bool>)operacao);
+            }
+            finally
+            {
+                prazo.Cancel();
+                if (!operacao.IsCompleted)
+                {
+                    try { await operacao; } catch (OperationCanceledException) { }
+                }
+            }
+            await using var verificar = banco.Contexto();
+            Assert.Empty(await IdsLexicaisAsync(verificar));
+            Assert.Empty(await verificar.Database.SqlQuery<Guid>($"SELECT id_conhecimento AS \"Value\" FROM brain_index.representacoes").ToListAsync());
+        }
+    }
+    private static async Task AguardarBloqueioAsync(string connection, string nome, CancellationToken ct)
+    {
+        await using var observador = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(connection) { ApplicationName = "brain_observador" }.ConnectionString);
+        await observador.OpenAsync(ct);
+        await using var comando = new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name = @nome AND wait_event_type = 'Lock')", observador);
+        comando.Parameters.AddWithValue("nome", nome);
+        while (!(bool)(await comando.ExecuteScalarAsync(ct))!) await Task.Delay(20, ct);
+    }
+    private static Task<List<Guid>> IdsLexicaisAsync(DanteDbContext c) =>
+        c.Database.SqlQuery<Guid>($"SELECT id_conhecimento AS \"Value\" FROM brain_index.trabalhos ORDER BY id_conhecimento").ToListAsync();
     [Fact]
     public async Task AdapterHttpTrataFalhaEValidaModeloSemEnviarSemConfiguracao()
     {

@@ -8,7 +8,13 @@ pode localizar metadados protegidos sem conteúdo/tags/fontes. Status inativo/su
 não participa da recuperação operacional. Página de 1–100 e deslocamento até 10.000.
 
 A migration EF cria `brain_index`, tsvector/GIN e representações derivadas. Trigger no
-mesmo commit canônico atualiza texto/revisão, deixando revisão/modelo sem vetor como
+mesmo commit canônico atualiza texto/revisão somente para itens não Secret; reclassificação
+para Secreto apaga entradas lexicais e representações vetoriais existentes. A migration
+ExcluirSegredosDosIndices corrige instalações anteriores sem modificar migrations já
+aplicadas nem o conhecimento canônico; desfazê-la não reinstala o trigger inseguro.
+Rebuild lexical limpa resíduos Secret e só reconstrói itens permitidos. Locks compartilhados
+no canônico serializam rebuild/gravação de vetor com reclassificação, evitando reinserção
+concorrente de conteúdo protegido. Revisão/modelo sem vetor permanece como
 trabalho pendente durável. Consulta sempre compara revisão atual; revisão antiga nunca
 entra mesmo após interrupção. Busca exata pgvector por cosseno, sem HNSW/IVFFlat (recall
 após filtros preservado), combinada com lexical por Reciprocal Rank Fusion. Índices

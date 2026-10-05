@@ -2,6 +2,7 @@ using System.Globalization;
 using Dante.Application.BuscaDoBrain;
 using Dante.Application.SegurancaDoBrain;
 using Dante.Infrastructure.Persistencia;
+using Dante.Domain.Conhecimentos;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NpgsqlTypes;
@@ -29,13 +30,23 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
     }
     public async Task ReconstruirLexicalAsync(CancellationToken cancellationToken = default)
     {
+        await using var transacao = await contexto.Database.BeginTransactionAsync(cancellationToken);
         await using var c = await ComandoAsync("""
+            SELECT id FROM brain_data.conhecimentos ORDER BY id FOR SHARE;
+            DELETE FROM brain_index.trabalhos t USING brain_data.conhecimentos c
+                WHERE t.id_conhecimento = c.id AND c.sensibilidade = @secreto;
+            DELETE FROM brain_index.representacoes r USING brain_data.conhecimentos c
+                WHERE r.id_conhecimento = c.id AND c.sensibilidade = @secreto;
             INSERT INTO brain_index.trabalhos(id_conhecimento,revisao,documento)
-            SELECT id,jsonb_array_length(historico),to_tsvector('portuguese',coalesce(conteudo,'') || ' ' || coalesce(dados_estruturados::text,'') || ' ' || array_to_string(tags,' ')) FROM brain_data.conhecimentos
+            SELECT id,jsonb_array_length(historico),to_tsvector('portuguese',coalesce(conteudo,'') || ' ' || coalesce(dados_estruturados::text,'') || ' ' || array_to_string(tags,' '))
+                FROM brain_data.conhecimentos WHERE sensibilidade <> @secreto FOR SHARE
             ON CONFLICT(id_conhecimento) DO UPDATE SET revisao=EXCLUDED.revisao,documento=EXCLUDED.documento
             """, cancellationToken);
+        Param(c, "secreto", NpgsqlDbType.Integer, (int)Sensibilidade.Secreto);
         await c.ExecuteNonQueryAsync(cancellationToken);
+        await transacao.CommitAsync(cancellationToken);
     }
+
     private static void Escopo(NpgsqlCommand c, AcessoAoBrain acesso)
     {
         Param(c, "espaco", NpgsqlDbType.Uuid, acesso.IdEspacoDeConhecimento); Param(c, "projeto", NpgsqlDbType.Uuid, acesso.IdProjeto);
@@ -52,10 +63,10 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
         // Somente fragmentos SQL constantes; todos os valores são parâmetros.
         var sql = $"""
             WITH candidatos AS (
-                SELECT c.id, t.revisao,
-                    CASE WHEN @id IS NOT NULL THEN 1 ELSE ts_rank_cd(t.documento, websearch_to_tsquery('portuguese', @texto)) END::double precision AS lexical,
+                SELECT c.id, COALESCE(t.revisao, jsonb_array_length(c.historico)) AS revisao,
+                    CASE WHEN @id IS NOT NULL THEN 1 ELSE COALESCE(ts_rank_cd(t.documento, websearch_to_tsquery('portuguese', @texto)), 0) END::double precision AS lexical,
                     {scoreVetor} AS semantico
-                FROM brain_data.conhecimentos c JOIN brain_index.trabalhos t ON t.id_conhecimento = c.id
+                FROM brain_data.conhecimentos c LEFT JOIN brain_index.trabalhos t ON t.id_conhecimento = c.id
                 {join}
                 WHERE c.id_espaco_de_conhecimento = @espaco AND c.id_projeto IS NOT DISTINCT FROM @projeto
                   AND ((c.sensibilidade < 3 OR c.sensibilidade = 3 AND @confidencial) OR @id = c.id)
@@ -103,6 +114,7 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
             SELECT c.id, @revisao, @modelo, @provedor, @nome, @versao, @dimensao, CAST(@vetor AS vector), now()
             FROM brain_data.conhecimentos c JOIN brain_index.trabalhos t ON t.id_conhecimento = c.id
             WHERE c.id = @id AND t.revisao = @revisao AND c.status NOT IN(3,4) AND c.sensibilidade < 4
+            FOR SHARE OF c
             ON CONFLICT(id_conhecimento,modelo) DO UPDATE SET revisao=EXCLUDED.revisao, vetor=EXCLUDED.vetor, gerado_em=EXCLUDED.gerado_em
             """, cancellationToken);
         Param(c,"id",NpgsqlDbType.Uuid,id); Param(c,"revisao",NpgsqlDbType.Integer,revisao); Param(c,"modelo",NpgsqlDbType.Text,modelo.Chave);
