@@ -8,7 +8,7 @@ public partial class Program
 {
     public static async Task Main(string[] args)
     {
-        var builder = WebApplication.CreateBuilder(args);
+        var builder = WebApplication.CreateBuilder(args.FirstOrDefault() == "--brain" ? [] : args);
         builder.Services.AddApplication().AddInfrastructure(builder.Configuration).AddWebApi();
         var app = builder.Build();
         if (args.FirstOrDefault() == "--brain")

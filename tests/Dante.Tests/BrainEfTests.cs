@@ -142,6 +142,41 @@ public sealed class BrainEfTests
         }
     }
 
+    [PostgreSqlFact]
+    public async Task HostsExecutamMigrateBackupRestoreComCaminhoPosicional()
+    {
+        await using var origem = await Banco.CriarAsync(migrar: false);
+        await using var destino = await Banco.CriarAsync(migrar: false);
+        var caminho = Path.Combine(Path.GetTempPath(), "backup brain " + Guid.NewGuid().ToString("N") + ".dump");
+        try
+        {
+            Assert.Equal(0, await ExecutarHostAsync(typeof(Dante.Worker.Worker).Assembly.Location, origem.ConnectionString, "--brain", "migrate"));
+            var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "CLI");
+            await using (var c = origem.Contexto()) { c.Add(espaco); await c.SaveChangesAsync(); }
+            Assert.Equal(0, await ExecutarHostAsync(typeof(Dante.Worker.Worker).Assembly.Location, origem.ConnectionString, "--brain", "backup", caminho));
+            Assert.Equal(0, await ExecutarHostAsync(typeof(Dante.WebApi.Program).Assembly.Location, destino.ConnectionString, "--brain", "restore", caminho));
+            await using var verificar = destino.Contexto(); Assert.NotNull(await verificar.EspacosDeConhecimento.FindAsync(espaco.Id));
+            Assert.Equal(1, await ExecutarHostAsync(typeof(Dante.WebApi.Program).Assembly.Location, destino.ConnectionString, "--brain", "health")); // Conta admin é recusada pelo health.
+            Assert.Equal(1, await ExecutarHostAsync(typeof(Dante.Worker.Worker).Assembly.Location, origem.ConnectionString, "--brain", "invalido"));
+        }
+        finally { File.Delete(caminho); }
+    }
+    private static async Task<int> ExecutarHostAsync(string assembly, string connection, params string[] args)
+    {
+        var start = new System.Diagnostics.ProcessStartInfo("dotnet") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        // Project references copiam o host, mas não seus assemblies de shared framework para o output do testhost.
+        start.ArgumentList.Add("exec");
+        start.ArgumentList.Add("--runtimeconfig"); start.ArgumentList.Add(Path.ChangeExtension(typeof(BrainEfTests).Assembly.Location, ".runtimeconfig.json"));
+        start.ArgumentList.Add("--depsfile"); start.ArgumentList.Add(Path.ChangeExtension(typeof(BrainEfTests).Assembly.Location, ".deps.json"));
+        start.ArgumentList.Add(assembly); foreach (var arg in args) start.ArgumentList.Add(arg);
+        start.Environment["ConnectionStrings__Dante"] = connection;
+        using var process = System.Diagnostics.Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try { await process.WaitForExitAsync(timeout.Token); await Task.WhenAll(output, error); return process.ExitCode; }
+        finally { if (!process.HasExited) { process.Kill(true); await process.WaitForExitAsync(); } }
+    }
+
     internal static ProvenienciaDoConhecimento Origem() => new(Guid.NewGuid(), "usuário", "fonte", "v1", "evidência");
     internal static Conhecimento Novo(Guid espaco, Guid? projeto = null) => new(espaco, projeto, TipoDeConhecimento.Fato,
         "conteúdo", null, StatusDoConhecimento.Inferido, null, Sensibilidade.Pessoal, null, null, ["teste"], Origem(), DateTimeOffset.UtcNow);
