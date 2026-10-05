@@ -1495,3 +1495,32 @@ e não é herdada pelas CLIs. Full-text/pgvector não entram na fundação canô
 
 Código e limites: [guia de persistência](../development/persistence.md); testes
 PersistenciaTests com entidade fictícia e PostgreSQL real opt-in.
+
+## AD-44 — Conhecimento canônico com evidência e revisões, separado de confirmação e validade
+
+Status: vigente (#138, Epic #133). Aplica os conceitos da AD-33 no Domain/Application.
+
+Conhecimento usa Guid Id, espaço obrigatório/projeto opcional imutáveis, tipos/status
+PT-BR, conteúdo e/ou JSON, tags, confiança opcional e Sensibilidade. Proveniência
+identifica ator, origem e referência/revisão/trecho de evidência. Autor original é
+fixo; snapshots imutáveis registram cada criação/confirmação/correção/invalidação/
+substituição com ator e instante. Correções validam revisão esperada e preservam
+versões anteriores. Não há transcript, captura automática ou índice derivado.
+
+Criação só em Inferido/Temporario. Confirmar é explícito e Tipo Inferencia exige
+reclassificação com evidência antes de confirmação. Confiança não confirma; corrigir
+Confirmado devolve Inferido. Validade temporal [desde, até) é independente de status.
+Substituição liga item anterior a outro ativo no mesmo espaço/projeto e mantém
+conteúdo/proveniência; Substituido/Inativo não recebem novas mutações. Exclusão
+explícita do CRUD é distinta de invalidar, e sua implementação física/derivados
+permanece nas #160/#149/#153.
+
+Application valida existência/associação de espaço e projeto e recusa escrituras
+em escopos arquivados. Pesquisa é sempre por espaço, limitada e com filtros explícitos;
+DTOs não redefinem identidade/escopo/autor/histórico/timestamps. UoW confirma cada
+escrita uma vez. Sem DI do AppService até repository concreto, como AD-40/AD-42.
+
+Por quê: preservar fonte e evolução do conteúdo evita transformar confiança ou
+repetição em fato confirmado e permite correção sem perder evidência. Autorização
+por identidade e policy de sensibilidade ainda são #150/#155; PostgreSQL/EF não
+entram no núcleo. Contratos, limites e operações: [Conhecimento](../development/knowledge.md).
