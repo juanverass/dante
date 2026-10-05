@@ -1,4 +1,4 @@
-namespace Dante.Domain.Contextos;
+namespace Dante.Application.Contextos;
 
 // Legado movido do Worker na #166: o nome em inglês fica até a migração explícita (AD-38).
 public enum JobExecutionMode { General, Repository }

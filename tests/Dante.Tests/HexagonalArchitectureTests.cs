@@ -140,6 +140,24 @@ public sealed class HexagonalArchitectureTests
         Assert.Empty(violacoes);
     }
 
+    // Review do PR #175: o modelo do Domain não carrega caminho de execução, GitHub, variável do host nem
+    // ambiente/segredos; esses contratos operacionais vivem na Application (saída do caso de uso) ou nos adapters.
+    [Fact]
+    public void DomainModelDoesNotCarryOperationalOrHostConcepts()
+    {
+        var operacional = new Regex("Path|Directory|Diretorio|Caminho|Workspace|GitHub|Host|Environment|Ambiente|Secret|Segredo",
+            RegexOptions.IgnoreCase);
+        const BindingFlags membros = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance |
+            BindingFlags.Static | BindingFlags.DeclaredOnly;
+        var nomes = typeof(AgentKind).Assembly.GetTypes().SelectMany(tipo => tipo.GetProperties(membros)
+            .Select(propriedade => $"{tipo.Name}.{propriedade.Name}")
+            .Concat(tipo.GetFields(membros).Select(campo => $"{tipo.Name}.{campo.Name}")).Prepend(tipo.Name));
+        Assert.DoesNotContain(nomes, nome => operacional.IsMatch(nome));
+        Assert.Equal("Dante.Application", typeof(JobExecutionContext).Assembly.GetName().Name);
+        Assert.Equal("Dante.Application", typeof(ResolvedRepositoryEnvironment).Assembly.GetName().Name);
+        Assert.Equal("Dante.Worker", typeof(RepositoryDefinition).Assembly.GetName().Name);
+    }
+
     [Fact]
     public void WorkerAdaptersImplementTheApplicationContextPorts()
     {

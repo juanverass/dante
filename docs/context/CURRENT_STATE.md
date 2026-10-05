@@ -210,12 +210,15 @@ Brain, EF, CRUD ou Mapster nesta fundação. PR #163 não foi incorporado.
 ## Extração do núcleo (#166)
 
 Primeiro lote do legado fora do Worker, sem mudança de comportamento (AD-38):
-AgentKind, AssistantSettings, JobExecutionContext e RepositoryDefinition no Domain;
-AgentContextResolver na Application, sobre as portas PT-BR IWorkspaceGeral,
-ICatalogoDeRepositorios e IPreferenciasDoAssistente, implementadas pelos adapters
-do Worker. Nomes legados em inglês ficam como exceção temporária explícita, e
+AgentKind e AssistantSettings no Domain; AgentContextResolver, JobExecutionContext
+e ResolvedRepositoryEnvironment na Application, sobre as portas PT-BR
+IWorkspaceGeral, ICatalogoDeRepositorios (RepositorioCadastrado) e
+IPreferenciasDoAssistente, implementadas pelos adapters do Worker. O Domain não
+carrega caminho, GitHub, variável do host nem ambiente; RepositoryDefinition segue
+no adapter. Nomes legados em inglês ficam como exceção temporária explícita, e
 `<Using>` globais no Worker/testes evitam big-bang. Testes arquiteturais cobrem
-referências do núcleo compilado, ausência de TId e de IO no núcleo. Sessões,
+referências do núcleo compilado, ausência de TId, de IO no núcleo e de conceitos
+operacionais no modelo do Domain. Sessões,
 jobs, drivers, Telegram e adapters externos seguem no Worker (#167 e lotes futuros).
 
 ## Host HTTP (#170)

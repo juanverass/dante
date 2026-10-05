@@ -1,5 +1,4 @@
 using Dante.Domain.Agentes;
-using Dante.Domain.Contextos;
 using Dante.Domain.Preferencias;
 
 namespace Dante.Application.Contextos;
@@ -72,15 +71,15 @@ public sealed class AgentContextResolver(
         if (alias is null)
         {
             var path = generalWorkspace.Caminho;
-            if (repositories?.Listar().Any(repository => IsWithin(path, repository.Path) ||
-                    IsWithin(repository.Path, path)) == true)
+            if (repositories?.Listar().Any(repository => IsWithin(path, repository.Caminho) ||
+                    IsWithin(repository.Caminho, path)) == true)
                 return Refuse(ContextResolutionFailure.GeneralWorkspaceOverlap,
                     "O workspace geral coincide com um repositório cadastrado; configure DANTE_GENERAL_WORKSPACE fora dos projetos.");
             return new AgentContextResolution(agent, agentSource, JobExecutionContext.General(path),
                 ContextSource.General, null, string.Empty);
         }
 
-        RepositoryDefinition? repository;
+        RepositorioCadastrado? repository;
         try { repository = repositories?.Obter(alias); }
         catch (ArgumentException) { return Refuse(ContextResolutionFailure.InvalidAlias, "Alias inválido."); }
         if (repository is null)
@@ -95,7 +94,7 @@ public sealed class AgentContextResolver(
         try
         {
             return new AgentContextResolution(agent, agentSource,
-                JobExecutionContext.Repository(repository.Alias, repository.Path), source,
+                JobExecutionContext.Repository(repository.Alias, repository.Caminho), source,
                 repositories!.ResolverAmbiente(repository.Alias), string.Empty);
         }
         catch (InvalidOperationException exception)

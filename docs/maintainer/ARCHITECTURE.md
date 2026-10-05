@@ -94,9 +94,9 @@ Essa separação traz benefícios típicos de Ports & Adapters:
 - os detalhes de Claude e Codex ficam encapsulados em drivers.
 
 A divisão física Domain/Application/Infrastructure/hosts já existe. A #166 extraiu o
-primeiro lote (AD-38): `AgentKind`, `AssistantSettings`, `JobExecutionContext` e
-`RepositoryDefinition` vivem no Domain, e o `AgentContextResolver` vive na Application,
-sobre as portas `IWorkspaceGeral`, `ICatalogoDeRepositorios` e `IPreferenciasDoAssistente`,
+primeiro lote (AD-38): `AgentKind` e `AssistantSettings` vivem no Domain, e o
+`AgentContextResolver`, com `JobExecutionContext` e `ResolvedRepositoryEnvironment`, vive na
+Application, sobre as portas `IWorkspaceGeral`, `ICatalogoDeRepositorios` e `IPreferenciasDoAssistente`,
 implementadas por `GeneralWorkspace`, `RepositoryRegistry` e `AssistantSettingsStore`.
 As demais abstrações e implementações legadas acima ainda vivem no Worker.
 

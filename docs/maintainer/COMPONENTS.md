@@ -335,7 +335,7 @@ Jobs/
 
 ## `JobExecutionContext`
 
-Representa onde uma execução acontece. Desde a #166 vive em `Dante.Domain/Contextos` (AD-38).
+Representa onde uma execução acontece. Desde a #166 vive em `Dante.Application/Contextos` (AD-38).
 
 Dois modos:
 
@@ -413,6 +413,7 @@ Quem executa é o runner + `AgentProcessExecutor`.
 
 ```text
 Repositories/
+├── RepositoryDefinition
 └── RepositoryRegistry
 ```
 
@@ -420,7 +421,8 @@ Repositories/
 
 ## `RepositoryDefinition`
 
-Modelo persistido de um repositório cadastrado. Desde a #166 vive em `Dante.Domain/Contextos` (AD-38).
+Modelo persistido de um repositório cadastrado. A resolução de contexto (#166) o lê como
+`RepositorioCadastrado` (alias e caminho) pela porta `ICatalogoDeRepositorios` (AD-38).
 
 Representa:
 

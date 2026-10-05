@@ -139,7 +139,7 @@ Status: vigente (MVP 2, #23)
 Cada job registra o contexto resolvido no início (`General` ou alias + path). Alterar o
 catálogo depois não muda jobs existentes; `/status` mostra o contexto de cada job.
 
-Código: `Dante.Domain/Contextos/JobExecutionContext.cs` (no Worker até a #166); testes em `JobRegistryTests` e
+Código: `Dante.Application/Contextos/JobExecutionContext.cs` (no Worker até a #166); testes em `JobRegistryTests` e
 `TelegramJobCommandTests`.
 
 ## AD-12 — Desenvolvimento por agentes guiado por contrato persistido
@@ -1307,9 +1307,13 @@ Operação/limites e exemplos no [guia de mapping](../development/mapping.md).
 Status: vigente (#166, Epic #164). Aplica AD-35/AD-36 à migração do legado.
 
 O legado sai do Worker em lotes com fronteira clara e sem mudança de comportamento.
-Conceito sem IO vai para o Domain; caso de uso vai para a Application, que recebe
-suas dependências externas por portas novas implementadas pelos adapters do Worker
-(implementação explícita da interface, sem mudar a API pública do adapter).
+Domain recebe só conceito com regra/invariante e sem detalhe operacional: nenhum
+caminho de execução, workspace, GitHub, variável do host ou ambiente/segredo no seu
+modelo. Caso de uso e seus contratos de entrada/saída operacionais vão para a
+Application, que recebe as dependências externas por portas novas implementadas
+pelos adapters do Worker (implementação explícita da interface, sem mudar a API
+pública do adapter). Modelo persistido de adapter permanece no adapter; a porta
+expõe só o que o caso de uso precisa.
 
 Tipo legado movido mantém o nome em inglês, marcado no arquivo como exceção
 temporária até uma migração explícita; isso não vale para código novo. Portas e
@@ -1317,15 +1321,18 @@ contratos criados na extração nascem em PT-BR. Para evitar big-bang de `using`
 Worker e testes importam os namespaces que receberam tipos movidos por `<Using>`
 global no `.csproj`, também marcado como compatibilidade temporária.
 
-Primeiro lote: `AgentKind` (`Dante.Domain.Agentes`), `AssistantSettings`
-(`Dante.Domain.Preferencias`), `JobExecutionContext` e `RepositoryDefinition`
-(`Dante.Domain.Contextos`); `AgentContextResolver` (`Dante.Application.Contextos`)
-sobre `IWorkspaceGeral`, `ICatalogoDeRepositorios` e `IPreferenciasDoAssistente`,
-implementadas por `GeneralWorkspace`, `RepositoryRegistry` e `AssistantSettingsStore`.
+Primeiro lote: `AgentKind` (`Dante.Domain.Agentes`) e `AssistantSettings`
+(`Dante.Domain.Preferencias`) no Domain; `AgentContextResolver`, `JobExecutionContext`
+e `ResolvedRepositoryEnvironment` em `Dante.Application.Contextos`, sobre as portas
+`IWorkspaceGeral`, `ICatalogoDeRepositorios` (que expõe `RepositorioCadastrado`:
+alias e caminho) e `IPreferenciasDoAssistente`, implementadas por `GeneralWorkspace`,
+`RepositoryRegistry` e `AssistantSettingsStore`. `RepositoryDefinition` e
+`RepositoryEnvironmentEntry` (caminho, GitHub, bindings do host) seguem no adapter.
 
 Por quê: mover em lotes pequenos mantém cada PR revisável e o comportamento
 coberto pelos testes existentes, sem renomeação em massa do legado.
 
 Código: `src/Dante.Domain`, `src/Dante.Application/Contextos`; testes em
 `HexagonalArchitectureTests` (referências do núcleo compilado, ausência de `TId`,
+Domain sem conceitos operacionais/de host,
 ausência de IO no código do núcleo, adapters das portas) e `AgentContextResolverTests`.

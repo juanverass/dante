@@ -19,7 +19,6 @@
   <ItemGroup>
     <Using Include="Dante.Application.Contextos" />
     <Using Include="Dante.Domain.Agentes" />
-    <Using Include="Dante.Domain.Contextos" />
     <Using Include="Dante.Domain.Preferencias" />
   </ItemGroup>
 

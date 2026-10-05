@@ -133,7 +133,7 @@ public sealed class AgentContextResolverTests : IDisposable
     [Fact]
     public void ResolvesThroughApplicationPortsWithoutWorkerAdapters()
     {
-        var catalog = new InMemoryCatalog(new RepositoryDefinition("@dante", "/repos/dante", null));
+        var catalog = new InMemoryCatalog(new RepositorioCadastrado("@dante", "/repos/dante"));
         var preferences = new InMemoryPreferences(AgentKind.Codex, "@dante");
         var resolver = new AgentContextResolver(new InMemoryWorkspace("/workspaces/general"), catalog, preferences);
 
@@ -202,11 +202,11 @@ public sealed class AgentContextResolverTests : IDisposable
         public string? ObterRepositorioAtivo(long idUsuario) => Active;
     }
 
-    private sealed class InMemoryCatalog(params RepositoryDefinition[] repositories) : ICatalogoDeRepositorios
+    private sealed class InMemoryCatalog(params RepositorioCadastrado[] repositories) : ICatalogoDeRepositorios
     {
-        public IReadOnlyList<RepositoryDefinition> Listar() => repositories;
+        public IReadOnlyList<RepositorioCadastrado> Listar() => repositories;
 
-        public RepositoryDefinition? Obter(string alias) =>
+        public RepositorioCadastrado? Obter(string alias) =>
             alias.All(character => char.IsAsciiLetterOrDigit(character) || character is '@' or '_')
                 ? repositories.FirstOrDefault(repository => repository.Alias == alias)
                 : throw new ArgumentException("Alias inválido.", nameof(alias));

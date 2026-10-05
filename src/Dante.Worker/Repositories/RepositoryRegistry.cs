@@ -85,11 +85,15 @@ public sealed class RepositoryRegistry : ICatalogoDeRepositorios
         lock (gate) return repositories.Values.OrderBy(x => x.Alias, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    IReadOnlyList<RepositoryDefinition> ICatalogoDeRepositorios.Listar() => List();
+    IReadOnlyList<RepositorioCadastrado> ICatalogoDeRepositorios.Listar() => List().Select(ParaCadastrado).ToArray();
 
-    RepositoryDefinition? ICatalogoDeRepositorios.Obter(string alias) => Get(alias);
+    RepositorioCadastrado? ICatalogoDeRepositorios.Obter(string alias) =>
+        Get(alias) is { } repository ? ParaCadastrado(repository) : null;
 
     ResolvedRepositoryEnvironment ICatalogoDeRepositorios.ResolverAmbiente(string alias) => ResolveEnvironment(alias);
+
+    private static RepositorioCadastrado ParaCadastrado(RepositoryDefinition repository) =>
+        new(repository.Alias, repository.Path);
 
     public bool Remove(string alias)
     {
