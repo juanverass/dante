@@ -1123,9 +1123,9 @@ efêmero isola a consulta das sessões vivas.
 
 ## AD-34 — PostgreSQL canônico, índices derivados e portabilidade lógica do Brain
 
-Status: vigente (#135), com fundação opcional implementada na #160 após a
-arquitetura conceitual da #134. O Worker funciona sem banco quando Brain está
-desabilitado; adapter/migrations/operação estão no guia abaixo.
+Status: decisão de armazenamento (#135), para implementação pela #160 após a
+arquitetura conceitual da #134. O Worker atual continua sem banco; não há adapter
+ou migrations Brain disponíveis nesta decisão.
 
 PostgreSQL é a fonte de verdade estruturada escolhida pelo humano: identidade,
 Spaces/Projects, itens/relações/proveniência/validade/sensibilidade, fontes e
@@ -1160,14 +1160,6 @@ ADR completa, operação preparatória WSL, backup/restore e contrato/testes par
 Roteiro local documentado, não executado com banco real nesta Issue: daemon Docker
 indisponível na distro. #160 deve produzir evidência de migrations, isolamento,
 integridade, restore canônico sem vector e reconstrução dos índices.
-
-Implementação da fundação na #160: [guia operacional](../brain/LOCAL_STORAGE.md).
-Envelopes úteis de persistência herdam `EntityBase.Id`; propriedades de IDs/FKs
-seguem a convenção humana de prefixo `Id` (IdTenant/IdUser/IdKnowledgeSpace/IdProject).
-Npgsql 10.0.3 fica no adapter. Schema canônico e projeção lexical são separados;
-rebuild administrativo transacional congela writers no MVP local. Runtime opt-in
-recusa DDL/privilégios de administrador e não executa migrations no startup.
-Entidades semânticas completas, embeddings e policy continuam nas issues próprias.
 
 ## Contexto das sessões (Epic #118)
 

@@ -1,3 +1,4 @@
+using Dante.Application;
 using Dante.Application.Comum;
 using Dante.Domain.Comum;
 using Dante.Infrastructure;
@@ -29,7 +30,7 @@ public sealed class PersistenciaTests
         {
             ["ConnectionStrings:Dante"] = "Host=localhost;Database=nao_conectar"
         }).Build();
-        using var provider = new ServiceCollection().AddInfrastructure(config).BuildServiceProvider(
+        using var provider = new ServiceCollection().AddApplication().AddInfrastructure(config).BuildServiceProvider(
             new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
         using var primeiro = provider.CreateScope();
         using var segundo = provider.CreateScope();
@@ -42,12 +43,12 @@ public sealed class PersistenciaTests
     }
 
     [Fact]
-    public void ModeloProducaoNaoAntecipaBrainEMigrationNaoTemMudancasPendentes()
+    public void ModeloBrainEMigrationsNaoTemMudancasPendentes()
     {
         using var context = new DanteDbContext(new DbContextOptionsBuilder<DanteDbContext>()
             .UseNpgsql("Host=localhost;Database=nao_conectar").Options);
-        Assert.Empty(context.Model.GetEntityTypes());
-        Assert.Single(context.Database.GetMigrations());
+        Assert.Equal(3, context.Model.GetEntityTypes().Count());
+        Assert.Equal(2, context.Database.GetMigrations().Count());
         Assert.False(context.Database.HasPendingModelChanges());
         var script = context.GetService<IMigrator>().GenerateScript();
         Assert.Contains("brain_data", script);
@@ -96,7 +97,7 @@ public sealed class PersistenciaTests
             {
                 await production.Database.MigrateAsync();
                 await production.Database.MigrateAsync();
-                Assert.Single(await production.Database.GetAppliedMigrationsAsync());
+                Assert.Equal(2, (await production.Database.GetAppliedMigrationsAsync()).Count());
                 Assert.Empty(await production.Database.GetPendingMigrationsAsync());
                 await production.GetService<IMigrator>().MigrateAsync("0");
                 Assert.Empty(await production.Database.GetAppliedMigrationsAsync());
@@ -160,6 +161,9 @@ public sealed class PersistenciaTests
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            modelBuilder.Ignore<Dante.Domain.Conhecimentos.Conhecimento>();
+            modelBuilder.Ignore<Dante.Domain.Projetos.Projeto>();
+            modelBuilder.Ignore<Dante.Domain.EspacosDeConhecimento.EspacoDeConhecimento>();
             modelBuilder.ApplyConfiguration(new RegistroConfiguration());
         }
     }

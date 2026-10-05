@@ -184,20 +184,15 @@ Detalhes de uso: [README](../../README.md).
   `DANTE_LIVE_CLI=1`, executado em 2026-10-02 com Claude Code 2.1.287 e codex-cli 0.159.3: os quatro caminhos
   (sessão e one-shot de cada CLI) identificaram a imagem sintética; o bot do Telegram real não foi exercitado.
 
-## Fundação de persistência do Brain (#160)
+## Direção de armazenamento do Brain
 
-PostgreSQL canônico opcional implementado conforme AD-34, com envelopes de
-persistência independentes do provider, IDs/FKs com prefixo `Id`, identidade local,
-escopos explícitos, revisões/links transacionais, ledger/checksum/locks de migrations,
-fontes privadas verificadas e rebuild lexical derivado. CLI administrativa oferece
-migrate/health/rebuild/backup/restore, com roles segregadas e credenciais excluídas
-dos processos dos agentes. [Operação local](../brain/LOCAL_STORAGE.md).
-
-Validado em PostgreSQL 17.11 nativo temporário, incluindo restore em banco separado
-sem schema de índices, bootstrap e TCP/SCRAM com runtime limitado. Docker não foi
-exercitado. Sem configuração Brain, o Worker continua sem exigir banco. Knowledge
-Core, policy/UX, ingestão, busca de produto, embeddings e export lógico permanecem
-nas respectivas issues; sessões/jobs/settings atuais não foram migrados.
+A #135 formaliza a AD-34: [PostgreSQL canônico](../brain/POSTGRESQL_STORAGE.md),
+full-text lexical, pgvector derivado, originais em filesystem quando apropriado e
+export Markdown/JSON. Há estratégia de migrations, backup/restore consistente com
+fontes e roteiro preparatório para WSL. Isso ainda não é funcionalidade do Worker:
+#160 depende da conclusão de #134 e #135 e deverá validar a persistência real.
+O roteiro de banco não foi executado nesta entrega; Docker não está acessível na
+distro utilizada. Não é necessário instalar PostgreSQL para rodar o produto atual.
 
 ## Fundação hexagonal (#165)
 
@@ -210,7 +205,7 @@ ProblemDetails e OpenAPI em Development (#170).
 
 AD-35/AD-36 formalizam a migração incremental, Guid Id via EntidadeBase (base a
 implementar na #171), FKs com Id no início e vocabulário PT-BR. Não há entidades
-Brain, EF, CRUD ou Mapster nesta fundação. PR #163 não foi incorporado.
+Brain, EF, CRUD ou Mapster nesta fundação. A PR #163 segue em revisão, reestruturada pela #160.
 
 ## Extração do núcleo (#166)
 
@@ -369,3 +364,12 @@ AppService/repository específico, EF/tabelas (#160), captura (#139), relações
 (#153), autorização (#150) ou policy (#155). 49 testes novos sem banco com fakes;
 build aprovado e suíte final com 903 aprovados, 19 pulados e zero falhas.
 Guia: [núcleo de Conhecimento](../development/knowledge.md).
+
+## Persistência EF do Brain (#160)
+
+Infrastructure mapeia EspacoDeConhecimento, Projeto e Conhecimento com migrations EF,
+repositories específicos e DI scoped de AppServices. Histórico/proveniência e estado
+canônico transacionais, FKs compostas e xmin; health e backup/restore explícitos nos
+dois hosts. PR #163 reestruturada na mesma branch; modelo genérico/SQL manual removido.
+Sem banco obrigatório, busca funcional, fontes ou identidade Telegram no storage.
+Guia: [operação local](../brain/LOCAL_STORAGE.md).

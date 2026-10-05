@@ -64,10 +64,12 @@ public sealed class AgentProcessExecutorTests
         finally { Environment.SetEnvironmentVariable(name, previous); }
     }
 
-    [Fact]
-    public async Task DatabaseConnectionIsNeverInheritedByAgents()
+    [Theory]
+    [InlineData("ConnectionStrings__Dante")]
+    [InlineData("DANTE_BRAIN_CONNECTION")]
+    [InlineData("PGPASSWORD")]
+    public async Task DatabaseConnectionIsNeverInheritedByAgents(string name)
     {
-        const string name = "ConnectionStrings__Dante";
         var previous = Environment.GetEnvironmentVariable(name);
         Environment.SetEnvironmentVariable(name, "dante-test-database-secret");
         try

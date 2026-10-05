@@ -1,12 +1,10 @@
 # AD-34 — Armazenamento e operação local do D.A.N.T.E. Brain
 
-Status: decisão implementada como fundação física na #160 (Epic #133).
-Operação/limites atuais: [persistência local](LOCAL_STORAGE.md).
+Status: decisão para implementação (#135, Epic #133); **não implementada no Worker**.
 PostgreSQL foi escolhido pelo humano na Issue #135. Não reabrir a escolha de banco.
-A #134 define domínio e fronteiras; este documento registra a decisão e os
-requisitos da #135. A #160 entrega envelopes/adapter/migrations mínimos, sem
-antecipar entidades semânticas do Knowledge Core. O Worker continua funcionando
-sem banco quando o módulo opcional está desabilitado.
+A #134 define domínio e fronteiras; este documento define a tradução física e os
+requisitos de persistência para a #160, sem criar classes, migrations ou contratos
+de domínio de produção. O Worker atual continua funcionando sem banco.
 
 ## Decisão e limites
 
@@ -54,8 +52,8 @@ Separar responsabilidades em schemas:
 - `brain_index`: chunks, representações lexicais/vetoriais, extensão vector e
   metadados de geração. Pode ser reconstruído sem alterar IDs/revisões canônicas.
 
-A implementação da #160 usa esses schemas; o restante desta seção descreve a
-direção para as próximas entidades da Epic. Schemas canônicos não dependem de tipos, funções ou FKs da extensão vector ou de
+Nomes físicos acima são direção para a #160, não tabelas disponíveis hoje.
+Schemas canônicos não dependem de tipos, funções ou FKs da extensão vector ou de
 `brain_index`. Assim é possível restaurar conteúdo sem semântica funcionando.
 O adapter pode usar PostgreSQL/Npgsql; o domínio não expõe DbConnection, SQL,
 JSONB, tsvector, vector ou exceções do provider.
@@ -227,7 +225,7 @@ JSON não usa tipos PostgreSQL ou paths como identidade. Mudança de backend pod
 usar export/import lógico sem remodelar o domínio. Import, implementação de export
 (#149) e rebuild não são funcionalidades entregues nesta Issue.
 
-## Operação local no WSL (roteiro preparatório da #135)
+## Operação local no WSL (roteiro preparatório)
 
 O exemplo usa PostgreSQL **17** e pgvector **0.8.7**, uma combinação publicada pelo
 upstream, sem tratá-la como mínimo do domínio. #160 deve fixar/validar versões e
@@ -329,14 +327,14 @@ docker exec -i dante-brain-db pg_restore -U brain_admin -d dante_brain_restore \
 
 Reaplicar grants e a rotina de integrity/rebuild da #160 nesse banco, restaurar e
 validar os originais em raiz separada e comparar conteúdo/IDs antes da troca.
-`pg_restore --list` apenas lista objetos, não é um teste de restore. O roteiro original da #135 é preparatório; os comandos de rebuild implementados
-na #160 estão no guia LOCAL_STORAGE. Não usar o banco de ensaio como destino de
+`pg_restore --list` apenas lista objetos, não é um teste de restore. Nenhum comando
+de rebuild do produto existe ainda. Não usar o banco de ensaio como destino de
 runtime privilegiado.
 
 Para operação: `docker stop dante-brain-db`, `docker start dante-brain-db` e
 `docker logs --tail 30 dante-brain-db`. Não colar logs/inspeções com credenciais.
 Subir container não equivale a ter integração Brain; mudanças na configuração do
-banco devem ser refletidas no bootstrap/ambiente descrito no [guia atual](LOCAL_STORAGE.md).
+banco devem ser refletidas no bootstrap/ambiente que a #160 implementará.
 
 ## Contrato de entrega e testes obrigatórios da #160
 

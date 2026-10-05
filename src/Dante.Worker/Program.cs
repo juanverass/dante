@@ -1,3 +1,4 @@
+using Dante.Infrastructure.Persistencia;
 using Dante.Application;
 using Dante.Infrastructure;
 using Dante.Worker;
@@ -5,4 +6,9 @@ using Dante.Worker;
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddApplication().AddInfrastructure(builder.Configuration).AddWorker(builder.Configuration);
 var host = builder.Build();
+if (args.FirstOrDefault() == "--brain")
+{
+    Environment.ExitCode = await ComandosDoBanco.ExecutarAsync(host.Services, args);
+    return;
+}
 host.Run();

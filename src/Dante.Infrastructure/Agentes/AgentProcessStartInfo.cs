@@ -62,7 +62,9 @@ internal static class AgentProcessStartInfo
 
         // A conexão do host não pertence ao ambiente dos agentes, inclusive em Repository Mode.
         foreach (var name in startInfo.Environment.Keys.Where(name =>
-                     name.Equals("ConnectionStrings__Dante", StringComparison.OrdinalIgnoreCase)).ToArray())
+                     name.Equals("ConnectionStrings__Dante", StringComparison.OrdinalIgnoreCase) ||
+                     name.StartsWith("DANTE_BRAIN", StringComparison.OrdinalIgnoreCase) ||
+                     name.StartsWith("PG", StringComparison.OrdinalIgnoreCase)).ToArray())
             startInfo.Environment.Remove(name);
 
         foreach (var argument in request.Arguments)

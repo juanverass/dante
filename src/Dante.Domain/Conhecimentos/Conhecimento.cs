@@ -9,6 +9,8 @@ public sealed class Conhecimento : EntidadeBase
     public const int QuantidadeMaximaDeTags = 50;
     private readonly List<RevisaoDoConhecimento> historico = [];
 
+    private Conhecimento() { }
+
     public Conhecimento(Guid idEspacoDeConhecimento, Guid? idProjeto, TipoDeConhecimento tipo,
         string? conteudo, string? dadosEstruturados, StatusDoConhecimento status, double? confianca,
         Sensibilidade sensibilidade, DateTimeOffset? validoDesde, DateTimeOffset? validoAte,

@@ -550,10 +550,9 @@ Se uma alteração começar a atravessar muitos desses limites ao mesmo tempo, �
 ## 16. Arquitetura alvo do D.A.N.T.E. Brain (#133, #134)
 
 Esta seção define **contratos conceituais para implementação futura** (AD-33).
-A fundação física opcional da #160 está implementada conforme AD-34, com
-[operação local](../brain/LOCAL_STORAGE.md). Entidades semânticas, policy, busca e
-integração de contexto continuam futuras. Os contratos conceituais abaixo não
-expõem detalhes do provider; no código, IDs/FKs usam prefixo Id.
+O Brain ainda não está implementado: as seções anteriores descrevem o runtime
+atual. A persistência física e os índices são responsabilidade da #135; esta
+arquitetura não escolhe backend, provider, biblioteca ou formato de banco.
 
 O Brain entra como módulo do monólito local, composto em `Program.cs`. Não muda
 as máquinas de estado dos agentes nem torna jobs/sessões duráveis. Telegram é
