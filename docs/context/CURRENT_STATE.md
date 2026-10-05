@@ -255,3 +255,13 @@ A arquitetura separa conhecimento, memória de trabalho e histórico; não alter
 persistência ou permissões do Worker atual.
 
 1. mídias no Telegram (#92): validação final (#99).
+
+## Mapper compartilhado da Application (#169)
+
+Mapster registrado por AddApplication via IMapsterTypeAdapter, com configurações
+centralizadas, expressões explícitas por par/direção e sem automapping de campos
+sensíveis/identidade ou atualização direta de entidades existentes. Domain continua
+sem Mapster. AppServices podem receber o adapter; hosts não duplicam mappings.
+Seis testes novos cobrem contratos/invariantes/DI/concurrency. Guia e convenções:
+[mappings da Application](../development/mapping.md). Nenhum DTO/entidade funcional
+Brain ou base CRUD foi antecipado.
