@@ -15,6 +15,7 @@ public static class DependencyInjection
             MapeamentosDaApplication.Registrar(configuracao);
             return configuracao.Concluir();
         });
+        services.TryAddSingleton<Dante.Application.SegurancaDoBrain.PoliticaDeSensibilidade>();
         return services;
     }
 
