@@ -341,3 +341,12 @@ pelo catálogo de repositórios, arquivar/reativar e pesquisa sempre escopada ao
 sem banco; suíte com 848 aprovados e 18 pulados. Repository Mode e /use não mudam. Sem
 persistência concreta (#160), registro DI do AppService, seleção de projeto ativo ou
 autorização (#150).
+
+## Fundação EF Core + PostgreSQL (#168)
+
+Persistência opcional via ConnectionStrings:Dante em AddInfrastructure: DanteDbContext,
+Repository<TEntity>, UnitOfWork scoped e configuração base Guid/xmin. Migration EF
+inicial prepara schemas, sem mapear entidades funcionais Brain nem alterar stores JSON.
+Conflitos são traduzidos em exception da Application; commit transacional e conexões
+fora do checkout/ambiente dos agentes. Guia: [persistência](../development/persistence.md).
+Full-text/pgvector e persistência funcional seguem na #160.
