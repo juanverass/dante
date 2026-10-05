@@ -834,3 +834,11 @@ validar IDs/hashes/escopos e reconstruir índices. A
 [estratégia e os comandos](../brain/POSTGRESQL_STORAGE.md#backup-restore-e-portabilidade)
 não substituem a evidência de restore real exigida pela #160. Não apagar volume
 ou sobrescrever instalação saudável como procedimento de diagnóstico.
+
+# 27. Host HTTP independente (#170)
+
+O [guia WebApi](WEBAPI.md) documenta startup local em loopback, GET /health,
+ProblemDetails e OpenAPI somente Development. Não requer Worker/Telegram/banco e
+não altera o deploy systemd existente. Health mede o host, não readiness do Brain
+ou das CLIs. Endpoints funcionais futuros chamam Application/AppServices com DTOs,
+sem repositories/DbContext no host. Testes HTTP independentes verificam os contratos.
