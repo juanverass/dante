@@ -184,6 +184,16 @@ Detalhes de uso: [README](../../README.md).
   `DANTE_LIVE_CLI=1`, executado em 2026-10-02 com Claude Code 2.1.287 e codex-cli 0.159.3: os quatro caminhos
   (sessão e one-shot de cada CLI) identificaram a imagem sintética; o bot do Telegram real não foi exercitado.
 
+## Direção de armazenamento do Brain
+
+A #135 formaliza a AD-34: [PostgreSQL canônico](../brain/POSTGRESQL_STORAGE.md),
+full-text lexical, pgvector derivado, originais em filesystem quando apropriado e
+export Markdown/JSON. Há estratégia de migrations, backup/restore consistente com
+fontes e roteiro preparatório para WSL. Isso ainda não é funcionalidade do Worker:
+#160 depende da conclusão de #134 e #135 e deverá validar a persistência real.
+O roteiro de banco não foi executado nesta entrega; Docker não está acessível na
+distro utilizada. Não é necessário instalar PostgreSQL para rodar o produto atual.
+
 ## Em andamento
 
 - **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94), imagens aos agentes (#95), áudio e vídeo (#96), artefatos (#97) e imagem para LinkedIn (#98) entregues; validação final (#99) pendente.
