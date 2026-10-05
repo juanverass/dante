@@ -26,6 +26,13 @@ public static class DependencyInjection
                 provider => provider.MigrationsHistoryTable("__EFMigrationsHistory", "brain_meta")));
             services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
             services.AddScoped<IUnitOfWork, UnitOfWork>();
+            services.AddScoped<Dante.Application.EspacosDeConhecimento.IEspacoDeConhecimentoRepository, EspacoDeConhecimentoRepository>();
+            services.AddScoped<Dante.Application.Projetos.IProjetoRepository, ProjetoRepository>();
+            services.AddScoped<Dante.Application.Conhecimentos.IConhecimentoRepository, ConhecimentoRepository>();
+            services.AddScoped<AdministracaoDoBanco>();
+            services.AddScoped<Dante.Application.EspacosDeConhecimento.IEspacoDeConhecimentoAppService, Dante.Application.EspacosDeConhecimento.EspacoDeConhecimentoAppService>();
+            services.AddScoped<Dante.Application.Projetos.IProjetoAppService, Dante.Application.Projetos.ProjetoAppService>();
+            services.AddScoped<Dante.Application.Conhecimentos.IConhecimentoAppService, Dante.Application.Conhecimentos.ConhecimentoAppService>();
         }
         AddContextos(services);
         AddAgentes(services);

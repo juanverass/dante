@@ -205,7 +205,7 @@ ProblemDetails e OpenAPI em Development (#170).
 
 AD-35/AD-36 formalizam a migração incremental, Guid Id via EntidadeBase (base a
 implementar na #171), FKs com Id no início e vocabulário PT-BR. Não há entidades
-Brain, EF, CRUD ou Mapster nesta fundação. PR #163 não foi incorporado.
+Brain, EF, CRUD ou Mapster nesta fundação. A PR #163 segue em revisão, reestruturada pela #160.
 
 ## Extração do núcleo (#166)
 
@@ -364,3 +364,12 @@ AppService/repository específico, EF/tabelas (#160), captura (#139), relações
 (#153), autorização (#150) ou policy (#155). 49 testes novos sem banco com fakes;
 build aprovado e suíte final com 903 aprovados, 19 pulados e zero falhas.
 Guia: [núcleo de Conhecimento](../development/knowledge.md).
+
+## Persistência EF do Brain (#160)
+
+Infrastructure mapeia EspacoDeConhecimento, Projeto e Conhecimento com migrations EF,
+repositories específicos e DI scoped de AppServices. Histórico/proveniência e estado
+canônico transacionais, FKs compostas e xmin; health e backup/restore explícitos nos
+dois hosts. PR #163 reestruturada na mesma branch; modelo genérico/SQL manual removido.
+Sem banco obrigatório, busca funcional, fontes ou identidade Telegram no storage.
+Guia: [operação local](../brain/LOCAL_STORAGE.md).
