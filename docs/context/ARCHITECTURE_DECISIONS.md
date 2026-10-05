@@ -1336,3 +1336,27 @@ Código: `src/Dante.Domain`, `src/Dante.Application/Contextos`; testes em
 `HexagonalArchitectureTests` (referências do núcleo compilado, ausência de `TId`,
 Domain sem conceitos operacionais/de host,
 ausência de IO no código do núcleo, adapters das portas) e `AgentContextResolverTests`.
+
+
+## AD-39 — Base CRUD com identidade do domínio, atualização por métodos e pesquisa específica
+
+Status: vigente (#171, Epic #164). Implementa as bases previstas na AD-36.
+
+`EntidadeBase` fica no Domain com `Guid Id` gerado pelo domínio e setter protegido.
+`IRepository<TEntity>`, `IUnitOfWork`, `ICrudBasicoAppService<TDto,TSearchDto,TEntity>` e
+`CrudBasicoAppService<TDto,TSearchDto,TEntity>` ficam em `Dante.Application.Comum`, com
+`TEntity : EntidadeBase` e sem `TId`. A base recebe repository, unit of work e
+`IMapsterTypeAdapter` explicitamente no construtor e confirma cada escrita uma vez.
+
+Criação usa o mapping `TDto → TEntity` registrado (constructor/fábrica do domínio,
+AD-37). Atualização carrega a entidade e chama o hook abstrato `AplicarAlteracoes`,
+em que o AppService específico chama métodos do domínio; o Id vem do parâmetro, nunca
+do DTO. Pesquisa chama o hook abstrato `ConsultarAsync`, que valida o SearchDto e usa
+uma consulta do repository específico. Operações são virtuais para extensão.
+
+Por quê: compartilhar o fluxo comum sem permitir que mapping ou base genérica
+contornem invariantes, redefinam identidade ou transformem SearchDto em consulta
+arbitrária. Implementações EF de repository/unit of work ficam na #168.
+
+Código: `src/Dante.Domain/Comum`, `src/Dante.Application/Comum`; testes em
+`CrudBasicoAppServiceTests`. Guia: [base CRUD](../development/crud.md).
