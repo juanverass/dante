@@ -19,6 +19,13 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- Compatibilidade temporária da #166 (AD-38): tipos legados movidos para o núcleo mantêm o uso sem namespace. -->
+  <ItemGroup>
+    <Using Include="Dante.Application.Contextos" />
+    <Using Include="Dante.Domain.Agentes" />
+    <Using Include="Dante.Domain.Preferencias" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="../../src/Dante.WebApi/Dante.WebApi.csproj" />
     <ProjectReference Include="../../src/Dante.Worker/Dante.Worker.csproj" />

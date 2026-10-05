@@ -326,7 +326,6 @@ Jobs representam somente execuções one-shot.
 
 ```text
 Jobs/
-├── JobExecutionContext
 ├── JobRegistry
 ├── JobSnapshot
 └── JobStatus
@@ -336,7 +335,7 @@ Jobs/
 
 ## `JobExecutionContext`
 
-Representa onde uma execução acontece.
+Representa onde uma execução acontece. Desde a #166 vive em `Dante.Application/Contextos` (AD-38).
 
 Dois modos:
 
@@ -358,7 +357,9 @@ O mesmo tipo é reutilizado por sessões para descrever contexto, mas isso **nã
 ## `AgentContextResolver`
 
 Ponto único de decisão de agente e contexto (AD-27), usado por mensagens comuns que abrem sessão,
-`/session start`, `/claude` e `/codex`.
+`/session start`, `/claude` e `/codex`. Desde a #166 vive em `Dante.Application/Contextos` e lê
+workspace geral, catálogo e preferências pelas portas `IWorkspaceGeral`, `ICatalogoDeRepositorios`
+e `IPreferenciasDoAssistente` (AD-38).
 
 ```text
 Agente:       explícito → agente padrão
@@ -420,7 +421,8 @@ Repositories/
 
 ## `RepositoryDefinition`
 
-Modelo persistido de um repositório cadastrado.
+Modelo persistido de um repositório cadastrado. A resolução de contexto (#166) o lê como
+`RepositorioCadastrado` (alias e caminho) pela porta `ICatalogoDeRepositorios` (AD-38).
 
 Representa:
 

@@ -1,10 +1,11 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Dante.Application.Contextos;
 
 namespace Dante.Worker.Repositories;
 
-public sealed class RepositoryRegistry
+public sealed class RepositoryRegistry : ICatalogoDeRepositorios
 {
     private static readonly Regex AliasPattern = new("^@[a-zA-Z][a-zA-Z0-9_]*$", RegexOptions.Compiled);
     private static readonly Regex GitHubPattern = new("^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$", RegexOptions.Compiled);
@@ -83,6 +84,16 @@ public sealed class RepositoryRegistry
     {
         lock (gate) return repositories.Values.OrderBy(x => x.Alias, StringComparer.OrdinalIgnoreCase).ToArray();
     }
+
+    IReadOnlyList<RepositorioCadastrado> ICatalogoDeRepositorios.Listar() => List().Select(ParaCadastrado).ToArray();
+
+    RepositorioCadastrado? ICatalogoDeRepositorios.Obter(string alias) =>
+        Get(alias) is { } repository ? ParaCadastrado(repository) : null;
+
+    ResolvedRepositoryEnvironment ICatalogoDeRepositorios.ResolverAmbiente(string alias) => ResolveEnvironment(alias);
+
+    private static RepositorioCadastrado ParaCadastrado(RepositoryDefinition repository) =>
+        new(repository.Alias, repository.Path);
 
     public bool Remove(string alias)
     {

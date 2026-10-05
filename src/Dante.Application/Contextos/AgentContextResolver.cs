@@ -1,9 +1,9 @@
-using Dante.Worker.Agents;
-using Dante.Worker.Repositories;
-using Dante.Worker.Settings;
+using Dante.Domain.Agentes;
+using Dante.Domain.Preferencias;
 
-namespace Dante.Worker.Jobs;
+namespace Dante.Application.Contextos;
 
+// Legado movido do Worker na #166: os nomes em inglês ficam até a migração explícita (AD-38).
 public enum AgentSource { Explicit, Default }
 
 public enum ContextSource { Explicit, Active, General }
@@ -36,9 +36,9 @@ public sealed record AgentContextResolution(
 // agent. Context: an explicit @alias, then the user's active repository, then General Mode. Overrides apply to one
 // execution only and are never inferred from the prompt text; any refusal means no agent may start.
 public sealed class AgentContextResolver(
-    GeneralWorkspace generalWorkspace,
-    RepositoryRegistry? repositories = null,
-    AssistantSettingsStore? settings = null)
+    IWorkspaceGeral generalWorkspace,
+    ICatalogoDeRepositorios? repositories = null,
+    IPreferenciasDoAssistente? settings = null)
 {
     // The text after the command: a leading @alias is the context override and is removed from the prompt.
     public AgentContextResolution Resolve(long userId, AgentKind? explicitAgent, string text)
@@ -67,20 +67,20 @@ public sealed class AgentContextResolver(
     {
         var (agent, agentSource) = ResolveAgent(explicitAgent);
         var source = alias is not null ? ContextSource.Explicit : ContextSource.Active;
-        alias ??= settings?.GetActiveRepository(userId);
+        alias ??= settings?.ObterRepositorioAtivo(userId);
         if (alias is null)
         {
-            var path = generalWorkspace.Path;
-            if (repositories?.List().Any(repository => IsWithin(path, repository.Path) ||
-                    IsWithin(repository.Path, path)) == true)
+            var path = generalWorkspace.Caminho;
+            if (repositories?.Listar().Any(repository => IsWithin(path, repository.Caminho) ||
+                    IsWithin(repository.Caminho, path)) == true)
                 return Refuse(ContextResolutionFailure.GeneralWorkspaceOverlap,
                     "O workspace geral coincide com um repositório cadastrado; configure DANTE_GENERAL_WORKSPACE fora dos projetos.");
             return new AgentContextResolution(agent, agentSource, JobExecutionContext.General(path),
                 ContextSource.General, null, string.Empty);
         }
 
-        RepositoryDefinition? repository;
-        try { repository = repositories?.Get(alias); }
+        RepositorioCadastrado? repository;
+        try { repository = repositories?.Obter(alias); }
         catch (ArgumentException) { return Refuse(ContextResolutionFailure.InvalidAlias, "Alias inválido."); }
         if (repository is null)
         {
@@ -94,8 +94,8 @@ public sealed class AgentContextResolver(
         try
         {
             return new AgentContextResolution(agent, agentSource,
-                JobExecutionContext.Repository(repository.Alias, repository.Path), source,
-                repositories!.ResolveEnvironment(repository.Alias), string.Empty);
+                JobExecutionContext.Repository(repository.Alias, repository.Caminho), source,
+                repositories!.ResolverAmbiente(repository.Alias), string.Empty);
         }
         catch (InvalidOperationException exception)
         {
@@ -108,7 +108,7 @@ public sealed class AgentContextResolver(
 
     private (AgentKind Agent, AgentSource Source) ResolveAgent(AgentKind? explicitAgent) =>
         explicitAgent is { } agent ? (agent, AgentSource.Explicit)
-            : ((settings?.Current ?? AssistantSettings.Default).DefaultAgent, AgentSource.Default);
+            : ((settings?.Atual ?? AssistantSettings.Default).DefaultAgent, AgentSource.Default);
 
     private static bool IsWithin(string path, string root)
     {

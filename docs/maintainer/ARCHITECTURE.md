@@ -93,8 +93,12 @@ Essa separação traz benefícios típicos de Ports & Adapters:
 - sessões não conhecem HTTP;
 - os detalhes de Claude e Codex ficam encapsulados em drivers.
 
-A divisão física Domain/Application/Infrastructure/hosts já existe. As abstrações
-e implementações legadas acima ainda vivem no Worker, aguardando extração.
+A divisão física Domain/Application/Infrastructure/hosts já existe. A #166 extraiu o
+primeiro lote (AD-38): `AgentKind` e `AssistantSettings` vivem no Domain, e o
+`AgentContextResolver`, com `JobExecutionContext` e `ResolvedRepositoryEnvironment`, vive na
+Application, sobre as portas `IWorkspaceGeral`, `ICatalogoDeRepositorios` e `IPreferenciasDoAssistente`,
+implementadas por `GeneralWorkspace`, `RepositoryRegistry` e `AssistantSettingsStore`.
+As demais abstrações e implementações legadas acima ainda vivem no Worker.
 
 A descrição correta é:
 
@@ -515,7 +519,8 @@ As decisões mais importantes para compreender a arquitetura atual são:
 - AD-15–20 — sessões, processos interativos, drivers e registry;
 - AD-21 — entrega Telegram independente da execução;
 - AD-22–24 — approval, session-first e modos;
-- AD-25/26 — modelo e esforço.
+- AD-25/26 — modelo e esforço;
+- AD-35–38 — camadas hexagonais, identidade/vocabulário, Mapster e extração do legado.
 
 Essas decisões são a justificativa histórica. Este documento é o mapa consolidado.
 

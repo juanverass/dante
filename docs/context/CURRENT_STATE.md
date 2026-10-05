@@ -207,6 +207,20 @@ AD-35/AD-36 formalizam a migração incremental, Guid Id via EntidadeBase (base 
 implementar na #171), FKs com Id no início e vocabulário PT-BR. Não há entidades
 Brain, EF, CRUD ou Mapster nesta fundação. PR #163 não foi incorporado.
 
+## Extração do núcleo (#166)
+
+Primeiro lote do legado fora do Worker, sem mudança de comportamento (AD-38):
+AgentKind e AssistantSettings no Domain; AgentContextResolver, JobExecutionContext
+e ResolvedRepositoryEnvironment na Application, sobre as portas PT-BR
+IWorkspaceGeral, ICatalogoDeRepositorios (RepositorioCadastrado) e
+IPreferenciasDoAssistente, implementadas pelos adapters do Worker. O Domain não
+carrega caminho, GitHub, variável do host nem ambiente; RepositoryDefinition segue
+no adapter. Nomes legados em inglês ficam como exceção temporária explícita, e
+`<Using>` globais no Worker/testes evitam big-bang. Testes arquiteturais cobrem
+referências do núcleo compilado, ausência de TId, de IO no núcleo e de conceitos
+operacionais no modelo do Domain. Sessões,
+jobs, drivers, Telegram e adapters externos seguem no Worker (#167 e lotes futuros).
+
 ## Host HTTP (#170)
 
 Dante.WebApi compõe Application/Infrastructure, sem referência ao Worker/Telegram.
@@ -226,12 +240,16 @@ própria Issue.
 
 ## Build e testes
 
-Estado conhecido com as features anteriores e a fundação hexagonal #165:
+Estado conhecido após a extração do núcleo #166:
 
 ```text
 dotnet build Dante.sln   sucesso, 3 avisos CA1416 nos testes de deploy
-dotnet test Dante.sln    757 testes aprovados, 18 pulados (evidência com CLIs e ferramentas reais, opt-in)
+dotnet test Dante.sln    784 testes aprovados, 18 pulados (evidência com CLIs e ferramentas reais, opt-in)
 ```
+
+`LocalServiceDeploymentTests.InstallWithoutTokenLeavesTheServiceDisabled` falhou no baseline da #166, antes de
+qualquer mudança, e segue falhando na mesma working tree; a causa (provavelmente ambiental) não foi
+investigada nesta Issue.
 
 `LiveSessionModeEvidenceTests` (#108), opt-in com `DANTE_LIVE_CLI=1`, passou para Claude Code
 2.1.287 e Codex 0.159.3 nas seis transições dirigidas entre modos, mantendo conversa e esforço
