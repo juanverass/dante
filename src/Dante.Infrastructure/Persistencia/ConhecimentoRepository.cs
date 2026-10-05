@@ -11,7 +11,7 @@ public sealed class ConhecimentoRepository(DanteDbContext context) : Repository<
         if (filtro.IdEspacoDeConhecimento == Guid.Empty || filtro.IdProjeto == Guid.Empty || filtro.Limite is < 1 or > 100)
             throw new ArgumentException("Filtro inválido.");
         var origem = filtro.Tag is null ? DbSet.AsQueryable() : DbSet.FromSqlInterpolated(
-            $"SELECT c.*, c.xmin FROM brain_data.conhecimentos c WHERE c.tags @> ARRAY[{filtro.Tag}]::text[]");
+            $"SELECT c.*, c.xmin FROM brain_data.conhecimentos c WHERE EXISTS (SELECT 1 FROM unnest(c.tags) AS t(tag) WHERE lower(t.tag) = lower({filtro.Tag}))");
         var query = origem.Where(x => x.IdEspacoDeConhecimento == filtro.IdEspacoDeConhecimento);
         if (filtro.IdProjeto is not null) query = query.Where(x => x.IdProjeto == filtro.IdProjeto);
         if (filtro.SomenteSemProjeto) query = query.Where(x => x.IdProjeto == null);

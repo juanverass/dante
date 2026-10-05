@@ -35,7 +35,7 @@ public sealed class BrainEfTests
             Assert.Equal("fonte", salvo.Historico[0].Proveniencia.ReferenciaDaFonte);
             Assert.Equal(StatusDoConhecimento.Confirmado, salvo.Status);
             Assert.Equal(new[] { "teste" }, salvo.Tags);
-            Assert.Single(await repo.ListarDoEspacoAsync(new() { IdEspacoDeConhecimento = espaco.Id, Tag = "teste", ValidoEm = DateTimeOffset.UtcNow }));
+            Assert.Single(await repo.ListarDoEspacoAsync(new() { IdEspacoDeConhecimento = espaco.Id, Tag = "TESTE", ValidoEm = DateTimeOffset.UtcNow }));
             Assert.Empty(await repo.ListarDoEspacoAsync(new() { IdEspacoDeConhecimento = espaco.Id, SomenteSemProjeto = true }));
             salvo.Corrigir(2, TipoDeConhecimento.Fato, "corrigido", null, null, Sensibilidade.Pessoal, null, null, [], Origem(), DateTimeOffset.UtcNow);
             repo.Atualizar(salvo);
