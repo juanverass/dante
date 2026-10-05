@@ -1,3 +1,4 @@
+using Dante.Application.SegurancaDoBrain;
 using Dante.Application.Comum;
 using Dante.Application.Conhecimentos;
 using Dante.Application.EspacosDeConhecimento;
@@ -16,6 +17,7 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
     public async Task<CandidatoDeConhecimentoDto> CapturarAsync(CapturaDeConhecimentoDto captura, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(captura);
+        ProtecaoDeSegredos.GarantirSeguro(captura.Conteudo, captura.Justificativa);
         await GarantirEscopoAsync(captura.IdEspacoDeConhecimento, captura.IdProjeto, true, cancellationToken);
         var candidato = Novo(captura);
         await ValidarConsolidacaoAsync(candidato, cancellationToken);
@@ -38,6 +40,7 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
         CapturaDeConhecimentoDto correcao, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(correcao);
+        ProtecaoDeSegredos.GarantirSeguro(correcao.Conteudo, correcao.Justificativa);
         var candidato = await ObterAsync(idEspaco, idProjeto, idCandidato, true, cancellationToken);
         if (correcao.IdEspacoDeConhecimento != idEspaco || correcao.IdProjeto != idProjeto || correcao.Natureza != candidato.Natureza ||
             correcao.IdIncidente != candidato.IdIncidente || correcao.IdSolucao != candidato.IdSolucao)
@@ -57,6 +60,8 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
         var candidato = await ObterAsync(idEspaco, idProjeto, idCandidato, true, cancellationToken);
         await ValidarConsolidacaoAsync(candidato, cancellationToken);
         var p = ConhecimentoAppService.ParaProveniencia(responsavel); var instante = DateTimeOffset.UtcNow;
+        ProtecaoDeSegredos.GarantirSeguro(candidato.Conteudo, candidato.Justificativa);
+        ConhecimentoAppService.ParaProveniencia(new ProvenienciaDto { IdResponsavel = candidato.Proveniencia.IdResponsavel, Origem = candidato.Proveniencia.Origem, ReferenciaDaFonte = candidato.Proveniencia.ReferenciaDaFonte, TrechoDaFonte = candidato.Proveniencia.TrechoDaFonte });
         var conhecimento = candidato.Promover(revisaoEsperada, p, instante);
         await conhecimentos.AdicionarAsync(conhecimento, cancellationToken);
         if (candidato.IdIncidente is not null)

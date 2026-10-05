@@ -389,3 +389,7 @@ deduplicação conservadora e confirmação transacional. Sugestões permanecem 
 inferências não viram fatos por confirmação. EF/migration de candidatos e consolidação
 Incidente/Solucao/Aprendizado com relações na mesma transação. Guia: [captura](../development/capture.md).
 Sem observador de transcripts/turnos; adapter natural Telegram e policy seguem #157/#150.
+
+## Política de sensibilidade (#155)
+
+Leitura protegida valida proprietário/escopo, limita Confidencial e impede Secreto em contexto automático, exportação e embeddings externos. Redaction centralizada e defesa de captura/correção rejeitam credenciais óbvias, incluindo evidências; referências secret://host/NOME não resolvem valores. Classificação corrigível com histórico; adapters futuros devem consumir a projeção protegida. Guia: [sensibilidade](../development/sensitivity.md).

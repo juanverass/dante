@@ -1,3 +1,4 @@
+using Dante.Application.SegurancaDoBrain;
 using Dante.Application.RelacoesDeConhecimento;
 using Dante.Domain.RelacoesDeConhecimento;
 using Dante.Application.Comum;
@@ -32,6 +33,7 @@ public sealed class ConhecimentoAppService : CrudBasicoAppService<ConhecimentoDt
     public override async Task<ConhecimentoDto> AdicionarAsync(ConhecimentoDto dto, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(dto);
+        ValidarConteudo(dto);
         await GarantirEscopoGravavelAsync(dto.IdEspacoDeConhecimento, dto.IdProjeto, cancellationToken);
         return await base.AdicionarAsync(dto, cancellationToken);
     }
@@ -44,6 +46,7 @@ public sealed class ConhecimentoAppService : CrudBasicoAppService<ConhecimentoDt
         var entidade = await conhecimentos.ObterPorIdAsync(id, cancellationToken);
         if (entidade is null) return null;
         await GarantirEscopoGravavelAsync(entidade.IdEspacoDeConhecimento, entidade.IdProjeto, cancellationToken);
+        ValidarConteudo(dto);
         AplicarAlteracoes(entidade, dto);
         conhecimentos.Atualizar(entidade);
         await UnitOfWork.SalvarAlteracoesAsync(cancellationToken);
@@ -110,7 +113,15 @@ public sealed class ConhecimentoAppService : CrudBasicoAppService<ConhecimentoDt
     internal static ProvenienciaDoConhecimento ParaProveniencia(ProvenienciaDto dto)
     {
         ArgumentNullException.ThrowIfNull(dto);
+        ProtecaoDeSegredos.GarantirSeguro(dto.Origem, dto.ReferenciaDaFonte, dto.RevisaoDaFonte, dto.TrechoDaFonte);
         return new(dto.IdResponsavel, dto.Origem, dto.ReferenciaDaFonte, dto.RevisaoDaFonte, dto.TrechoDaFonte);
+    }
+
+    private static void ValidarConteudo(ConhecimentoDto dto)
+    {
+        ParaProveniencia(dto.Proveniencia);
+        ProtecaoDeSegredos.GarantirSeguro(dto.Conteudo, dto.DadosEstruturados);
+        ProtecaoDeSegredos.GarantirSeguro(dto.Tags.ToArray());
     }
 
     private async Task GarantirEscopoGravavelAsync(Guid idEspaco, Guid? idProjeto, CancellationToken cancellationToken)
