@@ -1541,3 +1541,24 @@ independente de username. Configuração ausente/malformada e identidade não re
 negam acesso. Contextos diretos são reservados à administração explícita e fixtures;
 DI injeta o contexto autorizado mesmo quando ainda não há identidade. Migrations não
 são executadas automaticamente. O tenant local preserva a simplicidade single-user.
+
+## AD-46 — Contexto do Brain injetado no turno da conversa natural, por conversa upstream
+
+Status: vigente (#145).
+
+Mensagem comum que vai a uma sessão (aberta ou continuada) leva o PacoteDeContexto do
+escopo Brain selecionado no chat/tópico como dado citado antes do pedido do usuário, sem
+autoridade de sistema. O primeiro envio de cada conversa upstream é bootstrap (orçamento
+2048 tokens estimados, até 12 itens); os seguintes são refresh (1024, até 6) e omitem as
+chaves já injetadas na mesma revisão. Conta como injetado só o que a sessão aceitou
+(turno iniciado ou enfileirado). `/clear`, `/compact` confirmado e troca de espaço/projeto
+reiniciam o bootstrap; nenhum deles grava ou apaga Brain/ContextoDeTrabalho. O estado
+por sessão vive em memória, com chaves/revisões/custo e nunca conteúdo, e reinício do
+Worker só antecipa um novo bootstrap. `/steer`, `/vitrine` e one-shot não recebem pacote.
+
+Por quê: a continuidade vem do Brain, não do transcript; repetir o pacote a cada turno
+gastaria contexto, e só o adapter sabe quando a conversa upstream foi limpa. Troca de
+escopo segue a regra de AD-20: a sessão ativa continua e o aviso orienta `/clear`.
+
+Código: `Telegram/TelegramBrain.cs` (`IContinuidadeDoBrain`) e `TelegramPollingService`;
+testes em `ContinuidadeDoBrainTests`. Contrato: [continuidade](../development/continuidade-brain.md).

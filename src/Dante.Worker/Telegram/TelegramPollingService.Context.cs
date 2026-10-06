@@ -25,13 +25,15 @@ public sealed partial class TelegramPollingService
         foreach (var item in discarded?.Items ?? []) DeleteQuietly(item);
 
         var session = result.Session!;
+        continuidade?.ReiniciarSessao(session.Id);
         return $"Conversa da sessão {session.Id} limpa: a próxima mensagem começa do zero com o {session.Agent}, " +
                "sem o histórico anterior.\n" +
                $"Mantidos: {session.Context.Label}, modo {AgentSessionModes.Name(session.Profile)}, " +
                $"modelo {session.ModelLabel}, esforço {session.EffortLabel}.\n" +
                $"Nova conversa upstream: {session.UpstreamSessionId}.\n" +
                (discarded is null ? "" : $"{PendingCount(discarded, "descartada(s)", "descartado(s)")} da conversa anterior.\n") +
-               "Arquivos e instruções do repositório continuam disponíveis; limpar a conversa não renova as cotas de uso.";
+               "Arquivos e instruções do repositório continuam disponíveis; limpar a conversa não renova as cotas de uso." +
+               BrainKeptNotice();
     }
 
     // /compact (#121): the start is acknowledged at once and the outcome arrives in a second message when the agent
@@ -73,10 +75,16 @@ public sealed partial class TelegramPollingService
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
+    // Both act on the upstream conversation only (#145): the Brain, its knowledge and the working context stay as they are.
+    private string BrainKeptNotice() => continuidade?.Configurado == true
+        ? "\nO Brain e o contexto de trabalho não mudam; a próxima mensagem leva de novo o contexto relevante do Brain."
+        : string.Empty;
+
     private async Task NotifyCompactionAsync(long chatId, AgentSessionSnapshot session,
         Task<SessionCompactionResult> completion, CancellationToken cancellationToken)
     {
         var result = await completion;
+        if (result.Compacted) continuidade?.ReiniciarSessao(session.Id);
         var portuguese = CultureInfo.GetCultureInfo("pt-BR");
         var text = result.Compacted
             ? $"Conversa da sessão {session.Id} compactada: o {session.Agent} segue a mesma conversa a partir de um " +
@@ -85,7 +93,7 @@ public sealed partial class TelegramPollingService
                   ? $"Contexto informado pelo {session.Agent}: {pre.ToString("N0", portuguese)} → " +
                     $"{post.ToString("N0", portuguese)} tokens.\n"
                   : $"O {session.Agent} não informa o tamanho do contexto antes e depois da compactação.\n") +
-              "Compactar não apaga a conversa (para isso, /clear) nem renova as cotas de uso."
+              "Compactar não apaga a conversa (para isso, /clear) nem renova as cotas de uso." + BrainKeptNotice()
             : $"Compactação da sessão {session.Id} não concluída: {result.Error}";
         try
         {

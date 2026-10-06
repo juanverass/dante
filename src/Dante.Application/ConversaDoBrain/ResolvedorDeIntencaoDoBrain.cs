@@ -21,6 +21,10 @@ public static class ResolvedorDeIntencaoDoBrain
         if(confirmar.Success)return new(IntencaoDoBrain.Confirmar,Numero:Numero(confirmar.Groups["n"].Value));
         if(M(@"^(?:cancelar|cancele|nao,? cancele|desista)[.!]?$").Success)return new(IntencaoDoBrain.Cancelar);
         if(M(@"^(?:liste|listar|mostre|mostrar) (?:os )?candidatos(?: pendentes)?[.!]?$").Success)return new(IntencaoDoBrain.ListarCandidatos);
+        // Antes da captura: "registre o contexto de trabalho" atualiza o snapshot operacional, não cria candidato.
+        var contexto=M(@"^(?:atualize|atualizar|salve|salvar|registre|registrar)(?: o)? contexto de trabalho[:\s]*(?<texto>.*)$");
+        if(contexto.Success)return new(IntencaoDoBrain.AtualizarContexto,Corpo(contexto));
+        if(M(@"^(?:mostre|mostrar|exiba|exibir|qual e|qual)(?: o)? contexto de trabalho[?.!]?$").Success)return new(IntencaoDoBrain.MostrarContexto);
         var consulta=M(@"^(?:(?:o que (?:voce )?(?:sabe|sabemos)(?: sobre| de| a respeito de)?)|(?:busque|buscar|procure)(?: no brain)?)\s+(?<texto>.+)$");
         if(consulta.Success)return new(IntencaoDoBrain.Consultar,Corpo(consulta).TrimEnd('?'));
         var experiencia=M(@"^ja (?:resolvemos|vimos|lidamos com) (?:algo )?(?:parecido|semelhante)(?: (?:com|a|sobre))?[: ]*(?<texto>.*)$");

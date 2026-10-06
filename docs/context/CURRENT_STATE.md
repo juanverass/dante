@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-05, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140) e Brain por conversa natural (#157).
+Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157) e continuidade do Brain nas sessões (#145).
 
 ## Marcos
 
@@ -276,9 +276,9 @@ completa durante a #94 e de novo no baseline da #95; passa isolado e nas execuç
 ## Próximos marcos
 
 A Epic #133 tem [arquitetura alvo documentada](../maintainer/ARCHITECTURE.md#16-arquitetura-alvo-do-dante-brain-133-134)
-(AD-33, #134). Brain ainda não é integrado ao runtime; Knowledge Core existe em Domain/Application
-(#138), sem persistência ou entrada de canal. Search/Snapshot/Context Pack ainda não
-existem; a #135 formaliza armazenamento, e #160 depende da conclusão de ambas.
+(AD-33, #134). O Brain é opcional no runtime; Knowledge Core existe em Domain/Application
+(#138); persistência, busca, snapshot, Context Pack e a continuidade nas sessões (#145) foram
+entregues depois. Restam métricas de continuidade (#148) e a validação E2E go/no-go (#147).
 A arquitetura separa conhecimento, memória de trabalho e histórico; não altera
 persistência ou permissões do Worker atual.
 
@@ -447,7 +447,7 @@ expansão controlada de relações, snapshot ativo, rerank, deduplicação e or�
 itens/tokens estimados. Exclui obsoletos, Secret e conflitos abertos, inclusive quando
 a outra ponta é protegida. IDs/revisões/origens e motivos de descarte são rastreáveis;
 construção e confirmação de injeção são etapas distintas. Não usa transcript completo.
-A integração automática com os drivers continua na #145; [contrato](../development/context-builder.md).
+A integração às sessões da conversa natural é a #145; [contrato](../development/context-builder.md).
 
 ## Brain por conversa natural (#157)
 
@@ -458,3 +458,16 @@ destrutivas pedem alvo inequívoco e confirmação com revisão. Estado transit�
 por usuário/chat/tópico/escopo, com expiração e consumo único. IDs internos não são a
 UX principal. Sem banco ou em mensagens não Brain, fluxo legado continua disponível.
 [Exemplos e regras](../development/conversa-brain.md).
+
+## Continuidade do Brain nas sessões (#145)
+
+Mensagens comuns às sessões levam o PacoteDeContexto do escopo selecionado no chat/tópico
+como dado citado antes do pedido: bootstrap no primeiro envio de cada conversa upstream
+(2048 tokens estimados) e refresh só com chaves novas ou revisadas (1024). Só o aceito pela
+sessão conta como injetado; `/clear`, `/compact` concluído e troca de espaço/projeto
+reiniciam o bootstrap sem alterar Brain ou snapshot. Sessão nova, com Claude ou Codex,
+retoma pelo Brain, sem transcript. ContextoDeTrabalho é atualizado e consultado por
+conversa (`atualize o contexto de trabalho: ...`), Reply a uma resposta com `documente
+isso` cria candidato só do trecho citado, e `/status` mostra escopo e custo do último envio.
+Estado de injeção em memória; `/steer`, `/vitrine` e one-shot não recebem pacote (AD-46).
+[Continuidade](../development/continuidade-brain.md).

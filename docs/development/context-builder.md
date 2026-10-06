@@ -31,6 +31,9 @@ Construir não significa injetar: RegistrarInjecao só aceita chaves selecionada
 ser chamado pelo adapter após envio bem-sucedido. Não há marcação otimista de injeção,
 log de conteúdo ou armazenamento de transcript. Resultado vazio tem texto/custo zero.
 
-Esta issue entrega o caso de uso neutro, com retomada de snapshot em uma nova sessão de
-serviços. A integração automática aos drivers/sessões, seus comandos e observabilidade
-operacional pertencem à #145/#148, ainda bloqueadas; nenhum fluxo de sessão é alterado.
+`JaInjetados` (chave → revisão, até 500) descarta o que já está na conversa upstream na
+mesma revisão, com motivo próprio; revisão nova volta a ser elegível. O JSON mantém texto
+Unicode legível, sem `\uXXXX`, e continua escapando caracteres sensíveis a markup.
+
+A integração às sessões da conversa natural é da #145: [continuidade](continuidade-brain.md).
+Observabilidade operacional pertence à #148.

@@ -12,6 +12,8 @@ public sealed record PedidoDeContextoDto
     public int ProfundidadeDeRelacoes { get; init; } = 1;
     public bool IncluirSnapshot { get; init; } = true;
     public IReadOnlyList<string> FragmentosJaPresentes { get; init; } = [];
+    // Chave → revisão já injetadas na conversa upstream atual (refresh); revisão nova volta a ser elegível.
+    public IReadOnlyDictionary<string, int> JaInjetados { get; init; } = new Dictionary<string, int>();
 }
 public sealed record ItemDeContextoDto(string Chave, Guid Id, int Revisao, string Origem, TipoDeConhecimento? Tipo,
     StatusDoConhecimento? Status, Sensibilidade Sensibilidade, string Conteudo, string? Referencia,
