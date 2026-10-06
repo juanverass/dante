@@ -39,12 +39,13 @@ internal static class MapeamentosDaApplication
         {
             Id = espaco.Id,
             IdUsuario = espaco.IdUsuario,
+            IdTenant = espaco.IdTenant,
             Nome = espaco.Nome,
             Descricao = espaco.Descricao,
             Arquivado = espaco.Arquivado
         });
         configuracao.Registrar<EspacoDeConhecimentoDto, EspacoDeConhecimento>(dto =>
-            new EspacoDeConhecimento(dto.IdUsuario, dto.Nome, dto.Descricao));
+            new EspacoDeConhecimento(dto.IdUsuario, dto.Nome, dto.Descricao, dto.IdTenant));
     }
 
     // #136: a criação passa pelo constructor do domínio, sem aceitar Id, repositório nem estado do DTO.

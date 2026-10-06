@@ -5,6 +5,7 @@ namespace Dante.Application.EspacosDeConhecimento;
 public sealed record EspacoDeConhecimentoDto
 {
     public Guid Id { get; init; }
+    public Guid? IdTenant { get; init; } = Guid.Parse("da17e000-0000-0000-0000-000000000001");
     public Guid IdUsuario { get; init; }
     public string Nome { get; init; } = string.Empty;
     public string? Descricao { get; init; }

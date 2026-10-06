@@ -57,7 +57,7 @@ public sealed class QualidadeDoBrainTests
         await using(var c=banco.Contexto()){c.AddRange(e,a,b,x,y,expirado,semFonte,secreto);await c.SaveChangesAsync();}
         var acesso=new AcessoAoBrain(e.IdUsuario,e.Id,null);var decisao=Decisao(e.IdUsuario);using var provider=Provider(banco.ConnectionString);
         Guid idConflito;
-        using(var scope=provider.CreateScope())
+        using(var scope=EscoposBrainDeTeste.Criar(provider, e.IdUsuario, e.Id))
         {
             var s=scope.ServiceProvider.GetRequiredService<ManutencaoDoBrainAppService>();var report=await s.RevisarAsync(acesso,confirmarAntesDe:DateTimeOffset.UtcNow.AddMinutes(1));
             Assert.Contains(report.Achados,r=>r.Problema==ProblemaDeQualidade.PossivelDuplicata&&(r.IdConhecimento==a.Id||r.IdRelacionado==a.Id));
@@ -75,7 +75,7 @@ public sealed class QualidadeDoBrainTests
             await s.InvalidarAsync(acesso,new(expirado.Id,1),decisao);
             await s.ResolverConflitoAsync(acesso,idConflito,new(x.Id,2),new(y.Id,2),decisao);
         }
-        using(var scope=provider.CreateScope())
+        using(var scope=EscoposBrainDeTeste.Criar(provider, e.IdUsuario, e.Id))
         {
             var s=scope.ServiceProvider.GetRequiredService<ManutencaoDoBrainAppService>();var report=await s.RevisarAsync(acesso);
             Assert.NotNull(Assert.Single(report.Conflitos).ResolvidoEm);Assert.Equal(x.Id,report.Conflitos[0].IdEscolhido);
@@ -98,7 +98,7 @@ public sealed class QualidadeDoBrainTests
     {
         await using var banco=await Banco.CriarAsync();var e=new EspacoDeConhecimento(Guid.NewGuid(),"Espaço");var a=Novo(e.Id,"igual",fonte:"a");var b=Novo(e.Id,"igual",fonte:"b");
         await using(var c=banco.Contexto()){c.AddRange(e,a,b);await c.SaveChangesAsync();}
-        using var provider=Provider(banco.ConnectionString);using var sa=provider.CreateScope();using var sb=provider.CreateScope();
+        using var provider=Provider(banco.ConnectionString);using var sa=EscoposBrainDeTeste.Criar(provider, e.IdUsuario, e.Id);using var sb=EscoposBrainDeTeste.Criar(provider, e.IdUsuario, e.Id);
         var acesso=new AcessoAoBrain(e.IdUsuario,e.Id,null);var primeiro=sa.ServiceProvider.GetRequiredService<ManutencaoDoBrainAppService>();var segundo=sb.ServiceProvider.GetRequiredService<ManutencaoDoBrainAppService>();
         await primeiro.RevisarAsync(acesso);await segundo.RevisarAsync(acesso);
         await primeiro.ConsolidarAsync(acesso,new(a.Id,1),[new(b.Id,1)],Decisao(e.IdUsuario));
@@ -112,7 +112,7 @@ public sealed class QualidadeDoBrainTests
         await using var banco=await Banco.CriarAsync();var e=new EspacoDeConhecimento(Guid.NewGuid(),"Espaço");
         var a=Novo(e.Id,"opção A");var b=Novo(e.Id,"opção B");a.Confirmar(1,a.Proveniencia,DateTimeOffset.UtcNow);
         await using(var c=banco.Contexto()){c.AddRange(e,a,b);await c.SaveChangesAsync();}
-        using var provider=Provider(banco.ConnectionString);using var scope=provider.CreateScope();
+        using var provider=Provider(banco.ConnectionString);using var scope=EscoposBrainDeTeste.Criar(provider, e.IdUsuario, e.Id);
         var s=scope.ServiceProvider.GetRequiredService<ManutencaoDoBrainAppService>();var acesso=new AcessoAoBrain(e.IdUsuario,e.Id,null);var p=Decisao(e.IdUsuario);
         var conflito=await s.MarcarContradicaoAsync(acesso,new(a.Id,2),new(b.Id,1),p);
         await s.InvalidarAsync(acesso,new(b.Id,1),p);Assert.Empty(await s.SelecionarParaContextoAsync(acesso));

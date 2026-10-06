@@ -22,6 +22,8 @@ public static class DependencyInjection
         var connectionString = configuration.GetConnectionString("Dante");
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
+            services.AddScoped<Dante.Application.SegurancaDoBrain.AutorizacaoDoBrain>();
+            services.AddSingleton(_ => new Dante.Infrastructure.SegurancaDoBrain.IdentidadeTelegramDoBrain(configuration));
             services.AddDbContext<DanteDbContext>(options => options.UseNpgsql(connectionString,
                 provider => provider.MigrationsHistoryTable("__EFMigrationsHistory", "brain_meta")));
             services.AddScoped(typeof(IRepository<>), typeof(Repository<>));

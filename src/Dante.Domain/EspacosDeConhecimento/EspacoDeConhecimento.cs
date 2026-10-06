@@ -10,16 +10,21 @@ public sealed class EspacoDeConhecimento : EntidadeBase
     public const int TamanhoMaximoDoNome = 100;
     public const int TamanhoMaximoDaDescricao = 1000;
 
-    public EspacoDeConhecimento(Guid idUsuario, string nome, string? descricao = null)
+    private EspacoDeConhecimento() { Nome = string.Empty; }
+
+    public EspacoDeConhecimento(Guid idUsuario, string nome, string? descricao = null, Guid? idTenant = null)
     {
         if (idUsuario == Guid.Empty)
             throw new ArgumentException("Proprietário do espaço de conhecimento é obrigatório.", nameof(idUsuario));
         IdUsuario = idUsuario;
+        IdTenant = idTenant ?? Guid.Parse("da17e000-0000-0000-0000-000000000001");
+        if (IdTenant == Guid.Empty) throw new ArgumentException("Tenant é obrigatório.", nameof(idTenant));
         Nome = NomeValido(nome);
         Descricao = DescricaoValida(descricao);
     }
 
     // Proprietário do espaço; o escopo do Brain parte dele (AD-33).
+    public Guid IdTenant { get; private set; }
     public Guid IdUsuario { get; private set; }
     public string Nome { get; private set; }
     public string? Descricao { get; private set; }

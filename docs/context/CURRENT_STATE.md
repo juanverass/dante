@@ -406,3 +406,15 @@ Busca full-text PostgreSQL com fallback lexical, filtros de escopo/sensibilidade
 ## Qualidade do Brain (#159)
 
 Revisão manual limitada detecta duplicatas/contradições potenciais, órfãos, fontes sem referência e validade/confirmação. Consolidação explícita preserva todas as proveniências e substitui originais transacionalmente. CONTRADIZ tem resolução auditável; conflitos abertos, histórico inativo/substituído e itens fora de validade não entram na seleção neutra para contexto. Inferência não substitui confirmação automaticamente. Guia: [qualidade](../development/quality.md).
+## Isolamento do Brain (#150)
+
+Operações compostas por DI exigem identidade e escopo scoped, estabelecidos pelo adapter
+antes do acesso. Ausência de identidade falha fechado. Tenant/proprietário do espaço
+são imutáveis; filtros EF e validação de escrita cobrem espaços, projetos, conhecimento,
+candidatos, relações e snapshot. Busca e manutenção validam o mesmo contexto antes de
+consultas SQL. Telegram autorizado recebe identidade Guid determinística por tenant e
+ID numérico, estável após reinício; nomes e prompts não definem identidade/permissões.
+O tenant local é o padrão, com DANTE_BRAIN_TENANT opcional. Contextos construídos
+diretamente são administrativos (migrations/backup/fixtures), não uma porta de usuário.
+WebApi não oferece login nem endpoints Brain. Fontes e Context Builder devem reutilizar
+essa policy nas respectivas implementações.

@@ -9,6 +9,7 @@ public sealed class EspacoDeConhecimentoConfiguration : EntidadeConfiguration<Es
     {
         base.Configure(b);
         b.ToTable("espacos_de_conhecimento");
+        b.Property(x => x.IdTenant).HasColumnName("id_tenant");
         b.Property(x => x.IdUsuario).HasColumnName("id_usuario");
         b.Property(x => x.Nome).HasColumnName("nome").HasMaxLength(100);
         b.Property(x => x.Descricao).HasColumnName("descricao").HasMaxLength(1000);

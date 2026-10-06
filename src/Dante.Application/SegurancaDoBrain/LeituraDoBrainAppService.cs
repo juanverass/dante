@@ -4,7 +4,7 @@ using Dante.Application.Projetos;
 namespace Dante.Application.SegurancaDoBrain;
 
 public sealed class LeituraDoBrainAppService(IConhecimentoRepository conhecimentos,
-    IEspacoDeConhecimentoRepository espacos, IProjetoRepository projetos, PoliticaDeSensibilidade politica)
+    IEspacoDeConhecimentoRepository espacos, IProjetoRepository projetos, PoliticaDeSensibilidade politica, AutorizacaoDoBrain? autorizacao = null)
 {
     public async Task<LeituraProtegidaDto?> LerAsync(Guid id, AcessoAoBrain acesso, FinalidadeDeLeitura finalidade,
         CancellationToken cancellationToken = default)
@@ -17,6 +17,7 @@ public sealed class LeituraDoBrainAppService(IConhecimentoRepository conheciment
     public async Task ValidarAcessoAsync(AcessoAoBrain acesso, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(acesso);
+        autorizacao?.Exigir(acesso);
         var espaco = await espacos.ObterPorIdAsync(acesso.IdEspacoDeConhecimento, cancellationToken);
         if (acesso.IdUsuario == Guid.Empty || espaco is null || espaco.IdUsuario != acesso.IdUsuario || espaco.Arquivado)
             throw new UnauthorizedAccessException("Espaço não autorizado ou arquivado.");

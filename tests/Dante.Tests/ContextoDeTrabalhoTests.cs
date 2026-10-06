@@ -39,7 +39,7 @@ public sealed class ContextoDeTrabalhoTests
         await using var banco = await Banco.CriarAsync(); var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "Trabalho");
         await using (var c = banco.Contexto()) { c.Add(espaco); await c.SaveChangesAsync(); }
         using var provider = Provider(banco.ConnectionString); var acesso = new AcessoAoBrain(espaco.IdUsuario, espaco.Id, null);
-        using (var scope = provider.CreateScope())
+        using (var scope = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id))
         {
             var service = scope.ServiceProvider.GetRequiredService<ContextoDeTrabalhoAppService>();
             await service.SubstituirAsync(acesso, 0, Dados(), Sensibilidade.Trabalho, "seleção do usuário");
@@ -47,7 +47,7 @@ public sealed class ContextoDeTrabalhoTests
             await Assert.ThrowsAsync<ArgumentException>(() => service.SubstituirAsync(acesso, 1, Dados("senha=ab123456"), Sensibilidade.Secreto, "agente"));
             await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.RetomarAsync(acesso with { IdUsuario = Guid.NewGuid() }));
         }
-        using var a = provider.CreateScope(); using var b = provider.CreateScope();
+        using var a = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id); using var b = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id);
         var sa = a.ServiceProvider.GetRequiredService<ContextoDeTrabalhoAppService>(); var sb = b.ServiceProvider.GetRequiredService<ContextoDeTrabalhoAppService>();
         Assert.Equal("feito", (await sa.RetomarAsync(acesso))!.Dados.Progresso); await sb.RetomarAsync(acesso);
         await sa.SubstituirAsync(acesso, 1, Dados("novo"), Sensibilidade.Trabalho, "revisão");
@@ -55,14 +55,14 @@ public sealed class ContextoDeTrabalhoTests
         await using var verificar = banco.Contexto();
         Assert.Empty(await verificar.Set<Conhecimento>().ToListAsync());
         Assert.Equal("novo", (await verificar.Set<ContextoDeTrabalho>().SingleAsync()).Dados.Progresso);
-        using var novaSessao = provider.CreateScope(); Assert.Equal(2, (await novaSessao.ServiceProvider.GetRequiredService<ContextoDeTrabalhoAppService>().RetomarAsync(acesso))!.Revisao);
+        using var novaSessao = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id); Assert.Equal(2, (await novaSessao.ServiceProvider.GetRequiredService<ContextoDeTrabalhoAppService>().RetomarAsync(acesso))!.Revisao);
     }
     [PostgreSqlFact]
     public async Task ContextoSecretNaoRetomaAutomaticamenteNemDepoisDePermissao()
     {
         await using var banco = await Banco.CriarAsync(); var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "Pessoal");
         await using (var c = banco.Contexto()) { c.Add(espaco); await c.SaveChangesAsync(); }
-        using var provider = Provider(banco.ConnectionString); using var scope = provider.CreateScope();
+        using var provider = Provider(banco.ConnectionString); using var scope = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id);
         var service = scope.ServiceProvider.GetRequiredService<ContextoDeTrabalhoAppService>(); var acesso = new AcessoAoBrain(espaco.IdUsuario, espaco.Id, null, true, true);
         await service.SubstituirAsync(acesso, 0, Dados(), Sensibilidade.Secreto, "usuário");
         Assert.Null(await service.RetomarAsync(acesso));

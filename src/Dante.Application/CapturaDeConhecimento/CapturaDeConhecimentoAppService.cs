@@ -12,7 +12,7 @@ namespace Dante.Application.CapturaDeConhecimento;
 
 public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepository candidatos,
     IConhecimentoRepository conhecimentos, IEspacoDeConhecimentoRepository espacos, IProjetoRepository projetos,
-    IRelacaoDeConhecimentoRepository relacoes, IUnitOfWork unitOfWork, IMapsterTypeAdapter typeAdapter) : ICapturaDeConhecimentoAppService
+    IRelacaoDeConhecimentoRepository relacoes, IUnitOfWork unitOfWork, IMapsterTypeAdapter typeAdapter, AutorizacaoDoBrain? autorizacao = null) : ICapturaDeConhecimentoAppService
 {
     public async Task<CandidatoDeConhecimentoDto> CapturarAsync(CapturaDeConhecimentoDto captura, CancellationToken cancellationToken = default)
     {
@@ -97,7 +97,7 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
     private static CandidatoDeConhecimento Novo(CapturaDeConhecimentoDto dto) => new(dto.IdEspacoDeConhecimento, dto.IdProjeto,
         dto.Tipo, dto.Conteudo, dto.Sensibilidade, dto.Natureza, dto.Modo, dto.Justificativa,
         ConhecimentoAppService.ParaProveniencia(dto.Proveniencia), DateTimeOffset.UtcNow, dto.IdIncidente, dto.IdSolucao);
-    private CandidatoDeConhecimentoDto ParaDto(CandidatoDeConhecimento x) => typeAdapter.Mapear<CandidatoDeConhecimento, CandidatoDeConhecimentoDto>(x);
+    private CandidatoDeConhecimentoDto ParaDto(CandidatoDeConhecimento x) => SaidaAutorizadaDoBrain.Projetar(typeAdapter.Mapear<CandidatoDeConhecimento, CandidatoDeConhecimentoDto>(x), autorizacao);
     private async Task<CandidatoDeConhecimento> ObterAsync(Guid espaco, Guid? projeto, Guid id, bool gravar, CancellationToken ct)
     {
         await GarantirEscopoAsync(espaco, projeto, gravar, ct);
