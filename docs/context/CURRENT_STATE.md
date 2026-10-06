@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199), e composição modular da Infrastructure (#200).
+Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199), e composição modular da Infrastructure (#200), e ownership da composição na Application (#208).
 
 ## Marcos
 
@@ -568,10 +568,10 @@ restore e códigos 0/1 preservados.
 `AddInfrastructure` mantém a API pública e delega a extensões internas em
 `Composicao/`: banco/EF e administração, repositories e adapters do Brain,
 contexto local e execução de agentes. A classe pública `DependencyInjection` e seu
-namespace permanecem compatíveis. Sem conexão não há registros de banco/Brain;
-adapters locais continuam disponíveis. Lifetimes e registros existentes são
-preservados, sem mudança funcional nem transferência de AppServices para
-`AddApplication` (escopo da #208). Testes validam ausência de conexão, unicidade
+namespace permanecem compatíveis. Sem conexão não há registros de banco/adapters Brain;
+adapters locais continuam disponíveis. A #208 transfere os 22 registros próprios
+da Application para `AddApplication`, preservando lifetimes e a API dos hosts.
+Testes validam ausência de conexão, unicidade
 de registros, validação de DI e isolamento scoped/compartilhamento singleton.
 
 ## Proteções da Infrastructure (#201)
@@ -582,3 +582,13 @@ Testes arquiteturais impedem persistência/migrations nos hosts e migração no 
 Cobertura administrativa valida migrate idempotente, health pendente/histórico
 desconhecido e mensagem de falha sem credenciais; complementa os testes existentes
 de filtros, sensibilidade, UoW, concorrência e backup/restore em PostgreSQL real.
+
+## Ownership da composição na Application (#208)
+
+`AddApplication` registra autorização, AppServices e casos da conversa por lista
+explícita, além de mapping/policy. Serviços dependentes de ports usam factories
+scoped para conservar a inicialização sem banco; port ausente falha na resolução.
+Infrastructure registra apenas adapters técnicos. Validators/policies estáticos
+continuam puros. DI do DbContext exige autorização, sem fallback administrativo
+quando AddApplication é omitido. Testes de composição resolvem a lista integral
+com adapters e um CRUD com fakes sem Infrastructure (AD-54).

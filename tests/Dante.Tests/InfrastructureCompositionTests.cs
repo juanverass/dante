@@ -24,7 +24,9 @@ public sealed class InfrastructureCompositionTests
         });
         Assert.Null(provider.GetService<DanteDbContext>());
         Assert.Null(provider.GetService<IConhecimentoRepository>());
-        Assert.Null(provider.GetService<AutorizacaoDoBrain>());
+        using var scope = provider.CreateScope();
+        Assert.NotNull(scope.ServiceProvider.GetService<AutorizacaoDoBrain>());
+        Assert.Throws<InvalidOperationException>(() => scope.ServiceProvider.GetRequiredService<ConversaDoBrainAppService>());
         Assert.Null(provider.GetService<IEstadoDeConversaDoBrain>());
         Assert.Contains(services, s => s.ServiceType == typeof(Dante.Application.Contextos.IWorkspaceGeral));
         Assert.Contains(services, s => s.ServiceType == typeof(Dante.Application.Agentes.ICodexRunner));

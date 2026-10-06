@@ -11,7 +11,7 @@ public static class DependencyInjection
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        // Sem configuração, os hosts continuam operando sem banco ou serviços do Brain.
+        // Sem configuração, os hosts continuam operando sem banco ou adapters do Brain.
         var connectionString = configuration.GetConnectionString("Dante");
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
