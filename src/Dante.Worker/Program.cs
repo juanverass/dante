@@ -1,4 +1,4 @@
-using Dante.Infrastructure.Banco;
+using Dante.Infrastructure.Brain;
 using Dante.Application;
 using Dante.Infrastructure;
 using Dante.Worker;
@@ -8,7 +8,7 @@ builder.Services.AddApplication().AddInfrastructure(builder.Configuration).AddWo
 var host = builder.Build();
 if (args.FirstOrDefault() == "--brain")
 {
-    Environment.ExitCode = await ComandosDoBanco.ExecutarAsync(host.Services, args);
+    Environment.ExitCode = await ComandosDoBrain.ExecutarAsync(host.Services, args);
     return;
 }
 host.Run();

@@ -9,6 +9,8 @@ AddInfrastructure registra DbContext, UnitOfWork, repositories e AppServices sco
 registra o mapper compartilhado. O mesmo contexto coordena a transação por SaveChanges.
 O runtime não migra automaticamente. Os stores JSON legados e as sessões não são migrados.
 
+O fluxo de geração, listagem e validação está no [guia de migrations](../development/persistence.md#migrations-explícitas). Não há projeto Migrator separado; as migrations permanecem na Infrastructure.
+
 ## Preparar e operar
 
 Use PostgreSQL 17+ e clientes pg_dump/pg_restore da mesma versão major do servidor no PATH.
