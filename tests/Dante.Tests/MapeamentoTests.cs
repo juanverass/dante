@@ -92,6 +92,48 @@ public sealed class MapeamentoTests
         Assert.Equal("nome", appService.Consultar(new ExemploDto { Nome = "nome" }));
     }
 
+    // #204: cada feature registra seus pares; AddApplication continua compondo todos eles.
+    [Fact]
+    public void AddApplicationRegistraOsMappingsDeCadaFeature()
+    {
+        AssertRegistrado<Dante.Domain.EspacosDeConhecimento.EspacoDeConhecimento, Dante.Application.EspacosDeConhecimento.EspacoDeConhecimentoDto>();
+        AssertRegistrado<Dante.Application.EspacosDeConhecimento.EspacoDeConhecimentoDto, Dante.Domain.EspacosDeConhecimento.EspacoDeConhecimento>();
+        AssertRegistrado<Dante.Domain.Projetos.Projeto, Dante.Application.Projetos.ProjetoDto>();
+        AssertRegistrado<Dante.Application.Projetos.ProjetoDto, Dante.Domain.Projetos.Projeto>();
+        AssertRegistrado<Dante.Domain.Conhecimentos.Conhecimento, Dante.Application.Conhecimentos.ConhecimentoDto>();
+        AssertRegistrado<Dante.Application.Conhecimentos.ConhecimentoDto, Dante.Domain.Conhecimentos.Conhecimento>();
+        AssertRegistrado<Dante.Domain.ContextosDeTrabalho.ContextoDeTrabalho, Dante.Application.ContextosDeTrabalho.ContextoDeTrabalhoDto>();
+        AssertRegistrado<Dante.Domain.CapturaDeConhecimento.CandidatoDeConhecimento, Dante.Application.CapturaDeConhecimento.CandidatoDeConhecimentoDto>();
+        AssertRegistrado<Dante.Domain.RelacoesDeConhecimento.RelacaoDeConhecimento, Dante.Application.RelacoesDeConhecimento.RelacaoDeConhecimentoDto>();
+        AssertRegistrado<Dante.Domain.DocumentosFonte.DocumentoFonte, Dante.Application.DocumentosFonte.DocumentoFonteDto>();
+    }
+
+    [Fact]
+    public void MappingsFicamNaFeatureEAComposicaoNaoConheceDetalhes()
+    {
+        var mappings = typeof(ConfiguracaoMapeamento).Assembly.GetTypes()
+            .Where(t => t.Name.EndsWith("Mapping", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(["CandidatoDeConhecimento", "Conhecimento", "ContextoDeTrabalho", "DocumentoFonte",
+            "EspacoDeConhecimento", "Projeto", "RelacaoDeConhecimento"], mappings.Select(t => t.Name[..^"Mapping".Length]).Order());
+        Assert.All(mappings, t =>
+        {
+            Assert.True(t.IsAbstract && t.IsSealed && !t.IsPublic, $"{t.Name} deve ser internal static.");
+            Assert.NotEqual("Dante.Application.Mapeamento", t.Namespace);
+        });
+        var raiz = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(raiz, "Dante.sln"))) raiz = Path.GetDirectoryName(raiz)!;
+        var composicao = File.ReadAllText(Path.Combine(raiz, "src", "Dante.Application", "Mapeamento", "MapeamentosDaApplication.cs"));
+        Assert.DoesNotContain("Dante.Domain", composicao);
+        Assert.DoesNotContain("Registrar<", composicao);
+    }
+
+    private static void AssertRegistrado<TOrigem, TDestino>()
+    {
+        using var provider = Criar(config => config.Registrar<TOrigem, TDestino>(_ => default!));
+        var erro = Assert.Throws<InvalidOperationException>(() => provider.GetRequiredService<IMapsterTypeAdapter>());
+        Assert.Contains("duplicado", erro.Message);
+    }
+
     private static ServiceProvider Criar(Action<ConfiguracaoMapeamento> registrar) =>
         new ServiceCollection().AddApplication().AddMapeamentos(registrar).BuildServiceProvider();
 

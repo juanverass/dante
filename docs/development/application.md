@@ -36,10 +36,10 @@ consultas, geradores, estado externo) ou casos de uso internos. Os demais são
 | Validação de entrada | raiz | `Validacao/` |
 | Caso de uso auxiliar interno | raiz | `CasosDeUso/` |
 
-Subpastas só existem quando há arquivo para elas. Mappings ainda são registrados
-centralmente em `Mapeamento/MapeamentosDaApplication` ([mappings](mapping.md)); a
-#204 os traz para a feature e define o registro. Validators por feature são definidos
-pela #205; regra de negócio continua no Domain ou no AppService.
+Subpastas só existem quando há arquivo para elas. Cada feature com mappings tem um
+`<Entidade>Mapping` `internal static` na raiz, composto por
+`Mapeamento/MapeamentosDaApplication` ([mappings](mapping.md), #204). Validators por
+feature são definidos pela #205; regra de negócio continua no Domain ou no AppService.
 
 Módulo simples (`Projetos`):
 
@@ -48,6 +48,7 @@ Projetos/
 ├─ IProjetoAppService.cs
 ├─ IProjetoRepository.cs
 ├─ ProjetoAppService.cs
+├─ ProjetoMapping.cs
 ├─ ProjetoDto.cs
 └─ ProjetoSearchDto.cs
 ```

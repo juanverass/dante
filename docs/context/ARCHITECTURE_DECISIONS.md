@@ -1626,3 +1626,20 @@ a mappings (#204), validators (#205) e casos de uso extraídos (#206/#207), sem 
 namespaces públicos nem os consumidores na Infrastructure e nos hosts.
 Guia: [organização da Application](../development/application.md).
 
+## AD-51 — Mappings Mapster por feature, compostos por lista explícita
+
+Status: vigente (#204, Epic #202). Complementa a AD-37 e a AD-49.
+
+Cada feature da Application declara seus pares/direções numa classe
+`internal static <Entidade>Mapping` na raiz da feature, com
+`Registrar(ConfiguracaoMapeamento)`. Projeção reutilizada por outras features fica no
+mapping do dono do tipo (`ConhecimentoMapping.ParaProvenienciaDto`).
+`MapeamentosDaApplication` permanece só como composição: uma lista explícita de
+chamadas, sem expressões nem referência ao Domain, usada por `AddApplication` e
+`AddMapeamentos`. Não há descoberta por reflexão nem scan de assembly; continuam
+valendo `IMapsterTypeAdapter`, o registro explícito por par/direção e a criação por
+constructor do domínio (AD-37).
+
+Por quê: o arquivo central conhecia os detalhes de todas as features e crescia a cada
+uma; a lista explícita mantém a composição auditável sem acoplar o ponto central aos
+campos de cada contrato.
