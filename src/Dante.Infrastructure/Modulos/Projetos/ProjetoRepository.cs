@@ -3,7 +3,7 @@ using Dante.Domain.Projetos;
 using Microsoft.EntityFrameworkCore;
 using Dante.Infrastructure.Data;
 using Dante.Infrastructure.Persistence;
-namespace Dante.Infrastructure.Modulos;
+namespace Dante.Infrastructure.Modulos.Projetos;
 
 public sealed class ProjetoRepository(DanteDbContext context) : Repository<Projeto>(context), IProjetoRepository
 {

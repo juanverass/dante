@@ -3,9 +3,9 @@ using Dante.Domain.Projetos;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Dante.Infrastructure.Persistence;
-namespace Dante.Infrastructure.Modulos;
+namespace Dante.Infrastructure.Modulos.Projetos;
 
-public sealed class ProjetoConfiguration : EntidadeConfiguration<Projeto>
+public sealed class ProjetoDbMapping : EntidadeConfiguration<Projeto>
 {
     public override void Configure(EntityTypeBuilder<Projeto> b)
     {

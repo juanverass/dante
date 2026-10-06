@@ -2,9 +2,9 @@ using Dante.Domain.EspacosDeConhecimento;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Dante.Infrastructure.Persistence;
-namespace Dante.Infrastructure.Modulos;
+namespace Dante.Infrastructure.Modulos.EspacosDeConhecimento;
 
-public sealed class EspacoDeConhecimentoConfiguration : EntidadeConfiguration<EspacoDeConhecimento>
+public sealed class EspacoDeConhecimentoDbMapping : EntidadeConfiguration<EspacoDeConhecimento>
 {
     public override void Configure(EntityTypeBuilder<EspacoDeConhecimento> b)
     {

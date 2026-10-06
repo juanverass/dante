@@ -56,6 +56,27 @@ public sealed class PersistenciaTests
         Assert.DoesNotContain("CREATE EXTENSION", script);
     }
 
+    // #197: mapping e repository específico de cada entidade ficam em Modulos/<Modulo>, com o nome do módulo do
+    // Domain; Persistence guarda só a infraestrutura genérica compartilhada.
+    [Fact]
+    public void MappingsERepositoriesFicamNoModuloDaEntidade()
+    {
+        using var context = new DanteDbContext(new DbContextOptionsBuilder<DanteDbContext>()
+            .UseNpgsql("Host=localhost;Database=nao_conectar").Options);
+        var tipos = typeof(DanteDbContext).Assembly.GetTypes().Where(t => !t.IsAbstract && !t.IsNested).ToArray();
+        foreach (var entidade in context.Model.GetEntityTypes().Select(e => e.ClrType))
+        {
+            var modulo = $"Dante.Infrastructure.Modulos.{entidade.Namespace!.Split('.').Last()}";
+            var mapping = Assert.Single(tipos, t => t.GetInterfaces().Contains(typeof(IEntityTypeConfiguration<>).MakeGenericType(entidade)));
+            Assert.Equal($"{modulo}.{entidade.Name}DbMapping", mapping.FullName);
+            var repository = Assert.Single(tipos, t => t.BaseType == typeof(Repository<>).MakeGenericType(entidade));
+            Assert.Equal($"{modulo}.{entidade.Name}Repository", repository.FullName);
+        }
+        Assert.Equal(["EntidadeConfiguration`1", "Repository`1", "UnitOfWork"], typeof(DanteDbContext).Assembly.GetTypes()
+            .Where(t => t.Namespace == "Dante.Infrastructure.Persistence" && !t.IsNested && !t.Name.StartsWith('<'))
+            .Select(t => t.Name).Order());
+    }
+
     [Fact]
     public void ConfigurationPreservaIdEMapeiaConcorrenciaSemMembroNoDominio()
     {

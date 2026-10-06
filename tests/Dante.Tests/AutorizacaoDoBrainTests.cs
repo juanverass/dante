@@ -3,7 +3,7 @@ using Dante.Domain.EspacosDeConhecimento;
 using Dante.Domain.Conhecimentos;
 using Dante.Infrastructure.SegurancaDoBrain;
 using Dante.Infrastructure.Data;
-using Dante.Infrastructure.Modulos;
+using Dante.Infrastructure.Modulos.Conhecimentos;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

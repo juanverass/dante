@@ -6,9 +6,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Dante.Infrastructure.Persistence;
-namespace Dante.Infrastructure.Modulos;
+namespace Dante.Infrastructure.Modulos.Conhecimentos;
 
-public sealed class ConhecimentoConfiguration : EntidadeConfiguration<Conhecimento>
+public sealed class ConhecimentoDbMapping : EntidadeConfiguration<Conhecimento>
 {
     internal static string Serializar<T>(T valor) => JsonSerializer.Serialize(valor);
     internal static List<RevisaoDoConhecimento> LerHistorico(string valor) => JsonSerializer.Deserialize<List<RevisaoDoConhecimento>>(valor)!;

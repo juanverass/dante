@@ -1,7 +1,11 @@
 using Dante.Application.SegurancaDoBrain;
 using Dante.Domain.Conhecimentos;
 using Dante.Domain.CapturaDeConhecimento;
-using Dante.Infrastructure.Modulos;
+using Dante.Infrastructure.Modulos.CapturaDeConhecimento;
+using Dante.Infrastructure.Modulos.Conhecimentos;
+using Dante.Infrastructure.Modulos.EspacosDeConhecimento;
+using Dante.Infrastructure.Modulos.Projetos;
+using Dante.Infrastructure.Modulos.RelacoesDeConhecimento;
 using Dante.Infrastructure.Persistence;
 using Dante.Domain.EspacosDeConhecimento;
 namespace Dante.Tests;

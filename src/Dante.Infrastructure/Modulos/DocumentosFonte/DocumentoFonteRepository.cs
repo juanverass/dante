@@ -4,7 +4,7 @@ using Dante.Domain.DocumentosFonte;
 using Microsoft.EntityFrameworkCore;
 using Dante.Infrastructure.Data;
 using Dante.Infrastructure.Persistence;
-namespace Dante.Infrastructure.Modulos;
+namespace Dante.Infrastructure.Modulos.DocumentosFonte;
 public sealed class DocumentoFonteRepository(DanteDbContext c) : Repository<DocumentoFonte>(c), IDocumentoFonteRepository
 {
     public Task<DocumentoFonte?> ObterPelaOrigemAsync(AcessoAoBrain acesso, string origem, CancellationToken cancellationToken = default) =>

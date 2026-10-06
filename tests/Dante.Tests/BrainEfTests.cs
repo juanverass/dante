@@ -5,7 +5,7 @@ using Dante.Domain.EspacosDeConhecimento;
 using Dante.Domain.Projetos;
 using Dante.Infrastructure.Banco;
 using Dante.Infrastructure.Data;
-using Dante.Infrastructure.Modulos;
+using Dante.Infrastructure.Modulos.Conhecimentos;
 using Dante.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;

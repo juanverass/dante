@@ -3,10 +3,11 @@ using Dante.Domain.Conhecimentos;
 using Dante.Domain.RelacoesDeConhecimento;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Dante.Infrastructure.Modulos.Conhecimentos;
 using Dante.Infrastructure.Persistence;
-namespace Dante.Infrastructure.Modulos;
+namespace Dante.Infrastructure.Modulos.RelacoesDeConhecimento;
 
-public sealed class RelacaoDeConhecimentoConfiguration : EntidadeConfiguration<RelacaoDeConhecimento>
+public sealed class RelacaoDeConhecimentoDbMapping : EntidadeConfiguration<RelacaoDeConhecimento>
 {
     public override void Configure(EntityTypeBuilder<RelacaoDeConhecimento> b)
     {
@@ -18,11 +19,11 @@ public sealed class RelacaoDeConhecimentoConfiguration : EntidadeConfiguration<R
         b.Property(x => x.Tipo).HasColumnName("tipo");
         b.Property(x => x.CriadaEm).HasColumnName("criada_em");
         b.Property(x => x.Proveniencia).HasColumnName("proveniencia").HasColumnType("jsonb")
-            .HasConversion(x => ConhecimentoConfiguration.Serializar(x), x => JsonSerializer.Deserialize<ProvenienciaDoConhecimento>(x, (JsonSerializerOptions?)null)!);
+            .HasConversion(x => ConhecimentoDbMapping.Serializar(x), x => JsonSerializer.Deserialize<ProvenienciaDoConhecimento>(x, (JsonSerializerOptions?)null)!);
         b.Property(x => x.IdConhecimentoEscolhido).HasColumnName("id_conhecimento_escolhido");
         b.Property(x => x.ResolvidaEm).HasColumnName("resolvida_em");
         b.Property(x => x.ProvenienciaDaResolucao).HasColumnName("proveniencia_da_resolucao").HasColumnType("jsonb")
-            .HasConversion(x => ConhecimentoConfiguration.Serializar(x), x => JsonSerializer.Deserialize<ProvenienciaDoConhecimento>(x, (JsonSerializerOptions?)null));
+            .HasConversion(x => ConhecimentoDbMapping.Serializar(x), x => JsonSerializer.Deserialize<ProvenienciaDoConhecimento>(x, (JsonSerializerOptions?)null));
         b.HasOne<Conhecimento>().WithMany().HasForeignKey(x => new { x.IdConhecimentoEscolhido, x.IdEspacoDeConhecimento })
             .HasPrincipalKey(x => new { x.Id, x.IdEspacoDeConhecimento }).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => new { x.IdEspacoDeConhecimento, x.IdOrigem, x.IdDestino, x.Tipo }).IsUnique();
