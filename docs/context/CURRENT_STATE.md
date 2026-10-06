@@ -418,3 +418,13 @@ O tenant local é o padrão, com DANTE_BRAIN_TENANT opcional. Contextos constru�
 diretamente são administrativos (migrations/backup/fixtures), não uma porta de usuário.
 WebApi não oferece login nem endpoints Brain. Fontes e Context Builder devem reutilizar
 essa policy nas respectivas implementações.
+
+## Fontes brutas rastreáveis (#158)
+
+DocumentoFonte aceita notas, Markdown e texto local selecionado sob raiz explícita,
+com hash/revisão/escopo e isolamento da #150. Trechos Unicode reconstruíveis vivem em
+brain_index, com full-text e embeddings opcionais, e aparecem em BuscaDoBrain como
+FonteBruta. Selecionar um trecho cria candidato com citação exata; confirmação é
+separada. Reimportação exige revisão, invalida derivados e não muda conhecimento
+confirmado. Remoção limpa texto/índices, preservando citações já consolidadas.
+[Contrato e operação](../development/fontes.md).
