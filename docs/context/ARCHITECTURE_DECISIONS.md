@@ -1574,7 +1574,9 @@ e sessão. O histórico bruto de referência é medido na própria conversa (ped
 pacote e respostas); uma retomada compara a soma dos seus pacotes com o histórico das
 sessões anteriores do escopo. Limiares fixos (ganho ≤ 0,50; neutralidade ≤ 1,00) evitam
 ajustar o critério ao resultado. O uso informado pelas CLIs entra no `TurnCompletedEvent`
-quando existe e é exibido como está; ausência é "indisponível".
+quando existe e é exibido como está; ausência é "indisponível". Cada turno medido herda o
+escopo do envio que o abriu, por uma correlação opaca do `AgentInput` que a sessão
+devolve na conclusão daquele turno, mesmo após fila, steer ou troca de escopo.
 
 Por quê: a economia de contexto é hipótese da Epic #133; validá-la exige baseline e
 custo comparáveis, sem transcript e sem misturar telemetria ao Brain.

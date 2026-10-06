@@ -292,6 +292,25 @@ public sealed class AgentSessionTests
         Assert.Throws<InvalidOperationException>(() => session.MarkStarted(new AgentSessionStarted("again", 4242)));
     }
 
+    // #148: each completion returns the correlation of the input that opened its turn, also after the queue and when a
+    // steer goes ahead of it; turns opened without one return none.
+    [Fact]
+    public void TurnCompletionReturnsTheCorrelationOfTheInputThatOpenedIt()
+    {
+        var session = CreateSession(AgentDriverCapabilities.Claude);
+        Assert.Equal(SubmitOutcome.TurnStarted, session.Submit(new AgentInput("a", []) { Correlation = "a" }).Outcome);
+        Assert.Equal(SubmitOutcome.Queued, session.Submit(new AgentInput("b", []) { Correlation = "b" }).Outcome);
+        Assert.Equal(SubmitOutcome.SteerByInterrupt, session.Submit("guia", MessageDelivery.Steer).Outcome);
+
+        Assert.Equal("a", ((TurnCompletedEvent)session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Interrupted))).Correlation);
+        Assert.True(session.TryStartQueued(out _, out var steer));
+        Assert.Equal("guia", steer!.Text);
+        Assert.Null(((TurnCompletedEvent)session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Completed))).Correlation);
+        Assert.True(session.TryStartQueued(out _, out var queued));
+        Assert.Equal("b", queued!.Correlation);
+        Assert.Equal("b", ((TurnCompletedEvent)session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Completed))).Correlation);
+    }
+
     private static AgentSession CreateSession(AgentDriverCapabilities capabilities, bool started = true,
         SessionIdGenerator? ids = null)
     {

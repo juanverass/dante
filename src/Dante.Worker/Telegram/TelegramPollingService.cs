@@ -1030,7 +1030,8 @@ public sealed partial class TelegramPollingService(
         // once the session took it.
         var brainContext = continuidade is null ? null :
             await continuidade.PrepararAsync(message, sessionId, text, cancellationToken);
-        var result = await SessionSubmitAsync(userId, sessionId, new AgentInput(brainContext?.Texto ?? text, images),
+        var result = await SessionSubmitAsync(userId, sessionId,
+            new AgentInput(brainContext?.Texto ?? text, images) { Correlation = brainContext?.Correlacao },
             MessageDelivery.Queue, cancellationToken);
         if (brainContext is not null && result.Outcome is SubmitOutcome.TurnStarted or SubmitOutcome.Queued)
             await continuidade!.RegistrarInjecaoAsync(brainContext, cancellationToken);

@@ -12,12 +12,17 @@ public interface IContinuidadeDoBrain
     // Com escopo resolvido, devolve o texto do turno mesmo sem itens: a mensagem também mede o histórico bruto (#148).
     Task<ContextoParaTurno?> PrepararAsync(TelegramMessage mensagem,string idSessao,string texto,CancellationToken cancellationToken=default);
     Task RegistrarInjecaoAsync(ContextoParaTurno contexto,CancellationToken cancellationToken=default);
-    // Resposta do agente e uso informado pela CLI ao fim do turno de uma sessão com escopo Brain.
-    Task RegistrarTurnoAsync(string idSessao,string agente,int tokensDaResposta,AgentTurnOutcome resultado,AgentTokenUsage? uso,
+    // Resposta do agente e uso informado pela CLI ao fim do turno aberto pelo envio de mesma correlação: o escopo é o
+    // daquele envio, mesmo que outro escopo já tenha mensagem na fila.
+    Task RegistrarTurnoAsync(string? correlacao,string agente,int tokensDaResposta,AgentTurnOutcome resultado,AgentTokenUsage? uso,
         CancellationToken cancellationToken=default);
     // A conversa upstream foi limpa ou compactada: o próximo turno volta ao bootstrap. O Brain não muda.
     void ReiniciarSessao(string idSessao);
     string? EscopoSelecionado(TelegramMessage mensagem);
     string? DescreverStatus(TelegramMessage mensagem,string? idSessao);
 }
-public sealed record ContextoParaTurno(string IdSessao,string Escopo,string Texto,PacoteDeContextoDto Pacote,bool Bootstrap,MetricaDoBrainDto Envio);
+// Correlacao acompanha o AgentInput do envio até o fim do turno que ele abrir (#148).
+public sealed record ContextoParaTurno(string IdSessao,string Escopo,string Texto,PacoteDeContextoDto Pacote,bool Bootstrap,MetricaDoBrainDto Envio)
+{
+    public string Correlacao { get; } = Guid.NewGuid().ToString("N");
+}

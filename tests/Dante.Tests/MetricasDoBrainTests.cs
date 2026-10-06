@@ -89,14 +89,14 @@ public sealed class MetricasDoBrainTests
         var proximo=new SinkGravado();var continuidade=new Continuidade();var sink=new MetricasDeSessaoDoBrain(proximo,continuidade);
         var sessao=new AgentSessionSnapshot("S000001",AgentKind.Codex,123,JobExecutionContext.General("/tmp"),AgentPermissionProfile.Manual,
             AgentSessionState.Running,"T000001",0,[],true,DateTimeOffset.UtcNow,null,null);
-        await sink.PublishAsync(sessao,new MessageCompletedEvent("m1","ação"),CancellationToken.None);
-        await sink.PublishAsync(sessao,new MessageCompletedEvent("m2",new string('x',10)),CancellationToken.None);
-        await sink.PublishAsync(sessao,new TurnCompletedEvent(AgentTurnOutcome.Completed,Usage:new(100,7,90)),CancellationToken.None);
+        await sink.PublishAsync(sessao,new MessageCompletedEvent("m1","ação"){TurnId="T000001"},CancellationToken.None);
+        await sink.PublishAsync(sessao,new MessageCompletedEvent("m2",new string('x',10)){TurnId="T000001"},CancellationToken.None);
+        await sink.PublishAsync(sessao,new TurnCompletedEvent(AgentTurnOutcome.Completed,Usage:new(100,7,90)){TurnId="T000001",Correlation="envio-a"},CancellationToken.None);
         Assert.Equal(3,proximo.Eventos.Count);
         var turno=Assert.Single(continuidade.Turnos);
-        Assert.Equal(("S000001","Codex",6,AgentTurnOutcome.Completed,new AgentTokenUsage(100,7,90)),turno);
-        await sink.PublishAsync(sessao,new TurnCompletedEvent(AgentTurnOutcome.Failed,"erro"),CancellationToken.None);
-        Assert.Equal(0,continuidade.Turnos[1].Tokens);Assert.Null(continuidade.Turnos[1].Uso);
+        Assert.Equal(("envio-a","Codex",6,AgentTurnOutcome.Completed,new AgentTokenUsage(100,7,90)),turno);
+        await sink.PublishAsync(sessao,new TurnCompletedEvent(AgentTurnOutcome.Failed,"erro"){TurnId="T000002"},CancellationToken.None);
+        Assert.Null(continuidade.Turnos[1].Sessao);Assert.Equal(0,continuidade.Turnos[1].Tokens);Assert.Null(continuidade.Turnos[1].Uso);
     }
 
     private static MetricaDoBrainDto Envio(string sessao,int minuto,int pedido,int injetados=0,int pacote=0,bool boot=true)=>new()
@@ -117,12 +117,12 @@ public sealed class MetricasDoBrainTests
     }
     private sealed class Continuidade:IContinuidadeDoBrain
     {
-        public List<(string Sessao,string Agente,int Tokens,AgentTurnOutcome Resultado,AgentTokenUsage? Uso)> Turnos{get;}=[];
+        public List<(string? Sessao,string Agente,int Tokens,AgentTurnOutcome Resultado,AgentTokenUsage? Uso)> Turnos{get;}=[];
         public bool Configurado=>true;
         public Task<ContextoParaTurno?> PrepararAsync(TelegramMessage mensagem,string idSessao,string texto,CancellationToken cancellationToken=default)=>Task.FromResult<ContextoParaTurno?>(null);
         public Task RegistrarInjecaoAsync(ContextoParaTurno contexto,CancellationToken cancellationToken=default)=>Task.CompletedTask;
-        public Task RegistrarTurnoAsync(string idSessao,string agente,int tokensDaResposta,AgentTurnOutcome resultado,AgentTokenUsage? uso,CancellationToken cancellationToken=default)
-        {Turnos.Add((idSessao,agente,tokensDaResposta,resultado,uso));return Task.CompletedTask;}
+        public Task RegistrarTurnoAsync(string? correlacao,string agente,int tokensDaResposta,AgentTurnOutcome resultado,AgentTokenUsage? uso,CancellationToken cancellationToken=default)
+        {Turnos.Add((correlacao,agente,tokensDaResposta,resultado,uso));return Task.CompletedTask;}
         public void ReiniciarSessao(string idSessao){}
         public string? EscopoSelecionado(TelegramMessage mensagem)=>null;
         public string? DescreverStatus(TelegramMessage mensagem,string? idSessao)=>null;

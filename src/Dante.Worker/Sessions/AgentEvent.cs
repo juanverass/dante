@@ -69,4 +69,8 @@ public sealed record UserInputRequestedEvent(string UpstreamRequestId, IReadOnly
 public sealed record AgentTokenUsage(long? InputTokens, long? OutputTokens, long? CachedInputTokens = null);
 
 public sealed record TurnCompletedEvent(AgentTurnOutcome Outcome, string? Error = null, AgentTokenUsage? Usage = null)
-    : AgentEvent;
+    : AgentEvent
+{
+    // Correlation of the input that opened the turn, stamped by the session (#148).
+    public string? Correlation { get; init; }
+}

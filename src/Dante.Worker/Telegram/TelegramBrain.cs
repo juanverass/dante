@@ -121,11 +121,11 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
         catch(InvalidOperationException){return "Brain: item/estado mudou ou está indisponível. Refaça a consulta e confirme novamente.";}
         catch(Exception ex) when(ex is not OperationCanceledException){return "Brain indisponível. Confira a configuração do host.";}
     }
-    // Estado por sessão em memória: só chaves/revisões e custo do que foi aceito, nunca o conteúdo injetado. Ids do escopo
-    // servem às métricas locais (#148).
-    private sealed record Injecao(string Escopo,IReadOnlyDictionary<string,int> Injetados,DateTimeOffset AtualizadoEm,int Itens,int Tokens,bool Bootstrap,bool Snapshot,
-        MetricaDoBrainDto Ids);
+    // Estado por sessão em memória: só chaves/revisões e custo do que foi aceito, nunca o conteúdo injetado.
+    private sealed record Injecao(string Escopo,IReadOnlyDictionary<string,int> Injetados,DateTimeOffset AtualizadoEm,int Itens,int Tokens,bool Bootstrap,bool Snapshot);
     private readonly ConcurrentDictionary<string,Injecao> injecoes=new(StringComparer.Ordinal);
+    // Escopo de cada envio aceito até o fim do turno que ele abrir, pela correlação do AgentInput (#148).
+    private readonly ConcurrentDictionary<string,MetricaDoBrainDto> enviosAbertos=new(StringComparer.Ordinal);
     // IDs de sessão recomeçam a cada processo: o prefixo separa as sessões nas métricas.
     private readonly string instancia=Guid.NewGuid().ToString("N")[..8];
     public bool Configurado=>!string.IsNullOrWhiteSpace(configuration.GetConnectionString("Dante"));
@@ -177,20 +177,22 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
         var pacote=contexto.Pacote.RegistrarInjecao(contexto.Pacote.Itens.Select(x=>x.Chave).ToArray());
         injecoes.AddOrUpdate(contexto.IdSessao,_=>Nova(null),(_,atual)=>Nova(atual));
         if(injecoes.Count>200)foreach(var antiga in injecoes.OrderBy(x=>x.Value.AtualizadoEm).Take(injecoes.Count-200).ToArray())injecoes.TryRemove(antiga.Key,out _);
+        enviosAbertos[contexto.Correlacao]=contexto.Envio with{Em=DateTimeOffset.UtcNow};
+        // Envio descartado da fila (stop/clear) nunca termina um turno: o mais antigo sai quando passa do limite.
+        if(enviosAbertos.Count>1000)foreach(var antigo in enviosAbertos.OrderBy(x=>x.Value.Em).Take(enviosAbertos.Count-1000).ToArray())enviosAbertos.TryRemove(antigo.Key,out _);
         await GravarAsync(contexto.Envio with{Em=DateTimeOffset.UtcNow,Injetados=pacote.Registros.Count(x=>x.Estado=="injetado")},cancellationToken);
         Injecao Nova(Injecao? atual)
         {
             var injetados=new Dictionary<string,int>(atual is not null&&atual.Escopo==contexto.Escopo&&!contexto.Bootstrap?atual.Injetados:new Dictionary<string,int>(),StringComparer.Ordinal);
             if(injetados.Count+pacote.Itens.Count>500)injetados.Clear();
             foreach(var item in pacote.Itens)injetados[item.Chave]=item.Revisao;
-            return new(contexto.Escopo,injetados,DateTimeOffset.UtcNow,pacote.Custo.Itens,pacote.Custo.TokensEstimados,contexto.Bootstrap,pacote.Itens.Any(x=>x.Origem=="snapshot"),
-                contexto.Envio);
+            return new(contexto.Escopo,injetados,DateTimeOffset.UtcNow,pacote.Custo.Itens,pacote.Custo.TokensEstimados,contexto.Bootstrap,pacote.Itens.Any(x=>x.Origem=="snapshot"));
         }
     }
-    public async Task RegistrarTurnoAsync(string idSessao,string agente,int tokensDaResposta,AgentTurnOutcome resultado,AgentTokenUsage? uso,CancellationToken cancellationToken=default)
+    public async Task RegistrarTurnoAsync(string? correlacao,string agente,int tokensDaResposta,AgentTurnOutcome resultado,AgentTokenUsage? uso,CancellationToken cancellationToken=default)
     {
-        if(!injecoes.TryGetValue(idSessao,out var injecao))return;
-        var ids=injecao.Ids;
+        // Turno sem envio do Brain (steer, vitrine, sem escopo) não entra na medição.
+        if(correlacao is null||!enviosAbertos.TryRemove(correlacao,out var ids))return;
         await GravarAsync(new(){Tipo=MetricaDoBrainDto.Turno,Em=DateTimeOffset.UtcNow,IdTenant=ids.IdTenant,IdUsuario=ids.IdUsuario,IdEspacoDeConhecimento=ids.IdEspacoDeConhecimento,
             IdProjeto=ids.IdProjeto,IdSessao=ids.IdSessao,Agente=agente,Resultado=resultado.ToString(),TokensDaResposta=tokensDaResposta,
             EntradaReportada=uso?.InputTokens,SaidaReportada=uso?.OutputTokens,EntradaEmCache=uso?.CachedInputTokens},cancellationToken);

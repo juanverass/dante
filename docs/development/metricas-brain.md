@@ -13,8 +13,13 @@ zera a medição sem afetar conhecimento.
 | Registro | Quando | Campos |
 | --- | --- | --- |
 | `envio` | mensagem comum aceita por uma sessão com escopo Brain, com ou sem itens | bootstrap, candidatos recuperados, selecionados, injetados, descartados, tokens/caracteres do pacote, tokens do snapshot, tokens do pedido sem o pacote, conhecimentos e caracteres armazenados no escopo |
-| `turno` | fim de turno dessa sessão | resultado, tokens estimados da resposta, entrada/saída/cache informados pela CLI |
+| `turno` | fim do turno aberto por um envio | resultado, tokens estimados da resposta, entrada/saída/cache informados pela CLI |
 | `avaliacao` | `avalie a retomada: ...` | repetições, esclarecimentos, concluída, contexto adicional, incorretos/obsoletos, irrelevantes, relevantes |
+
+O turno é ligado ao envio que o abriu por uma correlação que acompanha a mensagem pela
+fila da sessão, e herda o escopo daquele envio: trocar de espaço/projeto com mensagem
+enfileirada não move a medida do turno em andamento. Turnos sem envio do Brain (`/steer`,
+`/vitrine`, sem escopo) não são medidos.
 
 Tokens estimados usam `ceil(bytes UTF-8 / 3)`, o mesmo critério do Context Builder; não
 são o tokenizer dos agentes. Uso informado pela CLI fica como está: Claude soma entrada

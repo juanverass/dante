@@ -122,7 +122,7 @@ public sealed class AgentSession(
 
                     return new SubmitResult(SubmitOutcome.Queued);
                 case AgentSessionState.Idle:
-                    return new SubmitResult(SubmitOutcome.TurnStarted, OpenTurn());
+                    return new SubmitResult(SubmitOutcome.TurnStarted, OpenTurn(input));
                 case AgentSessionState.Starting when delivery == MessageDelivery.Queue:
                     queue.AddLast(input);
                     return new SubmitResult(SubmitOutcome.Queued);
@@ -163,7 +163,7 @@ public sealed class AgentSession(
 
             queue.RemoveFirst();
             input = first.Value;
-            turnId = OpenTurn();
+            turnId = OpenTurn(first.Value);
             return true;
         }
     }
@@ -199,7 +199,7 @@ public sealed class AgentSession(
                 case UserInputRequestedEvent input:
                     return input with { RequestId = OpenRequest(turn, input.UpstreamRequestId, false,
                         input.Questions, false) };
-                case TurnCompletedEvent:
+                case TurnCompletedEvent completed:
                     ExpirePending();
                     activeTurn = null;
                     if (state is AgentSessionState.Running or AgentSessionState.WaitingForUser)
@@ -207,7 +207,7 @@ public sealed class AgentSession(
                         state = AgentSessionState.Idle;
                     }
 
-                    return stamped;
+                    return completed with { Correlation = turn.Correlation };
                 default:
                     return stamped;
             }
@@ -344,9 +344,9 @@ public sealed class AgentSession(
         }
     }
 
-    private string OpenTurn()
+    private string OpenTurn(AgentInput input)
     {
-        activeTurn = new Turn(ids.NextTurnId());
+        activeTurn = new Turn(ids.NextTurnId()) { Correlation = input.Correlation };
         state = AgentSessionState.Running;
         return activeTurn.Id;
     }
@@ -391,6 +391,7 @@ public sealed class AgentSession(
     private sealed class Turn(string id)
     {
         public string Id { get; } = id;
+        public string? Correlation { get; init; }
         public bool InterruptRequested { get; set; }
     }
 }
