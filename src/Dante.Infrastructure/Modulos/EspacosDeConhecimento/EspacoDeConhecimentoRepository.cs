@@ -3,7 +3,7 @@ using Dante.Domain.EspacosDeConhecimento;
 using Microsoft.EntityFrameworkCore;
 using Dante.Infrastructure.Data;
 using Dante.Infrastructure.Persistence;
-namespace Dante.Infrastructure.Modulos;
+namespace Dante.Infrastructure.Modulos.EspacosDeConhecimento;
 
 public sealed class EspacoDeConhecimentoRepository(DanteDbContext context) : Repository<EspacoDeConhecimento>(context), IEspacoDeConhecimentoRepository
 {
