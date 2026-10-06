@@ -563,7 +563,7 @@ sem migration nova ou projeto Migrator. Fluxo único de geração/listagem/valid
 e aplicação documentado no [guia](../development/persistence.md). Health, backup,
 restore e códigos 0/1 preservados.
 
-## Composição modular da Infrastructure (#200)
+## Composição modular da Infrastructure (#200, #201)
 
 `AddInfrastructure` mantém a API pública e delega a extensões internas em
 `Composicao/`: banco/EF e administração, repositories e adapters do Brain,
@@ -573,3 +573,12 @@ adapters locais continuam disponíveis. Lifetimes e registros existentes são
 preservados, sem mudança funcional nem transferência de AppServices para
 `AddApplication` (escopo da #208). Testes validam ausência de conexão, unicidade
 de registros, validação de DI e isolamento scoped/compartilhamento singleton.
+
+## Proteções da Infrastructure (#201)
+
+Guia [Infrastructure](../development/infrastructure.md) consolida estrutura, novas
+entidades/mappings/repositories, migrations e administração explícita sem Migrator.
+Testes arquiteturais impedem persistência/migrations nos hosts e migração no startup.
+Cobertura administrativa valida migrate idempotente, health pendente/histórico
+desconhecido e mensagem de falha sem credenciais; complementa os testes existentes
+de filtros, sensibilidade, UoW, concorrência e backup/restore em PostgreSQL real.
