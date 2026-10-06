@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199).
+Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199), e composição modular da Infrastructure (#200).
 
 ## Marcos
 
@@ -562,3 +562,14 @@ continuam em Data/Migrations, histórico em brain_meta e canônico em brain_data
 sem migration nova ou projeto Migrator. Fluxo único de geração/listagem/validação
 e aplicação documentado no [guia](../development/persistence.md). Health, backup,
 restore e códigos 0/1 preservados.
+
+## Composição modular da Infrastructure (#200)
+
+`AddInfrastructure` mantém a API pública e delega a extensões internas em
+`Composicao/`: banco/EF e administração, repositories e adapters do Brain,
+contexto local e execução de agentes. A classe pública `DependencyInjection` e seu
+namespace permanecem compatíveis. Sem conexão não há registros de banco/Brain;
+adapters locais continuam disponíveis. Lifetimes e registros existentes são
+preservados, sem mudança funcional nem transferência de AppServices para
+`AddApplication` (escopo da #208). Testes validam ausência de conexão, unicidade
+de registros, validação de DI e isolamento scoped/compartilhamento singleton.
