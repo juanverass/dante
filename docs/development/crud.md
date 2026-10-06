@@ -35,8 +35,8 @@ O AppService específico implementa obrigatoriamente:
 - `AplicarAlteracoes(TEntity, TDto)`: chama métodos do domínio. Nunca copia propriedades
   sobre a entidade (não há map-to-target, AD-37).
 
-Os mappings `TEntity → TDto` e `TDto → TEntity` são registrados explicitamente em
-`MapeamentosDaApplication`/`AddMapeamentos`, como define o [guia de mappings](mapping.md).
+Os mappings `TEntity → TDto` e `TDto → TEntity` são registrados explicitamente no
+`<Entidade>Mapping` da feature (ou por `AddMapeamentos`), como define o [guia de mappings](mapping.md).
 `CriarEntidade` e `ParaDto` podem ser sobrescritos quando a criação precisa de uma fábrica
 com dependências do caso de uso.
 

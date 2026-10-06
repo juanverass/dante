@@ -1642,3 +1642,21 @@ consulta continuam no `DanteDbContext` até a #198.
 Por quê: localizar tudo que implementa a persistência de um conceito sem busca global,
 como em `Infraestrutura/Modulos/<Modulo>` do ComandoFinanceiro, sem alterar o modelo EF
 (o EF não depende do nome nem do namespace da configuration).
+
+## AD-51 — Mappings Mapster por feature, compostos por lista explícita
+
+Status: vigente (#204, Epic #202). Complementa a AD-37 e a AD-49.
+
+Cada feature da Application declara seus pares/direções numa classe
+`internal static <Entidade>Mapping` na raiz da feature, com
+`Registrar(ConfiguracaoMapeamento)`. Projeção reutilizada por outras features fica no
+mapping do dono do tipo (`ConhecimentoMapping.ParaProvenienciaDto`).
+`MapeamentosDaApplication` permanece só como composição: uma lista explícita de
+chamadas, sem expressões nem referência ao Domain, usada por `AddApplication` e
+`AddMapeamentos`. Não há descoberta por reflexão nem scan de assembly; continuam
+valendo `IMapsterTypeAdapter`, o registro explícito por par/direção e a criação por
+constructor do domínio (AD-37).
+
+Por quê: o arquivo central conhecia os detalhes de todas as features e crescia a cada
+uma; a lista explícita mantém a composição auditável sem acoplar o ponto central aos
+campos de cada contrato.

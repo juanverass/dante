@@ -1,0 +1,40 @@
+using Dante.Application.Mapeamento;
+using Dante.Domain.Conhecimentos;
+
+namespace Dante.Application.Conhecimentos;
+
+internal static class ConhecimentoMapping
+{
+    internal static void Registrar(ConfiguracaoMapeamento configuracao)
+    {
+        configuracao.Registrar<ConhecimentoDto, Conhecimento>(dto => new Conhecimento(dto.IdEspacoDeConhecimento,
+            dto.IdProjeto, dto.Tipo, dto.Conteudo, dto.DadosEstruturados, dto.Status, dto.Confianca, dto.Sensibilidade,
+            dto.ValidoDesde, dto.ValidoAte, dto.Tags, ConhecimentoAppService.ParaProveniencia(dto.Proveniencia), DateTimeOffset.UtcNow));
+        configuracao.Registrar<Conhecimento, ConhecimentoDto>(entidade => ParaConhecimentoDto(entidade));
+    }
+
+    // ProvenienciaDto pertence a Conhecimentos; Captura e Relações reutilizam a mesma projeção explícita.
+    internal static ProvenienciaDto ParaProvenienciaDto(ProvenienciaDoConhecimento origem) => new()
+    {
+        IdResponsavel = origem.IdResponsavel, Origem = origem.Origem,
+        ReferenciaDaFonte = origem.ReferenciaDaFonte, RevisaoDaFonte = origem.RevisaoDaFonte, TrechoDaFonte = origem.TrechoDaFonte
+    };
+
+    private static ConhecimentoDto ParaConhecimentoDto(Conhecimento entidade) => new()
+    {
+        Id = entidade.Id, IdEspacoDeConhecimento = entidade.IdEspacoDeConhecimento, IdProjeto = entidade.IdProjeto,
+        IdAutor = entidade.IdAutor, Tipo = entidade.Tipo, Conteudo = entidade.Conteudo, DadosEstruturados = entidade.DadosEstruturados,
+        Status = entidade.Status, Confianca = entidade.Confianca, Sensibilidade = entidade.Sensibilidade,
+        CriadoEm = entidade.CriadoEm, AtualizadoEm = entidade.AtualizadoEm, ValidoDesde = entidade.ValidoDesde,
+        ValidoAte = entidade.ValidoAte, Tags = entidade.Tags.ToArray(), Proveniencia = ParaProvenienciaDto(entidade.Proveniencia),
+        Revisao = entidade.Revisao, IdConhecimentoSubstituto = entidade.IdConhecimentoSubstituto,
+        Historico = entidade.Historico.Select(revisao => new RevisaoDoConhecimentoDto
+        {
+            Numero = revisao.Numero, Tipo = revisao.Tipo, Conteudo = revisao.Conteudo, DadosEstruturados = revisao.DadosEstruturados,
+            Status = revisao.Status, Confianca = revisao.Confianca, Sensibilidade = revisao.Sensibilidade,
+            ValidoDesde = revisao.ValidoDesde, ValidoAte = revisao.ValidoAte, Tags = revisao.Tags.ToArray(),
+            Proveniencia = ParaProvenienciaDto(revisao.Proveniencia), RegistradaEm = revisao.RegistradaEm,
+            IdConhecimentoSubstituto = revisao.IdConhecimentoSubstituto
+        }).ToArray()
+    };
+}

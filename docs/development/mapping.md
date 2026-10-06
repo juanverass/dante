@@ -8,10 +8,19 @@ na base CRUD sem depender de um host ou de configuração estática do Mapster
 
 ## Registro e operação
 
-Mappings funcionais ficam em `Dante.Application/Mapeamento/MapeamentosDaApplication`.
+Mappings funcionais ficam na feature dona do conceito (#204): uma classe
+`internal static <Entidade>Mapping` com `Registrar(ConfiguracaoMapeamento)`, na raiz da
+pasta da feature (`Projetos/ProjetoMapping.cs`, `Conhecimentos/ConhecimentoMapping.cs`).
+Projeções reutilizadas por outras features ficam no mapping do dono do tipo
+(`ConhecimentoMapping.ParaProvenienciaDto`). `Mapeamento/MapeamentosDaApplication` só
+compõe: chama o `Registrar` de cada feature, numa lista explícita, sem expressões
+próprias nem referência ao Domain. Feature nova com mapping cria seu `<Entidade>Mapping`
+e entra nessa lista.
+
 O ponto explícito `AddMapeamentos(Action<ConfiguracaoMapeamento>)` permite registrar
-módulos da Application na composição, sem duplicação entre hosts. Não fazer scan
-indiscriminado de assemblies nem usar `TypeAdapterConfig.GlobalSettings`.
+mappings externos à Application na composição, sem duplicação entre hosts. Não fazer
+scan indiscriminado de assemblies, descoberta por reflexão nem usar
+`TypeAdapterConfig.GlobalSettings`.
 
 Cada **par e direção** exige `Registrar<TOrigem,TDestino>(expressao)`. A expressão
 é a projeção/fábrica completa, compilada pelo Mapster; nenhum campo é copiado por
@@ -62,7 +71,11 @@ acesso a conteúdo: policy/escopo continuam no caso de uso.
 `MapeamentoTests` cobre projeção explícita, omissão de campos sensíveis/Ids internos,
 criação pelo constructor com nova identidade e invariantes, recusa de pares/direções
 não registrados, configuração imutável/duplicada, isolamento/concurrency e injeção
-em AppService. Os testes arquiteturais continuam impedindo Mapster no Domain.
+em AppService. `AddApplicationRegistraOsMappingsDeCadaFeature` confirma os pares
+funcionais compostos por `AddApplication`, e
+`MappingsFicamNaFeatureEAComposicaoNaoConheceDetalhes` exige cada `<Entidade>Mapping`
+na sua feature e a composição sem expressões. Os testes arquiteturais continuam
+impedindo Mapster no Domain.
 
 Referências primárias: [MapWith](https://github.com/MapsterMapper/Mapster/wiki/Custom-conversion-logic)
 e [configuração/compilação](https://github.com/MapsterMapper/Mapster/wiki/Config-validation-%26-compilation).
