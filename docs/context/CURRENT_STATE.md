@@ -393,3 +393,7 @@ Sem observador de transcripts/turnos; adapter natural Telegram e policy seguem #
 ## Política de sensibilidade (#155)
 
 Leitura protegida valida proprietário/escopo, limita Confidencial e impede Secreto em contexto automático, exportação e embeddings externos. Redaction centralizada e defesa de captura/correção rejeitam credenciais óbvias, incluindo evidências; referências secret://host/NOME não resolvem valores. Classificação corrigível com histórico; adapters futuros devem consumir a projeção protegida. Guia: [sensibilidade](../development/sensitivity.md).
+
+## Contexto de trabalho (#156)
+
+Snapshot persistente por espaço/projeto, com campos operacionais selecionados e 8.000 caracteres. Atualização substitui versão ativa, conserva apenas metadados da revisão anterior e usa xmin. Retomada valida proprietário, sensibilidade e expiração; não cria Conhecimento ou guarda transcript/raciocínio privado. /clear e /compact continuam limitados à conversa upstream e não alteram snapshots. Guia: [contexto de trabalho](../development/working-context.md).
