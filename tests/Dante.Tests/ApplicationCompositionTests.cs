@@ -1,3 +1,4 @@
+using System.Reflection;
 using Dante.Application;
 using Dante.Application.Comum;
 using Dante.Application.ConversaDoBrain;
@@ -64,6 +65,47 @@ public sealed class ApplicationCompositionTests
         Assert.Throws<InvalidOperationException>(() => provider.GetRequiredService<ConversaDoBrainAppService>());
     }
 
+    // #209: com um fake para cada porta, todo serviço próprio resolve sem Infrastructure, banco ou host.
+    [Fact]
+    public void ApplicationResolveTodosOsServicosComFakesDosPorts()
+    {
+        var services = new ServiceCollection().AddApplication();
+        var proprios = services.Select(s => s.ServiceType).ToArray();
+        var portas = typeof(AutorizacaoDoBrain).Assembly.GetTypes().Where(t =>
+            t is { IsInterface: true, IsPublic: true, IsGenericTypeDefinition: false } && !proprios.Contains(t)).ToArray();
+        Assert.Contains(typeof(IUnitOfWork), portas);
+        foreach (var porta in portas) services.AddScoped(porta, _ => PortaFalsa.Criar(porta));
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
+        using var scope = provider.CreateScope();
+        Assert.All(proprios, tipo => Assert.NotNull(scope.ServiceProvider.GetRequiredService(tipo)));
+    }
+
+    [Fact]
+    public void AddApplicationEIdempotenteEPreservaRegistrosAnteriores()
+    {
+        var uma = new ServiceCollection().AddApplication();
+        var duas = new ServiceCollection().AddApplication().AddApplication();
+        Assert.Equal(uma.Select(s => (s.ServiceType, s.Lifetime)), duas.Select(s => (s.ServiceType, s.Lifetime)));
+
+        var fake = new PoliticaDeSensibilidade();
+        var services = new ServiceCollection().AddSingleton(fake).AddApplication();
+        Assert.Same(fake, Assert.Single(services, s => s.ServiceType == typeof(PoliticaDeSensibilidade)).ImplementationInstance);
+    }
+
+    // Mapping e policy são singletons sem estado de requisição; autorização, AppServices e casos da conversa são
+    // scoped, porque dependem de repositories/UoW scoped. Nenhum serviço próprio é transient.
+    [Fact]
+    public void LifetimesDaApplicationSaoCoerentes()
+    {
+        var services = new ServiceCollection().AddApplication();
+        Type[] singletons = [typeof(Dante.Application.Mapeamento.IMapsterTypeAdapter), typeof(PoliticaDeSensibilidade)];
+        Assert.All(services, s => Assert.Equal(singletons.Contains(s.ServiceType) ? ServiceLifetime.Singleton : ServiceLifetime.Scoped, s.Lifetime));
+
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        Assert.All(singletons, tipo => Assert.NotNull(provider.GetRequiredService(tipo)));
+        Assert.Throws<InvalidOperationException>(() => provider.GetRequiredService<AutorizacaoDoBrain>());
+    }
+
     [Fact]
     public void InfrastructureNaoRegistraImplementacoesDaApplication()
     {
@@ -74,6 +116,14 @@ public sealed class ApplicationCompositionTests
         Assert.DoesNotContain(services, s => s.ImplementationFactory?.Method.DeclaringType?.Assembly == application);
         using var provider = services.BuildServiceProvider();
         Assert.Throws<InvalidOperationException>(() => provider.GetRequiredService<DanteDbContext>());
+    }
+
+    // Fake genérico de porta: basta para compor; qualquer chamada falha explicitamente.
+    public class PortaFalsa : DispatchProxy
+    {
+        internal static object Criar(Type porta) => DispatchProxy.Create(porta, typeof(PortaFalsa));
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) =>
+            throw new NotSupportedException($"Porta falsa: {targetMethod?.Name}");
     }
 
     private sealed class EspacosEmMemoria : IEspacoDeConhecimentoRepository

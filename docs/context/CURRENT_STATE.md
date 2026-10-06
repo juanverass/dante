@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199), e composição modular da Infrastructure (#200), e ownership da composição na Application (#208).
+Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199), e composição modular da Infrastructure (#200), e ownership da composição na Application (#208), e regras arquiteturais executáveis da Application (#209).
 
 ## Marcos
 
@@ -506,7 +506,21 @@ mudança funcional nem de namespace; um teste arquitetural novo recusa namespace
 abaixo da feature. Mappings Mapster ficam em `<Entidade>Mapping` de cada feature, e
 `MapeamentosDaApplication` só compõe a lista explícita (AD-51,
 [mappings](../development/mapping.md)); pares, direções e payloads não mudaram.
-Validação, decomposição e DI seguem nas #205–#209 (Epic #202).
+Validação, decomposição, DI e regras executáveis vieram nas #205–#209 (Epic #202).
+
+## Regras arquiteturais da Application (#209)
+
+As fronteiras e a organização da Application são verificadas por testes:
+`ApplicationArchitectureTests` recusa referência além de Domain/Mapster/abstrações de
+DI, Domain com interface/mapper/validator/repository/DTO, porta declarada fora da
+Application, repository da Infrastructure sem a porta da feature homônima, arquivo
+fora da estrutura de módulo simples/complexo, tabela de classificação divergente do
+[guia](../development/application.md), validator/mapping fora da feature e host
+com AppService, validator, mapping, repository ou port implementada.
+`ApplicationCompositionTests` resolve todos os serviços de `AddApplication` com fakes
+dos ports, sem Infrastructure, e fixa idempotência e lifetimes. O guia documenta
+responsabilidade por camada, quando criar AppService/fachada ou extrair caso de uso
+e o roteiro de um módulo novo. Sem mudança de código de produção.
 
 ## Validação de entrada da Application (#205)
 
@@ -517,8 +531,7 @@ estáticos por feature e para o helper `Comum/ValidacaoDeEntrada` (AD-52,
 continuam no AppService e invariantes no Domain. Mensagens, tipos de exceção e
 `ParamName` foram preservados, e o check segue no mesmo ponto do fluxo. A Application
 passa a expor internals a `Dante.Tests`, como Infrastructure e Worker, para testar os
-validators isoladamente. `MetricasDoBrain` ainda não segue a convenção da AD-49 e
-mantém seu check inline.
+validators isoladamente. `MetricasDoBrain` mantém seu check inline.
 
 ## Isolamento técnico do DbContext (#198)
 
@@ -539,7 +552,7 @@ ContextoDaConversa existe por chamada e compartilha chave/estado/proveniência s
 service locator; o store continua responsável pelo consumo atômico e expiração.
 Respostas e regras de revisão/sensibilidade são preservadas. Testes diretos dos casos
 cobrem captura citada, inferência, proteção, preparação de correção e entrada inválida.
-O registro scoped acompanha a fachada na Infrastructure; ownership da DI segue na #208.
+O registro scoped acompanha a fachada em AddApplication (#208).
 
 ## Políticas de qualidade, contexto e métricas (#207)
 

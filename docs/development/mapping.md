@@ -49,7 +49,7 @@ DTO de criação é um contrato de entrada com campos permitidos, normalmente se
 Id/IDs internos. DTO de saída pode expor identidade conforme o caso de uso.
 DTOs/SearchDtos específicos usam PT-BR: EspacoDeConhecimentoDto,
 EspacoDeConhecimentoSearchDto, ProjetoDto, ProjetoSearchDto, ConhecimentoDto e
-ConhecimentoSearchDto. Esses contratos ainda serão implementados nas issues próprias.
+ConhecimentoSearchDto, cada um na sua feature.
 
 Entrada → entidade exige fábrica/constructor público do domínio que valida
 invariantes e gera Guid Id. Não aceitar Id do DTO automaticamente, não selecionar
