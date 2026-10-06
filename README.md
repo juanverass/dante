@@ -1524,3 +1524,11 @@ Captura prepara um candidato; diga `confirmar` para consolidar ou `cancelar`.
 Correções/invalidações/relações exigem alvo claro e confirmação. Use `listar espaços`,
 `usar espaço Nome`, `usar projeto Nome` ou `usar sem projeto`; não é necessário informar
 IDs nem editar o banco. `/brain ajuda` mostra exemplos. [Regras e limites](docs/development/conversa-brain.md).
+
+Com um espaço selecionado, as mensagens comuns às sessões levam automaticamente o contexto
+relevante do Brain: completo na primeira mensagem de cada conversa e, depois, só o que for
+novo. Registre o estado do trabalho com `atualize o contexto de trabalho: objetivo: ...;
+próximo passo: ...` e veja-o com `mostre o contexto de trabalho`; uma sessão nova, com
+Claude ou Codex, retoma a partir dele sem o histórico anterior. `/clear` e `/compact` não
+alteram o Brain, e `/status` mostra o escopo e o contexto enviado.
+[Continuidade](docs/development/continuidade-brain.md).

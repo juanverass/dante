@@ -3,16 +3,19 @@ using Dante.Application.DocumentosFonte;
 using Dante.Application.BuscaDoBrain;
 using Dante.Application.CapturaDeConhecimento;
 using Dante.Application.Conhecimentos;
+using Dante.Application.ContextosDeTrabalho;
 using Dante.Application.RelacoesDeConhecimento;
 using Dante.Application.SegurancaDoBrain;
 using Dante.Domain.CapturaDeConhecimento;
 using Dante.Domain.Conhecimentos;
+using Dante.Domain.ContextosDeTrabalho;
 using Dante.Domain.RelacoesDeConhecimento;
 namespace Dante.Application.ConversaDoBrain;
 
 public sealed class ConversaDoBrainAppService(BuscaDoBrainAppService busca,LeituraDoBrainAppService leitura,
     IConhecimentoAppService conhecimentos,ICapturaDeConhecimentoAppService captura,IRelacaoDeConhecimentoAppService relacoes,
-    InspecaoDoBrainAppService auditoria,DocumentoFonteAppService documentos,IDocumentoFonteRepository fontes,AutorizacaoDoBrain autorizacao,IEstadoDeConversaDoBrain estados)
+    InspecaoDoBrainAppService auditoria,DocumentoFonteAppService documentos,IDocumentoFonteRepository fontes,AutorizacaoDoBrain autorizacao,IEstadoDeConversaDoBrain estados,
+    ContextoDeTrabalhoAppService snapshots)
 {
     public async Task<string?> AtenderAsync(AcessoAoBrain acesso,PedidoDeConversaDto pedido,CancellationToken cancellationToken=default)
     {
@@ -155,6 +158,10 @@ public sealed class ConversaDoBrainAppService(BuscaDoBrainAppService busca,Leitu
                 var export=await auditoria.ExportarAsync(acesso,cancellationToken);
                 if(export.Markdown.Length>12000)return "A exportação é maior que o limite desta conversa. Use a exportação local Markdown/JSON para salvar os arquivos.";
                 return export.Markdown;
+            case IntencaoDoBrain.AtualizarContexto:return await AtualizarContextoAsync(intencao.Texto);
+            case IntencaoDoBrain.MostrarContexto:
+                var contextoAtual=await snapshots.RetomarAsync(acesso,cancellationToken);
+                return contextoAtual is null?"Nenhum contexto de trabalho ativo neste escopo. "+FormatoDoContexto:DescreverContexto(contextoAtual);
             default:return null;
         }
         AlvoDeConversaDto? Unico(TipoDeConhecimento tipo)=>estado.Resultados.Count(x=>x.Tipo==tipo&&x.Origem=="conhecimento")==1?estado.Resultados.Single(x=>x.Tipo==tipo&&x.Origem=="conhecimento"):null;
@@ -196,6 +203,33 @@ public sealed class ConversaDoBrainAppService(BuscaDoBrainAppService busca,Leitu
             Guardar(estado with{Pendente=Pendente("captura",alvo)});
             return $"Preparei um candidato ({candidato.Tipo}, {candidato.Sensibilidade}): {alvo.Descricao}\nNão é um fato confirmado. Diga confirmar para consolidar ou cancelar.";
         }
+        // Snapshot operacional selecionado pelo usuário (#145): campos omitidos são mantidos e listas informadas substituem
+        // as anteriores. Não cria Conhecimento nem guarda a conversa.
+        async Task<string> AtualizarContextoAsync(string corpo)
+        {
+            if(string.IsNullOrWhiteSpace(corpo))return FormatoDoContexto;
+            var campos=new Dictionary<string,string>(StringComparer.Ordinal);var listas=new Dictionary<string,List<string>>(StringComparer.Ordinal);
+            foreach(var parte in corpo.Split([';','\n'],StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries))
+            {
+                var colon=parte.IndexOf(':');
+                var campo=colon<=0?null:ResolvedorDeIntencaoDoBrain.Normalizar(parte[..colon].Trim()) switch
+                {
+                    "objetivo"=>"objetivo","tarefa"=>"tarefa","progresso"=>"progresso","resultado" or "ultimo resultado"=>"resultado",
+                    "pendencia" or "pendencias"=>"pendencias","proximo passo" or "proximos passos"=>"passos","referencia" or "referencias"=>"referencias",_=>null
+                };
+                var valor=colon<=0?"":parte[(colon+1)..].Trim();
+                if(campo is null||valor.Length==0)return "Campo do contexto de trabalho não reconhecido ou vazio; nada foi alterado. "+FormatoDoContexto;
+                if(campo is "pendencias" or "passos" or "referencias"){if(!listas.TryGetValue(campo,out var lista))listas[campo]=lista=[];lista.Add(valor);}
+                else campos[campo]=valor;
+            }
+            var anterior=await snapshots.RetomarAsync(acesso,cancellationToken);var d=anterior?.Dados;
+            string Campo(string nome,string? atual)=>campos.TryGetValue(nome,out var valor)?valor:atual??"não informado";
+            IReadOnlyList<string> Lista(string nome,IReadOnlyList<string>? atual)=>listas.TryGetValue(nome,out var valor)?valor:atual??[];
+            var dados=new DadosDoContexto(Campo("objetivo",d?.Objetivo),Campo("tarefa",d?.Tarefa),Campo("progresso",d?.Progresso),d?.IdsDecisoesConfirmadas??[],
+                Lista("referencias",d?.Referencias),Lista("pendencias",d?.Pendencias),Lista("passos",d?.ProximosPassos),Campo("resultado",d?.UltimoResultado));
+            var salvo=await snapshots.SubstituirAsync(acesso,anterior?.Revisao??0,dados,anterior?.Sensibilidade??Sensibilidade.Pessoal,"conversa explícita",anterior?.ExpiraEm,cancellationToken);
+            return "Contexto de trabalho atualizado.\n"+DescreverContexto(salvo);
+        }
         async Task<string> OrigemAsync(AlvoDeConversaDto? alvo)
         {
             if(alvo is null)return "Escolha um resultado inequívoco na última consulta.";
@@ -222,6 +256,15 @@ public sealed class ConversaDoBrainAppService(BuscaDoBrainAppService busca,Leitu
             }
             return $"{item.Tipo}; {item.Status}; {item.Sensibilidade}; revisão {item.Revisao}.\n"+(linhas.Count==0?$"Origem: {Resumir(item.Proveniencia.Origem,200)}.":string.Join('\n',linhas));
         }
+    }
+    private const string FormatoDoContexto="Diga: atualize o contexto de trabalho: objetivo: ...; tarefa: ...; progresso: ...; resultado: ...; pendência: ...; próximo passo: ...; referência: ... Campos omitidos são mantidos; listas informadas substituem as anteriores.";
+    private static string DescreverContexto(ContextoDeTrabalhoDto contexto)
+    {
+        var d=contexto.Dados;string Lista(IReadOnlyList<string> itens)=>itens.Count==0?"nenhum":string.Join("; ",itens.Select(x=>Resumir(x,500)));
+        return $"Contexto de trabalho (revisão {contexto.Revisao}, {contexto.Sensibilidade}):\nObjetivo: {Resumir(d.Objetivo,2000)}\nTarefa: {Resumir(d.Tarefa,2000)}\n"+
+            $"Progresso: {Resumir(d.Progresso,2000)}\nÚltimo resultado: {Resumir(d.UltimoResultado,2000)}\nPendências: {Lista(d.Pendencias)}\n"+
+            $"Próximos passos: {Lista(d.ProximosPassos)}\nReferências: {Lista(d.Referencias)}\nDecisões confirmadas referenciadas: {d.IdsDecisoesConfirmadas.Count}.\n"+
+            "É estado operacional, não fato confirmado; entra no contexto das próximas sessões deste escopo, e /clear e /compact não o alteram.";
     }
     private static string Resumir(string texto,int limite)
     {

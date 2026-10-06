@@ -34,7 +34,8 @@ public sealed partial class TelegramPollingService(
     MediaPreparer? media = null,
     TelegramShowcase? showcase = null,
     IUsageQuotaReader? usage = null,
-    TelegramBrain? brain = null) : BackgroundService
+    TelegramBrain? brain = null,
+    IContinuidadeDoBrain? continuidade = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private const string EffortOption = "effort=";
@@ -53,6 +54,8 @@ public sealed partial class TelegramPollingService(
     private TelegramMediaReceiver? mediaReceiver;
     // Updates are handled one at a time; an album that completes later joins the same line (#95).
     private readonly SemaphoreSlim updateGate = new(1, 1);
+    // Brain context in the natural conversation (#145): the composed TelegramBrain unless a test supplies another.
+    private readonly IContinuidadeDoBrain? continuidade = continuidade ?? brain;
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -206,9 +209,11 @@ public sealed partial class TelegramPollingService(
 
     private async Task HandleTextAsync(TelegramMessage message, string text, CancellationToken cancellationToken)
     {
+        var brainScope = continuidade?.EscopoSelecionado(message);
         if (brain is not null && await brain.AtenderAsync(message, text, cancellationToken) is { } respostaBrain)
         {
-            await SendLongMessageAsync(message.Chat.Id, respostaBrain, cancellationToken);
+            await SendLongMessageAsync(message.Chat.Id, respostaBrain + BrainScopeNotice(message, brainScope),
+                cancellationToken);
             return;
         }
         if (string.Equals(text, "/ping", StringComparison.OrdinalIgnoreCase))
@@ -277,6 +282,8 @@ public sealed partial class TelegramPollingService(
                     FormatSession(session) + (session.Error is null || delivery.HidesOutput(session.Id)
                         ? string.Empty : $" | erro: {session.Error}")));
             }
+            if (continuidade?.DescreverStatus(message, sessions?.GetActive(message.From!.Id)?.Id) is { } brainStatus)
+                response += "\n\n" + brainStatus;
             if (pending?.Get(message.From!.Id) is { } batch)
                 response += $"\n\nAnexos pendentes: {batch.Items.Count} " +
                     $"{(batch.Items.All(item => item.Kind == AttachmentKind.Image) ? "imagem(ns)" : "arquivo(s)")}, {batch.Bytes / 1024} KB, " +
@@ -1018,8 +1025,13 @@ public sealed partial class TelegramPollingService(
             await SendReplyAsync(chatId, ImagesUnavailable, cancellationToken);
             return;
         }
-        var result = await SessionSubmitAsync(userId, sessionId, new AgentInput(text, images), MessageDelivery.Queue,
-            cancellationToken);
+        // The Brain package goes with the text as quoted data (#145); it counts as injected only once the session took it.
+        var brainContext = continuidade is null ? null :
+            await continuidade.PrepararAsync(message, sessionId, text, cancellationToken);
+        var result = await SessionSubmitAsync(userId, sessionId, new AgentInput(brainContext?.Texto ?? text, images),
+            MessageDelivery.Queue, cancellationToken);
+        if (brainContext is not null && result.Outcome is SubmitOutcome.TurnStarted or SubmitOutcome.Queued)
+            continuidade!.RegistrarInjecao(brainContext);
         var reply = result.Outcome switch
         {
             SubmitOutcome.TurnStarted => null,
@@ -1410,6 +1422,17 @@ public sealed partial class TelegramPollingService(
 
     // The delivery identifies output of every session other than the one selected here (AD-23).
     private void SyncActiveSession(long userId) => delivery.SetActiveSession(userId, sessions?.GetActive(userId)?.Id);
+
+    // A Brain space/project change keeps the active session (#145, like AD-20): its next message gets the new scope's
+    // context, while what was sent before stays in the upstream conversation until /clear.
+    private string BrainScopeNotice(TelegramMessage message, string? before) =>
+        before is not null && continuidade!.EscopoSelecionado(message) != before &&
+        sessions?.GetActive(message.From!.Id) is { State: not (AgentSessionState.Failed or AgentSessionState.Closing or
+            AgentSessionState.Closed) } active
+            ? $"\nA sessão ativa {active.Id} ({active.Agent}, {active.Context.Label}) continua: a próxima mensagem leva o " +
+              "contexto do Brain do novo escopo. O que foi enviado do escopo anterior segue na conversa; use /clear para " +
+              "removê-lo ou /session start para outra conversa."
+            : string.Empty;
 
     // AD-20: preferences apply to new sessions only; say that the active one is kept instead of switching silently.
     private string KeptSessionNotice(long userId, Func<AgentSessionSnapshot, bool> differs, string purpose) =>

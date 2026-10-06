@@ -22,7 +22,8 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
         ArgumentNullException.ThrowIfNull(pedido);await leitura.ValidarAcessoAsync(acesso,cancellationToken);
         if(string.IsNullOrWhiteSpace(pedido.Mensagem) || pedido.Mensagem.Length>2000 || pedido.OrcamentoDeTokens is < 64 or > 32000 ||
             pedido.LimiteDeItens is < 1 or > 100 || pedido.LimiteDeCandidatos is < 1 or > 100 || pedido.ProfundidadeDeRelacoes is < 0 or > 3 ||
-            pedido.FragmentosJaPresentes.Count>20 || pedido.FragmentosJaPresentes.Any(x=>x.Length>8000) || pedido.FragmentosJaPresentes.Sum(x=>x.Length)>32000)
+            pedido.FragmentosJaPresentes.Count>20 || pedido.FragmentosJaPresentes.Any(x=>x.Length>8000) || pedido.FragmentosJaPresentes.Sum(x=>x.Length)>32000 ||
+            pedido.JaInjetados.Count>500)
             throw new ArgumentException("Limites do contexto inválidos.");
         var automatico=acesso with{PermitirSecreto=false};
         var termo=string.IsNullOrWhiteSpace(pedido.Filtros.Texto)?pedido.Mensagem:pedido.Filtros.Texto;
@@ -95,7 +96,8 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
                 !selecionados.Any(x=>Normalizar(x.Conteudo).Contains(Normalizar(c),StringComparison.Ordinal))))};
             var item=candidato with{TokensEstimados=EstimarTokens(Formatar(candidato))};
             var normal=Normalizar(item.Conteudo);string? descarte=null;
-            if(string.IsNullOrWhiteSpace(normal)||normalizados.Contains(normal)||Coberto(item.Conteudo,presentes) ||
+            if(pedido.JaInjetados.TryGetValue(item.Chave,out var revisaoInjetada) && revisaoInjetada==item.Revisao)descarte="Já injetado nesta conversa upstream, na mesma revisão.";
+            else if(string.IsNullOrWhiteSpace(normal)||normalizados.Contains(normal)||Coberto(item.Conteudo,presentes) ||
                 selecionados.Any(x=>Normalizar(x.Conteudo).Contains(normal,StringComparison.Ordinal)))descarte="Conteúdo já presente no prompt/resumo/snapshot ou em outro item.";
             else if(item.InicioDaFonte is { } inicio && selecionados.Any(x=>x.Origem=="fonte_bruta" && x.Id==item.Id && x.Revisao==item.Revisao &&
                 x.InicioDaFonte<inicio+item.Conteudo.EnumerateRunes().Count() && inicio<x.InicioDaFonte+x.Conteudo.EnumerateRunes().Count()))
@@ -114,5 +116,7 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
     private static string Normalizar(string texto)=>string.Join(' ',texto.Normalize(NormalizationForm.FormC).Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries));
     private static bool Coberto(string conteudo,IReadOnlyList<string> presentes)
     {var texto=Normalizar(conteudo);return presentes.Any(x=>x==texto || texto.Length>=24 && x.Contains(texto,StringComparison.Ordinal));}
-    private static string Formatar(ItemDeContextoDto x)=>JsonSerializer.Serialize(new{x.Id,x.Revisao,x.Origem,Tipo=x.Tipo?.ToString(),Status=x.Status?.ToString(),Sensibilidade=x.Sensibilidade.ToString(),x.Referencia,x.InicioDaFonte,x.Conteudo})+"\n";
+    // Texto em português chega legível ao agente: \uXXXX dobraria bytes/tokens estimados de cada acento (#145).
+    private static readonly JsonSerializerOptions Json=new(){Encoder=System.Text.Encodings.Web.JavaScriptEncoder.Create(System.Text.Unicode.UnicodeRanges.All)};
+    private static string Formatar(ItemDeContextoDto x)=>JsonSerializer.Serialize(new{x.Id,x.Revisao,x.Origem,Tipo=x.Tipo?.ToString(),Status=x.Status?.ToString(),Sensibilidade=x.Sensibilidade.ToString(),x.Referencia,x.InicioDaFonte,x.Conteudo},Json)+"\n";
 }

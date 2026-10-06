@@ -17,3 +17,7 @@ revisão, responsável, origem e timestamp anteriores, sem duplicar conteúdo an
 sem permissão. Pode compor uma futura retomada junto do Context Pack (#141); não transforma
 snapshot em Conhecimento. /clear e /compact atuam no histórico upstream existente e não
 chamam este serviço. Nova scope/sessão recupera snapshot no banco sem transcript bruto.
+
+Na conversa natural (#145), `atualize o contexto de trabalho: campo: valor; ...` e
+`mostre o contexto de trabalho` operam o snapshot do escopo selecionado, e o snapshot entra
+no pacote das sessões. [Continuidade](continuidade-brain.md).

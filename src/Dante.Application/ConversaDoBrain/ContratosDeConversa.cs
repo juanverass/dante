@@ -2,7 +2,7 @@ using Dante.Application.SegurancaDoBrain;
 using Dante.Domain.Conhecimentos;
 namespace Dante.Application.ConversaDoBrain;
 
-public enum IntencaoDoBrain { Nenhuma, Consultar, Experiencia, Capturar, Corrigir, Invalidar, Relacionar, Origem, Confirmar, Cancelar, Escolher, ListarCandidatos, Inspecionar, Exportar, ImportarFonte, CapturarFonte }
+public enum IntencaoDoBrain { Nenhuma, Consultar, Experiencia, Capturar, Corrigir, Invalidar, Relacionar, Origem, Confirmar, Cancelar, Escolher, ListarCandidatos, Inspecionar, Exportar, ImportarFonte, CapturarFonte, AtualizarContexto, MostrarContexto }
 public sealed record IntencaoResolvidaDto(IntencaoDoBrain Intencao,string Texto="",int? Numero=null,int? SegundoNumero=null,string? Nome=null,string? Formato=null);
 public sealed record PedidoDeConversaDto(string IdConversa,string Texto,string ReferenciaDaMensagem,string? TrechoSelecionado=null,string? ReferenciaDoTrecho=null);
 public sealed record ChaveDeConversaDto(Guid IdTenant,Guid IdUsuario,Guid IdEspaco,Guid? IdProjeto,string IdConversa);
