@@ -28,7 +28,8 @@ internal static class MapeamentosDaApplication
             x.Modo, x.Estado, x.Revisao, x.IdConhecimento, x.Historico.Select(a => new AtoDoCandidatoDto(a.Revisao, a.Acao,
                 a.Tipo, a.Conteudo, a.Sensibilidade, a.Justificativa, ParaProvenienciaDto(a.Proveniencia), a.Instante, a.Estado, a.IdConhecimento)).ToArray()));
         configuracao.Registrar<RelacaoDeConhecimento, RelacaoDeConhecimentoDto>(x =>
-            new RelacaoDeConhecimentoDto(x.Id, x.IdOrigem, x.IdDestino, x.Tipo, ParaProvenienciaDto(x.Proveniencia), x.CriadaEm));
+            new RelacaoDeConhecimentoDto(x.Id, x.IdOrigem, x.IdDestino, x.Tipo, ParaProvenienciaDto(x.Proveniencia), x.CriadaEm,
+                x.IdConhecimentoEscolhido, x.ResolvidaEm, x.ProvenienciaDaResolucao == null ? null : ParaProvenienciaDto(x.ProvenienciaDaResolucao)));
     }
 
     // #152: a criação passa pelo constructor do domínio, sem aceitar Id nem estado do DTO.

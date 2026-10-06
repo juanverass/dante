@@ -360,7 +360,7 @@ Corrigir, Invalidar e Substituir preservam evidência e exigem revisão esperada
 inferência não vira confirmação por confiança e correção de confirmado exige nova
 confirmação (AD-44). ConhecimentoAppService e ports/DTOs na Application sobre CRUD,
 com validação de escopo ativo, pesquisa limitada e mappings explícitos. DI/repositories/EF estão na #160, captura na #139 e relações na #153.
-Autorização (#150) e policy (#155) ainda não foram implementadas. 49 testes novos sem banco com fakes;
+Autorização de canais (#150) permanece pendente; a política de sensibilidade da #155 já protege as saídas específicas do Brain. 49 testes novos sem banco com fakes;
 build aprovado e suíte final com 903 aprovados, 19 pulados e zero falhas.
 Guia: [núcleo de Conhecimento](../development/knowledge.md).
 
@@ -402,3 +402,7 @@ Snapshot persistente por espaço/projeto, com campos operacionais selecionados e
 ## Busca do Brain (#154)
 
 Busca full-text PostgreSQL com fallback lexical, filtros de escopo/sensibilidade/validade e paginação. Semântica pgvector exata e ranking híbrido por modelo/revisão; índices derivados com pendências duráveis e reindexação explícita, embeddings HTTP opcionais sem presumir assinatura das CLIs. Secreto não entra no índice lexical ou vetorial; reclassificação remove derivados, migration corretiva limpa índices antigos e rebuild respeita a política, inclusive sob concorrência. Consulta por ID preserva apenas metadados permitidos sem depender do índice lexical. Fontes brutas aguardam #158. Guia: [busca](../development/search.md).
+
+## Qualidade do Brain (#159)
+
+Revisão manual limitada detecta duplicatas/contradições potenciais, órfãos, fontes sem referência e validade/confirmação. Consolidação explícita preserva todas as proveniências e substitui originais transacionalmente. CONTRADIZ tem resolução auditável; conflitos abertos, histórico inativo/substituído e itens fora de validade não entram na seleção neutra para contexto. Inferência não substitui confirmação automaticamente. Guia: [qualidade](../development/quality.md).

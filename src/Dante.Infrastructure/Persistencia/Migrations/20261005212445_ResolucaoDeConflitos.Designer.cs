@@ -3,6 +3,7 @@ using System;
 using Dante.Infrastructure.Persistencia;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Dante.Infrastructure.Persistencia.Migrations
 {
     [DbContext(typeof(DanteDbContext))]
-    partial class DanteDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261005212445_ResolucaoDeConflitos")]
+    partial class ResolucaoDeConflitos
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -207,73 +210,6 @@ namespace Dante.Infrastructure.Persistencia.Migrations
                     b.HasIndex("IdEspacoDeConhecimento", "IdProjeto", "Status");
 
                     b.ToTable("conhecimentos", "brain_data");
-                });
-
-            modelBuilder.Entity("Dante.Domain.ContextosDeTrabalho.ContextoDeTrabalho", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset>("AtualizadoEm")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("atualizado_em");
-
-                    b.Property<string>("AuditoriaAnterior")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("auditoria_anterior");
-
-                    b.Property<string>("Dados")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("dados");
-
-                    b.Property<DateTimeOffset?>("ExpiraEm")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("expira_em");
-
-                    b.Property<Guid>("IdEspacoDeConhecimento")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id_espaco_de_conhecimento");
-
-                    b.Property<Guid?>("IdProjeto")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id_projeto");
-
-                    b.Property<Guid>("IdResponsavel")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id_responsavel");
-
-                    b.Property<string>("Origem")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("origem");
-
-                    b.Property<int>("Revisao")
-                        .HasColumnType("integer")
-                        .HasColumnName("revisao");
-
-                    b.Property<int>("Sensibilidade")
-                        .HasColumnType("integer")
-                        .HasColumnName("sensibilidade");
-
-                    b.Property<uint>("Versao")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("IdEspacoDeConhecimento", "IdProjeto")
-                        .IsUnique();
-
-                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("IdEspacoDeConhecimento", "IdProjeto"), false);
-
-                    b.HasIndex("IdProjeto", "IdEspacoDeConhecimento");
-
-                    b.ToTable("contextos_de_trabalho", "brain_data");
                 });
 
             modelBuilder.Entity("Dante.Domain.EspacosDeConhecimento.EspacoDeConhecimento", b =>
@@ -472,21 +408,6 @@ namespace Dante.Infrastructure.Persistencia.Migrations
                         .HasForeignKey("IdConhecimentoSubstituto", "IdEspacoDeConhecimento")
                         .HasPrincipalKey("Id", "IdEspacoDeConhecimento")
                         .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Dante.Domain.Projetos.Projeto", null)
-                        .WithMany()
-                        .HasForeignKey("IdProjeto", "IdEspacoDeConhecimento")
-                        .HasPrincipalKey("Id", "IdEspacoDeConhecimento")
-                        .OnDelete(DeleteBehavior.Restrict);
-                });
-
-            modelBuilder.Entity("Dante.Domain.ContextosDeTrabalho.ContextoDeTrabalho", b =>
-                {
-                    b.HasOne("Dante.Domain.EspacosDeConhecimento.EspacoDeConhecimento", null)
-                        .WithMany()
-                        .HasForeignKey("IdEspacoDeConhecimento")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
 
                     b.HasOne("Dante.Domain.Projetos.Projeto", null)
                         .WithMany()
