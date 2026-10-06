@@ -2,7 +2,7 @@ using Dante.Application.CapturaDeConhecimento;
 using Dante.Domain.CapturaDeConhecimento;
 using Dante.Domain.Conhecimentos;
 using Dante.Domain.EspacosDeConhecimento;
-using Dante.Infrastructure.Persistencia;
+using Dante.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 namespace Dante.Tests;

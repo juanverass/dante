@@ -38,6 +38,8 @@ public sealed class CodexSessionDriver(
     private string? effort;
     private string? activeTurnId;
     private string? completedTurnId;
+    // Last thread/tokenUsage/updated of the running turn (#148), attached to its completion.
+    private AgentTokenUsage? turnUsage;
     private AgentPermissionProfile profile;
     private AgentPermissionProfile? pendingProfile;
     private TaskCompletionSource? modeConfirmation;
@@ -784,6 +786,14 @@ public sealed class CodexSessionDriver(
             case "turn/completed":
                 await HandleTurnCompletedAsync(parameters["turn"] as JsonObject);
                 break;
+            case "thread/tokenUsage/updated" when parameters["tokenUsage"] is JsonObject tokenUsage &&
+                                                 tokenUsage["last"] is JsonObject last:
+                lock (gate)
+                {
+                    turnUsage = Usage(last);
+                }
+
+                break;
             case "serverRequest/resolved" when parameters["requestId"] is { } requestId:
                 // Codex resolved it by itself (e.g. the turn ended); a late answer is refused.
                 lock (gate)
@@ -901,18 +911,30 @@ public sealed class CodexSessionDriver(
         }
     }
 
+    // tokenUsage.last of the app-server: inputTokens already includes cachedInputTokens.
+    private static AgentTokenUsage? Usage(JsonObject last)
+    {
+        long? Count(string name) => last[name] is JsonValue value && value.TryGetValue<long>(out var count) && count >= 0
+            ? count : null;
+        return Count("inputTokens") is null && Count("outputTokens") is null ? null :
+            new AgentTokenUsage(Count("inputTokens"), Count("outputTokens"), Count("cachedInputTokens"));
+    }
+
     private async Task HandleTurnCompletedAsync(JsonObject? turn)
     {
+        AgentTokenUsage? usage;
         lock (gate)
         {
             completedTurnId = GetString(turn, "id");
             activeTurnId = null;
             pendingRequests.Clear();
+            usage = turnUsage;
+            turnUsage = null;
         }
 
         await EmitAsync(GetString(turn, "status") switch
         {
-            "completed" => new TurnCompletedEvent(AgentTurnOutcome.Completed),
+            "completed" => new TurnCompletedEvent(AgentTurnOutcome.Completed, Usage: usage),
             "interrupted" => new TurnCompletedEvent(AgentTurnOutcome.Interrupted),
             var status => new TurnCompletedEvent(AgentTurnOutcome.Failed,
                 GetString(turn?["error"] as JsonObject, "message") ?? status)

@@ -1,4 +1,4 @@
-# Organização de Dante.Application por feature (#203, AD-47)
+# Organização de Dante.Application por feature (#203, AD-49)
 
 A Application é organizada verticalmente por feature (Epic #202): uma pasta por
 feature, com namespace `Dante.Application.<Feature>`. DTOs, ports e AppServices

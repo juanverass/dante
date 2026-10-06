@@ -18,7 +18,10 @@ Exemplos:
 - `essa solução resolveu aquele incidente`, ou `relacione a solução 2 ao incidente 1`;
 - `de onde veio essa informação?`, `mostre a origem da primeira`;
 - `confirmar`, `cancelar`, `listar candidatos`, `confirmar primeira`;
-- `inspecione o Brain`, `exporte o Brain`; `/brain ajuda` é fallback explícito.
+- `inspecione o Brain`, `exporte o Brain`; `/brain ajuda` é fallback explícito;
+- `atualize o contexto de trabalho: objetivo: ...; próximo passo: ...`, `mostre o contexto de trabalho`;
+- Reply a uma resposta do agente com `documente isso` (só o texto citado vira candidato);
+- `métricas do Brain`, `avalie a retomada: repetições: 0; concluída: sim` ([métricas](metricas-brain.md)).
 
 Intenções são determinísticas, sem chamada LLM para autorização/seleção. Busca de
 experiência filtra incidente/solução/aprendizado/procedimento antes da paginação.
@@ -46,8 +49,9 @@ transitório; não gravam/apagam Brain automaticamente. Reclassificação/grants
 Confidential/Secret não são inferidos da conversa; Telegram usa permissões padrão.
 
 Não há editor web, autenticação comercial, modelo de linguagem exigido ou integração
-externa adicional. Integração automática dos pacotes do Context Builder nas sessões
-continua na #145; intenções Brain são atendidas pelo núcleo e não enviadas ao agente.
+externa adicional. Intenções Brain são atendidas pelo núcleo e não enviadas ao agente; as
+demais mensagens da conversa levam o pacote do Context Builder às sessões
+([continuidade](continuidade-brain.md), #145).
 
 Fontes textuais também podem ser enviadas sem editar o banco:
 `importe nota Título: conteúdo` ou `importe Markdown Título: # Cabeçalho ...`.

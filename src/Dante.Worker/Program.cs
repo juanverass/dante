@@ -1,4 +1,4 @@
-using Dante.Infrastructure.Persistencia;
+using Dante.Infrastructure.Banco;
 using Dante.Application;
 using Dante.Infrastructure;
 using Dante.Worker;

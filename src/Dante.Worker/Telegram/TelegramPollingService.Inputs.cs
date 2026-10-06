@@ -11,6 +11,14 @@ public sealed partial class TelegramPollingService
         var reply = message.ReplyToMessage!;
         var correlation = reply.Chat.Id == message.Chat.Id
             ? delivery.FindInputMessage(message.From!.Id, message.Chat.Id, reply.MessageId) : null;
+        // A reply to any other message may select it for the Brain (#145, e.g. "documente isso" on an agent's answer).
+        if (correlation is null && brain is not null && message.Text is { } text &&
+            await brain.AtenderAsync(message, text.Trim(), sessions?.GetActive(message.From!.Id)?.Id, cancellationToken)
+                is { } respostaBrain)
+        {
+            await SendLongMessageAsync(message.Chat.Id, respostaBrain, cancellationToken);
+            return;
+        }
         var request = correlation is null ? null : sessions?.GetPendingRequest(message.From!.Id, correlation.RequestId);
         if (request is null || request.IsApproval || request.SessionId != correlation!.SessionId ||
             request.TurnId != correlation.TurnId)

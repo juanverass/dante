@@ -65,4 +65,12 @@ public sealed record UserInputRequestedEvent(string UpstreamRequestId, IReadOnly
     public string RequestId { get; init; } = "";
 }
 
-public sealed record TurnCompletedEvent(AgentTurnOutcome Outcome, string? Error = null) : AgentEvent;
+// Token counts the CLI itself reported for the turn (#148); null when it reported nothing. Input includes cached input.
+public sealed record AgentTokenUsage(long? InputTokens, long? OutputTokens, long? CachedInputTokens = null);
+
+public sealed record TurnCompletedEvent(AgentTurnOutcome Outcome, string? Error = null, AgentTokenUsage? Usage = null)
+    : AgentEvent
+{
+    // Correlation of the input that opened the turn, stamped by the session (#148).
+    public string? Correlation { get; init; }
+}
