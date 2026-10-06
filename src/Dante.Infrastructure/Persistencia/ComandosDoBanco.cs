@@ -12,6 +12,13 @@ public static class ComandosDoBanco
                 throw new InvalidOperationException("Banco não configurado.");
             switch (args)
             {
+                case ["--brain", "search-rebuild-lexical"]:
+                    await scope.ServiceProvider.GetRequiredService<Dante.Infrastructure.BuscaDoBrain.IndiceDeBuscaPostgreSql>().ReconstruirLexicalAsync(cancellationToken); break;
+                case ["--brain", "search-enable-vector"]:
+                    await scope.ServiceProvider.GetRequiredService<Dante.Infrastructure.BuscaDoBrain.IndiceDeBuscaPostgreSql>().PrepararVetoresAsync(cancellationToken); break;
+                case ["--brain", "search-reindex", var usuario, var espaco, var projeto]:
+                    var acesso = new Dante.Application.SegurancaDoBrain.AcessoAoBrain(Guid.Parse(usuario), Guid.Parse(espaco), projeto == "-" ? null : Guid.Parse(projeto));
+                    Console.WriteLine(await scope.ServiceProvider.GetRequiredService<Dante.Application.BuscaDoBrain.BuscaDoBrainAppService>().ReindexarAsync(acesso, cancellationToken: cancellationToken)); break;
                 case ["--brain", "migrate"]: await admin.MigrarAsync(cancellationToken); break;
                 case ["--brain", "health"]: return await admin.VerificarSaudeAsync(cancellationToken) ? 0 : 1;
                 case ["--brain", "backup", var caminho]: await admin.BackupAsync(caminho, cancellationToken); break;
