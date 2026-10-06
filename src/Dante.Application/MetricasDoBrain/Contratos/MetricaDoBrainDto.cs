@@ -40,16 +40,3 @@ public sealed record MetricaDoBrainDto
     public int? Irrelevantes { get; init; }
     public int? Relevantes { get; init; }
 }
-public interface IRegistroDeMetricasDoBrain
-{
-    Task RegistrarAsync(MetricaDoBrainDto metrica, CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<MetricaDoBrainDto>> ListarAsync(Guid idTenant, Guid idUsuario, Guid idEspaco, Guid? idProjeto,
-        CancellationToken cancellationToken = default);
-}
-public sealed record RetomadaMedidaDto(string IdSessao, string? Agente, int TokensDoBrain, int TokensDeReferencia, double Razao,
-    MetricaDoBrainDto? Avaliacao);
-public sealed record ResumoDeMetricasDto(int Sessoes, int Envios, int EnviosIniciais, int Turnos, int Recuperados, int Selecionados,
-    int Injetados, int Descartados, double TokensMediosDoPacote, int TokensMaximosDoPacote, double? TokensMediosDoSnapshot,
-    int? ConhecimentosNoEscopo, long? CaracteresNoEscopo, double CaracteresMediosDoPacote, long? EntradaReportada, long? SaidaReportada,
-    int TurnosSemUsoReportado, IReadOnlyList<RetomadaMedidaDto> Retomadas, double? Razao, string Indicacao, IReadOnlyList<string> AlertasDeQualidade,
-    double? Precisao);

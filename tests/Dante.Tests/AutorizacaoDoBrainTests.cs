@@ -83,4 +83,97 @@ public sealed class AutorizacaoDoBrainTests
         Assert.Equal(2, Assert.Single(dto.Historico).Numero);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EscritaSemIdentidadeFalhaAntesDeConectar(bool sincrono)
+    {
+        await using var contexto = new DanteDbContext(new DbContextOptionsBuilder<DanteDbContext>()
+            .UseNpgsql("Host=localhost;Database=nao_conectar").Options, new AutorizacaoDoBrain());
+        contexto.Add(new EspacoDeConhecimento(Guid.NewGuid(), "sem identidade"));
+        if (sincrono) Assert.Throws<UnauthorizedAccessException>(() => contexto.SaveChanges(false));
+        else await Assert.ThrowsAsync<UnauthorizedAccessException>(() => contexto.SaveChangesAsync(false));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EscritaDeEspacoDeOutraIdentidadeFalhaAntesDeConectar(bool outroTenant)
+    {
+        var usuario = Guid.NewGuid();
+        var auth = new AutorizacaoDoBrain();
+        auth.Estabelecer(new(AutorizacaoDoBrain.TenantLocal, usuario));
+        await using var contexto = new DanteDbContext(new DbContextOptionsBuilder<DanteDbContext>()
+            .UseNpgsql("Host=localhost;Database=nao_conectar").Options, auth);
+        contexto.Add(new EspacoDeConhecimento(outroTenant ? usuario : Guid.NewGuid(), "alheio",
+            idTenant: outroTenant ? Guid.NewGuid() : AutorizacaoDoBrain.TenantLocal));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => contexto.SaveChangesAsync());
+    }
+
+    [Fact]
+    public void FiltrosUsamIdentidadeDoContextoAtualMesmoComModeloCompartilhado()
+    {
+        var options = new DbContextOptionsBuilder<DanteDbContext>().UseNpgsql("Host=localhost;Database=nao_conectar").Options;
+        using var admin = new DanteDbContext(options);
+        var auth = new AutorizacaoDoBrain();
+        var usuario = Guid.NewGuid(); var espaco = Guid.NewGuid(); var projeto = Guid.NewGuid();
+        auth.Estabelecer(new(AutorizacaoDoBrain.TenantLocal, usuario), new(usuario, espaco, projeto));
+        using var contexto = new DanteDbContext(options, auth);
+        Assert.Same(admin.Model, contexto.Model);
+        Assert.True(admin.Administracao); Assert.False(contexto.Administracao);
+        var sql = contexto.Conhecimentos.ToQueryString();
+        Assert.Contains(espaco.ToString(), sql); Assert.Contains(projeto.ToString(), sql);
+        Assert.Contains(usuario.ToString(), sql);
+        Assert.DoesNotContain(espaco.ToString(), admin.Conhecimentos.ToQueryString());
+        Assert.Contains("sensibilidade", sql);
+    }
+
+    [PostgreSqlFact]
+    public async Task EscopoDeProjetoSensibilidadeEModoAdministrativoPreservados()
+    {
+        await using var banco = await Banco.CriarAsync();
+        var usuario = Guid.NewGuid(); var espaco = new EspacoDeConhecimento(usuario, "meu");
+        var outroEspaco = new EspacoDeConhecimento(usuario, "outro");
+        var projeto = new Dante.Domain.Projetos.Projeto(espaco.Id, "projeto");
+        var outroProjeto = new Dante.Domain.Projetos.Projeto(espaco.Id, "outro projeto");
+        Conhecimento Novo(Guid idEspaco, Guid? idProjeto, Sensibilidade classe) => new(idEspaco, idProjeto,
+            TipoDeConhecimento.Fato, "evidência", null, StatusDoConhecimento.Inferido, null, classe,
+            null, null, [], new(usuario, "teste"), DateTimeOffset.UtcNow);
+        var pessoal = Novo(espaco.Id, projeto.Id, Sensibilidade.Pessoal);
+        var confidencial = Novo(espaco.Id, projeto.Id, Sensibilidade.Confidencial);
+        var secreto = Novo(espaco.Id, projeto.Id, Sensibilidade.Secreto);
+        await using (var admin = banco.Contexto())
+        {
+            admin.AddRange(espaco, outroEspaco, projeto, outroProjeto, pessoal, confidencial, secreto,
+                Novo(outroEspaco.Id, null, Sensibilidade.Pessoal), Novo(espaco.Id, outroProjeto.Id, Sensibilidade.Pessoal));
+            await admin.SaveChangesAsync();
+            Assert.Equal(5, await admin.Conhecimentos.CountAsync());
+        }
+        var options = new DbContextOptionsBuilder<DanteDbContext>().UseNpgsql(banco.ConnectionString).Options;
+        foreach (var (permitirConfidencial, permitirSecreto, quantidade) in new[] { (false, false, 1), (true, false, 2), (true, true, 3) })
+        {
+            var auth = new AutorizacaoDoBrain();
+            auth.Estabelecer(new(AutorizacaoDoBrain.TenantLocal, usuario),
+                new(usuario, espaco.Id, projeto.Id, permitirConfidencial, permitirSecreto));
+            await using var contexto = new DanteDbContext(options, auth);
+            Assert.Equal(quantidade, await contexto.Conhecimentos.CountAsync());
+            contexto.Add(Novo(espaco.Id, outroProjeto.Id, Sensibilidade.Pessoal));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => contexto.SaveChangesAsync());
+            contexto.ChangeTracker.Clear();
+            contexto.Add(Novo(outroEspaco.Id, null, Sensibilidade.Pessoal));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => contexto.SaveChangesAsync());
+            contexto.ChangeTracker.Clear();
+            if (!permitirSecreto)
+            {
+                contexto.Add(Novo(espaco.Id, projeto.Id, Sensibilidade.Secreto));
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(() => contexto.SaveChangesAsync());
+                contexto.ChangeTracker.Clear();
+            }
+            var dono = await contexto.EspacosDeConhecimento.SingleAsync();
+            contexto.Entry(dono).Property("IdUsuario").OriginalValue = Guid.NewGuid();
+            dono.Atualizar("novo nome", null);
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => contexto.SaveChangesAsync());
+        }
+    }
+
 }

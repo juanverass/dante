@@ -44,6 +44,13 @@ public static class DependencyInjection
             services.AddScoped<AdministracaoDoBanco>();
             services.AddSingleton<Dante.Application.ConversaDoBrain.IEstadoDeConversaDoBrain, Dante.Infrastructure.ConversaDoBrain.EstadoDeConversaDoBrainEmMemoria>();
             services.AddScoped<Dante.Application.ConversaDoBrain.ConversaDoBrainAppService>();
+            services.AddScoped<Dante.Application.ConversaDoBrain.ConsultaDaConversa>();
+            services.AddScoped<Dante.Application.ConversaDoBrain.CapturaDaConversa>();
+            services.AddScoped<Dante.Application.ConversaDoBrain.FontesDaConversa>();
+            services.AddScoped<Dante.Application.ConversaDoBrain.AlteracoesDaConversa>();
+            services.AddScoped<Dante.Application.ConversaDoBrain.InspecaoDaConversa>();
+            services.AddScoped<Dante.Application.ConversaDoBrain.ContextoDeTrabalhoDaConversa>();
+            services.AddScoped<Dante.Application.ConversaDoBrain.AvaliacaoDaConversa>();
             services.AddScoped<Dante.Application.ConstrucaoDeContexto.ConstrutorDeContextoAppService>();
             services.AddScoped<Dante.Application.AuditoriaDoBrain.IConsultaDeAuditoria, Dante.Infrastructure.AuditoriaDoBrain.ConsultaDeAuditoriaPostgreSql>();
             services.AddScoped<Dante.Application.AuditoriaDoBrain.InspecaoDoBrainAppService>();
