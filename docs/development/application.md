@@ -74,7 +74,7 @@ BuscaDoBrain/
 
 | Complexos | Simples |
 | --- | --- |
-| `AuditoriaDoBrain`, `BuscaDoBrain`, `ConversaDoBrain`, `DocumentosFonte`, `QualidadeDoBrain` | `CapturaDeConhecimento`, `Conhecimentos`, `ConstrucaoDeContexto`, `ContextosDeTrabalho`, `EspacosDeConhecimento`, `Projetos`, `RelacoesDeConhecimento`, `SegurancaDoBrain` |
+| `AuditoriaDoBrain`, `BuscaDoBrain`, `ConversaDoBrain`, `DocumentosFonte`, `QualidadeDoBrain`, `ConstrucaoDeContexto`, `MetricasDoBrain` | `CapturaDeConhecimento`, `Conhecimentos`, `ContextosDeTrabalho`, `EspacosDeConhecimento`, `Projetos`, `RelacoesDeConhecimento`, `SegurancaDoBrain` |
 
 Quando um módulo simples ganhar uma port própria ou um caso de uso interno, ele passa
 a complexo e seus contratos/ports vão para as subpastas no mesmo PR.
@@ -119,3 +119,14 @@ ContextoDaConversa compartilha estado, acesso e mensagem daquela chamada; não r
 serviços. A confirmação continua consumida atomicamente no store antes de executar
 a alteração, e a alteração revalida revisão, escopo e sensibilidade. Os casos podem
 ser testados diretamente com ports simulados sem Worker, Telegram ou banco.
+
+## Políticas puras (#207)
+
+AnaliseDeQualidade recebe itens/arestas já autorizados e instante explícito, sem
+consulta ou mutação. ElegibilidadeDeContexto filtra valores do pedido;
+SelecaoDeContexto recebe candidatos protegidos e preserva precedência, deduplicação,
+sobreposição Unicode, orçamento e rastreabilidade. AgregacaoDeMetricas calcula
+retomadas/qualidade com dados ausentes preservados e ApresentacaoDeMetricas formata
+o resultado. Os AppServices continuam responsáveis por autorização, leitura dos
+ports e transações. Os métodos estáticos de métricas/tokens existentes delegam às
+políticas para manter os consumidores compatíveis.
