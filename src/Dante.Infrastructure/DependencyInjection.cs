@@ -1,5 +1,9 @@
 using Dante.Application.Comum;
-using Dante.Infrastructure.Persistencia;
+using Dante.Infrastructure.Banco;
+using Dante.Infrastructure.Data;
+using Dante.Infrastructure.Modulos;
+using Dante.Infrastructure.Persistence;
+using Dante.Infrastructure.QualidadeDoBrain;
 using Microsoft.EntityFrameworkCore;
 using Dante.Application.Agentes;
 using Dante.Application.Contextos;

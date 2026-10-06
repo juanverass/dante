@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-05, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140) e Brain por conversa natural (#157).
+Última revisão: 2026-10-06, com a estrutura física da Infrastructure (#196); antes, 2026-10-05, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140) e Brain por conversa natural (#157).
 
 ## Marcos
 
@@ -458,3 +458,13 @@ destrutivas pedem alvo inequívoco e confirmação com revisão. Estado transit�
 por usuário/chat/tópico/escopo, com expiração e consumo único. IDs internos não são a
 UX principal. Sem banco ou em mensagens não Brain, fluxo legado continua disponível.
 [Exemplos e regras](../development/conversa-brain.md).
+
+## Estrutura física da Infrastructure (#196)
+
+A antiga pasta `Persistencia` foi desfeita: DbContext/factory em `Data`, migrations e
+snapshot em `Data/Migrations`, Repository/UnitOfWork/EntidadeConfiguration em
+`Persistence`, configurations e repositories específicos em `Modulos` (ainda plano),
+administração do PostgreSQL em `Banco` e a consulta de qualidade em `QualidadeDoBrain`
+(AD-46). Só namespaces/usings mudaram: as dez migrations seguem reconhecidas e
+aplicadas, sem mudança de modelo nem migration nova. Modularização por entidade,
+DbContext, administração e DI seguem nas #197–#201 (Epic #195).

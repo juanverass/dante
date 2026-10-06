@@ -1,8 +1,18 @@
 # Fundação EF Core + PostgreSQL (#168)
 
-`DanteDbContext`, `Repository<TEntity>`, `UnitOfWork`, configurações e migrations
-ficam em `Dante.Infrastructure.Persistencia`. Domain/Application não conhecem EF,
-Npgsql, DbSet ou IQueryable. A porta permanece `IRepository<TEntity>` com Guid Id.
+Domain/Application não conhecem EF, Npgsql, DbSet ou IQueryable. A porta permanece
+`IRepository<TEntity>` com Guid Id. Na Infrastructure (#196):
+
+| Pasta / namespace | Conteúdo |
+| --- | --- |
+| `Data` | `DanteDbContext` e a factory de design |
+| `Data/Migrations` | migrations EF e snapshot |
+| `Persistence` | `Repository<TEntity>`, `UnitOfWork` e a base `EntidadeConfiguration<T>` |
+| `Modulos` | configurations e repositories específicos das entidades |
+| `Banco` | administração explícita do PostgreSQL (`AdministracaoDoBanco`, `ComandosDoBanco`) |
+
+Adapters de consulta de uma feature (busca, auditoria, qualidade, fontes) ficam na
+pasta da feature, como `QualidadeDoBrain`.
 
 ## Configuração e execução
 
@@ -22,7 +32,7 @@ Não habilitamos logs de dados sensíveis nem retries automáticos de escritas.
 Instale `dotnet-ef` 10.0.6 e configure a variável externa antes dos comandos:
 
 ```bash
-dotnet ef migrations add NomeDaMudanca --project src/Dante.Infrastructure --output-dir Persistencia/Migrations
+dotnet ef migrations add NomeDaMudanca --project src/Dante.Infrastructure --output-dir Data/Migrations
 dotnet ef migrations has-pending-model-changes --project src/Dante.Infrastructure
 dotnet ef migrations script --idempotent --project src/Dante.Infrastructure
 dotnet ef database update --project src/Dante.Infrastructure

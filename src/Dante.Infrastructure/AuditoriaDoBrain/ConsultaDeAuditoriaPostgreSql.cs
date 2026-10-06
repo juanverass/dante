@@ -2,7 +2,7 @@ using Dante.Application.AuditoriaDoBrain;
 using Dante.Application.SegurancaDoBrain;
 using Dante.Domain.Conhecimentos;
 using Dante.Domain.DocumentosFonte;
-using Dante.Infrastructure.Persistencia;
+using Dante.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 namespace Dante.Infrastructure.AuditoriaDoBrain;
 
