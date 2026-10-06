@@ -519,3 +519,15 @@ continuam no AppService e invariantes no Domain. Mensagens, tipos de exceção e
 passa a expor internals a `Dante.Tests`, como Infrastructure e Worker, para testar os
 validators isoladamente. `MetricasDoBrain` ainda não segue a convenção da AD-49 e
 mantém seu check inline.
+
+## Casos de uso da conversa Brain (#206)
+
+ConversaDoBrainAppService preserva a entrada do Worker e orquestra intenções,
+validação de acesso, estado pendente e consumo único da confirmação. Consulta,
+captura, fontes, alterações confirmadas, inspeção, contexto de trabalho e avaliação
+ficam em casos coesos em CasosDeUso, com dependências próprias e namespace da feature.
+ContextoDaConversa existe por chamada e compartilha chave/estado/proveniência sem
+service locator; o store continua responsável pelo consumo atômico e expiração.
+Respostas e regras de revisão/sensibilidade são preservadas. Testes diretos dos casos
+cobrem captura citada, inferência, proteção, preparação de correção e entrada inválida.
+O registro scoped acompanha a fachada na Infrastructure; ownership da DI segue na #208.
