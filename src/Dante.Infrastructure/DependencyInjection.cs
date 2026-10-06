@@ -1,7 +1,13 @@
 using Dante.Application.Comum;
 using Dante.Infrastructure.Banco;
 using Dante.Infrastructure.Data;
-using Dante.Infrastructure.Modulos;
+using Dante.Infrastructure.Modulos.CapturaDeConhecimento;
+using Dante.Infrastructure.Modulos.Conhecimentos;
+using Dante.Infrastructure.Modulos.ContextosDeTrabalho;
+using Dante.Infrastructure.Modulos.DocumentosFonte;
+using Dante.Infrastructure.Modulos.EspacosDeConhecimento;
+using Dante.Infrastructure.Modulos.Projetos;
+using Dante.Infrastructure.Modulos.RelacoesDeConhecimento;
 using Dante.Infrastructure.Persistence;
 using Dante.Infrastructure.QualidadeDoBrain;
 using Microsoft.EntityFrameworkCore;

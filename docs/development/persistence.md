@@ -8,8 +8,14 @@ Domain/Application não conhecem EF, Npgsql, DbSet ou IQueryable. A porta perman
 | `Data` | `DanteDbContext` e a factory de design |
 | `Data/Migrations` | migrations EF e snapshot |
 | `Persistence` | `Repository<TEntity>`, `UnitOfWork` e a base `EntidadeConfiguration<T>` |
-| `Modulos` | configurations e repositories específicos das entidades |
+| `Modulos/<Modulo>` | mapping `<Entidade>DbMapping` e repository específico de cada entidade (#197) |
 | `Banco` | administração explícita do PostgreSQL (`AdministracaoDoBanco`, `ComandosDoBanco`) |
+
+Cada módulo tem o nome do módulo do Domain e namespace igual à pasta
+(`Modulos/Conhecimentos` → `Dante.Infrastructure.Modulos.Conhecimentos`):
+`EspacosDeConhecimento`, `Projetos`, `Conhecimentos`, `RelacoesDeConhecimento`,
+`CapturaDeConhecimento`, `ContextosDeTrabalho` e `DocumentosFonte`. Filtros globais de
+consulta continuam no `DanteDbContext`.
 
 Adapters de consulta de uma feature (busca, auditoria, qualidade, fontes) ficam na
 pasta da feature, como `QualidadeDoBrain`.
@@ -47,9 +53,10 @@ Não use EnsureCreated em produção nem migrations SQL manuais para schema comu
 
 ## Novos mappings e repositories
 
-Cada entidade terá uma `IEntityTypeConfiguration<T>` concreta na Infrastructure,
-com nome PT-BR (`EspacoDeConhecimentoConfiguration`, por exemplo), herdando
-`EntidadeConfiguration<T>`. Chame `base.Configure`, defina tabela/colunas em
+Cada entidade tem uma `IEntityTypeConfiguration<T>` concreta em `Modulos/<Modulo>`,
+com nome `<Entidade>DbMapping` (`EspacoDeConhecimentoDbMapping`, por exemplo), herdando
+`EntidadeConfiguration<T>`; o repository específico fica no mesmo módulo, e um teste
+de `PersistenciaTests` recusa mapping ou repository fora dele. Chame `base.Configure`, defina tabela/colunas em
 snake_case PT-BR e restrições explícitas. Configurações são carregadas pelo assembly
 do contexto. A base fixa chave `id` sem geração pelo banco e token shadow `Versao`
 mapeado ao `xmin` do PostgreSQL. Nenhum campo técnico é adicionado ao Domain.

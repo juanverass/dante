@@ -6,8 +6,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Dante.Infrastructure.Persistence;
-namespace Dante.Infrastructure.Modulos;
-public sealed class ContextoDeTrabalhoConfiguration : EntidadeConfiguration<ContextoDeTrabalho>
+namespace Dante.Infrastructure.Modulos.ContextosDeTrabalho;
+public sealed class ContextoDeTrabalhoDbMapping : EntidadeConfiguration<ContextoDeTrabalho>
 {
     private static string Serializar<T>(T valor) => JsonSerializer.Serialize(valor);
     private static DadosDoContexto LerDados(string valor) => JsonSerializer.Deserialize<DadosDoContexto>(valor)!;

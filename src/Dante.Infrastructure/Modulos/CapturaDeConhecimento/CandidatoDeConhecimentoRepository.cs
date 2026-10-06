@@ -3,7 +3,7 @@ using Dante.Domain.CapturaDeConhecimento;
 using Microsoft.EntityFrameworkCore;
 using Dante.Infrastructure.Data;
 using Dante.Infrastructure.Persistence;
-namespace Dante.Infrastructure.Modulos;
+namespace Dante.Infrastructure.Modulos.CapturaDeConhecimento;
 
 public sealed class CandidatoDeConhecimentoRepository(DanteDbContext context) : Repository<CandidatoDeConhecimento>(context), ICandidatoDeConhecimentoRepository
 {

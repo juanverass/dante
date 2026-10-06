@@ -4,8 +4,8 @@ using Dante.Domain.Projetos;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Dante.Infrastructure.Persistence;
-namespace Dante.Infrastructure.Modulos;
-public sealed class DocumentoFonteConfiguration : EntidadeConfiguration<DocumentoFonte>
+namespace Dante.Infrastructure.Modulos.DocumentosFonte;
+public sealed class DocumentoFonteDbMapping : EntidadeConfiguration<DocumentoFonte>
 {
     public override void Configure(EntityTypeBuilder<DocumentoFonte> b)
     {
