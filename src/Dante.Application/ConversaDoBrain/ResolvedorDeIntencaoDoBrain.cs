@@ -25,6 +25,9 @@ public static class ResolvedorDeIntencaoDoBrain
         var contexto=M(@"^(?:atualize|atualizar|salve|salvar|registre|registrar)(?: o)? contexto de trabalho[:\s]*(?<texto>.*)$");
         if(contexto.Success)return new(IntencaoDoBrain.AtualizarContexto,Corpo(contexto));
         if(M(@"^(?:mostre|mostrar|exiba|exibir|qual e|qual)(?: o)? contexto de trabalho[?.!]?$").Success)return new(IntencaoDoBrain.MostrarContexto);
+        var avaliacao=M(@"^(?:avalie|avaliar)(?: a)? retomada[:\s]*(?<texto>.*)$");
+        if(avaliacao.Success)return new(IntencaoDoBrain.AvaliarRetomada,Corpo(avaliacao));
+        if(M(@"^(?:(?:mostre|mostrar|exiba|exibir|quais sao)(?: as)? )?metricas do brain[?.!]?$").Success)return new(IntencaoDoBrain.Metricas);
         var consulta=M(@"^(?:(?:o que (?:voce )?(?:sabe|sabemos)(?: sobre| de| a respeito de)?)|(?:busque|buscar|procure)(?: no brain)?)\s+(?<texto>.+)$");
         if(consulta.Success)return new(IntencaoDoBrain.Consultar,Corpo(consulta).TrimEnd('?'));
         var experiencia=M(@"^ja (?:resolvemos|vimos|lidamos com) (?:algo )?(?:parecido|semelhante)(?: (?:com|a|sobre))?[: ]*(?<texto>.*)$");

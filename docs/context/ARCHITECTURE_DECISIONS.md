@@ -1562,3 +1562,23 @@ escopo segue a regra de AD-20: a sessão ativa continua e o aviso orienta `/clea
 
 Código: `Telegram/TelegramBrain.cs` (`IContinuidadeDoBrain`) e `TelegramPollingService`;
 testes em `ContinuidadeDoBrainTests`. Contrato: [continuidade](../development/continuidade-brain.md).
+
+## AD-47 — Métricas do Brain em JSONL local, sem conteúdo e com limiares fixos
+
+Status: vigente (#148).
+
+A medição registra envios aceitos, fins de turno e avaliações humanas em
+`~/.dante/brain/metricas.jsonl`, fora do banco canônico, do backup e da exportação: são
+observação operacional, não conhecimento. Só números, resultado, agente e IDs de escopo
+e sessão. O histórico bruto de referência é medido na própria conversa (pedidos sem o
+pacote e respostas); uma retomada compara a soma dos seus pacotes com o histórico das
+sessões anteriores do escopo. Limiares fixos (ganho ≤ 0,50; neutralidade ≤ 1,00) evitam
+ajustar o critério ao resultado. O uso informado pelas CLIs entra no `TurnCompletedEvent`
+quando existe e é exibido como está; ausência é "indisponível".
+
+Por quê: a economia de contexto é hipótese da Epic #133; validá-la exige baseline e
+custo comparáveis, sem transcript e sem misturar telemetria ao Brain.
+
+Código: `Application/MetricasDoBrain`, `Infrastructure/MetricasDoBrain`,
+`Telegram/MetricasDeSessaoDoBrain.cs`; testes em `MetricasDoBrainTests` e
+`ContinuidadeDoBrainTests`. Contrato: [métricas](../development/metricas-brain.md).

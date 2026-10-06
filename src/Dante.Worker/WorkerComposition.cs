@@ -24,7 +24,9 @@ internal static class WorkerComposition
             provider.GetRequiredService<TelegramDeliveryService>(), provider.GetRequiredService<TelegramDeliveryService>(),
             provider.GetRequiredService<IShowcaseRenderer>(), provider.GetRequiredService<AttachmentStore>(),
             provider.GetRequiredService<ILogger<TelegramShowcase>>()));
-        services.AddSingleton<IAgentSessionEventSink>(provider => provider.GetRequiredService<TelegramShowcase>());
+        // Brain metrics (#148) observe the session events on their way to the showcase and the delivery.
+        services.AddSingleton<IAgentSessionEventSink>(provider => new MetricasDeSessaoDoBrain(
+            provider.GetRequiredService<TelegramShowcase>(), provider.GetRequiredService<TelegramBrain>()));
         services.AddSingleton<SessionRegistry>();
         services.AddSingleton(_ => new AttachmentStore());
         services.AddSingleton(_ => new ArtifactStore());

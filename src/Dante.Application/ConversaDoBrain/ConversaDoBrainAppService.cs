@@ -1,5 +1,6 @@
 using Dante.Application.AuditoriaDoBrain;
 using Dante.Application.DocumentosFonte;
+using Dante.Application.MetricasDoBrain;
 using Dante.Application.BuscaDoBrain;
 using Dante.Application.CapturaDeConhecimento;
 using Dante.Application.Conhecimentos;
@@ -15,7 +16,7 @@ namespace Dante.Application.ConversaDoBrain;
 public sealed class ConversaDoBrainAppService(BuscaDoBrainAppService busca,LeituraDoBrainAppService leitura,
     IConhecimentoAppService conhecimentos,ICapturaDeConhecimentoAppService captura,IRelacaoDeConhecimentoAppService relacoes,
     InspecaoDoBrainAppService auditoria,DocumentoFonteAppService documentos,IDocumentoFonteRepository fontes,AutorizacaoDoBrain autorizacao,IEstadoDeConversaDoBrain estados,
-    ContextoDeTrabalhoAppService snapshots)
+    ContextoDeTrabalhoAppService snapshots,MetricasDoBrainAppService metricas)
 {
     public async Task<string?> AtenderAsync(AcessoAoBrain acesso,PedidoDeConversaDto pedido,CancellationToken cancellationToken=default)
     {
@@ -162,6 +163,8 @@ public sealed class ConversaDoBrainAppService(BuscaDoBrainAppService busca,Leitu
             case IntencaoDoBrain.MostrarContexto:
                 var contextoAtual=await snapshots.RetomarAsync(acesso,cancellationToken);
                 return contextoAtual is null?"Nenhum contexto de trabalho ativo neste escopo. "+FormatoDoContexto:DescreverContexto(contextoAtual);
+            case IntencaoDoBrain.Metricas:return MetricasDoBrainAppService.Formatar(await metricas.ResumirAsync(acesso,cancellationToken));
+            case IntencaoDoBrain.AvaliarRetomada:return await AvaliarAsync(intencao.Texto);
             default:return null;
         }
         AlvoDeConversaDto? Unico(TipoDeConhecimento tipo)=>estado.Resultados.Count(x=>x.Tipo==tipo&&x.Origem=="conhecimento")==1?estado.Resultados.Single(x=>x.Tipo==tipo&&x.Origem=="conhecimento"):null;
@@ -229,6 +232,39 @@ public sealed class ConversaDoBrainAppService(BuscaDoBrainAppService busca,Leitu
                 Lista("referencias",d?.Referencias),Lista("pendencias",d?.Pendencias),Lista("passos",d?.ProximosPassos),Campo("resultado",d?.UltimoResultado));
             var salvo=await snapshots.SubstituirAsync(acesso,anterior?.Revisao??0,dados,anterior?.Sensibilidade??Sensibilidade.Pessoal,"conversa explícita",anterior?.ExpiraEm,cancellationToken);
             return "Contexto de trabalho atualizado.\n"+DescreverContexto(salvo);
+        }
+        // Avaliação humana da retomada (#148): campos omitidos ficam "não avaliados", nunca zero presumido.
+        async Task<string> AvaliarAsync(string corpo)
+        {
+            const string formato="Diga: avalie a retomada: repetições: 0; esclarecimentos: 0; concluída: sim; contexto adicional: não; incorretos: 0; irrelevantes: 0; relevantes: 3. Campos omitidos ficam como não avaliados.";
+            if(string.IsNullOrWhiteSpace(corpo))return formato;
+            var avaliacao=new MetricaDoBrainDto();
+            foreach(var parte in corpo.Split([';','\n',','],StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries))
+            {
+                var colon=parte.IndexOf(':');var campo=colon<=0?"":ResolvedorDeIntencaoDoBrain.Normalizar(parte[..colon].Trim());
+                var valor=colon<=0?"":ResolvedorDeIntencaoDoBrain.Normalizar(parte[(colon+1)..].Trim().TrimEnd('.'));
+                int? numero=int.TryParse(valor,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var n)?n:null;
+                bool? sim=valor is "sim" or "s"?true:valor is "nao" or "n"?false:null;
+                MetricaDoBrainDto? lida=campo switch
+                {
+                    "repeticoes" or "repeticao" or "repeti" when numero is not null=>avaliacao with{Repeticoes=numero},
+                    "esclarecimentos" or "esclarecimento" when numero is not null=>avaliacao with{Esclarecimentos=numero},
+                    "concluida" or "tarefa concluida" when sim is not null=>avaliacao with{Concluida=sim},
+                    "contexto adicional" or "buscou contexto" or "busquei contexto" when sim is not null=>avaliacao with{BuscouContextoAdicional=sim},
+                    "incorretos" or "obsoletos" or "incorretos ou obsoletos" when numero is not null=>avaliacao with{Incorretos=numero},
+                    "irrelevantes" when numero is not null=>avaliacao with{Irrelevantes=numero},
+                    "relevantes" when numero is not null=>avaliacao with{Relevantes=numero},
+                    _=>null
+                };
+                if(lida is null)return "Campo ou valor de avaliação inválido; nada foi registrado. "+formato;
+                avaliacao=lida;
+            }
+            try
+            {
+                var sessao=await metricas.AvaliarAsync(acesso,pedido.IdSessao,avaliacao,cancellationToken);
+                return $"Avaliação registrada para a sessão {sessao[(sessao.LastIndexOf(':')+1)..]}. Diga métricas do Brain para ver o resumo.";
+            }
+            catch(InvalidOperationException){return "Nenhuma conversa com contexto do Brain medida neste escopo; converse com o agente antes de avaliar.";}
         }
         async Task<string> OrigemAsync(AlvoDeConversaDto? alvo)
         {

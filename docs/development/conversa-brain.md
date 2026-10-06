@@ -20,7 +20,8 @@ Exemplos:
 - `confirmar`, `cancelar`, `listar candidatos`, `confirmar primeira`;
 - `inspecione o Brain`, `exporte o Brain`; `/brain ajuda` é fallback explícito;
 - `atualize o contexto de trabalho: objetivo: ...; próximo passo: ...`, `mostre o contexto de trabalho`;
-- Reply a uma resposta do agente com `documente isso` (só o texto citado vira candidato).
+- Reply a uma resposta do agente com `documente isso` (só o texto citado vira candidato);
+- `métricas do Brain`, `avalie a retomada: repetições: 0; concluída: sim` ([métricas](metricas-brain.md)).
 
 Intenções são determinísticas, sem chamada LLM para autorização/seleção. Busca de
 experiência filtra incidente/solução/aprendizado/procedimento antes da paginação.

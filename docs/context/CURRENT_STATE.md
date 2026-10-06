@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157) e continuidade do Brain nas sessões (#145).
+Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148).
 
 ## Marcos
 
@@ -278,7 +278,7 @@ completa durante a #94 e de novo no baseline da #95; passa isolado e nas execuç
 A Epic #133 tem [arquitetura alvo documentada](../maintainer/ARCHITECTURE.md#16-arquitetura-alvo-do-dante-brain-133-134)
 (AD-33, #134). O Brain é opcional no runtime; Knowledge Core existe em Domain/Application
 (#138); persistência, busca, snapshot, Context Pack e a continuidade nas sessões (#145) foram
-entregues depois. Restam métricas de continuidade (#148) e a validação E2E go/no-go (#147).
+entregues depois, assim como as métricas de continuidade (#148). Resta a validação E2E go/no-go (#147).
 A arquitetura separa conhecimento, memória de trabalho e histórico; não altera
 persistência ou permissões do Worker atual.
 
@@ -471,3 +471,14 @@ conversa (`atualize o contexto de trabalho: ...`), Reply a uma resposta com `doc
 isso` cria candidato só do trecho citado, e `/status` mostra escopo e custo do último envio.
 Estado de injeção em memória; `/steer`, `/vitrine` e one-shot não recebem pacote (AD-46).
 [Continuidade](../development/continuidade-brain.md).
+
+## Métricas de continuidade do Brain (#148)
+
+Envios aceitos (recuperados/selecionados/injetados/descartados, custo do pacote e do
+snapshot, pedido sem pacote, conhecimento armazenado), fins de turno (resposta estimada e
+uso informado pelas CLIs, agora no `TurnCompletedEvent`) e avaliações humanas vão para
+`~/.dante/brain/metricas.jsonl`, sem conteúdo. `métricas do Brain` compara cada retomada
+com o histórico bruto das sessões anteriores do escopo e indica ganho, neutralidade,
+regressão ou dados insuficientes por limiares fixos, com alertas de qualidade de
+`avalie a retomada: ...`. Dado ausente fica indisponível (AD-47). Os dados alimentam a
+#147. [Métricas](../development/metricas-brain.md).

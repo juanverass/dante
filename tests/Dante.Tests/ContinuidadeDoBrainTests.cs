@@ -27,6 +27,7 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
     private readonly string root=Path.Combine(Path.GetTempPath(),"dante-continuidade-"+Guid.NewGuid().ToString("N"));
     private readonly FakeSessionDriverFactory drivers=new();
     private readonly BotApi api=new();
+    private string Metricas=>Path.Combine(root,"metricas.jsonl");
     private SessionRegistry? sessions;
     private TelegramPollingService? service;
 
@@ -175,7 +176,7 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
         Assert.True(preparado.Pacote.Custo.TokensEstimados<=2048);Assert.InRange(preparado.Pacote.Itens.Count,1,12);
         Assert.Contains(preparado.Pacote.Registros,x=>x.Motivo.Contains("orçamento",StringComparison.Ordinal)||x.Motivo=="Limite de itens.");
         Assert.DoesNotContain("segredo reservado",preparado.Texto);
-        brain.RegistrarInjecao(preparado);
+        await brain.RegistrarInjecaoAsync(preparado);
         var refresh=await brain.PrepararAsync(Texto("como evitar deadlock?"),"S000099","como evitar deadlock?");
         Assert.NotNull(refresh);Assert.False(refresh.Bootstrap);Assert.True(refresh.Pacote.Custo.TokensEstimados<=1024);
         Assert.Empty(refresh.Pacote.Itens.Select(x=>x.Chave).Intersect(preparado.Pacote.Itens.Select(x=>x.Chave)));
@@ -184,12 +185,49 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
         Assert.True((await brain.PrepararAsync(Texto("como evitar deadlock?"),"S000099","como evitar deadlock?"))!.Bootstrap);
     }
 
+    // #148: a sessão A mede o histórico bruto; a sessão B, retomada pelo Brain, é comparada com ele e avaliada.
+    [PostgreSqlFact]
+    public async Task RetomadaGeraMetricasComparaveisSemConteudo()
+    {
+        await using var banco=await Banco.CriarAsync();using var provider=Provider(banco.ConnectionString,out var config);
+        await IniciarAsync(new TelegramBrain(provider.GetRequiredService<IServiceScopeFactory>(),config));
+        await Dizer("criar espaço Infra");
+        Assert.Contains("Nenhuma conversa",await Dizer("avalie a retomada: repetições: 0"));
+        api.Enqueue(Texto("como configuro o banco local?"));
+        await Eventually(()=>drivers.Created.Count==1&&drivers.Created[0].TurnInputs.Count==1);
+        Assert.Equal("como configuro o banco local?",drivers.Created[0].TurnInputs[0].Text);
+        await ConcluirTurnoAsync(drivers.Created[0],string.Join(' ',Enumerable.Repeat("detalhe",300)));
+        await Dizer("registre no Brain: decisao: banco PostgreSQL local na porta 5433");await Dizer("confirmar");
+        await Dizer("atualize o contexto de trabalho: objetivo: configurar banco; próximo passo: rodar migrations");
+        Assert.Contains("dados insuficientes",await Dizer("métricas do Brain"));
+
+        Assert.Contains("encerrada",await Dizer("/session close"));
+        api.Enqueue(Texto("retomando o banco local"));
+        await Eventually(()=>drivers.Created.Count==2&&drivers.Created[1].TurnInputs.Count==1);
+        Assert.Contains("porta 5433",drivers.Created[1].TurnInputs[0].Text);
+        await ConcluirTurnoAsync(drivers.Created[1]);
+
+        var resumo=await Dizer("métricas do Brain");
+        Assert.Contains("Sessões medidas: 2; envios: 2 (2 iniciais); turnos: 2.",resumo);Assert.Contains("Retomadas: 1.",resumo);
+        Assert.Contains("- S000002 (Claude): Brain ",resumo);Assert.Contains("Indicação: ganho",resumo);
+        Assert.Contains("entrada indisponível, saída indisponível (2 turno(s) sem dado)",resumo);Assert.Contains("1 retomada(s) sem avaliação",resumo);
+        Assert.Contains("nada foi registrado",await Dizer("avalie a retomada: humor: bom"));
+        Assert.Contains("sessão S000002",await Dizer("avalie a retomada: repetições: 0; esclarecimentos: 0; concluída: sim; contexto adicional: não; relevantes: 2; irrelevantes: 0"));
+        resumo=await Dizer("métricas do Brain");
+        Assert.Contains("repetições 0, esclarecimentos 0, concluída sim, contexto adicional não, incorretos ?, relevantes 2/2",resumo);
+        Assert.Contains("Qualidade: nenhum problema relatado; precisão avaliada 1,00.",resumo);
+
+        var arquivo=await File.ReadAllTextAsync(Metricas);
+        Assert.Contains("S000002",arquivo);
+        foreach(var conteudo in new[]{"banco local","PostgreSQL","detalhe","rodar migrations","Infra"})Assert.DoesNotContain(conteudo,arquivo);
+    }
+
     private static Conhecimento Novo(EspacoDeConhecimento e,string texto,Sensibilidade classe=Sensibilidade.Pessoal)
     {var k=new Conhecimento(e.Id,null,TipoDeConhecimento.Fato,texto,null,StatusDoConhecimento.Inferido,null,classe,null,null,[],new(e.IdUsuario,"manual","fonte:teste"),DateTimeOffset.UtcNow);k.Confirmar(1,k.Proveniencia,DateTimeOffset.UtcNow);return k;}
 
-    private static ServiceProvider Provider(string connection,out IConfiguration config)
+    private ServiceProvider Provider(string connection,out IConfiguration config)
     {
-        config=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["ConnectionStrings:Dante"]=connection,["Telegram:AllowedUserIds"]="123"}).Build();
+        config=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["ConnectionStrings:Dante"]=connection,["Telegram:AllowedUserIds"]="123",["DANTE_BRAIN_METRICS_FILE"]=Metricas}).Build();
         return new ServiceCollection().AddApplication().AddInfrastructure(config).BuildServiceProvider();
     }
 
@@ -198,10 +236,10 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
         api.Enqueue(Texto(texto));return await api.NextMessageAsync();
     }
 
-    private async Task ConcluirTurnoAsync(FakeSessionDriver driver)
+    private async Task ConcluirTurnoAsync(FakeSessionDriver driver,string resposta="resposta")
     {
-        driver.Emit(new TurnStartedEvent());driver.Emit(new MessageCompletedEvent("m1","resposta"));driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
-        Assert.Equal("resposta\n",await api.NextMessageAsync());
+        driver.Emit(new TurnStartedEvent());driver.Emit(new MessageCompletedEvent("m1",resposta));driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        Assert.Equal(resposta+"\n",await api.NextMessageAsync());
         await Eventually(()=>sessions!.GetActive(123)!.State==AgentSessionState.Idle);
     }
 
@@ -210,7 +248,7 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
         var options=Options.Create(new TelegramOptions{BotToken="test",AllowedUserIds="123"});
         var store=new AttachmentStore(Path.Combine(root,"attachments"));
         var delivery=new TelegramDeliveryService(api,NullLogger<TelegramDeliveryService>.Instance);
-        sessions=new SessionRegistry(drivers,NullLogger<SessionRegistry>.Instance,delivery,attachments:store);
+        sessions=new SessionRegistry(drivers,NullLogger<SessionRegistry>.Instance,brain is null?delivery:new MetricasDeSessaoDoBrain(delivery,brain),attachments:store);
         service=new TelegramPollingService(api,options,new TelegramUserAuthorizer(options),Runner.Instance,Runner.Instance,new JobRegistry(),
             NullLogger<TelegramPollingService>.Instance,null,new GeneralWorkspace(Path.Combine(root,"general")),
             new AssistantSettingsStore(Path.Combine(root,"settings.json")),sessions,delivery,attachments:store,
@@ -241,8 +279,9 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
         public bool Configurado=>true;
         public Task<ContextoParaTurno?> PrepararAsync(TelegramMessage mensagem,string idSessao,string texto,CancellationToken cancellationToken=default)=>
             Task.FromResult(SemPacote?null:new ContextoParaTurno(idSessao,"escopo",$"[pacote {idSessao}]\n\nMensagem do usuário:\n{texto}",
-                new PacoteDeContextoDto(Guid.NewGuid(),"",[],[],new(0,0,0,0,2048),false),true));
-        public void RegistrarInjecao(ContextoParaTurno contexto)=>Registrados.Add(contexto.IdSessao);
+                new PacoteDeContextoDto(Guid.NewGuid(),"",[],[],new(0,0,0,0,2048),false),true,new()));
+        public Task RegistrarInjecaoAsync(ContextoParaTurno contexto,CancellationToken cancellationToken=default){Registrados.Add(contexto.IdSessao);return Task.CompletedTask;}
+        public Task RegistrarTurnoAsync(string idSessao,string agente,int tokensDaResposta,AgentTurnOutcome resultado,AgentTokenUsage? uso,CancellationToken cancellationToken=default)=>Task.CompletedTask;
         public void ReiniciarSessao(string idSessao)=>Reiniciados.Add(idSessao);
         public string? EscopoSelecionado(TelegramMessage mensagem)=>"escopo";
         public string? DescreverStatus(TelegramMessage mensagem,string? idSessao)=>$"Brain falso para {idSessao}";
