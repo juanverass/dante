@@ -298,11 +298,19 @@ public sealed class AgentSessionTests
     public void TurnCompletionReturnsTheCorrelationOfTheInputThatOpenedIt()
     {
         var session = CreateSession(AgentDriverCapabilities.Claude);
-        Assert.Equal(SubmitOutcome.TurnStarted, session.Submit(new AgentInput("a", []) { Correlation = "a" }).Outcome);
+        var started = session.Submit(new AgentInput("a", []) { Correlation = "a" });
+        Assert.Equal(SubmitOutcome.TurnStarted, started.Outcome);
         Assert.Equal(SubmitOutcome.Queued, session.Submit(new AgentInput("b", []) { Correlation = "b" }).Outcome);
         Assert.Equal(SubmitOutcome.SteerByInterrupt, session.Submit("guia", MessageDelivery.Steer).Outcome);
 
-        Assert.Equal("a", ((TurnCompletedEvent)session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Interrupted))).Correlation);
+        // The correlation is added to the stamped completion: session, turn and timestamp are kept.
+        var before = DateTimeOffset.UtcNow;
+        var completed = (TurnCompletedEvent)session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Interrupted));
+        Assert.Equal("a", completed.Correlation);
+        Assert.Equal(session.Id, completed.SessionId);
+        Assert.Equal(started.TurnId, completed.TurnId);
+        Assert.InRange(completed.TimestampUtc, before, DateTimeOffset.UtcNow);
+        Assert.Equal(AgentTurnOutcome.Interrupted, completed.Outcome);
         Assert.True(session.TryStartQueued(out _, out var steer));
         Assert.Equal("guia", steer!.Text);
         Assert.Null(((TurnCompletedEvent)session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Completed))).Correlation);

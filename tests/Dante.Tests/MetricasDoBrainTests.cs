@@ -99,6 +99,25 @@ public sealed class MetricasDoBrainTests
         Assert.Null(continuidade.Turnos[1].Sessao);Assert.Equal(0,continuidade.Turnos[1].Tokens);Assert.Null(continuidade.Turnos[1].Uso);
     }
 
+    // Pelos eventos carimbados pela AgentSession: a resposta acumulada por sessão/turno chega ao fim do mesmo turno.
+    [Fact]
+    public async Task SinkMedeOsEventosCarimbadosPelaSessao()
+    {
+        var continuidade=new Continuidade();var sink=new MetricasDeSessaoDoBrain(new SinkGravado(),continuidade);
+        var ids=new SessionIdGenerator();
+        var session=new AgentSession(ids.NextSessionId(),AgentKind.Claude,123,JobExecutionContext.General("/tmp"),AgentDriverCapabilities.Claude,ids);
+        session.MarkStarted(new AgentSessionStarted("upstream",4242));
+        foreach(var (texto,correlacao) in new[]{("primeira","envio-a"),("segunda","envio-b")})
+        {
+            Assert.Equal(SubmitOutcome.TurnStarted,session.Submit(new AgentInput(texto,[]){Correlation=correlacao}).Outcome);
+            var snapshot=new AgentSessionSnapshot(session.Id,AgentKind.Claude,123,JobExecutionContext.General("/tmp"),AgentPermissionProfile.Manual,
+                AgentSessionState.Running,session.ActiveTurnId,0,[],true,DateTimeOffset.UtcNow,null,null);
+            await sink.PublishAsync(snapshot,session.Apply(new MessageCompletedEvent("m",new string('x',30))),CancellationToken.None);
+            await sink.PublishAsync(snapshot,session.Apply(new TurnCompletedEvent(AgentTurnOutcome.Completed)),CancellationToken.None);
+        }
+        Assert.Equal([("envio-a","Claude",10,AgentTurnOutcome.Completed,null),("envio-b","Claude",10,AgentTurnOutcome.Completed,(AgentTokenUsage?)null)],continuidade.Turnos);
+    }
+
     private static MetricaDoBrainDto Envio(string sessao,int minuto,int pedido,int injetados=0,int pacote=0,bool boot=true)=>new()
     {
         Tipo=MetricaDoBrainDto.Envio,Em=Inicio.AddMinutes(minuto),IdSessao=sessao,Bootstrap=boot,TokensDoPedido=pedido,Injetados=injetados,Selecionados=injetados,
