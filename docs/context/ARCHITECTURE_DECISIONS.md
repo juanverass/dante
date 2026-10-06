@@ -1722,3 +1722,51 @@ explícita/design-time/fixtures. Nenhum lifetime de serviço/adapter muda.
 
 Por quê: o ownership dos casos de uso pertence ao núcleo; a ativação adiada conserva
 o Brain opcional sem acoplar Application à configuração de storage nem aos hosts.
+
+## AD-55 — Planilhas como capacidade genérica exposta aos agentes por MCP, com Google Sheets como primeiro provedor
+
+Status: vigente (#224). Complementa AD-35/AD-41/AD-54.
+
+A Application tem a feature `Planilhas`, sem domínio: `PlanilhasAppService` sobre as portas
+`IPlanilhaService` (metadados, leitura com exibido/bruto/fórmula/mesclagens, valores exibidos
+em lote, escrita de valores, acréscimo de linha e reconhecimento de URL/ID), `IConexaoDePlanilha`
+(iniciar, consultar e revogar a conta), `ICadastroDePlanilhas` e `IAuditoriaDePlanilhas`. A
+Application não referencia SDK, API, OAuth ou URL do Google, nem conceitos de nenhum domínio
+(treino, finanças...); um teste recusa esse vocabulário no código de produção da integração.
+Interpretar a intenção e a estrutura é do agente; a planilha de treino é só o cenário E2E.
+
+A Infrastructure implementa Google Sheets por HTTP direto (sem SDK, como o Telegram):
+`GoogleOAuthService` (app local, callback loopback em 127.0.0.1, PKCE S256, `state` em tempo
+constante, access token só em memória, renovação automática e revogação), `GoogleCredentialStore`
+(refresh token e cliente OAuth cifrados com AES-256-GCM, chave em arquivo separado, 0600/0700)
+e `GoogleSheetsAdapter` (401 renova uma vez; 429/5xx repetidos com espera; demais erros viram
+`FalhaDePlanilhaException` com mensagem segura). Cadastro e auditoria são arquivos locais.
+
+Os agentes acessam a capacidade por um servidor MCP stdio padrão (`dante_planilhas`), que é o
+próprio executável do Worker em modo `--mcp-planilhas`, iniciado pela CLI da sessão: Claude por
+`--mcp-config` (leituras em `--allowedTools`), Codex por `-c mcp_servers.*` (leituras anotadas
+`readOnlyHint`). Escritas seguem o modo da sessão pelos caminhos de aprovação existentes:
+`can_use_tool` no Claude e `mcpServer/elicitation/request` com `codex_approval_kind =
+mcp_tool_call` no Codex, mapeado para `ApprovalRequestedEvent`; `plan` recusa escrita. O spike
+desta Issue confirmou o comportamento nas CLIs 2.1.287 e 0.159.3 (leitura sem aprovação, escrita
+com elicitation/can_use_tool, aprovação automática no `auto_review`). O servidor só é oferecido a
+sessões iniciadas com conta conectada e não recebe segredos pela linha de comando.
+
+Escrita é sempre em coordenadas exatas, tudo ou nada, com valor anterior e auditoria por célula.
+O núcleo recusa: alvo por referência com mais de um candidato do mesmo nível (devolvendo os
+candidatos), valor esperado divergente, fórmula sem permissão explícita (e mais de 5 por vez),
+célula interna de mesclagem, limpeza de mais de 20 células preenchidas e mais de 200 células.
+Operações estruturais destrutivas não existem no MVP.
+
+Alternativas descartadas: ferramentas dinâmicas experimentais do app-server e servidor MCP
+"sdk" do Claude (protocolos internos, um por CLI); comandos Telegram determinísticos para ler e
+escrever (tirariam a interpretação do agente); SDK do Google (dependência sem ganho para cinco
+endpoints REST).
+
+Por quê: um contrato genérico de planilha com um provedor substituível atende qualquer domínio
+sem acoplar o núcleo ao Google, e o MCP padrão dá às duas CLIs as mesmas ferramentas, com a
+aprovação de escrita no fluxo que o D.A.N.T.E. já controla.
+
+Código: `src/Dante.Application/Planilhas`, `src/Dante.Infrastructure/{Google,Planilhas}`,
+`src/Dante.Worker/Planilhas`, `src/Dante.Worker/Telegram/TelegramPlanilhas.cs`; guia em
+[planilhas](../development/planilhas.md).

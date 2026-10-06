@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199), e composição modular da Infrastructure (#200), e ownership da composição na Application (#208), e regras arquiteturais executáveis da Application (#209).
+Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199), e composição modular da Infrastructure (#200), e ownership da composição na Application (#208), e regras arquiteturais executáveis da Application (#209), e Google Sheets como ferramenta genérica de planilhas (#224).
 
 ## Marcos
 
@@ -87,6 +87,12 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   etiquetas), e o envia pelo canal de arquivos da #97. Ajustes são novos `/vitrine` na mesma conversa e geram versões
   `vitrine-T…-vN.png`; exige sessão ociosa; sem `ffmpeg`, recusa antes do agente; fonte Inter quando instalada, senão
   DejaVu Sans;
+- planilhas (#224, AD-55): `/google connect|status|disconnect` conecta uma conta Google por OAuth local (callback
+  loopback no WSL, PKCE, credencial cifrada, renovação automática, revogação) e `/planilha add|show|remove` e
+  `/planilhas` cadastram planilhas por URL/ID com alias. Sessões iniciadas com a conta conectada recebem o servidor MCP
+  `dante_planilhas` (Claude e Codex), com ferramentas genéricas para descrever, ler intervalos A1, buscar texto,
+  atualizar células/intervalos, escrever por referência e acrescentar linhas; leitura sem aprovação, escrita pelo modo
+  da sessão, alvo ambíguo/fórmula/mesclagem/limpeza em massa recusados, valor anterior e auditoria local por célula;
 - `/use @alias`, `/use general` e `/use`: repositório ativo por usuário, persistido em
   `~/.dante/settings.json` e usado por toda execução sem `@alias` explícito (AD-14);
 - resolvedor único de agente e contexto (AD-27): `/claude`/`/codex` → agente padrão;
@@ -166,6 +172,10 @@ Detalhes de uso: [README](../../README.md).
 - a validação real foi feita contra as CLIs instaladas com a API do Telegram simulada; o
   dogfooding pelo Telegram real depende do bot do usuário;
 - sem CI no GitHub: validação é local;
+- planilhas (#224): só Google Sheets; o servidor MCP só entra em sessões iniciadas depois de conectar a conta; one-shot
+  (`/claude`, `/codex`) não recebe as ferramentas; o link de `/google connect` só funciona no navegador do próprio
+  computador; sem exclusão de linhas/abas, formatação, gráficos ou descoberta pelo Drive; a validação real com a conta e a
+  planilha de treino do usuário é o `LivePlanilhasEvidenceTests`, opt-in (`DANTE_LIVE_GOOGLE=1`), ainda não executado;
 - áudio e vídeo chegam ao agente só como transcrição e quadros amostrados (nenhuma CLI recebe o arquivo); a
   transcrição é automática e local, e o vídeo é visto só nos quadros amostrados; animações (GIF) são recusadas;
 - one-shot (`/claude`, `/codex`) não envia arquivos gerados: o `codex exec` não informa onde salvou a imagem;
@@ -605,3 +615,16 @@ Infrastructure registra apenas adapters técnicos. Validators/policies estático
 continuam puros. DI do DbContext exige autorização, sem fallback administrativo
 quando AddApplication é omitido. Testes de composição resolvem a lista integral
 com adapters e um CRUD com fakes sem Infrastructure (AD-54).
+
+## Planilhas genéricas (#224)
+
+Feature `Planilhas` na Application (AD-55) com contratos provider-agnostic e sem domínio:
+`PlanilhasAppService` sobre `IPlanilhaService`, `IConexaoDePlanilha`, `ICadastroDePlanilhas` e
+`IAuditoriaDePlanilhas`. A Infrastructure implementa Google Sheets por HTTP (OAuth local com PKCE e
+credencial AES-GCM; adapter com renovação após 401 e repetição de 429/5xx), cadastro e auditoria em
+`~/.dante/planilhas`. O Worker expõe a capacidade às sessões por MCP stdio (`--mcp-planilhas`) e
+mapeia a aprovação MCP do Codex (`mcpServer/elicitation/request`) para o fluxo de aprovações. A
+planilha de treino é cenário E2E sobre o emulador da API, sem código de treino na produção; o
+`LivePlanilhasEvidenceTests` cobre a planilha real (opt-in). Spike com as CLIs reais (Claude Code
+2.1.287, codex-cli 0.159.3) confirmou o servidor MCP do Worker, leitura sem aprovação e escrita por
+aprovação. [Guia](../development/planilhas.md).

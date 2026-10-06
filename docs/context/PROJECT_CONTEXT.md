@@ -75,6 +75,9 @@ vivo que recebe todos os turnos. O one-shot continua disponível por comando exp
 | `ClaudeRunner` / `CodexRunner` | `Dante.Infrastructure/Agentes/` | Argumentos fixos de cada CLI por modo. |
 | `AgentProcessExecutor` | `Dante.Infrastructure/Agentes/` | Inicia o processo sem shell, filtra ambiente, captura saída, cancela a árvore. |
 | `AgentExecutableResolver` | `Dante.Infrastructure/Agentes/` | Resolve apenas `claude`/`codex` em entradas absolutas do `PATH`. |
+| `PlanilhasAppService` | `Dante.Application/Planilhas/` | Planilhas genéricas: cadastro, leitura, busca e escrita exata com auditoria. |
+| `GoogleOAuthService` / `GoogleSheetsAdapter` | `Dante.Infrastructure/Google/` | Conta Google (OAuth local, credencial cifrada) e Sheets API v4. |
+| `ServidorMcpDePlanilhas` | `Dante.Worker/Planilhas/` | Servidor MCP stdio que dá as ferramentas de planilha às sessões. |
 
 ## Stack
 
@@ -104,6 +107,8 @@ cair para General Mode; nunca há inferência de repositório pelo texto do prom
   local da própria CLI (assinatura ou API key opcional).
 - **Git** — usado pelo `RepositoryRegistry` para validar raiz do repositório e remote.
 - **PostgreSQL/pgvector** — canônico/índices opcionais do Brain; configuração externa, migrations e reindexação explícitas.
+- **Google Sheets API** — capacidade genérica de planilhas (AD-55): OAuth local com cliente do usuário
+  (`Google__ClientId`/`Google__ClientSecret`), exposta aos agentes pelo servidor MCP `dante_planilhas`.
 
 ## Segurança fundamental
 
@@ -118,7 +123,9 @@ cair para General Mode; nunca há inferência de repositório pelo texto do prom
 - eventos de sessão passam pela redaction a cada parte entregue; approvals e input só são
   aceitos do dono da sessão, no turno e na solicitação certos; acesso irrestrito (`full`) não
   é oferecido;
-- token do bot não aparece em logs.
+- token do bot não aparece em logs;
+- tokens do Google ficam fora do Telegram, de logs e da linha de comando dos agentes; o refresh token é cifrado em
+  disco; escrita em planilha segue o modo de aprovação da sessão e nunca escolhe um alvo ambíguo em silêncio.
 
 ## Limites arquiteturais
 
