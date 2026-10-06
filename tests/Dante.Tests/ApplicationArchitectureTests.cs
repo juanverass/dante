@@ -129,6 +129,8 @@ public sealed class ApplicationArchitectureTests
         Assert.NotEmpty(validators);
         Assert.All(validators, t =>
         {
+            // Tipo aninhado nunca é IsPublic; recusá-lo torna !IsPublic equivalente a internal de topo (review do PR #222).
+            Assert.False(t.IsNested, $"{t.Name} deve ser tipo de topo da feature.");
             Assert.True(t.IsAbstract && t.IsSealed && !t.IsPublic, $"{t.Name} deve ser internal static.");
             Assert.DoesNotContain(t.Namespace, new[] { "Dante.Application.Comum", "Dante.Application.Mapeamento", "Dante.Application" });
         });
@@ -141,8 +143,11 @@ public sealed class ApplicationArchitectureTests
         var tipos = Application.GetTypes();
         var mappings = tipos.Where(t => t.Name.EndsWith("Mapping", StringComparison.Ordinal)).ToArray();
         Assert.NotEmpty(mappings);
-        Assert.All(mappings, mapping => Assert.Equal(mapping.Namespace,
-            Assert.Single(tipos, t => t.Name == mapping.Name[..^"Mapping".Length] + "Dto").Namespace));
+        Assert.All(mappings, mapping =>
+        {
+            Assert.False(mapping.IsNested, $"{mapping.Name} deve ser tipo de topo da feature.");
+            Assert.Equal(mapping.Namespace, Assert.Single(tipos, t => t.Name == mapping.Name[..^"Mapping".Length] + "Dto").Namespace);
+        });
     }
 
     // Hosts adaptam entrada/saída e compõem; regras, mappings, validações e AppServices ficam na Application.
