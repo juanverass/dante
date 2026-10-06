@@ -13,6 +13,7 @@ internal static class WorkerComposition
     public static IServiceCollection AddWorker(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton<JobRegistry>();
+        services.AddSingleton(provider => new TelegramBrain(provider.GetRequiredService<IServiceScopeFactory>(), configuration));
         services.AddSingleton<IMediaTools>(_ => new MediaTools());
         services.AddSingleton<MediaPreparer>();
         services.AddSingleton<IAgentSessionDriverFactory, AgentSessionDriverFactory>();

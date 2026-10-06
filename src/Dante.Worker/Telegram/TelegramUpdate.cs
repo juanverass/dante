@@ -21,7 +21,8 @@ public sealed record TelegramMessage(
     [property: JsonPropertyName("video")] TelegramFileInfo? Video = null,
     [property: JsonPropertyName("video_note")] TelegramFileInfo? VideoNote = null,
     [property: JsonPropertyName("animation")] TelegramFileInfo? Animation = null,
-    [property: JsonPropertyName("reply_to_message")] TelegramMessage? ReplyToMessage = null)
+    [property: JsonPropertyName("reply_to_message")] TelegramMessage? ReplyToMessage = null,
+    [property: JsonPropertyName("message_thread_id")] long? MessageThreadId = null)
 {
     public bool HasMedia => Photo is { Count: > 0 } || Document is not null || Voice is not null || Audio is not null ||
         Video is not null || VideoNote is not null || Animation is not null;

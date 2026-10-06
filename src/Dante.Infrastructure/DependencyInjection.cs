@@ -32,6 +32,8 @@ public static class DependencyInjection
             services.AddScoped<Dante.Application.Projetos.IProjetoRepository, ProjetoRepository>();
             services.AddScoped<Dante.Application.Conhecimentos.IConhecimentoRepository, ConhecimentoRepository>();
             services.AddScoped<AdministracaoDoBanco>();
+            services.AddSingleton<Dante.Application.ConversaDoBrain.IEstadoDeConversaDoBrain, Dante.Infrastructure.ConversaDoBrain.EstadoDeConversaDoBrainEmMemoria>();
+            services.AddScoped<Dante.Application.ConversaDoBrain.ConversaDoBrainAppService>();
             services.AddScoped<Dante.Application.ConstrucaoDeContexto.ConstrutorDeContextoAppService>();
             services.AddScoped<Dante.Application.AuditoriaDoBrain.IConsultaDeAuditoria, Dante.Infrastructure.AuditoriaDoBrain.ConsultaDeAuditoriaPostgreSql>();
             services.AddScoped<Dante.Application.AuditoriaDoBrain.InspecaoDoBrainAppService>();

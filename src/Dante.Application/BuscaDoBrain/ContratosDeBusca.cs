@@ -7,6 +7,7 @@ public sealed record BuscaDoBrainSearchDto
     public string Texto { get; init; } = "";
     public Guid? IdConhecimento { get; init; }
     public TipoDeConhecimento? Tipo { get; init; }
+    public IReadOnlyList<TipoDeConhecimento> Tipos { get; init; } = [];
     public StatusDoConhecimento? Status { get; init; }
     public Sensibilidade? Sensibilidade { get; init; }
     public IReadOnlyList<string> Tags { get; init; } = [];

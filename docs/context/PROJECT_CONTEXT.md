@@ -22,15 +22,17 @@ review — sem depender de o usuário estar no terminal.
 
 A solução possui Domain/Application/Infrastructure e os hosts Worker/WebApi,
 com dependências para o núcleo (AD-35). A migração do legado é incremental:
-o comportamento Telegram atual permanece em `Dante.Worker` (Generic Host .NET),
-sem banco ou entrada HTTP. A WebApi é scaffold independente, sem regras novas.
+o comportamento Telegram permanece em `Dante.Worker` (Generic Host .NET),
+com Brain opcional PostgreSQL e adapter de conversa natural. A WebApi é scaffold
+independente com health, sem endpoints funcionais Brain.
 Código novo do núcleo usa PT-BR e Guid Id (AD-36). Fluxo legado:
 
 ```text
 Telegram (long polling)
    ↓
 TelegramPollingService ── TelegramUserAuthorizer
-   ↓ comando
+   ├─ intenção Brain → TelegramBrain → Application → PostgreSQL opcional
+   ↓ comando/agente
    ├─ com @alias            → RepositoryRegistry → Repository Mode
    ├─ sem @alias, com /use  → repositório ativo  → Repository Mode
    └─ sem @alias, sem ativo → GeneralWorkspace   → General Mode
@@ -62,6 +64,7 @@ vivo que recebe todos os turnos. O one-shot continua disponível por comando exp
 | `TelegramBotApi` | `Telegram/` | Cliente HTTP da Bot API (`getUpdates`, `sendMessage`, `sendChatAction`). |
 | `TelegramDeliveryService` | `Telegram/` | Agrupa, formata, redige e entrega eventos de sessão e resultados de jobs, com retry, `/resend` e indicador de digitação. |
 | `TelegramUserAuthorizer` | `Telegram/` | Allowlist por `message.from.id`; fail-closed. |
+| `TelegramBrain` | `Telegram/` | Identidade/escopo Brain e roteamento de intenções naturais aos casos de uso; confirmação de alterações. |
 | `RepositoryRegistry` | `Dante.Infrastructure/Contextos/` | Catálogo persistente de aliases, paths, GitHub e ambiente por repositório. |
 | `AssistantSettingsStore` | `Dante.Infrastructure/Contextos/` | Agente padrão, repositório ativo e modo padrão por usuário, persistidos em `~/.dante/settings.json`. |
 | `GeneralWorkspace` | `Dante.Infrastructure/Contextos/` | Diretório neutro para consultas gerais. |
@@ -100,6 +103,7 @@ cair para General Mode; nunca há inferência de repositório pelo texto do prom
 - **Claude Code CLI** e **Codex CLI** — executadas como processo filho; autenticação
   local da própria CLI (assinatura ou API key opcional).
 - **Git** — usado pelo `RepositoryRegistry` para validar raiz do repositório e remote.
+- **PostgreSQL/pgvector** — canônico/índices opcionais do Brain; configuração externa, migrations e reindexação explícitas.
 
 ## Segurança fundamental
 
@@ -120,9 +124,8 @@ cair para General Mode; nunca há inferência de repositório pelo texto do prom
 
 Fora do sistema hoje, por decisão (ver [ARCHITECTURE_DECISIONS](ARCHITECTURE_DECISIONS.md)):
 
-- banco de dados ou persistência remota;
 - fila persistente de jobs;
-- webhook ou porta de entrada;
+- webhook ou entrada HTTP funcional para executar agentes;
 - execução de comandos arbitrários;
 - worktrees automáticos e execução concorrente isolada por Issue;
 - seleção automática de Issues e handoff automático pelo próprio D.A.N.T.E.
@@ -133,13 +136,16 @@ O desenvolvimento **do** D.A.N.T.E. por agentes (o Agent Harness em `docs/develo
 ## Evolução aprovada: D.A.N.T.E. Brain (Epic #133)
 
 A [AD-33](ARCHITECTURE_DECISIONS.md#ad-33--brain-como-núcleo-de-conhecimento-com-recuperação-seletiva-separado-da-sessão-e-do-histórico)
-define a arquitetura alvo, ainda não implementada: conhecimento por Space/Project,
-com proveniência/status/validade/sensibilidade, separado de histórico e Working
-Context Snapshot. O Context Builder monta um Context Pack seletivo e autorizado
-para o pedido; agentes consomem/sugerem, o D.A.N.T.E. controla a fonte de verdade.
-Economia de tokens será medida junto de continuidade e qualidade, não presumida.
+define conhecimento por espaço/projeto, proveniência/status/validade/sensibilidade,
+separado de histórico e snapshot operacional. O núcleo e persistência opcional estão
+implementados, com busca lexical/híbrida, fontes brutas rastreáveis, auditoria/exportação,
+policy fail-closed e Context Builder neutro. Secret não entra em índices ou contexto
+automático. Identidade e permissões são do adapter autorizado (AD-45), nunca do prompt.
 
-O Worker atual continua sem banco e com jobs/sessões em memória. A #135 define
-armazenamento/índices e a #160 implementará persistência após #134/#135. Não há
-ComfyUI, framework de tools, workers remotos, SaaS ou frontend completo nesta Epic.
+Worker oferece intenções Brain por conversa natural (#157), incluindo captura em
+candidato e confirmação antes de alterações. Sem banco/mensagem Brain, conversa com
+agentes mantém seu fluxo. Seleção Brain não muda Repository Mode ou /use. Integração
+automática dos pacotes aos drivers/sessões continua na #145, com métricas/E2E nas issues
+próprias. Economia de tokens será medida junto de continuidade/qualidade, não presumida.
+Não há ComfyUI, workers remotos, SaaS ou frontend completo nesta Epic.
 Contrato detalhado em [Arquitetura](../maintainer/ARCHITECTURE.md#16-arquitetura-alvo-do-dante-brain-133-134).

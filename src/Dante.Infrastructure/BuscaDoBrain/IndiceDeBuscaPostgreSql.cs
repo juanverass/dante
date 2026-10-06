@@ -72,7 +72,7 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
                   AND ((c.sensibilidade < 3 OR c.sensibilidade = 3 AND @confidencial) OR @id = c.id)
                   AND {Valido}
                   AND (@id IS NULL OR c.id = @id)
-                  AND (@tipo IS NULL OR c.tipo = @tipo) AND (@status IS NULL OR c.status = @status)
+                  AND (cardinality(@tipos)=0 OR c.tipo=ANY(@tipos)) AND (@tipo IS NULL OR c.tipo = @tipo) AND (@status IS NULL OR c.status = @status)
                   AND (@sensibilidade IS NULL OR c.sensibilidade = @sensibilidade)
                   AND (@desde IS NULL OR c.criado_em >= @desde) AND (@ate IS NULL OR c.criado_em < @ate)
                   AND (@id IS NOT NULL OR NOT EXISTS(SELECT 1 FROM unnest(@tags::text[]) tag WHERE NOT EXISTS(SELECT 1 FROM unnest(c.tags) existente WHERE lower(existente) = lower(tag))))
@@ -93,6 +93,7 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
         Param(c,"desde",NpgsqlDbType.TimestampTz,filtro.CriadoDesde); Param(c,"ate",NpgsqlDbType.TimestampTz,filtro.CriadoAte);
         Param(c,"instante",NpgsqlDbType.TimestampTz,filtro.ValidoEm ?? DateTimeOffset.UtcNow);
         Param(c,"tags",NpgsqlDbType.Array | NpgsqlDbType.Text,filtro.Tags.ToArray());
+        Param(c,"tipos",NpgsqlDbType.Array|NpgsqlDbType.Integer,filtro.Tipos.Select(x=>(int)x).ToArray());
         Param(c,"limite",NpgsqlDbType.Integer,filtro.Limite); Param(c,"offset",NpgsqlDbType.Integer,filtro.Deslocamento);
         if (semantico) { Param(c,"vetor",NpgsqlDbType.Text,TextoVetor(vetor!)); Param(c,"modelo",NpgsqlDbType.Text,modelo!.Chave); Param(c,"dimensao",NpgsqlDbType.Integer,modelo.Dimensao); }
         var resultados = new List<MatchDaBusca>(); await using var reader = await c.ExecuteReaderAsync(cancellationToken);
