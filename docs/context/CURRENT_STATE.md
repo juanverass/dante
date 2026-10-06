@@ -519,3 +519,13 @@ continuam no AppService e invariantes no Domain. Mensagens, tipos de exceção e
 passa a expor internals a `Dante.Tests`, como Infrastructure e Worker, para testar os
 validators isoladamente. `MetricasDoBrain` ainda não segue a convenção da AD-49 e
 mantém seu check inline.
+
+## Administração de banco e migrations (#199)
+
+ComandosDoBrain preserva a interface local --brain nos dois hosts e separa
+importação/auditoria/busca de Banco/ComandosDoBanco. Apenas administração explícita
+resolve AdministracaoDoBanco; startup normal não migra. Migrations e snapshot
+continuam em Data/Migrations, histórico em brain_meta e canônico em brain_data,
+sem migration nova ou projeto Migrator. Fluxo único de geração/listagem/validação
+e aplicação documentado no [guia](../development/persistence.md). Health, backup,
+restore e códigos 0/1 preservados.
