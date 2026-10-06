@@ -82,3 +82,25 @@ a complexo e seus contratos/ports vão para as subpastas no mesmo PR.
 `Agentes`, `Anexos`, `Contextos` e `Uso` são legado extraído do Worker e mantêm a
 organização existente até migração explícita (AD-36, AD-38). `Mapeamento` e `Comum`
 são infraestrutura da própria Application.
+
+## Validação de entrada e regra de negócio (#205, AD-52)
+
+| Tipo de verificação | Onde fica | Exemplos |
+| --- | --- | --- |
+| **Validação de entrada**: só olha os valores recebidos | `<Conceito>Validator` da feature (raiz no módulo simples, `Validacao/` no complexo) ou o helper `Comum/ValidacaoDeEntrada` | `Guid.Empty` obrigatório, limite entre 1 e N, texto obrigatório/tamanho máximo, enum definido, formato aceito, combinação estrutural de campos |
+| **Regra contextual**: depende de repository, estado persistido, identidade ou policy | AppService/caso de uso | espaço arquivado é somente leitura, projeto de outro espaço, usuário sem acesso, decisão confirmada no mesmo escopo |
+| **Invariante**: vale para toda instância da entidade | Domain | revisão esperada desatualizada, consolidação não reduz sensibilidade, resolução de conflito exige decisão explícita |
+
+Validators são classes `internal static`, sem estado nem dependências: recebem o
+DTO/SearchDto ou os parâmetros e lançam `ArgumentException`/`ArgumentOutOfRangeException`
+com mensagem e `ParamName` estáveis. Não acessam repository, unit of work, DbContext ou
+Npgsql. O AppService chama o validator no mesmo ponto em que o check ficava, de modo
+que a ordem entre validação de acesso e validação de entrada não muda. Normalização
+(por exemplo `Trim` de filtros) continua no AppService.
+
+`ValidacaoDeEntrada` concentra os checks repetidos entre features: `ExigirFaixa`
+(limites, deslocamentos e profundidades), `ExigirId` e `ExigirEscopo` (espaço
+obrigatório, projeto opcional mas nunca `Guid.Empty`). Check exclusivo de uma feature
+fica no validator dela. Proteção de segredos (`ProtecaoDeSegredos`) é policy de
+segurança e não é validator. `ValidacaoDeEntradaTests` testa os validators sem
+repository nem banco. Não há FluentValidation: os checks atuais são poucos e diretos.

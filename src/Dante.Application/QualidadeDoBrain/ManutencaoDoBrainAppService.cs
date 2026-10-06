@@ -16,7 +16,9 @@ public sealed class ManutencaoDoBrainAppService(IConsultaDeQualidade consulta, I
         DateTimeOffset? confirmarAntesDe = null, CancellationToken cancellationToken = default)
     {
         await leitura.ValidarAcessoAsync(acesso, cancellationToken);
-        if (limite is < 1 or > 100 || deslocamento is < 0 or > 10000) throw new ArgumentOutOfRangeException(nameof(limite));
+        // As duas faixas reportam "limite", como antes da extração (#205).
+        ValidacaoDeEntrada.ExigirFaixa(limite, 1, 100, nameof(limite));
+        ValidacaoDeEntrada.ExigirFaixa(deslocamento, 0, 10000, nameof(limite));
         var lote = await consulta.ListarAsync(acesso, deslocamento, limite + 1, cancellationToken);
         var itens = lote.Take(limite).Where(x => politica.PermiteConteudo(x, acesso, FinalidadeDeLeitura.Leitura)).ToArray();
         var arestas = await consulta.ListarRelacoesAsync(acesso, itens.Select(x => x.Id).ToArray(), 1001, cancellationToken);
@@ -52,8 +54,7 @@ public sealed class ManutencaoDoBrainAppService(IConsultaDeQualidade consulta, I
         ProvenienciaDto decisao, CancellationToken cancellationToken = default)
     {
         await leitura.ValidarAcessoAsync(acesso,cancellationToken); var p=Evidencia(acesso,decisao);
-        if (duplicatas.Count is < 1 or > 20 || duplicatas.Select(x=>x.IdConhecimento).Distinct().Count()!=duplicatas.Count || duplicatas.Any(x=>x.IdConhecimento==destino.IdConhecimento))
-            throw new ArgumentException("Consolidação exige duplicatas distintas e limite de 20.");
+        ManutencaoDoBrainValidator.ValidarConsolidacao(destino, duplicatas);
         var alvo=await ObterAsync(acesso,destino,cancellationToken); var fontes=new List<Conhecimento>();
         foreach(var dto in duplicatas) fontes.Add(await ObterAsync(acesso,dto,cancellationToken));
         if (fontes.Any(x=>x.Sensibilidade>alvo.Sensibilidade || x.Historico.Any(r=>r.Sensibilidade>alvo.Sensibilidade) || x.Status==StatusDoConhecimento.Confirmado && alvo.Status!=StatusDoConhecimento.Confirmado))
@@ -112,7 +113,7 @@ public sealed class ManutencaoDoBrainAppService(IConsultaDeQualidade consulta, I
     }
     public async Task<IReadOnlyList<LeituraProtegidaDto>> SelecionarParaContextoAsync(AcessoAoBrain acesso,int limite=20,CancellationToken cancellationToken=default)
     {
-        await leitura.ValidarAcessoAsync(acesso,cancellationToken); if(limite is <1 or >100)throw new ArgumentOutOfRangeException(nameof(limite));
+        await leitura.ValidarAcessoAsync(acesso,cancellationToken); ValidacaoDeEntrada.ExigirFaixa(limite,1,100,nameof(limite));
         var itens=await consulta.ElegiveisParaContextoAsync(acesso,DateTimeOffset.UtcNow,limite,cancellationToken);
         // Ainda não é o Context Pack (#140): somente seleção segura, sem interpretar conflitos como verdade.
         return itens.Where(x=>politica.PermiteConteudo(x,acesso,FinalidadeDeLeitura.ContextoAutomatico))

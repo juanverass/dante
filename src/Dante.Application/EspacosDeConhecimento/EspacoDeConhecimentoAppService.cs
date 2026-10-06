@@ -24,11 +24,7 @@ public sealed class EspacoDeConhecimentoAppService
     protected override Task<IReadOnlyList<EspacoDeConhecimento>> ConsultarAsync(
         EspacoDeConhecimentoSearchDto filtro, CancellationToken cancellationToken)
     {
-        if (filtro.IdUsuario == Guid.Empty)
-            throw new ArgumentException("Proprietário é obrigatório na pesquisa de espaços de conhecimento.",
-                nameof(filtro));
-        ArgumentOutOfRangeException.ThrowIfLessThan(filtro.Limite, 1, nameof(filtro.Limite));
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(filtro.Limite, LimiteMaximoDaPesquisa, nameof(filtro.Limite));
+        EspacoDeConhecimentoValidator.ValidarPesquisa(filtro);
         var trecho = string.IsNullOrWhiteSpace(filtro.TrechoDoNome) ? null : filtro.TrechoDoNome.Trim();
         return espacos.ListarDoUsuarioAsync(filtro.IdUsuario, trecho, filtro.IncluirArquivados, filtro.Limite,
             cancellationToken);

@@ -90,7 +90,7 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
     }
     public async Task<IReadOnlyList<CandidatoDeConhecimentoDto>> ListarPendentesAsync(Guid idEspaco, Guid? idProjeto, int limite = 50, CancellationToken cancellationToken = default)
     {
-        if (limite is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(limite));
+        ValidacaoDeEntrada.ExigirFaixa(limite, 1, 100, nameof(limite));
         await GarantirEscopoAsync(idEspaco, idProjeto, false, cancellationToken);
         return (await candidatos.ListarPendentesAsync(idEspaco, idProjeto, limite, cancellationToken)).Select(ParaDto).ToArray();
     }
@@ -108,7 +108,7 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
     }
     private async Task GarantirEscopoAsync(Guid espaco, Guid? projeto, bool gravar, CancellationToken ct)
     {
-        if (espaco == Guid.Empty || projeto == Guid.Empty) throw new ArgumentException("Escopo inválido.");
+        ValidacaoDeEntrada.ExigirEscopo(espaco, projeto);
         var e = await espacos.ObterPorIdAsync(espaco, ct) ?? throw new ArgumentException("Espaço não encontrado.");
         if (gravar && e.Arquivado) throw new InvalidOperationException("Espaço arquivado é somente leitura.");
         if (projeto is not null)

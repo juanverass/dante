@@ -1660,3 +1660,21 @@ constructor do domínio (AD-37).
 Por quê: o arquivo central conhecia os detalhes de todas as features e crescia a cada
 uma; a lista explícita mantém a composição auditável sem acoplar o ponto central aos
 campos de cada contrato.
+
+## AD-52 — Validação de entrada em validators estáticos por feature
+
+Status: vigente (#205, Epic #202). Complementa a AD-49.
+
+Validação de entrada (presença, formato, faixa, paginação, tamanho e combinação
+puramente estrutural de campos) fica em classes `internal static <Conceito>Validator`
+da feature — raiz no módulo simples, `Validacao/` no complexo — e no helper
+`Comum/ValidacaoDeEntrada` para checks repetidos entre features. Validators não têm
+estado nem dependências e preservam tipo de exceção, mensagem e `ParamName`. Regra que
+depende de repository, estado persistido, identidade ou policy continua no
+AppService/caso de uso; invariantes continuam nas entidades do Domain. Sem
+FluentValidation.
+
+Por quê: os mesmos checks de limite e escopo se repetiam em vários AppServices e
+misturavam forma da entrada com regra de negócio; validators puros são localizáveis e
+testáveis sem repository, sem mudar contratos públicos nem a ordem dos erros.
+

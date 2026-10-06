@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204).
+Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205).
 
 ## Marcos
 
@@ -507,3 +507,15 @@ abaixo da feature. Mappings Mapster ficam em `<Entidade>Mapping` de cada feature
 `MapeamentosDaApplication` só compõe a lista explícita (AD-51,
 [mappings](../development/mapping.md)); pares, direções e payloads não mudaram.
 Validação, decomposição e DI seguem nas #205–#209 (Epic #202).
+
+## Validação de entrada da Application (#205)
+
+Checks estruturais de entrada (IDs obrigatórios, limites/paginação, tamanhos, enums,
+formato e combinação de campos) saíram dos AppServices para `<Conceito>Validator`
+estáticos por feature e para o helper `Comum/ValidacaoDeEntrada` (AD-52,
+[guia](../development/application.md)). Regras que dependem de repository/estado
+continuam no AppService e invariantes no Domain. Mensagens, tipos de exceção e
+`ParamName` foram preservados, e o check segue no mesmo ponto do fluxo. A Application
+passa a expor internals a `Dante.Tests`, como Infrastructure e Worker, para testar os
+validators isoladamente. `MetricasDoBrain` ainda não segue a convenção da AD-49 e
+mantém seu check inline.

@@ -60,10 +60,7 @@ public sealed class ProjetoAppService
     protected override Task<IReadOnlyList<Projeto>> ConsultarAsync(ProjetoSearchDto filtro,
         CancellationToken cancellationToken)
     {
-        if (filtro.IdEspacoDeConhecimento == Guid.Empty)
-            throw new ArgumentException("Espaço de conhecimento é obrigatório na pesquisa de projetos.", nameof(filtro));
-        ArgumentOutOfRangeException.ThrowIfLessThan(filtro.Limite, 1, nameof(filtro.Limite));
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(filtro.Limite, LimiteMaximoDaPesquisa, nameof(filtro.Limite));
+        ProjetoValidator.ValidarPesquisa(filtro);
         var trecho = string.IsNullOrWhiteSpace(filtro.TrechoDoNome) ? null : filtro.TrechoDoNome.Trim();
         return projetos.ListarDoEspacoAsync(filtro.IdEspacoDeConhecimento, trecho, filtro.IncluirArquivados,
             filtro.Limite, cancellationToken);
