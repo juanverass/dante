@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148).
+Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196).
 
 ## Marcos
 
@@ -482,3 +482,13 @@ com o histórico bruto das sessões anteriores do escopo e indica ganho, neutral
 regressão ou dados insuficientes por limiares fixos, com alertas de qualidade de
 `avalie a retomada: ...`. Dado ausente fica indisponível (AD-47). Os dados alimentam a
 #147. [Métricas](../development/metricas-brain.md).
+
+## Estrutura física da Infrastructure (#196)
+
+A antiga pasta `Persistencia` foi desfeita: DbContext/factory em `Data`, migrations e
+snapshot em `Data/Migrations`, Repository/UnitOfWork/EntidadeConfiguration em
+`Persistence`, configurations e repositories específicos em `Modulos` (ainda plano),
+administração do PostgreSQL em `Banco` e a consulta de qualidade em `QualidadeDoBrain`
+(AD-48). Só namespaces/usings mudaram: as dez migrations seguem reconhecidas e
+aplicadas, sem mudança de modelo nem migration nova. Modularização por entidade,
+DbContext, administração e DI seguem nas #197–#201 (Epic #195).

@@ -6,7 +6,7 @@ using Dante.Domain.Conhecimentos;
 using Dante.Domain.EspacosDeConhecimento;
 using Dante.Infrastructure;
 using Dante.Infrastructure.BuscaDoBrain;
-using Dante.Infrastructure.Persistencia;
+using Dante.Infrastructure.Data;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;

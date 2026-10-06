@@ -178,7 +178,7 @@ public sealed class ConversaDoBrainTests
             var arquivo=Path.Combine(root,"doc.md");await File.WriteAllTextAsync(arquivo,"# Fonte local");
             var config=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["ConnectionStrings:Dante"]=banco.ConnectionString,["DANTE_BRAIN_TENANT"]=tenant.ToString("D"),["DANTE_BRAIN_IMPORT_ROOT"]=root}).Build();
             using var provider=new ServiceCollection().AddApplication().AddInfrastructure(config).BuildServiceProvider();
-            Task<int> Importar(string revisao)=>Dante.Infrastructure.Persistencia.ComandosDoBanco.ExecutarAsync(provider,["--brain","source-import",e.IdUsuario.ToString("D"),e.Id.ToString("D"),"-",arquivo,revisao]);
+            Task<int> Importar(string revisao)=>Dante.Infrastructure.Banco.ComandosDoBanco.ExecutarAsync(provider,["--brain","source-import",e.IdUsuario.ToString("D"),e.Id.ToString("D"),"-",arquivo,revisao]);
             Assert.Equal(0,await Importar("-"));Assert.Equal(1,await Importar("-"));Assert.Equal(0,await Importar("1"));
             await File.WriteAllTextAsync(arquivo,"# Fonte atualizada");Assert.Equal(0,await Importar("1"));
             await File.WriteAllTextAsync(arquivo,"# Fonte obsoleta");Assert.Equal(1,await Importar("1"));

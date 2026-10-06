@@ -8,7 +8,6 @@ using Dante.Domain.Conhecimentos;
 using Dante.Domain.EspacosDeConhecimento;
 using Dante.Infrastructure;
 using Dante.Infrastructure.DocumentosFonte;
-using Dante.Infrastructure.Persistencia;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

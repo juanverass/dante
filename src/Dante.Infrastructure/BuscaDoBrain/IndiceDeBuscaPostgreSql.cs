@@ -1,7 +1,7 @@
 using System.Globalization;
 using Dante.Application.BuscaDoBrain;
 using Dante.Application.SegurancaDoBrain;
-using Dante.Infrastructure.Persistencia;
+using Dante.Infrastructure.Data;
 using Dante.Domain.Conhecimentos;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;

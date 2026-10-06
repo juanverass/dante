@@ -3,7 +3,7 @@ using Dante.Application.BuscaDoBrain;
 using Dante.Application.DocumentosFonte;
 using Dante.Application.SegurancaDoBrain;
 using Dante.Domain.Conhecimentos;
-using Dante.Infrastructure.Persistencia;
+using Dante.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NpgsqlTypes;

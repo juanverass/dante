@@ -1584,3 +1584,24 @@ custo comparáveis, sem transcript e sem misturar telemetria ao Brain.
 Código: `Application/MetricasDoBrain`, `Infrastructure/MetricasDoBrain`,
 `Telegram/MetricasDeSessaoDoBrain.cs`; testes em `MetricasDoBrainTests` e
 `ContinuidadeDoBrainTests`. Contrato: [métricas](../development/metricas-brain.md).
+
+## AD-48 — Infrastructure organizada por responsabilidade técnica
+
+Status: vigente (#196, Epic #195). Complementa a AD-43 sem mudar seu comportamento.
+
+`Dante.Infrastructure` separa persistência por responsabilidade, com namespace igual à
+pasta: `Data` (DbContext e factory de design), `Data/Migrations` (migrations e
+snapshot), `Persistence` (infraestrutura genérica: Repository, UnitOfWork e a base de
+configuration), `Modulos` (configurations e repositories específicos de entidades) e
+`Banco` (administração explícita do PostgreSQL). Nomes técnicos de pasta podem ficar
+em inglês; conceitos de domínio seguem PT-BR. Adapters de consulta de uma feature ficam
+na pasta da feature (`BuscaDoBrain`, `AuditoriaDoBrain`, `QualidadeDoBrain`...).
+
+Migrations continuam no assembly da Infrastructure, sem projeto Migrator. O EF
+identifica migrations pelo id do atributo, não pelo namespace: mover arquivos e trocar
+namespace não altera o histórico em `brain_meta` nem exige migration nova.
+
+Por quê: `Persistencia` acumulava contexto, migrations, mappings, repositories e
+administração, o que dificultava localizar responsabilidades e encolher o DbContext.
+A divisão por entidade dentro de `Modulos` fica na #197.
+
