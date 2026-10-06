@@ -428,3 +428,13 @@ FonteBruta. Selecionar um trecho cria candidato com citação exata; confirmaç�
 separada. Reimportação exige revisão, invalida derivados e não muda conhecimento
 confirmado. Remoção limpa texto/índices, preservando citações já consolidadas.
 [Contrato e operação](../development/fontes.md).
+
+## Inspeção e exportação do Brain (#149)
+
+InspecaoDoBrainAppService oferece auditoria paginada por tipo/status/origem/tag e
+exportação Markdown/JSON versionada, preservando IDs, relações, provas e revisões
+permitidas. Auditoria de espaço inclui projetos, inclusive sem projeto; projeto
+selecionado é restrito. Snapshot repeatable-read, Secret excluído de export, redaction
+nos dois formatos e omissão explícita de itens obsoletos/removidos. Os comandos locais
+--brain inspect/export são fallback; export não sobrescreve arquivos e usa 0600 no
+Unix. [Política, formato e limites](../development/auditoria-brain.md).

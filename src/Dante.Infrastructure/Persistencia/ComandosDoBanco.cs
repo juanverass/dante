@@ -12,6 +12,16 @@ public static class ComandosDoBanco
                 throw new InvalidOperationException("Banco não configurado.");
             switch (args)
             {
+                case ["--brain", "export", var usuarioExport, var espacoExport, var projetoExport, var prefixo]:
+                    var acessoExport = new Dante.Application.SegurancaDoBrain.AcessoAoBrain(Guid.Parse(usuarioExport), Guid.Parse(espacoExport), projetoExport == "-" ? null : Guid.Parse(projetoExport));
+                    scope.ServiceProvider.GetRequiredService<Dante.Application.SegurancaDoBrain.AutorizacaoDoBrain>().Estabelecer(new(Dante.Application.SegurancaDoBrain.AutorizacaoDoBrain.TenantLocal, acessoExport.IdUsuario), acessoExport);
+                    var exportacao = await scope.ServiceProvider.GetRequiredService<Dante.Application.AuditoriaDoBrain.InspecaoDoBrainAppService>().ExportarAsync(acessoExport, cancellationToken);
+                    await Dante.Infrastructure.AuditoriaDoBrain.GravadorDeExportacao.SalvarAsync(exportacao, prefixo, cancellationToken);
+                    Console.WriteLine("Exportação Markdown/JSON concluída."); break;
+                case ["--brain", "inspect", var usuarioInspect, var espacoInspect, var projetoInspect]:
+                    var acessoInspect = new Dante.Application.SegurancaDoBrain.AcessoAoBrain(Guid.Parse(usuarioInspect), Guid.Parse(espacoInspect), projetoInspect == "-" ? null : Guid.Parse(projetoInspect));
+                    scope.ServiceProvider.GetRequiredService<Dante.Application.SegurancaDoBrain.AutorizacaoDoBrain>().Estabelecer(new(Dante.Application.SegurancaDoBrain.AutorizacaoDoBrain.TenantLocal, acessoInspect.IdUsuario), acessoInspect);
+                    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(await scope.ServiceProvider.GetRequiredService<Dante.Application.AuditoriaDoBrain.InspecaoDoBrainAppService>().InspecionarAsync(acessoInspect, cancellationToken: cancellationToken))); break;
                 case ["--brain", "search-rebuild-lexical"]:
                     await scope.ServiceProvider.GetRequiredService<Dante.Infrastructure.BuscaDoBrain.IndiceDeBuscaPostgreSql>().ReconstruirLexicalAsync(cancellationToken); break;
                 case ["--brain", "search-enable-vector"]:
