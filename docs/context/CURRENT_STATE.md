@@ -519,3 +519,15 @@ continuam no AppService e invariantes no Domain. Mensagens, tipos de exceção e
 passa a expor internals a `Dante.Tests`, como Infrastructure e Worker, para testar os
 validators isoladamente. `MetricasDoBrain` ainda não segue a convenção da AD-49 e
 mantém seu check inline.
+
+## Políticas de qualidade, contexto e métricas (#207)
+
+ManutencaoDoBrainAppService mantém acesso, consultas e transações; AnaliseDeQualidade
+recebe o instante e dados já autorizados para analisar duplicatas, contradições,
+validade e truncamento sem alterar entidades. ConstrutorDeContextoAppService delega
+filtros a ElegibilidadeDeContexto e precedência/deduplicação/sobreposição/orçamento
+à SelecaoDeContexto. AgregacaoDeMetricas e ApresentacaoDeMetricas separam cálculo e
+texto do acesso autenticado ao registro, mantendo os métodos estáticos existentes.
+Casos puros ficam em CasosDeUso com namespace da feature; os contratos de Contexto
+e Métricas seguem a organização de módulo complexo. Sem alteração de provider,
+limiares, mensagens ou transações; testes isolados cobrem os algoritmos.
