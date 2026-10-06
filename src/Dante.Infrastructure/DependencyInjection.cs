@@ -30,6 +30,10 @@ public static class DependencyInjection
             services.AddScoped<Dante.Application.Projetos.IProjetoRepository, ProjetoRepository>();
             services.AddScoped<Dante.Application.Conhecimentos.IConhecimentoRepository, ConhecimentoRepository>();
             services.AddScoped<AdministracaoDoBanco>();
+            services.AddScoped<Dante.Application.BuscaDoBrain.IIndiceDeBusca, Dante.Infrastructure.BuscaDoBrain.IndiceDeBuscaPostgreSql>();
+            services.AddScoped<Dante.Infrastructure.BuscaDoBrain.IndiceDeBuscaPostgreSql>();
+            services.AddScoped<Dante.Application.BuscaDoBrain.BuscaDoBrainAppService>();
+            services.AddSingleton<Dante.Application.BuscaDoBrain.IGeradorDeEmbedding>(_ => new Dante.Infrastructure.BuscaDoBrain.GeradorDeEmbeddingHttp(new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }), configuration));
             services.AddScoped<Dante.Application.ContextosDeTrabalho.IContextoDeTrabalhoRepository, ContextoDeTrabalhoRepository>();
             services.AddScoped<Dante.Application.ContextosDeTrabalho.ContextoDeTrabalhoAppService>();
             services.AddScoped<Dante.Application.SegurancaDoBrain.LeituraDoBrainAppService>();

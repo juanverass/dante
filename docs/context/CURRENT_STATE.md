@@ -397,3 +397,8 @@ Leitura protegida valida proprietário/escopo, limita Confidencial e impede Secr
 ## Contexto de trabalho (#156)
 
 Snapshot persistente por espaço/projeto, com campos operacionais selecionados e 8.000 caracteres. Atualização substitui versão ativa, conserva apenas metadados da revisão anterior e usa xmin. Retomada valida proprietário, sensibilidade e expiração; não cria Conhecimento ou guarda transcript/raciocínio privado. /clear e /compact continuam limitados à conversa upstream e não alteram snapshots. Guia: [contexto de trabalho](../development/working-context.md).
+
+
+## Busca do Brain (#154)
+
+Busca full-text PostgreSQL com fallback lexical, filtros de escopo/sensibilidade/validade e paginação. Semântica pgvector exata e ranking híbrido por modelo/revisão; índices derivados com pendências duráveis e reindexação explícita, embeddings HTTP opcionais sem presumir assinatura das CLIs. Secreto não entra no índice lexical ou vetorial; reclassificação remove derivados, migration corretiva limpa índices antigos e rebuild respeita a política, inclusive sob concorrência. Consulta por ID preserva apenas metadados permitidos sem depender do índice lexical. Fontes brutas aguardam #158. Guia: [busca](../development/search.md).
