@@ -438,3 +438,12 @@ selecionado é restrito. Snapshot repeatable-read, Secret excluído de export, r
 nos dois formatos e omissão explícita de itens obsoletos/removidos. Os comandos locais
 --brain inspect/export são fallback; export não sobrescreve arquivos e usa 0600 no
 Unix. [Política, formato e limites](../development/auditoria-brain.md).
+
+## Construção seletiva de contexto (#140)
+
+ConstrutorDeContextoAppService monta PacoteDeContexto neutro com busca lexical/híbrida,
+expansão controlada de relações, snapshot ativo, rerank, deduplicação e orçamento de
+itens/tokens estimados. Exclui obsoletos, Secret e conflitos abertos, inclusive quando
+a outra ponta é protegida. IDs/revisões/origens e motivos de descarte são rastreáveis;
+construção e confirmação de injeção são etapas distintas. Não usa transcript completo.
+A integração automática com os drivers continua na #145; [contrato](../development/context-builder.md).
