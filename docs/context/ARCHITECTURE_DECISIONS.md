@@ -1524,3 +1524,20 @@ Por quê: preservar fonte e evolução do conteúdo evita transformar confiança
 repetição em fato confirmado e permite correção sem perder evidência. Autorização
 por identidade e policy de sensibilidade ainda são #150/#155; PostgreSQL/EF não
 entram no núcleo. Contratos, limites e operações: [Conhecimento](../development/knowledge.md).
+
+## AD-45 — Identidade e escopo do Brain pertencem ao adapter autorizado
+
+Status: vigente (#150).
+
+AutorizacaoDoBrain é scoped e recebe identidade uma única vez por operação, antes do
+acesso. AcessoAoBrain é um seletor, não uma credencial: busca/leitura/manutenção
+comparam usuário, espaço, projeto e permissões com o contexto autorizado. Os adapters
+EF aplicam filtros por tenant/proprietário/escopo e sensibilidade, inclusive nas
+leituras por ID, e validam escritas antes do commit. O tenant é persistido no espaço;
+projetos e itens herdam esse limite por vínculo ao espaço. Não há RBAC/login comercial.
+
+Telegram mapeia somente a allowlist válida para Guid determinístico por tenant/ID,
+independente de username. Configuração ausente/malformada e identidade não resolvida
+negam acesso. Contextos diretos são reservados à administração explícita e fixtures;
+DI injeta o contexto autorizado mesmo quando ainda não há identidade. Migrations não
+são executadas automaticamente. O tenant local preserva a simplicidade single-user.

@@ -31,7 +31,7 @@ public sealed class BuscaDoBrainTests
         var invalido = Novo(e.Id,"Guid obsoleto"); invalido.Invalidar(1,invalido.Proveniencia,DateTimeOffset.UtcNow);
         var expirado = Novo(e.Id,"Guid expirado",ate:DateTimeOffset.UtcNow.AddHours(-1));
         await using(var c = banco.Contexto()) { c.AddRange(e,outro,a,b,secreto,conf,invalido,expirado,Novo(outro.Id,"Guid externo")); await c.SaveChangesAsync(); }
-        using var provider = Provider(banco.ConnectionString,new Gerador()); using var scope = provider.CreateScope();
+        using var provider = Provider(banco.ConnectionString,new Gerador()); using var scope = EscoposBrainDeTeste.Criar(provider, e.IdUsuario, e.Id);
         var busca = scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>(); var acesso = new AcessoAoBrain(e.IdUsuario,e.Id,null);
         var resultado = await busca.BuscarAsync(acesso,new() { Texto="Guid",Tags=["CSHARP"],Limite=1 });
         Assert.Equal("lexical",resultado.Modo); Assert.True(resultado.TemMais); Assert.Single(resultado.Resultados);
@@ -53,7 +53,7 @@ public sealed class BuscaDoBrainTests
         var a = Novo(e.Id,"relação opcional não existe"); var b=Novo(e.Id,"imagem e fotografia"); var segredo=Novo(e.Id,"relação privada",Sensibilidade.Secreto);
         await using(var c=banco.Contexto()) { c.AddRange(e,a,b,segredo); await c.SaveChangesAsync(); }
         var gerador=new Gerador(); using var provider=Provider(banco.ConnectionString,gerador); var acesso=new AcessoAoBrain(e.IdUsuario,e.Id,null);
-        using(var scope=provider.CreateScope())
+        using(var scope=EscoposBrainDeTeste.Criar(provider, e.IdUsuario, e.Id))
         {
             var indice=scope.ServiceProvider.GetRequiredService<IndiceDeBuscaPostgreSql>(); await indice.PrepararVetoresAsync();
             var busca=scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>();
@@ -74,7 +74,7 @@ public sealed class BuscaDoBrainTests
             salvo.Corrigir(1,salvo.Tipo,"fotografia",null,null,salvo.Sensibilidade,null,null,[],salvo.Proveniencia,DateTimeOffset.UtcNow); await c.SaveChangesAsync();
         }
         gerador.Indisponivel=false;
-        using(var scope=provider.CreateScope())
+        using(var scope=EscoposBrainDeTeste.Criar(provider, e.IdUsuario, e.Id))
         {
             var busca=scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>();
             Assert.Empty((await busca.BuscarAsync(acesso,new() { Texto="associação ausente" })).Resultados);
@@ -126,7 +126,9 @@ public sealed class BuscaDoBrainTests
         var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "Legado");
         var secreto = Novo(espaco.Id, "reservadolegadoteste", Sensibilidade.Secreto);
         var publico = Novo(espaco.Id, "permitido", Sensibilidade.Publico);
-        c.AddRange(espaco, secreto, publico); await c.SaveChangesAsync();
+        // Esquema anterior ao tenant: seed compatível com a versão física, sem usar o modelo atual do espaço.
+        await c.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO brain_data.espacos_de_conhecimento(id,id_usuario,nome,estado) VALUES({espaco.Id},{espaco.IdUsuario},{espaco.Nome},0)");
+        c.AddRange(secreto, publico); await c.SaveChangesAsync();
         Assert.Contains(secreto.Id, await IdsLexicaisAsync(c));
         await c.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO brain_index.representacoes(id_conhecimento,revisao,modelo,provedor,nome,versao,dimensao,gerado_em) VALUES({secreto.Id},1,'legado','teste','teste','1',3,now())");
         await migrator.MigrateAsync();

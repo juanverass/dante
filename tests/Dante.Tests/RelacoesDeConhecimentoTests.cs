@@ -53,7 +53,7 @@ public sealed class RelacoesDeConhecimentoTests
         var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "A");
         var itens = new[] { Item(espaco.Id, TipoDeConhecimento.Incidente), Item(espaco.Id, TipoDeConhecimento.Solucao), Item(espaco.Id, TipoDeConhecimento.Aprendizado) };
         await using (var c = banco.Contexto()) { c.Add(espaco); c.AddRange(itens); await c.SaveChangesAsync(); }
-        using var provider = Provider(banco.ConnectionString); using var scope = provider.CreateScope();
+        using var provider = Provider(banco.ConnectionString); using var scope = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id);
         var service = scope.ServiceProvider.GetRequiredService<IRelacaoDeConhecimentoAppService>();
         var p = Proveniencia();
         await service.RelacionarAsync(espaco.Id, null, itens[0].Id, itens[1].Id, TipoDeRelacao.ResolvidoPor, p);
@@ -82,7 +82,7 @@ public sealed class RelacoesDeConhecimentoTests
         await using var banco = await Banco.CriarAsync(); var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "A");
         var a = BrainEfTests.Novo(espaco.Id); var b = BrainEfTests.Novo(espaco.Id);
         await using (var c = banco.Contexto()) { c.AddRange(espaco, a, b); await c.SaveChangesAsync(); }
-        using var provider = Provider(banco.ConnectionString); using var scope = provider.CreateScope();
+        using var provider = Provider(banco.ConnectionString); using var scope = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id);
         Assert.True(await scope.ServiceProvider.GetRequiredService<IConhecimentoAppService>().SubstituirAsync(a.Id, b.Id, 1, Proveniencia()));
         await using var verificar = banco.Contexto();
         var salvo = (await verificar.Conhecimentos.FindAsync(a.Id))!;

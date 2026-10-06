@@ -13,13 +13,14 @@ public sealed class ConhecimentoAppService : CrudBasicoAppService<ConhecimentoDt
     IConhecimentoAppService
 {
     public const int LimiteMaximoDaPesquisa = 100;
+    private readonly AutorizacaoDoBrain? autorizacao;
     private readonly IConhecimentoRepository conhecimentos;
     private readonly IEspacoDeConhecimentoRepository espacos;
     private readonly IProjetoRepository projetos;
     private readonly IRelacaoDeConhecimentoRepository? relacoes;
 
     public ConhecimentoAppService(IConhecimentoRepository conhecimentos, IEspacoDeConhecimentoRepository espacos,
-        IProjetoRepository projetos, IUnitOfWork unitOfWork, IMapsterTypeAdapter typeAdapter, IRelacaoDeConhecimentoRepository? relacoes = null)
+        IProjetoRepository projetos, IUnitOfWork unitOfWork, IMapsterTypeAdapter typeAdapter, IRelacaoDeConhecimentoRepository? relacoes = null, AutorizacaoDoBrain? autorizacao = null)
         : base(conhecimentos, unitOfWork, typeAdapter)
     {
         ArgumentNullException.ThrowIfNull(espacos);
@@ -28,6 +29,7 @@ public sealed class ConhecimentoAppService : CrudBasicoAppService<ConhecimentoDt
         this.espacos = espacos;
         this.projetos = projetos;
         this.relacoes = relacoes;
+        this.autorizacao = autorizacao;
     }
 
     public override async Task<ConhecimentoDto> AdicionarAsync(ConhecimentoDto dto, CancellationToken cancellationToken = default)
@@ -91,6 +93,8 @@ public sealed class ConhecimentoAppService : CrudBasicoAppService<ConhecimentoDt
         await UnitOfWork.SalvarAlteracoesAsync(cancellationToken);
         return true;
     }
+
+    protected override ConhecimentoDto ParaDto(Conhecimento entidade) => SaidaAutorizadaDoBrain.Projetar(base.ParaDto(entidade), autorizacao);
 
     protected override void AplicarAlteracoes(Conhecimento entidade, ConhecimentoDto dto) => entidade.Corrigir(dto.Revisao,
         dto.Tipo, dto.Conteudo, dto.DadosEstruturados, dto.Confianca, dto.Sensibilidade, dto.ValidoDesde, dto.ValidoAte,

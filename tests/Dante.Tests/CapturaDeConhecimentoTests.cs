@@ -73,7 +73,7 @@ public sealed class CapturaDeConhecimentoTests
     {
         await using var banco = await Banco.CriarAsync(); var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "A");
         await using (var c = banco.Contexto()) { c.Add(espaco); await c.SaveChangesAsync(); }
-        using var provider = RelacoesDeConhecimentoTests.Provider(banco.ConnectionString); using var scope = provider.CreateScope();
+        using var provider = RelacoesDeConhecimentoTests.Provider(banco.ConnectionString); using var scope = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id);
         var service = scope.ServiceProvider.GetRequiredService<ICapturaDeConhecimentoAppService>();
         var captura = Captura(espaco.Id);
         var primeiro = await service.CapturarAsync(captura);
@@ -103,7 +103,7 @@ public sealed class CapturaDeConhecimentoTests
     {
         await using var banco = await Banco.CriarAsync(); var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "A");
         await using (var c = banco.Contexto()) { c.Add(espaco); await c.SaveChangesAsync(); }
-        using var provider = RelacoesDeConhecimentoTests.Provider(banco.ConnectionString); using var scope = provider.CreateScope();
+        using var provider = RelacoesDeConhecimentoTests.Provider(banco.ConnectionString); using var scope = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id);
         var service = scope.ServiceProvider.GetRequiredService<ICapturaDeConhecimentoAppService>(); var p = RelacoesDeConhecimentoTests.Proveniencia();
         var rejeitado = await service.CapturarAsync(Captura(espaco.Id));
         await service.RejeitarAsync(espaco.Id, null, rejeitado.Id, 1, p);
@@ -124,7 +124,7 @@ public sealed class CapturaDeConhecimentoTests
         await using var banco = await Banco.CriarAsync(); var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "A");
         var incidente = Item(espaco.Id, TipoDeConhecimento.Incidente); var solucao = Item(espaco.Id, TipoDeConhecimento.Solucao);
         await using (var c = banco.Contexto()) { c.AddRange(espaco, incidente, solucao); await c.SaveChangesAsync(); }
-        using var provider = RelacoesDeConhecimentoTests.Provider(banco.ConnectionString); using var scope = provider.CreateScope();
+        using var provider = RelacoesDeConhecimentoTests.Provider(banco.ConnectionString); using var scope = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id);
         var service = scope.ServiceProvider.GetRequiredService<ICapturaDeConhecimentoAppService>();
         var candidato = await service.CapturarAsync(Captura(espaco.Id) with { Tipo = TipoDeConhecimento.Aprendizado, IdIncidente = incidente.Id, IdSolucao = solucao.Id });
         var id = await service.ConfirmarAsync(espaco.Id, null, candidato.Id, 1, RelacoesDeConhecimentoTests.Proveniencia());
@@ -138,7 +138,7 @@ public sealed class CapturaDeConhecimentoTests
     {
         await using var banco = await Banco.CriarAsync(); var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "A");
         await using (var c = banco.Contexto()) { c.Add(espaco); await c.SaveChangesAsync(); }
-        using var provider = RelacoesDeConhecimentoTests.Provider(banco.ConnectionString); using var scope = provider.CreateScope();
+        using var provider = RelacoesDeConhecimentoTests.Provider(banco.ConnectionString); using var scope = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id);
         var service = scope.ServiceProvider.GetRequiredService<ICapturaDeConhecimentoAppService>();
         var dto = await service.CapturarAsync(Captura(espaco.Id));
         await using var a = banco.Contexto(); await using var b = banco.Contexto();

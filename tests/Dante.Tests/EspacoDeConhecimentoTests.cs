@@ -115,7 +115,7 @@ public sealed class EspacoDeConhecimentoTests
                 .Select(parametro => parametro.ParameterType));
 
         Assert.All(dependencias, dependencia => Assert.True(
-            dependencia.IsPrimitive || dependencia == typeof(string) || dependencia == typeof(Guid) ||
+            dependencia.IsPrimitive || dependencia == typeof(string) || dependencia == typeof(Guid) || dependencia == typeof(Guid?) ||
             dependencia == typeof(EstadoDoEspacoDeConhecimento), dependencia.FullName));
     }
 }

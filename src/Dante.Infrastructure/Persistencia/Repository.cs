@@ -11,7 +11,7 @@ public class Repository<TEntity>(DanteDbContext context) : IRepository<TEntity>
     protected DbSet<TEntity> DbSet { get; } = context.Set<TEntity>();
 
     public async Task<TEntity?> ObterPorIdAsync(Guid id, CancellationToken cancellationToken = default) =>
-        await DbSet.FindAsync([id], cancellationToken);
+        await DbSet.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
 
     public async Task AdicionarAsync(TEntity entidade, CancellationToken cancellationToken = default)
     {

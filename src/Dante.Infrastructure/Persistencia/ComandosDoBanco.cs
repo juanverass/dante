@@ -18,6 +18,7 @@ public static class ComandosDoBanco
                     await scope.ServiceProvider.GetRequiredService<Dante.Infrastructure.BuscaDoBrain.IndiceDeBuscaPostgreSql>().PrepararVetoresAsync(cancellationToken); break;
                 case ["--brain", "search-reindex", var usuario, var espaco, var projeto]:
                     var acesso = new Dante.Application.SegurancaDoBrain.AcessoAoBrain(Guid.Parse(usuario), Guid.Parse(espaco), projeto == "-" ? null : Guid.Parse(projeto));
+                    scope.ServiceProvider.GetRequiredService<Dante.Application.SegurancaDoBrain.AutorizacaoDoBrain>().Estabelecer(new(Dante.Application.SegurancaDoBrain.AutorizacaoDoBrain.TenantLocal, acesso.IdUsuario), acesso);
                     Console.WriteLine(await scope.ServiceProvider.GetRequiredService<Dante.Application.BuscaDoBrain.BuscaDoBrainAppService>().ReindexarAsync(acesso, cancellationToken: cancellationToken)); break;
                 case ["--brain", "migrate"]: await admin.MigrarAsync(cancellationToken); break;
                 case ["--brain", "health"]: return await admin.VerificarSaudeAsync(cancellationToken) ? 0 : 1;
