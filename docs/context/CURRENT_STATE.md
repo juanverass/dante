@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205).
+Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206).
 
 ## Marcos
 
@@ -519,6 +519,15 @@ continuam no AppService e invariantes no Domain. Mensagens, tipos de exceção e
 passa a expor internals a `Dante.Tests`, como Infrastructure e Worker, para testar os
 validators isoladamente. `MetricasDoBrain` ainda não segue a convenção da AD-49 e
 mantém seu check inline.
+
+## Isolamento técnico do DbContext (#198)
+
+DanteDbContext delega filtros automáticos a FiltrosDoBrain e validação de escrita
+a ValidacaoDeEscritaDoBrain, em Data. Escopo/sensibilidade compartilhados usam
+expressões EF parametrizadas pelo contexto atual; snapshots continuam sem Secreto.
+SaveChanges síncrono/assíncrono preserva validação fail-closed e modo administrativo
+explícito, sem mudar mappings ou migrations. Testes verificam parâmetros por contexto,
+ausência de identidade, escrita cross-user/tenant e isolamento espaço/projeto.
 
 ## Casos de uso da conversa Brain (#206)
 
