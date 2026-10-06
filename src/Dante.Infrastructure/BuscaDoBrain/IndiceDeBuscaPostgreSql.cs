@@ -25,7 +25,7 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
     public async Task PrepararVetoresAsync(CancellationToken cancellationToken = default)
     {
         // Operação administrativa explícita; falta de extensão não bloqueia migrations/lexical.
-        await using var c = await ComandoAsync("CREATE EXTENSION IF NOT EXISTS vector; ALTER TABLE brain_index.representacoes ADD COLUMN IF NOT EXISTS vetor vector", cancellationToken);
+        await using var c = await ComandoAsync("CREATE EXTENSION IF NOT EXISTS vector; ALTER TABLE brain_index.representacoes ADD COLUMN IF NOT EXISTS vetor vector; ALTER TABLE brain_index.partes_fontes ADD COLUMN IF NOT EXISTS vetor vector", cancellationToken);
         await c.ExecuteNonQueryAsync(cancellationToken);
     }
     public async Task ReconstruirLexicalAsync(CancellationToken cancellationToken = default)

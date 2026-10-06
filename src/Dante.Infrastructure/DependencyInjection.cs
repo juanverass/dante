@@ -32,6 +32,10 @@ public static class DependencyInjection
             services.AddScoped<Dante.Application.Projetos.IProjetoRepository, ProjetoRepository>();
             services.AddScoped<Dante.Application.Conhecimentos.IConhecimentoRepository, ConhecimentoRepository>();
             services.AddScoped<AdministracaoDoBanco>();
+            services.AddScoped<Dante.Application.DocumentosFonte.IDocumentoFonteRepository, DocumentoFonteRepository>();
+            services.AddScoped<Dante.Application.DocumentosFonte.DocumentoFonteAppService>();
+            services.AddScoped<Dante.Application.DocumentosFonte.IIndiceDeFontes, Dante.Infrastructure.DocumentosFonte.IndiceDeFontesPostgreSql>();
+            services.AddSingleton<Dante.Application.DocumentosFonte.ILeitorDeFonteLocal>(_ => new Dante.Infrastructure.DocumentosFonte.LeitorDeFonteLocal(configuration));
             services.AddScoped<Dante.Application.QualidadeDoBrain.IConsultaDeQualidade, ConsultaDeQualidadePostgreSql>();
             services.AddScoped<Dante.Application.QualidadeDoBrain.ManutencaoDoBrainAppService>();
             services.AddScoped<Dante.Application.BuscaDoBrain.IIndiceDeBusca, Dante.Infrastructure.BuscaDoBrain.IndiceDeBuscaPostgreSql>();

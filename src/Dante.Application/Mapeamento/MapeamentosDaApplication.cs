@@ -35,6 +35,9 @@ internal static class MapeamentosDaApplication
     // #152: a criação passa pelo constructor do domínio, sem aceitar Id nem estado do DTO.
     private static void RegistrarEspacosDeConhecimento(ConfiguracaoMapeamento configuracao)
     {
+        configuracao.Registrar<Dante.Domain.DocumentosFonte.DocumentoFonte, Dante.Application.DocumentosFonte.DocumentoFonteDto>(x =>
+            new Dante.Application.DocumentosFonte.DocumentoFonteDto(x.Id, x.IdEspacoDeConhecimento, x.IdProjeto, x.Origem,
+                x.Formato, x.Hash, x.Revisao, x.Sensibilidade, x.AtualizadoEm, x.Removido));
         configuracao.Registrar<EspacoDeConhecimento, EspacoDeConhecimentoDto>(espaco => new EspacoDeConhecimentoDto
         {
             Id = espaco.Id,

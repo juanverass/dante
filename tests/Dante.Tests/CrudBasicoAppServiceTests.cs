@@ -181,7 +181,7 @@ public sealed class CrudBasicoAppServiceTests : IDisposable
             }
         }
         Assert.Equal(new[] { typeof(Application.Conhecimentos.ConhecimentoAppService), typeof(EspacoDeConhecimentoAppService), typeof(Application.Conhecimentos.IConhecimentoAppService),
-                typeof(Application.ContextosDeTrabalho.IContextoDeTrabalhoRepository), typeof(Application.CapturaDeConhecimento.ICandidatoDeConhecimentoRepository), typeof(Application.Conhecimentos.IConhecimentoRepository), typeof(IEspacoDeConhecimentoAppService),
+                typeof(Application.ContextosDeTrabalho.IContextoDeTrabalhoRepository), typeof(Application.CapturaDeConhecimento.ICandidatoDeConhecimentoRepository), typeof(Application.Conhecimentos.IConhecimentoRepository), typeof(Application.DocumentosFonte.IDocumentoFonteRepository), typeof(IEspacoDeConhecimentoAppService),
                 typeof(IEspacoDeConhecimentoRepository), typeof(Application.Projetos.IProjetoAppService),
                 typeof(IProjetoAppService), typeof(Application.Projetos.IProjetoRepository), typeof(IProjetoRepository),
                 typeof(Application.RelacoesDeConhecimento.IRelacaoDeConhecimentoRepository),

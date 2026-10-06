@@ -47,8 +47,8 @@ public sealed class PersistenciaTests
     {
         using var context = new DanteDbContext(new DbContextOptionsBuilder<DanteDbContext>()
             .UseNpgsql("Host=localhost;Database=nao_conectar").Options);
-        Assert.Equal(6, context.Model.GetEntityTypes().Count());
-        Assert.Equal(9, context.Database.GetMigrations().Count());
+        Assert.Equal(7, context.Model.GetEntityTypes().Count());
+        Assert.Equal(10, context.Database.GetMigrations().Count());
         Assert.False(context.Database.HasPendingModelChanges());
         var script = context.GetService<IMigrator>().GenerateScript();
         Assert.Contains("brain_data", script);
@@ -97,7 +97,7 @@ public sealed class PersistenciaTests
             {
                 await production.Database.MigrateAsync();
                 await production.Database.MigrateAsync();
-                Assert.Equal(9, (await production.Database.GetAppliedMigrationsAsync()).Count());
+                Assert.Equal(10, (await production.Database.GetAppliedMigrationsAsync()).Count());
                 Assert.Empty(await production.Database.GetPendingMigrationsAsync());
                 await production.GetService<IMigrator>().MigrateAsync("0");
                 Assert.Empty(await production.Database.GetAppliedMigrationsAsync());
@@ -167,6 +167,7 @@ public sealed class PersistenciaTests
             modelBuilder.Ignore<Dante.Domain.Conhecimentos.Conhecimento>();
             modelBuilder.Ignore<Dante.Domain.Projetos.Projeto>();
             modelBuilder.Ignore<Dante.Domain.EspacosDeConhecimento.EspacoDeConhecimento>();
+            modelBuilder.Ignore<Dante.Domain.DocumentosFonte.DocumentoFonte>();
             modelBuilder.ApplyConfiguration(new RegistroConfiguration());
         }
     }

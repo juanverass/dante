@@ -3,7 +3,7 @@ using Dante.Application.SegurancaDoBrain;
 namespace Dante.Application.BuscaDoBrain;
 
 public sealed class BuscaDoBrainAppService(IIndiceDeBusca indice, IGeradorDeEmbedding embeddings,
-    IConhecimentoRepository conhecimentos, LeituraDoBrainAppService leitura, PoliticaDeSensibilidade politica)
+    IConhecimentoRepository conhecimentos, LeituraDoBrainAppService leitura, PoliticaDeSensibilidade politica, Dante.Application.DocumentosFonte.IIndiceDeFontes? fontes = null)
 {
     public async Task<BuscaDoBrainDto> BuscarAsync(AcessoAoBrain acesso, BuscaDoBrainSearchDto filtro, CancellationToken cancellationToken = default)
     {
@@ -20,10 +20,18 @@ public sealed class BuscaDoBrainAppService(IIndiceDeBusca indice, IGeradorDeEmbe
         if (modelo is not null && filtro.IdConhecimento is null && await indice.VetoresDisponiveisAsync(cancellationToken))
             vetor = await embeddings.GerarAsync(filtro.Texto, cancellationToken);
         if (vetor is not null) vetor = Normalizar(vetor, modelo!.Dimensao);
-        var matches = await indice.BuscarAsync(acesso, filtro with { Limite = Math.Min(101, filtro.Limite + 1) }, modelo, vetor, cancellationToken);
+        var janela = filtro with { Limite = filtro.Deslocamento + filtro.Limite + 1, Deslocamento = 0 };
+        var matches = await indice.BuscarAsync(acesso, janela, modelo, vetor, cancellationToken);
+        var encontrados = fontes is null ? Array.Empty<ResultadoDaBuscaDto>() :
+            (await fontes.BuscarAsync(acesso, janela, modelo, vetor, cancellationToken)).ToArray();
+        var pagina = matches.Select(m => (Id: m.Id, m.Score, Numero: -1, Match: (MatchDaBusca?)m, Fonte: (ResultadoDaBuscaDto?)null))
+            .Concat(encontrados.Select(f => (Id: f.Item.Id, f.Score, Numero: f.Fonte!.Numero, Match: (MatchDaBusca?)null, Fonte: (ResultadoDaBuscaDto?)f)))
+            .OrderByDescending(x => x.Score).ThenBy(x => x.Id).ThenBy(x => x.Numero).Skip(filtro.Deslocamento).Take(filtro.Limite + 1);
         var resultados = new List<ResultadoDaBuscaDto>();
-        foreach (var match in matches)
+        foreach (var entrada in pagina)
         {
+            if (entrada.Fonte is { } fonte) { resultados.Add(fonte); continue; }
+            var match = entrada.Match!;
             var item = await conhecimentos.ObterPorIdAsync(match.Id, cancellationToken);
             if (item is null || item.Revisao != match.Revisao || item.IdEspacoDeConhecimento != acesso.IdEspacoDeConhecimento ||
                 item.IdProjeto != acesso.IdProjeto || !item.EstaValidoEm(filtro.ValidoEm ?? DateTimeOffset.UtcNow)) continue;
@@ -43,7 +51,11 @@ public sealed class BuscaDoBrainAppService(IIndiceDeBusca indice, IGeradorDeEmbe
         if (limite is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(limite));
         var modelo = embeddings.Modelo;
         if (modelo is null || !await indice.VetoresDisponiveisAsync(cancellationToken)) return 0;
-        if (reconstruir) await indice.LimparModeloAsync(acesso, modelo, cancellationToken);
+        if (reconstruir)
+        {
+            await indice.LimparModeloAsync(acesso, modelo, cancellationToken);
+            if (fontes is not null) await fontes.ReconstruirAsync(acesso, cancellationToken);
+        }
         var ids = await indice.ListarPendentesAsync(embeddings.Externo ? acesso with { PermitirConfidencial = false } : acesso, modelo, limite, cancellationToken); var gravados = 0;
         foreach (var id in ids)
         {
@@ -56,6 +68,7 @@ public sealed class BuscaDoBrainAppService(IIndiceDeBusca indice, IGeradorDeEmbe
             if (vetor is null) continue;
             if (await indice.GravarAsync(item.Id, item.Revisao, modelo, Normalizar(vetor, modelo.Dimensao), cancellationToken)) gravados++;
         }
+        if (fontes is not null) gravados += await fontes.ReindexarAsync(acesso, embeddings, limite, cancellationToken);
         return gravados;
     }
     public static float[] Normalizar(float[] vetor, int dimensao)

@@ -18,7 +18,7 @@ public sealed record BuscaDoBrainSearchDto
 }
 public enum OrigemDoResultado { Conhecimento, FonteBruta }
 public sealed record ResultadoDaBuscaDto(LeituraProtegidaDto Item, OrigemDoResultado Origem, double Score,
-    double ScoreLexical, double? ScoreSemantico, string Explicacao);
+    double ScoreLexical, double? ScoreSemantico, string Explicacao, Dante.Application.DocumentosFonte.TrechoDaFonteDto? Fonte = null);
 public sealed record BuscaDoBrainDto(IReadOnlyList<ResultadoDaBuscaDto> Resultados, string Modo,
     bool TemMais, string? ModeloEmbedding);
 public sealed record ModeloEmbedding(string Provedor, string Nome, string Versao, int Dimensao)
