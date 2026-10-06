@@ -104,3 +104,18 @@ obrigatório, projeto opcional mas nunca `Guid.Empty`). Check exclusivo de uma f
 fica no validator dela. Proteção de segredos (`ProtecaoDeSegredos`) é policy de
 segurança e não é validator. `ValidacaoDeEntradaTests` testa os validators sem
 repository nem banco. Não há FluentValidation: os checks atuais são poucos e diretos.
+
+## Conversa como fachada (#206)
+
+ConversaDoBrainAppService mantém autorização inicial, resolução determinística,
+seleção de alvo e ciclo da proposta/confirmar/cancelar. Os casos ConsultaDaConversa,
+CapturaDaConversa, FontesDaConversa, AlteracoesDaConversa, InspecaoDaConversa,
+ContextoDeTrabalhoDaConversa e AvaliacaoDaConversa recebem suas dependências por
+construtor e o ContextoDaConversa da chamada. Eles ficam em CasosDeUso com namespace
+da feature; os tipos são públicos para composição da DI, mas seus métodos de execução
+são internos à Application e aos testes. Adapters entram pela fachada autorizada.
+
+ContextoDaConversa compartilha estado, acesso e mensagem daquela chamada; não resolve
+serviços. A confirmação continua consumida atomicamente no store antes de executar
+a alteração, e a alteração revalida revisão, escopo e sensibilidade. Os casos podem
+ser testados diretamente com ports simulados sem Worker, Telegram ou banco.

@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205).
+Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206).
 
 ## Marcos
 
@@ -528,3 +528,15 @@ expressões EF parametrizadas pelo contexto atual; snapshots continuam sem Secre
 SaveChanges síncrono/assíncrono preserva validação fail-closed e modo administrativo
 explícito, sem mudar mappings ou migrations. Testes verificam parâmetros por contexto,
 ausência de identidade, escrita cross-user/tenant e isolamento espaço/projeto.
+
+## Casos de uso da conversa Brain (#206)
+
+ConversaDoBrainAppService preserva a entrada do Worker e orquestra intenções,
+validação de acesso, estado pendente e consumo único da confirmação. Consulta,
+captura, fontes, alterações confirmadas, inspeção, contexto de trabalho e avaliação
+ficam em casos coesos em CasosDeUso, com dependências próprias e namespace da feature.
+ContextoDaConversa existe por chamada e compartilha chave/estado/proveniência sem
+service locator; o store continua responsável pelo consumo atômico e expiração.
+Respostas e regras de revisão/sensibilidade são preservadas. Testes diretos dos casos
+cobrem captura citada, inferência, proteção, preparação de correção e entrada inválida.
+O registro scoped acompanha a fachada na Infrastructure; ownership da DI segue na #208.
