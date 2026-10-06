@@ -13,6 +13,7 @@ namespace Dante.Tests;
 
 // #209: regras de organização e fronteira da Application (Epic #202) executáveis. Complementa
 // HexagonalArchitectureTests (referências entre projetos) e MapeamentoTests (mappings por feature).
+// Os guards percorrem GetTypes() completo: um tipo aninhado não contorna a regra (review do PR #222).
 public sealed class ApplicationArchitectureTests
 {
     private static readonly System.Reflection.Assembly Application = typeof(AutorizacaoDoBrain).Assembly;
@@ -36,7 +37,7 @@ public sealed class ApplicationArchitectureTests
     {
         Assert.All(Domain.GetReferencedAssemblies().Select(a => a.Name!), nome =>
             Assert.True(nome == "netstandard" || nome.StartsWith("System", StringComparison.Ordinal), nome));
-        var tipos = Domain.GetTypes().Where(t => !t.IsNested).ToArray();
+        var tipos = Domain.GetTypes();
         Assert.DoesNotContain(tipos, t => t.IsInterface);
         Assert.DoesNotContain(tipos, t => Regex.IsMatch(t.Name, "(Mapping|Mapper|Validator|Repository|AppService|Dto|SearchDto|DbContext)$"));
     }
@@ -47,7 +48,7 @@ public sealed class ApplicationArchitectureTests
     public void PortasFicamNaApplicationEInfrastructureSoAsImplementa()
     {
         Assert.Equal(["IAgentExecutableResolver", "IAgentProcessExecutor", "IInteractiveAgentProcessLauncher"],
-            Infrastructure.GetTypes().Where(t => t.IsInterface && !t.IsNested).Select(t => t.Name).Order());
+            Infrastructure.GetTypes().Where(t => t.IsInterface).Select(t => t.Name).Order());
 
         var repositories = Infrastructure.GetTypes().Where(t => t is { IsClass: true, IsAbstract: false, IsGenericTypeDefinition: false } &&
             t.Name.EndsWith("Repository", StringComparison.Ordinal) && t.Namespace!.StartsWith("Dante.Infrastructure.Modulos.", StringComparison.Ordinal)).ToArray();
@@ -124,7 +125,7 @@ public sealed class ApplicationArchitectureTests
     [Fact]
     public void ValidatorsSaoEstaticosInternosDaFeature()
     {
-        var validators = Application.GetTypes().Where(t => !t.IsNested && t.Name.EndsWith("Validator", StringComparison.Ordinal)).ToArray();
+        var validators = Application.GetTypes().Where(t => t.Name.EndsWith("Validator", StringComparison.Ordinal)).ToArray();
         Assert.NotEmpty(validators);
         Assert.All(validators, t =>
         {
@@ -137,7 +138,7 @@ public sealed class ApplicationArchitectureTests
     [Fact]
     public void MappingsFicamNaFeatureDoProprioDto()
     {
-        var tipos = Application.GetTypes().Where(t => !t.IsNested).ToArray();
+        var tipos = Application.GetTypes();
         var mappings = tipos.Where(t => t.Name.EndsWith("Mapping", StringComparison.Ordinal)).ToArray();
         Assert.NotEmpty(mappings);
         Assert.All(mappings, mapping => Assert.Equal(mapping.Namespace,
@@ -152,7 +153,7 @@ public sealed class ApplicationArchitectureTests
     {
         var assembly = host == "Dante.Worker" ? typeof(TelegramPollingService).Assembly : typeof(Dante.WebApi.Program).Assembly;
         Assert.Equal(host, assembly.GetName().Name);
-        var tipos = assembly.GetTypes().Where(t => !t.IsNested).ToArray();
+        var tipos = assembly.GetTypes();
         Assert.Empty(tipos.SelectMany(t => t.GetInterfaces().Where(i => i.Assembly == Application).Select(i => $"{t.Name} : {i.Name}")));
         Assert.DoesNotContain(tipos, t => Regex.IsMatch(t.Name, "(AppService|Validator|Mapping|Repository)$"));
         Assert.DoesNotContain(assembly.GetReferencedAssemblies(), a => a.Name!.StartsWith("Mapster", StringComparison.Ordinal));
