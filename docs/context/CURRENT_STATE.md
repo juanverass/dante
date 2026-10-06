@@ -519,3 +519,14 @@ continuam no AppService e invariantes no Domain. Mensagens, tipos de exceção e
 passa a expor internals a `Dante.Tests`, como Infrastructure e Worker, para testar os
 validators isoladamente. `MetricasDoBrain` ainda não segue a convenção da AD-49 e
 mantém seu check inline.
+
+## Composição modular da Infrastructure (#200)
+
+`AddInfrastructure` mantém a API pública e delega a extensões internas em
+`Composicao/`: banco/EF e administração, repositories e adapters do Brain,
+contexto local e execução de agentes. A classe pública `DependencyInjection` e seu
+namespace permanecem compatíveis. Sem conexão não há registros de banco/Brain;
+adapters locais continuam disponíveis. Lifetimes e registros existentes são
+preservados, sem mudança funcional nem transferência de AppServices para
+`AddApplication` (escopo da #208). Testes validam ausência de conexão, unicidade
+de registros, validação de DI e isolamento scoped/compartilhamento singleton.
