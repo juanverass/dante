@@ -2,6 +2,14 @@ using Dante.Infrastructure.Brain;
 using Dante.Application;
 using Dante.Infrastructure;
 using Dante.Worker;
+using Dante.Worker.Planilhas;
+
+// Servidor MCP de planilhas iniciado pela CLI do agente numa sessão (#224): sem Telegram nem host.
+if (args.FirstOrDefault() == ServidorMcpDePlanilhas.Argumento)
+{
+    Environment.ExitCode = await ServidorMcpDePlanilhas.ExecutarProcessoAsync(args);
+    return;
+}
 
 var builder = Host.CreateApplicationBuilder(args.FirstOrDefault() == "--brain" ? [] : args);
 builder.Services.AddApplication().AddInfrastructure(builder.Configuration).AddWorker(builder.Configuration);

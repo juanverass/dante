@@ -964,6 +964,31 @@ public sealed class SessionRegistryTests
         return driver;
     }
 
+    // #224: the tool servers offered to the owner and agent at start are fixed in the session's start options.
+    [Fact]
+    public async Task ToolServersOfTheOwnerAndAgentReachTheDriverAtStart()
+    {
+        var servers = new FixedToolServers();
+        await using var registry = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance, sink, toolServers: servers);
+        Assert.True((await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude, Repository))).Accepted);
+        Assert.Equal((Owner, AgentKind.Claude), servers.Requested);
+        Assert.Same(servers.Servers, drivers.Created.Single().StartOptions!.ToolServers);
+    }
+
+    private sealed class FixedToolServers : IAgentToolServers
+    {
+        public IReadOnlyList<AgentToolServer> Servers { get; } =
+            [new AgentToolServer("dante_planilhas", "/bin/dante", [], new Dictionary<string, string>(), [])];
+
+        public (long, AgentKind)? Requested { get; private set; }
+
+        public Task<IReadOnlyList<AgentToolServer>> ForAsync(long ownerUserId, AgentKind agent, CancellationToken cancellationToken = default)
+        {
+            Requested = (ownerUserId, agent);
+            return Task.FromResult(Servers);
+        }
+    }
+
     private SessionRegistry CreateRegistry() =>
         new(drivers, NullLogger<SessionRegistry>.Instance, sink);
 

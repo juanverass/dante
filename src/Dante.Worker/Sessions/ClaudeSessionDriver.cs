@@ -366,11 +366,31 @@ public sealed class ClaudeSessionDriver(
             arguments.AddRange(["--restricted", "--strict-mcp-config", "--tools", "Read,Write,Edit,AskUserQuestion"]);
         }
 
+        // D.A.N.T.E. tool servers (#224): read-only tools run without asking; the others follow the permission mode and
+        // reach the host as can_use_tool. The config holds no secret (it is visible on the command line).
+        if (options.ToolServers is { Count: > 0 } servers)
+        {
+            arguments.AddRange(["--mcp-config", McpConfig(servers)]);
+            var readOnly = servers.SelectMany(server => server.ReadOnlyTools.Select(tool => $"mcp__{server.Name}__{tool}")).ToArray();
+            if (readOnly.Length > 0) arguments.AddRange(["--allowedTools", string.Join(',', readOnly)]);
+        }
+
         // Without a selection the CLI picks its own default model (#77).
         if (options.ModelSelection?.Model is { } model) arguments.AddRange(["--model", model]);
         if (options.ModelSelection?.Effort is { } effort) arguments.AddRange(["--effort", effort]);
         return arguments;
     }
+
+    private static string McpConfig(IReadOnlyList<AgentToolServer> servers) => new JsonObject
+    {
+        ["mcpServers"] = new JsonObject(servers.Select(server => KeyValuePair.Create(server.Name, (JsonNode?)new JsonObject
+        {
+            ["type"] = "stdio",
+            ["command"] = server.Command,
+            ["args"] = new JsonArray(server.Arguments.Select(argument => (JsonNode?)argument).ToArray()),
+            ["env"] = new JsonObject(server.Environment.Select(pair => KeyValuePair.Create(pair.Key, (JsonNode?)pair.Value)))
+        })))
+    }.ToJsonString();
 
     private static string PermissionMode(AgentPermissionProfile profile) => profile switch
     {
@@ -817,10 +837,14 @@ public sealed class ClaudeSessionDriver(
     private static string Describe(string toolName, JsonObject input) => toolName switch
     {
         "Bash" => GetString(input, "command") ?? toolName,
+        // An MCP tool is approved by what it will do: its arguments, shortened.
+        _ when toolName.StartsWith("mcp__", StringComparison.Ordinal) => $"{toolName} {Shorten(input.ToJsonString())}",
         _ when FilePath(input) is { } path => $"{toolName} {path}",
         _ when GetString(input, "url") is { } url => $"{toolName} {url}",
         _ => toolName
     };
+
+    private static string Shorten(string text) => text.Length <= 800 ? text : text[..800] + "…";
 
     private static string? FilePath(JsonObject input) =>
         GetString(input, "file_path") ?? GetString(input, "notebook_path");

@@ -601,6 +601,53 @@ public sealed class CodexSessionDriverTests
         Assert.Null((await ReadTurnAsync(events)).OfType<TurnCompletedEvent>().Single().Usage);
     }
 
+    private static readonly AgentToolServer PlanilhasServer = new("dante_planilhas", "/usr/bin/dante",
+        ["--mcp-planilhas", "--origem", "telegram:42"], new Dictionary<string, string> { ["HOME"] = "/home/x" }, ["ler_intervalo"]);
+
+    // #224: the D.A.N.T.E. tool servers reach the app-server as -c overrides; nothing secret goes on the command line.
+    [Fact]
+    public async Task ToolServersBecomeMcpConfigOverrides()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new CodexSessionDriver(launcher);
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, ToolServers: [PlanilhasServer]));
+        Assert.Equal(["app-server", "--listen", "stdio://",
+            "-c", "mcp_servers.dante_planilhas.command=\"/usr/bin/dante\"",
+            "-c", "mcp_servers.dante_planilhas.args=[\"--mcp-planilhas\",\"--origem\",\"telegram:42\"]",
+            "-c", "mcp_servers.dante_planilhas.env={HOME = \"/home/x\"}",
+            "-c", "mcp_servers.dante_planilhas.startup_timeout_sec=30"], Assert.Single(launcher.Requests).Arguments);
+    }
+
+    // #224: an MCP tool call that is not read-only arrives as an elicitation (codex-cli 0.159.3) and becomes an
+    // approval with the tool and its arguments; the answer goes back as accept or decline.
+    [Theory]
+    [InlineData(AgentApprovalDecision.ApproveOnce, "accept")]
+    [InlineData(AgentApprovalDecision.Deny, "decline")]
+    public async Task McpToolApprovalBecomesAnApprovalRequest(AgentApprovalDecision decision, string action)
+    {
+        await using var driver = new CodexSessionDriver(new ProbeLauncher());
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("mcp");
+        var approval = await NextOfTypeAsync<ApprovalRequestedEvent>(events);
+        Assert.Equal((AgentToolKind.Tool, "dante_planilhas.atualizar_celulas {\"planilha\":\"financas\"}", false),
+            (approval.Kind, approval.Action, approval.CanApproveForSession));
+        await driver.RespondAsync(approval.UpstreamRequestId, new AgentApprovalResponse(decision));
+        Assert.Equal($"mcp:{action}", (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+    }
+
+    [Fact]
+    public async Task PlanModeDeclinesMcpToolsThatWriteWithoutAsking()
+    {
+        await using var driver = new CodexSessionDriver(new ProbeLauncher());
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("mcp");
+        var turn = await ReadTurnAsync(events);
+        Assert.Empty(turn.OfType<ApprovalRequestedEvent>());
+        Assert.Equal("mcp:decline", turn.OfType<MessageCompletedEvent>().Single().Text);
+    }
+
     private static async Task<AgentSession> StartSessionAsync(CodexSessionDriver driver)
     {
         var session = new AgentSession("S000001", AgentKind.Codex, Owner,

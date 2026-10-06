@@ -75,7 +75,7 @@ BuscaDoBrain/
 
 | Complexos | Simples |
 | --- | --- |
-| `AuditoriaDoBrain`, `BuscaDoBrain`, `ConversaDoBrain`, `DocumentosFonte`, `QualidadeDoBrain`, `ConstrucaoDeContexto`, `MetricasDoBrain` | `CapturaDeConhecimento`, `Conhecimentos`, `ContextosDeTrabalho`, `EspacosDeConhecimento`, `Projetos`, `RelacoesDeConhecimento`, `SegurancaDoBrain` |
+| `AuditoriaDoBrain`, `BuscaDoBrain`, `ConversaDoBrain`, `DocumentosFonte`, `QualidadeDoBrain`, `ConstrucaoDeContexto`, `MetricasDoBrain`, `Planilhas` | `CapturaDeConhecimento`, `Conhecimentos`, `ContextosDeTrabalho`, `EspacosDeConhecimento`, `Projetos`, `RelacoesDeConhecimento`, `SegurancaDoBrain` |
 
 Quando um módulo simples ganhar uma port própria ou um caso de uso interno, ele passa
 a complexo e seus contratos/ports vão para as subpastas no mesmo PR.

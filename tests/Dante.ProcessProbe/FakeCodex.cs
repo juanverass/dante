@@ -4,7 +4,7 @@ namespace Dante.ProcessProbe;
 
 // Simulated `codex app-server --listen stdio://` (JSON-RPC in JSONL), shaped like codex-cli 0.157.1: responses have no
 // "jsonrpc" field, like the real server. Each turn picks a scenario by its text: pong, config, command, edit, ask,
-// slow, fail, warn, elicit, garbage, crash or model. model/list answers in two pages; account/read and
+// slow, fail, warn, elicit, mcp, garbage, crash or model. model/list answers in two pages; account/read and
 // account/rateLimits/read answer the quota query (#116).
 internal static class FakeCodex
 {
@@ -121,6 +121,9 @@ internal static class FakeCodex
                         break;
                     case "elicit":
                         Message("rejected:" + (string?)message["error"]!["message"]);
+                        break;
+                    case "mcp":
+                        Message("mcp:" + (string?)result!["action"]);
                         break;
                 }
 
@@ -445,6 +448,20 @@ internal static class FakeCodex
                             break;
                         case "elicit":
                             ServerRequest("elicit", "mcpServer/elicitation/request", new JsonObject());
+                            break;
+                        case "mcp":
+                            // MCP tool approval of codex-cli 0.159.3 (#224).
+                            ServerRequest("mcp", "mcpServer/elicitation/request", new JsonObject
+                            {
+                                ["threadId"] = threadId, ["serverName"] = "dante_planilhas", ["mode"] = "form",
+                                ["message"] = "Allow the dante_planilhas MCP server to run tool \"atualizar_celulas\"?",
+                                ["requestedSchema"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() },
+                                ["_meta"] = new JsonObject
+                                {
+                                    ["codex_approval_kind"] = "mcp_tool_call", ["persist"] = new JsonArray("session", "always"),
+                                    ["tool_params"] = new JsonObject { ["planilha"] = "financas" }
+                                }
+                            });
                             break;
                         case "slow":
                             // Output of a turn that only ends when interrupted or steered.
