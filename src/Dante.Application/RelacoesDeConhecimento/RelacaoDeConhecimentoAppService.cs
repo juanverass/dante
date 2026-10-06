@@ -34,7 +34,9 @@ public sealed class RelacaoDeConhecimentoAppService(IRelacaoDeConhecimentoReposi
     public async Task<VizinhancaDto> ConsultarVizinhancaAsync(Guid idEspaco, Guid? idProjeto, Guid idRaiz,
         int profundidade = 1, int limite = 50, CancellationToken cancellationToken = default)
     {
-        if (profundidade is < 1 or > 3 || limite is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(profundidade));
+        // As duas faixas reportam "profundidade", como antes da extração (#205).
+        ValidacaoDeEntrada.ExigirFaixa(profundidade, 1, 3, nameof(profundidade));
+        ValidacaoDeEntrada.ExigirFaixa(limite, 1, 100, nameof(profundidade));
         await ObterNoEscopoAsync(idEspaco, idProjeto, idRaiz, cancellationToken);
         var visitados = new HashSet<Guid> { idRaiz }; var fronteira = new HashSet<Guid> { idRaiz };
         var resultado = new Dictionary<Guid, RelacaoDeConhecimentoDto>();
@@ -59,7 +61,8 @@ public sealed class RelacaoDeConhecimentoAppService(IRelacaoDeConhecimentoReposi
 
     private async Task<Conhecimento> ObterNoEscopoAsync(Guid espaco, Guid? projeto, Guid id, CancellationToken ct)
     {
-        if (espaco == Guid.Empty || projeto == Guid.Empty || id == Guid.Empty) throw new ArgumentException("Escopo inválido.");
+        ValidacaoDeEntrada.ExigirEscopo(espaco, projeto);
+        ValidacaoDeEntrada.ExigirId(id, "Escopo inválido.");
         var item = await conhecimentos.ObterPorIdAsync(id, ct);
         if (item is null || item.IdEspacoDeConhecimento != espaco || item.IdProjeto != projeto)
             throw new ArgumentException("Conhecimento não encontrado no escopo.");

@@ -503,3 +503,15 @@ Auditoria, Busca, Conversa, Fontes e Qualidade usam `Contratos/` e `Portas/`. Se
 mudança funcional nem de namespace; um teste arquitetural novo recusa namespaces
 abaixo da feature. Mappings por feature, validação, decomposição e DI seguem nas
 #204–#209 (Epic #202).
+
+## Validação de entrada da Application (#205)
+
+Checks estruturais de entrada (IDs obrigatórios, limites/paginação, tamanhos, enums,
+formato e combinação de campos) saíram dos AppServices para `<Conceito>Validator`
+estáticos por feature e para o helper `Comum/ValidacaoDeEntrada` (AD-52,
+[guia](../development/application.md)). Regras que dependem de repository/estado
+continuam no AppService e invariantes no Domain. Mensagens, tipos de exceção e
+`ParamName` foram preservados, e o check segue no mesmo ponto do fluxo. A Application
+passa a expor internals a `Dante.Tests`, como Infrastructure e Worker, para testar os
+validators isoladamente. `MetricasDoBrain` ainda não segue a convenção da AD-49 e
+mantém seu check inline.

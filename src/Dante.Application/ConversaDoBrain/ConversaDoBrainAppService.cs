@@ -21,8 +21,7 @@ public sealed class ConversaDoBrainAppService(BuscaDoBrainAppService busca,Leitu
     public async Task<string?> AtenderAsync(AcessoAoBrain acesso,PedidoDeConversaDto pedido,CancellationToken cancellationToken=default)
     {
         await leitura.ValidarAcessoAsync(acesso,cancellationToken);
-        if(string.IsNullOrWhiteSpace(pedido.IdConversa)||pedido.IdConversa.Length>200||pedido.Texto.Length>10000||pedido.ReferenciaDaMensagem.Length>2000)
-            throw new ArgumentException("Conversa inválida.");
+        ConversaDoBrainValidator.ValidarPedido(pedido);
         var identidade=autorizacao.Identidade!;var chave=new ChaveDeConversaDto(identidade.IdTenant,identidade.IdUsuario,acesso.IdEspacoDeConhecimento,acesso.IdProjeto,pedido.IdConversa);
         var estado=estados.Obter(chave);var intencao=ResolvedorDeIntencaoDoBrain.Resolver(pedido.Texto);
         EstadoDeConversaDto Guardar(EstadoDeConversaDto novo)=>estados.Salvar(chave,novo);

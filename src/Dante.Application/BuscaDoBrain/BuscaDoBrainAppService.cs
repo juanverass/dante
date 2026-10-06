@@ -1,3 +1,4 @@
+using Dante.Application.Comum;
 using Dante.Application.Conhecimentos;
 using Dante.Application.SegurancaDoBrain;
 namespace Dante.Application.BuscaDoBrain;
@@ -9,12 +10,7 @@ public sealed class BuscaDoBrainAppService(IIndiceDeBusca indice, IGeradorDeEmbe
     {
         ArgumentNullException.ThrowIfNull(filtro);
         await leitura.ValidarAcessoAsync(acesso, cancellationToken);
-        if (filtro.Limite is < 1 or > 100 || filtro.Deslocamento is < 0 or > 10000 || filtro.Texto.Length > 2000 ||
-            filtro.Tipos.Count > 12 || filtro.Tipos.Any(t => !Enum.IsDefined(t)) || filtro.Tags.Count > 10 || filtro.Tags.Any(t => string.IsNullOrWhiteSpace(t) || t.Length > 100) ||
-            filtro.IdConhecimento == Guid.Empty || string.IsNullOrWhiteSpace(filtro.Texto) && filtro.IdConhecimento is null ||
-            filtro.CriadoDesde >= filtro.CriadoAte || filtro.ValidoEm == default(DateTimeOffset) ||
-            filtro.Tipo is { } tipo && !Enum.IsDefined(tipo) || filtro.Status is { } status && !Enum.IsDefined(status) ||
-            filtro.Sensibilidade is { } s && !Enum.IsDefined(s)) throw new ArgumentException("Filtro de busca inválido.");
+        BuscaDoBrainValidator.ValidarBusca(filtro);
         ProtecaoDeSegredos.GarantirSeguro(filtro.Texto);
         var modelo = embeddings.Modelo; float[]? vetor = null;
         if (modelo is not null && filtro.IdConhecimento is null && await indice.VetoresDisponiveisAsync(cancellationToken))
@@ -48,7 +44,7 @@ public sealed class BuscaDoBrainAppService(IIndiceDeBusca indice, IGeradorDeEmbe
     public async Task<int> ReindexarAsync(AcessoAoBrain acesso, int limite = 100, bool reconstruir = false, CancellationToken cancellationToken = default)
     {
         await leitura.ValidarAcessoAsync(acesso, cancellationToken);
-        if (limite is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(limite));
+        ValidacaoDeEntrada.ExigirFaixa(limite, 1, 100, nameof(limite));
         var modelo = embeddings.Modelo;
         if (modelo is null || !await indice.VetoresDisponiveisAsync(cancellationToken)) return 0;
         if (reconstruir)

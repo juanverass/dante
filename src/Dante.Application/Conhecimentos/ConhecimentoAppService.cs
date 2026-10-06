@@ -103,14 +103,8 @@ public sealed class ConhecimentoAppService : CrudBasicoAppService<ConhecimentoDt
     protected override Task<IReadOnlyList<Conhecimento>> ConsultarAsync(ConhecimentoSearchDto filtro,
         CancellationToken cancellationToken)
     {
-        if (filtro.IdEspacoDeConhecimento == Guid.Empty || filtro.IdProjeto == Guid.Empty ||
-            (filtro.SomenteSemProjeto && filtro.IdProjeto is not null)) throw new ArgumentException("Escopo de pesquisa inválido.");
-        if ((filtro.Tipo is { } tipo && !Enum.IsDefined(tipo)) || (filtro.Status is { } status && !Enum.IsDefined(status)))
-            throw new ArgumentException("Classificação de pesquisa inválida.");
-        if (filtro.Limite < 1 || filtro.Limite > LimiteMaximoDaPesquisa) throw new ArgumentOutOfRangeException(nameof(filtro.Limite));
-        if (filtro.ValidoEm == default(DateTimeOffset)) throw new ArgumentException("Instante de validade inválido.");
+        ConhecimentoValidator.ValidarPesquisa(filtro);
         var tag = string.IsNullOrWhiteSpace(filtro.Tag) ? null : filtro.Tag.Trim();
-        if (tag?.Length > 100 || tag?.Any(char.IsControl) == true) throw new ArgumentException("Tag de pesquisa inválida.");
         return conhecimentos.ListarDoEspacoAsync(filtro with { Tag = tag }, cancellationToken);
     }
 

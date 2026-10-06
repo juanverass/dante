@@ -20,11 +20,7 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
     public async Task<PacoteDeContextoDto> ConstruirAsync(AcessoAoBrain acesso,PedidoDeContextoDto pedido,CancellationToken cancellationToken=default)
     {
         ArgumentNullException.ThrowIfNull(pedido);await leitura.ValidarAcessoAsync(acesso,cancellationToken);
-        if(string.IsNullOrWhiteSpace(pedido.Mensagem) || pedido.Mensagem.Length>2000 || pedido.OrcamentoDeTokens is < 64 or > 32000 ||
-            pedido.LimiteDeItens is < 1 or > 100 || pedido.LimiteDeCandidatos is < 1 or > 100 || pedido.ProfundidadeDeRelacoes is < 0 or > 3 ||
-            pedido.FragmentosJaPresentes.Count>20 || pedido.FragmentosJaPresentes.Any(x=>x.Length>8000) || pedido.FragmentosJaPresentes.Sum(x=>x.Length)>32000 ||
-            pedido.JaInjetados.Count>500)
-            throw new ArgumentException("Limites do contexto inválidos.");
+        ConstrucaoDeContextoValidator.ValidarPedido(pedido);
         var automatico=acesso with{PermitirSecreto=false};
         var termo=string.IsNullOrWhiteSpace(pedido.Filtros.Texto)?pedido.Mensagem:pedido.Filtros.Texto;
         var resultado=await busca.BuscarAsync(automatico,pedido.Filtros with{Texto=termo,IdConhecimento=null,Limite=pedido.LimiteDeCandidatos,Deslocamento=0},cancellationToken);

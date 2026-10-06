@@ -20,7 +20,7 @@ public sealed class DocumentoFonteAppService(IDocumentoFonteRepository fontes, I
         if (sensibilidade == Sensibilidade.Confidencial && !acesso.PermitirConfidencial || sensibilidade == Sensibilidade.Secreto && !acesso.PermitirSecreto)
             throw new UnauthorizedAccessException("Classificação da fonte não autorizada.");
         ProtecaoDeSegredos.GarantirSeguro(origem, conteudo);
-        if (formato is not ("markdown" or "texto")) throw new ArgumentException("Formato não suportado.");
+        DocumentoFonteValidator.ValidarFormato(formato);
         var fonte = await fontes.ObterPelaOrigemAsync(acesso, origem.Trim(), cancellationToken);
         if (fonte is null)
         {
@@ -47,7 +47,7 @@ public sealed class DocumentoFonteAppService(IDocumentoFonteRepository fontes, I
     public async Task<IReadOnlyList<DocumentoFonteDto>> ListarAsync(AcessoAoBrain acesso, int limite = 100, CancellationToken cancellationToken = default)
     {
         await leitura.ValidarAcessoAsync(acesso, cancellationToken);
-        if (limite is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(limite));
+        ValidacaoDeEntrada.ExigirFaixa(limite, 1, 100, nameof(limite));
         return (await fontes.ListarAsync(acesso, limite, cancellationToken)).Select(ParaDto).ToArray();
     }
     public async Task RemoverAsync(AcessoAoBrain acesso, Guid id, int revisao, CancellationToken cancellationToken = default)
