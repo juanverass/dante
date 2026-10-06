@@ -29,7 +29,7 @@ public sealed class IndiceDeFontesPostgreSql(DanteDbContext contexto, LeituraDoB
     public async Task<IReadOnlyList<ResultadoDaBuscaDto>> BuscarAsync(AcessoAoBrain acesso, BuscaDoBrainSearchDto filtro,
         ModeloEmbedding? modelo, float[]? vetor, CancellationToken cancellationToken = default)
     {
-        if (filtro.IdConhecimento is not null || filtro.Tipo is not null || filtro.Status is not null || filtro.Tags.Count > 0) return [];
+        if (filtro.IdConhecimento is not null || filtro.Tipo is not null || filtro.Tipos.Count>0 || filtro.Status is not null || filtro.Tags.Count > 0) return [];
         var sem = vetor is not null && modelo is not null && await Vetores(acesso,cancellationToken);
         var score = sem ? "CASE WHEN p.modelo=@modelo AND p.dimensao=@dimensao AND p.vetor IS NOT NULL THEN 1-(p.vetor <=> CAST(@vetor AS vector)) END" : "NULL::double precision";
         await using var c = await Comando($"""

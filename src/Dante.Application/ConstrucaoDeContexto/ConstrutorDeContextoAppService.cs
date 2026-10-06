@@ -57,7 +57,7 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
         foreach(var id in motivos.Keys.Except(elegiveis.Select(x=>x.Id))) registros.Add(new($"conhecimento:{id:D}",id,"conhecimento","descartado","Obsoleto, conflitante, fora dos filtros/escopo ou sem autorização.",0));
         foreach(var k in elegiveis)
         {
-            if(pedido.Filtros.Tipo is not null && k.Tipo!=pedido.Filtros.Tipo || pedido.Filtros.Status is not null && k.Status!=pedido.Filtros.Status ||
+            if(pedido.Filtros.Tipo is not null && k.Tipo!=pedido.Filtros.Tipo || pedido.Filtros.Tipos.Count>0 && !pedido.Filtros.Tipos.Contains(k.Tipo) || pedido.Filtros.Status is not null && k.Status!=pedido.Filtros.Status ||
                 pedido.Filtros.Sensibilidade is not null && k.Sensibilidade!=pedido.Filtros.Sensibilidade ||
                 pedido.Filtros.Tags.Any(t=>!k.Tags.Contains(t,StringComparer.OrdinalIgnoreCase)) ||
                 pedido.Filtros.ValidoEm is { } validoEm && !k.EstaValidoEm(validoEm) ||

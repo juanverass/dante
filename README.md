@@ -1505,3 +1505,22 @@ curl http://127.0.0.1:5080/health
 Health operacional do host retorna `{"estado":"saudavel"}`. OpenAPI em
 `/openapi/v1.json` está disponível apenas em Development. O host ainda não oferece
 endpoints funcionais do Brain. Veja [operação e contratos HTTP](docs/maintainer/WEBAPI.md).
+
+
+## Brain por conversa natural
+
+O Brain é opcional: configure `ConnectionStrings__Dante` e aplique `--brain migrate`
+antes de iniciar o Worker. [Preparação do banco](docs/brain/LOCAL_STORAGE.md).
+A allowlist Telegram continua obrigatória; mensagens não concedem acesso a outros usuários.
+
+No Telegram, diga `criar espaço Pessoal` e depois, por exemplo:
+
+- `o que você sabe sobre Guid?`;
+- `já resolvemos algo parecido com deadlock?`;
+- `documente como resolvemos isso` (envie ou cite o trecho solicitado);
+- `essa informação está errada`, `invalide a segunda`, `de onde veio essa informação?`.
+
+Captura prepara um candidato; diga `confirmar` para consolidar ou `cancelar`.
+Correções/invalidações/relações exigem alvo claro e confirmação. Use `listar espaços`,
+`usar espaço Nome`, `usar projeto Nome` ou `usar sem projeto`; não é necessário informar
+IDs nem editar o banco. `/brain ajuda` mostra exemplos. [Regras e limites](docs/development/conversa-brain.md).

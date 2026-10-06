@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-02, com approvals inline (#104), respostas por botões e Reply (#105), ajuda de comandos (#106), troca de modo da sessão ociosa (#108), áudio e vídeo aos agentes (#96) e imagem para LinkedIn (#98).
+Última revisão: 2026-10-05, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140) e Brain por conversa natural (#157).
 
 ## Marcos
 
@@ -190,7 +190,7 @@ A #135 formaliza a AD-34: [PostgreSQL canônico](../brain/POSTGRESQL_STORAGE.md)
 full-text lexical, pgvector derivado, originais em filesystem quando apropriado e
 export Markdown/JSON. Há estratégia de migrations, backup/restore consistente com
 fontes e roteiro preparatório para WSL. A persistência opcional EF/PostgreSQL foi entregue pela #160 na Infrastructure;
-os canais Worker/WebApi ainda não expõem operações funcionais Brain aos usuários.
+o Worker oferece operações Brain por conversa natural (#157); a WebApi continua sem endpoints funcionais Brain.
 O roteiro de banco não foi executado nesta entrega; Docker não está acessível na
 distro utilizada. Não é necessário instalar PostgreSQL para rodar o produto atual.
 
@@ -204,8 +204,8 @@ AddWorker, sem alteração funcional. WebApi oferece host independente com healt
 ProblemDetails e OpenAPI em Development (#170).
 
 AD-35/AD-36 formalizam a migração incremental, Guid Id via EntidadeBase (base a
-implementar na #171), FKs com Id no início e vocabulário PT-BR. Não há entidades
-Brain, EF, CRUD ou Mapster nesta fundação. A PR #163 segue em revisão, reestruturada pela #160.
+implementar na #171), FKs com Id no início e vocabulário PT-BR. A fundação precedeu as entidades
+Brain, EF, CRUD e Mapster, hoje descritos nas entregas abaixo. A PR #163 segue em revisão, reestruturada pela #160.
 
 ## Extração do núcleo (#166)
 
@@ -339,9 +339,8 @@ IProjetoRepository, IProjetoAppService, ProjetoAppService, ProjetoDto e ProjetoS
 Application, sobre a base CRUD: criação só em espaço existente e ativo, associação validada
 pelo catálogo de repositórios, arquivar/reativar e pesquisa sempre escopada ao espaço
 (AD-42). Mappings registrados em AddApplication. Vinte e cinco testes de Domain/Application,
-sem banco; suíte com 848 aprovados e 18 pulados. Repository Mode e /use não mudam. Sem
-persistência concreta (#160), registro DI do AppService, seleção de projeto ativo ou
-autorização (#150).
+sem banco; suíte com 848 aprovados e 18 pulados. Repository Mode e /use não mudam. Persistência/DI foram entregues na #160, autorização na #150 e seleção
+de projeto Brain na conversa na #157.
 
 ## Fundação EF Core + PostgreSQL (#168)
 
@@ -360,7 +359,7 @@ Corrigir, Invalidar e Substituir preservam evidência e exigem revisão esperada
 inferência não vira confirmação por confiança e correção de confirmado exige nova
 confirmação (AD-44). ConhecimentoAppService e ports/DTOs na Application sobre CRUD,
 com validação de escopo ativo, pesquisa limitada e mappings explícitos. DI/repositories/EF estão na #160, captura na #139 e relações na #153.
-Autorização de canais (#150) permanece pendente; a política de sensibilidade da #155 já protege as saídas específicas do Brain. 49 testes novos sem banco com fakes;
+Autorização central (#150) protege os canais; a política de sensibilidade da #155 já protege as saídas específicas do Brain. 49 testes novos sem banco com fakes;
 build aprovado e suíte final com 903 aprovados, 19 pulados e zero falhas.
 Guia: [núcleo de Conhecimento](../development/knowledge.md).
 
@@ -370,7 +369,8 @@ Infrastructure mapeia EspacoDeConhecimento, Projeto e Conhecimento com migration
 repositories específicos e DI scoped de AppServices. Histórico/proveniência e estado
 canônico transacionais, FKs compostas e xmin; health e backup/restore explícitos nos
 dois hosts. PR #163 reestruturada na mesma branch; modelo genérico/SQL manual removido.
-Sem banco obrigatório, busca funcional, fontes ou identidade Telegram no storage.
+Banco permanece opcional. Busca, fontes e identidade Telegram são compostas pelas
+entregas #154/#158/#150, sem acoplar o storage ao canal.
 Guia: [operação local](../brain/LOCAL_STORAGE.md).
 
 ## Relações de Conhecimento (#153)
@@ -379,7 +379,7 @@ RelacaoDeConhecimento no Domain e AppService/ports/DTOs na Application, com EF e
 migration específica na Infrastructure. Nove tipos explícitos, proveniência,
 deduplicação simétrica, FKs e substituição integrada ao histórico transacional.
 Vizinhança escopada com BFS, profundidade/custo limitados e sinal de truncamento.
-Guia: [relações](../development/relations.md). Sem UX Telegram ou policy/busca.
+Guia: [relações](../development/relations.md). Policy, busca/expansão e UX Telegram são compostas por #150/#140/#157.
 
 ## Captura de Conhecimento (#139)
 
@@ -388,7 +388,8 @@ Conhecimento, com natureza de origem, evidência/justificativa, auditoria por re
 deduplicação conservadora e confirmação transacional. Sugestões permanecem pendentes;
 inferências não viram fatos por confirmação. EF/migration de candidatos e consolidação
 Incidente/Solucao/Aprendizado com relações na mesma transação. Guia: [captura](../development/capture.md).
-Sem observador de transcripts/turnos; adapter natural Telegram e policy seguem #157/#150.
+Sem observador de transcripts/turnos; adapter natural Telegram e policy foram
+compostos pelas #157/#150.
 
 ## Política de sensibilidade (#155)
 
@@ -401,7 +402,7 @@ Snapshot persistente por espaço/projeto, com campos operacionais selecionados e
 
 ## Busca do Brain (#154)
 
-Busca full-text PostgreSQL com fallback lexical, filtros de escopo/sensibilidade/validade e paginação. Semântica pgvector exata e ranking híbrido por modelo/revisão; índices derivados com pendências duráveis e reindexação explícita, embeddings HTTP opcionais sem presumir assinatura das CLIs. Secreto não entra no índice lexical ou vetorial; reclassificação remove derivados, migration corretiva limpa índices antigos e rebuild respeita a política, inclusive sob concorrência. Consulta por ID preserva apenas metadados permitidos sem depender do índice lexical. Fontes brutas aguardam #158. Guia: [busca](../development/search.md).
+Busca full-text PostgreSQL com fallback lexical, filtros de escopo/sensibilidade/validade e paginação. Semântica pgvector exata e ranking híbrido por modelo/revisão; índices derivados com pendências duráveis e reindexação explícita, embeddings HTTP opcionais sem presumir assinatura das CLIs. Secreto não entra no índice lexical ou vetorial; reclassificação remove derivados, migration corretiva limpa índices antigos e rebuild respeita a política, inclusive sob concorrência. Consulta por ID preserva apenas metadados permitidos sem depender do índice lexical. Fontes brutas rastreáveis participam da busca pela #158. Guia: [busca](../development/search.md).
 
 ## Qualidade do Brain (#159)
 
@@ -416,8 +417,8 @@ consultas SQL. Telegram autorizado recebe identidade Guid determinística por te
 ID numérico, estável após reinício; nomes e prompts não definem identidade/permissões.
 O tenant local é o padrão, com DANTE_BRAIN_TENANT opcional. Contextos construídos
 diretamente são administrativos (migrations/backup/fixtures), não uma porta de usuário.
-WebApi não oferece login nem endpoints Brain. Fontes e Context Builder devem reutilizar
-essa policy nas respectivas implementações.
+WebApi não oferece login nem endpoints Brain. Fontes e Context Builder reutilizam
+essa policy nas implementações #158/#140.
 
 ## Fontes brutas rastreáveis (#158)
 
@@ -447,3 +448,13 @@ itens/tokens estimados. Exclui obsoletos, Secret e conflitos abertos, inclusive 
 a outra ponta é protegida. IDs/revisões/origens e motivos de descarte são rastreáveis;
 construção e confirmação de injeção são etapas distintas. Não usa transcript completo.
 A integração automática com os drivers continua na #145; [contrato](../development/context-builder.md).
+
+## Brain por conversa natural (#157)
+
+Worker roteia intenções naturais de consulta/experiência/captura/correção/invalidação/
+relação/origem ao núcleo, com identidade da allowlist e seleção de espaço/projeto por
+nome. Captura explícita cria candidato, confirmação consolida; alterações ambíguas ou
+destrutivas pedem alvo inequívoco e confirmação com revisão. Estado transitório isolado
+por usuário/chat/tópico/escopo, com expiração e consumo único. IDs internos não são a
+UX principal. Sem banco ou em mensagens não Brain, fluxo legado continua disponível.
+[Exemplos e regras](../development/conversa-brain.md).

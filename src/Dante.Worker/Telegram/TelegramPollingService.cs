@@ -33,7 +33,8 @@ public sealed partial class TelegramPollingService(
     ArtifactStore? artifacts = null,
     MediaPreparer? media = null,
     TelegramShowcase? showcase = null,
-    IUsageQuotaReader? usage = null) : BackgroundService
+    IUsageQuotaReader? usage = null,
+    TelegramBrain? brain = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private const string EffortOption = "effort=";
@@ -205,6 +206,11 @@ public sealed partial class TelegramPollingService(
 
     private async Task HandleTextAsync(TelegramMessage message, string text, CancellationToken cancellationToken)
     {
+        if (brain is not null && await brain.AtenderAsync(message, text, cancellationToken) is { } respostaBrain)
+        {
+            await SendLongMessageAsync(message.Chat.Id, respostaBrain, cancellationToken);
+            return;
+        }
         if (string.Equals(text, "/ping", StringComparison.OrdinalIgnoreCase))
         {
             await SendReplyAsync(message.Chat.Id, "pong", cancellationToken);
