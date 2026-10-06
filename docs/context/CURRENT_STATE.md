@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-05, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140) e Brain por conversa natural (#157).
+Última revisão: 2026-10-06, com a convenção de módulos da Application (#203); antes, 2026-10-05, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140) e Brain por conversa natural (#157).
 
 ## Marcos
 
@@ -458,3 +458,14 @@ destrutivas pedem alvo inequívoco e confirmação com revisão. Estado transit�
 por usuário/chat/tópico/escopo, com expiração e consumo único. IDs internos não são a
 UX principal. Sem banco ou em mensagens não Brain, fluxo legado continua disponível.
 [Exemplos e regras](../development/conversa-brain.md).
+
+## Convenção de módulos da Application (#203)
+
+Features da Application seguem convenção documentada para módulos simples e
+complexos (AD-47, [guia](../development/application.md)): um tipo público por
+arquivo e namespace da feature mesmo em subpastas. Os agregadores `ContratosDe*.cs`
+e os DTOs/ports declarados em arquivos de AppService ou de política foram separados;
+Auditoria, Busca, Conversa, Fontes e Qualidade usam `Contratos/` e `Portas/`. Sem
+mudança funcional nem de namespace; um teste arquitetural novo recusa namespaces
+abaixo da feature. Mappings por feature, validação, decomposição e DI seguem nas
+#204–#209 (Epic #202).

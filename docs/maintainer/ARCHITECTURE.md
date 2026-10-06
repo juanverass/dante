@@ -27,7 +27,9 @@ Testes arquiteturais verificam a solution, referências e dependências do núcl
 inclusive casos negativos que comprovam a rejeição de violações.
 
 Pastas/namespaces seguem `Dante.Domain.<Conceito>`,
-`Dante.Application.<CasoDeUso>` e `Dante.Infrastructure.<Adapter>`. Hosts traduzem
+`Dante.Application.<CasoDeUso>` e `Dante.Infrastructure.<Adapter>`. Dentro da Application,
+cada feature segue a [convenção de módulos simples e complexos](../development/application.md)
+(#203, AD-47): um tipo por arquivo e namespace da feature mesmo em subpastas. Hosts traduzem
 entrada/saída e registram serviços; não definem regra de negócio. Código novo usa
 vocabulário PT-BR e `Guid Id` via `EntidadeBase` (AD-36); a base CRUD genérica
 existe desde a #171 (AD-39, [guia](../development/crud.md)).

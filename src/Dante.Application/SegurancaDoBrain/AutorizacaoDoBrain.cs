@@ -1,7 +1,5 @@
 namespace Dante.Application.SegurancaDoBrain;
 
-public sealed record IdentidadeDoBrain(Guid IdTenant, Guid IdUsuario);
-
 // Uma instância por operação do adapter. Nunca aceitar identidade/permissões vindas do texto do usuário.
 public sealed class AutorizacaoDoBrain
 {

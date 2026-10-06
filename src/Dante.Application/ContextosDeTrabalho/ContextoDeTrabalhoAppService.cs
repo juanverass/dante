@@ -6,13 +6,6 @@ using Dante.Domain.Conhecimentos;
 using Dante.Domain.ContextosDeTrabalho;
 namespace Dante.Application.ContextosDeTrabalho;
 
-public interface IContextoDeTrabalhoRepository : IRepository<ContextoDeTrabalho>
-{
-    Task<ContextoDeTrabalho?> ObterDoEscopoAsync(Guid idEspaco, Guid? idProjeto, CancellationToken cancellationToken = default);
-}
-public sealed record ContextoDeTrabalhoDto(Guid Id, Guid IdEspacoDeConhecimento, Guid? IdProjeto, DadosDoContexto Dados,
-    Sensibilidade Sensibilidade, int Revisao, Guid IdResponsavel, string Origem, DateTimeOffset AtualizadoEm,
-    DateTimeOffset? ExpiraEm, AuditoriaDoContexto? AuditoriaAnterior);
 public sealed class ContextoDeTrabalhoAppService(IContextoDeTrabalhoRepository contextos, IConhecimentoRepository conhecimentos,
     LeituraDoBrainAppService leitura, IUnitOfWork unitOfWork, IMapsterTypeAdapter typeAdapter)
 {

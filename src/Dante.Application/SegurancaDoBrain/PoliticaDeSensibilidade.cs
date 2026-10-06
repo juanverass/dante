@@ -1,15 +1,6 @@
 using Dante.Domain.Conhecimentos;
 namespace Dante.Application.SegurancaDoBrain;
 
-public enum FinalidadeDeLeitura { Leitura, Busca, ContextoAutomatico, Exportacao, IndexacaoExterna }
-// Permissões explícitas fornecidas pelo adapter autorizado, nunca inferidas do prompt.
-public sealed record AcessoAoBrain(Guid IdUsuario, Guid IdEspacoDeConhecimento, Guid? IdProjeto,
-    bool PermitirConfidencial = false, bool PermitirSecreto = false);
-public sealed record LeituraProtegidaDto(Guid Id, Guid IdEspacoDeConhecimento, Guid? IdProjeto,
-    TipoDeConhecimento Tipo, StatusDoConhecimento Status, Sensibilidade Sensibilidade, int Revisao,
-    string? Conteudo, string? DadosEstruturados, IReadOnlyList<string> Tags, string? Origem,
-    string? ReferenciaDaFonte, bool ConteudoProtegido);
-
 public sealed class PoliticaDeSensibilidade
 {
     public bool PermiteConteudo(Conhecimento item, AcessoAoBrain acesso, FinalidadeDeLeitura finalidade)

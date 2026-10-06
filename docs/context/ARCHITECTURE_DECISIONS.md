@@ -1541,3 +1541,25 @@ independente de username. Configuração ausente/malformada e identidade não re
 negam acesso. Contextos diretos são reservados à administração explícita e fixtures;
 DI injeta o contexto autorizado mesmo quando ainda não há identidade. Migrations não
 são executadas automaticamente. O tenant local preserva a simplicidade single-user.
+
+## AD-47 — Application por feature: um tipo por arquivo e namespace da feature
+
+Status: vigente (#203, Epic #202). Numerada após a AD-46 da #196, aberta em paralelo.
+
+Cada feature de `Dante.Application` é uma pasta com namespace
+`Dante.Application.<Feature>`. Cada tipo público de topo tem seu próprio arquivo; não
+há agregadores `ContratosDe*.cs` nem DTOs/ports declarados no arquivo do AppService.
+Feature com ports além do próprio repository, ou com casos de uso internos, é
+complexa: contratos públicos vão para `Contratos/`, ports e os records trocados só com
+elas para `Portas/`, e validação/casos de uso internos para `Validacao/`/`CasosDeUso/`.
+AppServices, interfaces públicas e mappings ficam na raiz. Subpastas **não** criam
+namespace, o que um teste arquitetural verifica.
+
+O legado extraído do Worker (`Agentes`, `Anexos`, `Contextos`, `Uso`) mantém sua
+organização até migração explícita. Não existe projeto `Dante.Application.DTO`.
+
+Por quê: localizar DTO, port e AppService sem busca global e dar um destino previsível
+a mappings (#204), validators (#205) e casos de uso extraídos (#206/#207), sem mudar
+namespaces públicos nem os consumidores na Infrastructure e nos hosts.
+Guia: [organização da Application](../development/application.md).
+
