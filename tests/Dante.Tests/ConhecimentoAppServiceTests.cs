@@ -239,10 +239,13 @@ public sealed class ConhecimentoAppServiceTests : IDisposable
     }
 
     [Fact]
-    public void AppServiceNaoERegistradoAntesDaPersistenciaEspecifica()
+    public void AppServiceSemPortaDePersistenciaFalhaNaResolucao()
     {
-        Assert.Null(provider.GetService<IConhecimentoAppService>());
-        Assert.Null(provider.GetService<IConhecimentoRepository>());
+        using var scope = provider.CreateScope();
+        var erro = Assert.Throws<InvalidOperationException>(() =>
+            scope.ServiceProvider.GetRequiredService<IConhecimentoAppService>());
+        Assert.Contains(nameof(IConhecimentoRepository), erro.Message);
+        Assert.Null(scope.ServiceProvider.GetService<IConhecimentoRepository>());
     }
 
     public void Dispose() => provider.Dispose();

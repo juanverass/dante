@@ -1694,3 +1694,31 @@ da Infrastructure, sem projeto Migrator, mudança de IDs ou schema nesta entrega
 Por quê: comandos funcionais do Brain não precisam conhecer nem resolver operações
 administrativas do PostgreSQL. Preservar a interface dos hosts evita alterar os
 scripts locais enquanto a divisão interna explicita essa responsabilidade.
+
+## AD-54 — Application compõe seus serviços com ativação scoped do Brain opcional
+
+Status: vigente (#208, Epic #202). Complementa AD-35/AD-43 e a composição da #200.
+
+`AddApplication` registra mapping/policy e, por lista explícita em
+`Composicao/ServicosDoBrain` (namespace da Application), autorização, AppServices e
+casos de uso da conversa. `AddInfrastructure` registra somente adapters, repositories,
+DbContext e administração técnica. Os hosts mantêm
+`AddApplication().AddInfrastructure(configuration)`. Validators/policies puros
+estáticos continuam sem registro DI; objetos transitórios de uma chamada continuam
+criados pelos próprios casos de uso.
+
+Como o Brain é opcional e a Application não conhece configuração PostgreSQL, os
+serviços que exigem ports são registrados via factories scoped de ActivatorUtilities.
+A ausência de adapters permite validar/iniciar os hosts sem banco, mas resolver um
+caso de uso dependente de port ausente falha explicitamente. Não há stub que simule
+sucesso. TryAdd preserva overrides/fakes e evita duplicações. Testes resolvem toda a
+lista com adapters configurados, além de ValidateOnBuild/ValidateScopes, pois a
+validação automática não inspeciona dependências dentro de factories.
+
+DbContext composto por DI exige AutorizacaoDoBrain mesmo quando AddApplication foi
+omitido: a dependência opcional do constructor nunca vira modo administrativo por
+falta de registro. Construção direta de contextos continua reservada a administração
+explícita/design-time/fixtures. Nenhum lifetime de serviço/adapter muda.
+
+Por quê: o ownership dos casos de uso pertence ao núcleo; a ativação adiada conserva
+o Brain opcional sem acoplar Application à configuração de storage nem aos hosts.

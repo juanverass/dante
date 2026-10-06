@@ -130,3 +130,28 @@ retomadas/qualidade com dados ausentes preservados e ApresentacaoDeMetricas form
 o resultado. Os AppServices continuam responsáveis por autorização, leitura dos
 ports e transações. Os métodos estáticos de métricas/tokens existentes delegam às
 políticas para manter os consumidores compatíveis.
+
+## Composição dos serviços (#208, AD-54)
+
+`AddApplication()` registra os serviços próprios do núcleo: mapping, policy,
+autorização, AppServices e casos de uso da conversa, por lista explícita em
+`Composicao/ServicosDoBrain.cs` com namespace `Dante.Application`. Infrastructure
+registra ports com adapters técnicos, DbContext, repositories e administração. Os
+hosts continuam usando `AddApplication().AddInfrastructure(configuration)`.
+
+Mapping/policy são singleton; autorização/AppServices/casos da conversa são scoped.
+Validators e políticas puras estáticas não precisam de DI. ContextoDaConversa
+pertence à chamada, não ao container. TryAdd permite repetir AddApplication e
+preserva serviços/fakes que já foram registrados.
+
+O Brain é opcional. Os serviços que exigem ports usam factories scoped com
+ActivatorUtilities: o host sem banco inicia/valida normalmente, mas resolver um caso
+de uso sem seus ports falha explicitamente. `ValidateOnBuild` não percorre factories;
+por isso `ApplicationCompositionTests` também resolve todos os serviços da lista
+com adapters configurados e verifica sua identidade por escopo. O DbContext da DI
+exige autorização e nunca assume modo administrativo na ausência de AddApplication.
+
+Testes de Application podem compor AddApplication com repositories/UoW fakes e
+resolver o AppService pela interface, sem referenciar Infrastructure ou configurar
+banco. Ao adicionar um serviço com dependências, inclua-o na lista da composição e
+mantenha o teste de resolução integral.

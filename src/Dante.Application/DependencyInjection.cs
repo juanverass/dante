@@ -16,6 +16,7 @@ public static class DependencyInjection
             return configuracao.Concluir();
         });
         services.TryAddSingleton<Dante.Application.SegurancaDoBrain.PoliticaDeSensibilidade>();
+        ServicosDoBrain.Registrar(services);
         return services;
     }
 
