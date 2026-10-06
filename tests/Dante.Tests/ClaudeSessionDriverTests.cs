@@ -116,6 +116,19 @@ public sealed class ClaudeSessionDriverTests
         Assert.Equal("pong 1", turn.OfType<MessageCompletedEvent>().Single().Text);
     }
 
+    // #148: the usage of the result reaches the completion; input adds the cached input, and "pong" reports none.
+    [Fact]
+    public async Task ResultUsageIsReportedWithTheTurnCompletion()
+    {
+        await using var driver = new ClaudeSessionDriver(new ProbeLauncher());
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("usage");
+        Assert.Equal(new AgentTokenUsage(3112, 7, 3000), (await ReadTurnAsync(events)).OfType<TurnCompletedEvent>().Single().Usage);
+        await driver.StartTurnAsync("pong");
+        Assert.Null((await ReadTurnAsync(events)).OfType<TurnCompletedEvent>().Single().Usage);
+    }
+
     // #120: /clear is the driver's own message; it is confirmed by conversation_reset and the result, gives a new
     // session_id, emits no conversation event and keeps the process and the mode changed at runtime.
     [Fact]

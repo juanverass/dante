@@ -230,6 +230,20 @@ internal static class FakeClaude
                             Assistant($"mode:{mode}");
                             Result(true, "done");
                             break;
+                        case "usage":
+                            // result.usage as Claude Code reports it (#148): fresh, cache-written and cache-read input.
+                            Assistant("usage");
+                            turnActive = false;
+                            Send(new JsonObject
+                            {
+                                ["type"] = "result", ["subtype"] = "success", ["is_error"] = false, ["result"] = "usage",
+                                ["usage"] = new JsonObject
+                                {
+                                    ["input_tokens"] = 12, ["cache_creation_input_tokens"] = 100,
+                                    ["cache_read_input_tokens"] = 3000, ["output_tokens"] = 7
+                                }
+                            });
+                            break;
                         case "pong":
                             Send(StreamEvent(new JsonObject
                             {

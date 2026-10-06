@@ -375,6 +375,23 @@ internal static class FakeCodex
                             });
                             Complete("completed");
                             break;
+                        case "usage":
+                            // tokenUsage of the turn, before its completion (#148); "total" covers the thread.
+                            Message("usage");
+                            Notify("thread/tokenUsage/updated", new JsonObject
+                            {
+                                ["threadId"] = threadId, ["turnId"] = activeTurn,
+                                ["tokenUsage"] = new JsonObject
+                                {
+                                    ["last"] = new JsonObject
+                                    {
+                                        ["inputTokens"] = 18000, ["cachedInputTokens"] = 17000, ["outputTokens"] = 40
+                                    },
+                                    ["total"] = new JsonObject { ["inputTokens"] = 36000, ["outputTokens"] = 80 }
+                                }
+                            });
+                            Complete("completed");
+                            break;
                         case "describe-input":
                             // Reports every input item in order: what a turn with attachments sent (#95).
                             Message("input:" + Describe(parameters["input"]!.AsArray()));

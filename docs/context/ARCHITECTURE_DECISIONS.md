@@ -1542,7 +1542,50 @@ negam acesso. Contextos diretos são reservados à administração explícita e 
 DI injeta o contexto autorizado mesmo quando ainda não há identidade. Migrations não
 são executadas automaticamente. O tenant local preserva a simplicidade single-user.
 
-## AD-46 — Infrastructure organizada por responsabilidade técnica
+## AD-46 — Contexto do Brain injetado no turno da conversa natural, por conversa upstream
+
+Status: vigente (#145).
+
+Mensagem comum que vai a uma sessão (aberta ou continuada) leva o PacoteDeContexto do
+escopo Brain selecionado no chat/tópico como dado citado antes do pedido do usuário, sem
+autoridade de sistema. O primeiro envio de cada conversa upstream é bootstrap (orçamento
+2048 tokens estimados, até 12 itens); os seguintes são refresh (1024, até 6) e omitem as
+chaves já injetadas na mesma revisão. Conta como injetado só o que a sessão aceitou
+(turno iniciado ou enfileirado). `/clear`, `/compact` confirmado e troca de espaço/projeto
+reiniciam o bootstrap; nenhum deles grava ou apaga Brain/ContextoDeTrabalho. O estado
+por sessão vive em memória, com chaves/revisões/custo e nunca conteúdo, e reinício do
+Worker só antecipa um novo bootstrap. `/steer`, `/vitrine` e one-shot não recebem pacote.
+
+Por quê: a continuidade vem do Brain, não do transcript; repetir o pacote a cada turno
+gastaria contexto, e só o adapter sabe quando a conversa upstream foi limpa. Troca de
+escopo segue a regra de AD-20: a sessão ativa continua e o aviso orienta `/clear`.
+
+Código: `Telegram/TelegramBrain.cs` (`IContinuidadeDoBrain`) e `TelegramPollingService`;
+testes em `ContinuidadeDoBrainTests`. Contrato: [continuidade](../development/continuidade-brain.md).
+
+## AD-47 — Métricas do Brain em JSONL local, sem conteúdo e com limiares fixos
+
+Status: vigente (#148).
+
+A medição registra envios aceitos, fins de turno e avaliações humanas em
+`~/.dante/brain/metricas.jsonl`, fora do banco canônico, do backup e da exportação: são
+observação operacional, não conhecimento. Só números, resultado, agente e IDs de escopo
+e sessão. O histórico bruto de referência é medido na própria conversa (pedidos sem o
+pacote e respostas); uma retomada compara a soma dos seus pacotes com o histórico das
+sessões anteriores do escopo. Limiares fixos (ganho ≤ 0,50; neutralidade ≤ 1,00) evitam
+ajustar o critério ao resultado. O uso informado pelas CLIs entra no `TurnCompletedEvent`
+quando existe e é exibido como está; ausência é "indisponível". Cada turno medido herda o
+escopo do envio que o abriu, por uma correlação opaca do `AgentInput` que a sessão
+devolve na conclusão daquele turno, mesmo após fila, steer ou troca de escopo.
+
+Por quê: a economia de contexto é hipótese da Epic #133; validá-la exige baseline e
+custo comparáveis, sem transcript e sem misturar telemetria ao Brain.
+
+Código: `Application/MetricasDoBrain`, `Infrastructure/MetricasDoBrain`,
+`Telegram/MetricasDeSessaoDoBrain.cs`; testes em `MetricasDoBrainTests` e
+`ContinuidadeDoBrainTests`. Contrato: [métricas](../development/metricas-brain.md).
+
+## AD-48 — Infrastructure organizada por responsabilidade técnica
 
 Status: vigente (#196, Epic #195). Complementa a AD-43 sem mudar seu comportamento.
 

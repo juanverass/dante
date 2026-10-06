@@ -293,5 +293,11 @@ public sealed class ConhecimentoAppServiceTests : IDisposable
                 (filtro.Tag is null || item.Tags.Contains(filtro.Tag, StringComparer.OrdinalIgnoreCase)) &&
                 (filtro.ValidoEm is null || item.EstaValidoEm(filtro.ValidoEm.Value))).Take(filtro.Limite).ToArray());
         }
+        public Task<(int Quantidade, long Caracteres)> MedirEscopoAsync(Guid idEspaco, Guid? idProjeto, CancellationToken cancellationToken = default)
+        {
+            var itens = Itens.Values.Where(item => item.IdEspacoDeConhecimento == idEspaco && item.IdProjeto == idProjeto &&
+                item.Status is not (StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido)).ToArray();
+            return Task.FromResult((itens.Length, itens.Sum(item => (long)(item.Conteudo ?? "").Length)));
+        }
     }
 }
