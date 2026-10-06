@@ -21,4 +21,11 @@ public sealed class ConhecimentoRepository(DanteDbContext context) : Repository<
         if (filtro.ValidoEm is { } instante) query = query.Where(x => (x.ValidoDesde == null || x.ValidoDesde <= instante) && (x.ValidoAte == null || x.ValidoAte > instante));
         return await query.OrderByDescending(x => x.AtualizadoEm).ThenBy(x => x.Id).Take(filtro.Limite).ToListAsync(cancellationToken);
     }
+    public async Task<(int Quantidade, long Caracteres)> MedirEscopoAsync(Guid idEspaco, Guid? idProjeto,
+        CancellationToken cancellationToken = default)
+    {
+        var query = DbSet.Where(x => x.IdEspacoDeConhecimento == idEspaco && x.IdProjeto == idProjeto &&
+            x.Status != StatusDoConhecimento.Inativo && x.Status != StatusDoConhecimento.Substituido);
+        return (await query.CountAsync(cancellationToken), await query.SumAsync(x => (long)(x.Conteudo ?? "").Length, cancellationToken));
+    }
 }

@@ -587,6 +587,20 @@ public sealed class CodexSessionDriverTests
         await WaitUntilExitedAsync(launcher.Started.Single().ProcessId);
     }
 
+    // #148: the last tokenUsage of the turn goes with its completion and is not carried to the next turn.
+    [Fact]
+    public async Task TokenUsageOfTheTurnIsReportedWithItsCompletion()
+    {
+        await using var driver = new CodexSessionDriver(new ProbeLauncher());
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("usage");
+        Assert.Equal(new AgentTokenUsage(18000, 40, 17000),
+            (await ReadTurnAsync(events)).OfType<TurnCompletedEvent>().Single().Usage);
+        await driver.StartTurnAsync("pong");
+        Assert.Null((await ReadTurnAsync(events)).OfType<TurnCompletedEvent>().Single().Usage);
+    }
+
     private static async Task<AgentSession> StartSessionAsync(CodexSessionDriver driver)
     {
         var session = new AgentSession("S000001", AgentKind.Codex, Owner,

@@ -49,6 +49,8 @@ public static class DependencyInjection
             services.AddSingleton<Dante.Application.BuscaDoBrain.IGeradorDeEmbedding>(_ => new Dante.Infrastructure.BuscaDoBrain.GeradorDeEmbeddingHttp(new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }), configuration));
             services.AddScoped<Dante.Application.ContextosDeTrabalho.IContextoDeTrabalhoRepository, ContextoDeTrabalhoRepository>();
             services.AddScoped<Dante.Application.ContextosDeTrabalho.ContextoDeTrabalhoAppService>();
+            services.AddSingleton<Dante.Application.MetricasDoBrain.IRegistroDeMetricasDoBrain>(_ => new Dante.Infrastructure.MetricasDoBrain.RegistroDeMetricasEmArquivo(configuration));
+            services.AddScoped<Dante.Application.MetricasDoBrain.MetricasDoBrainAppService>();
             services.AddScoped<Dante.Application.SegurancaDoBrain.LeituraDoBrainAppService>();
             services.AddScoped<Dante.Application.CapturaDeConhecimento.ICandidatoDeConhecimentoRepository, CandidatoDeConhecimentoRepository>();
             services.AddScoped<Dante.Application.CapturaDeConhecimento.ICapturaDeConhecimentoAppService, Dante.Application.CapturaDeConhecimento.CapturaDeConhecimentoAppService>();

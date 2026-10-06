@@ -30,7 +30,8 @@ da busca. Sem banco, identidade, espaço ou itens, a mensagem segue intacta.
 O estado por sessão guarda somente chave → revisão, quantidade e custo do último envio,
 em memória. Conta como injetado o que a sessão aceitou (turno iniciado ou enfileirado);
 mensagem recusada não marca nada. Reiniciar o Worker perde esse estado, e o próximo
-envio volta a ser bootstrap.
+envio volta a ser bootstrap. Cada envio aceito, com ou sem itens, e cada fim de turno
+alimentam as [métricas locais](metricas-brain.md) (#148), sem conteúdo.
 
 ## Comandos e escopo
 

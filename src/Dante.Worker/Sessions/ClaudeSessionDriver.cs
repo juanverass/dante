@@ -714,7 +714,7 @@ public sealed class ClaudeSessionDriver(
                         result["is_error"]?.GetValueKind() != JsonValueKind.True;
         if (succeeded)
         {
-            await EmitAsync(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+            await EmitAsync(new TurnCompletedEvent(AgentTurnOutcome.Completed, Usage: Usage(result["usage"] as JsonObject)));
         }
         else if (interrupted)
         {
@@ -842,6 +842,20 @@ public sealed class ClaudeSessionDriver(
     private sealed record PendingControl(JsonObject Input, JsonArray? Suggestions, IReadOnlyList<AgentQuestion>? Questions);
 
     private sealed record ToolUse(AgentToolKind Kind, string? Path);
+
+    // result.usage of the stream-json (#148): input counts fresh, cache-written and cache-read input tokens.
+    private static AgentTokenUsage? Usage(JsonObject? usage)
+    {
+        if (usage is null) return null;
+        long? Count(string name) => usage[name] is JsonValue value && value.TryGetValue<long>(out var count) && count >= 0
+            ? count : null;
+        var input = Count("input_tokens");
+        var cached = Count("cache_read_input_tokens");
+        var written = Count("cache_creation_input_tokens");
+        var output = Count("output_tokens");
+        return input is null && output is null ? null :
+            new AgentTokenUsage(input is null ? null : input + (cached ?? 0) + (written ?? 0), output, cached);
+    }
 
     private static int? TokenCount(JsonNode? node) =>
         node is JsonValue value && value.TryGetValue<int>(out var count) && count >= 0 ? count : null;

@@ -1532,3 +1532,8 @@ próximo passo: ...` e veja-o com `mostre o contexto de trabalho`; uma sessão n
 Claude ou Codex, retoma a partir dele sem o histórico anterior. `/clear` e `/compact` não
 alteram o Brain, e `/status` mostra o escopo e o contexto enviado.
 [Continuidade](docs/development/continuidade-brain.md).
+
+`métricas do Brain` resume, sem conteúdo, o contexto enviado nas retomadas contra o
+histórico das conversas anteriores do mesmo escopo; registre a qualidade com
+`avalie a retomada: repetições: 0; concluída: sim; relevantes: 3`.
+[Métricas](docs/development/metricas-brain.md).

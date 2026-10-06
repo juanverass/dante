@@ -210,7 +210,8 @@ public sealed partial class TelegramPollingService(
     private async Task HandleTextAsync(TelegramMessage message, string text, CancellationToken cancellationToken)
     {
         var brainScope = continuidade?.EscopoSelecionado(message);
-        if (brain is not null && await brain.AtenderAsync(message, text, cancellationToken) is { } respostaBrain)
+        if (brain is not null && await brain.AtenderAsync(message, text, sessions?.GetActive(message.From!.Id)?.Id,
+                cancellationToken) is { } respostaBrain)
         {
             await SendLongMessageAsync(message.Chat.Id, respostaBrain + BrainScopeNotice(message, brainScope),
                 cancellationToken);
@@ -1025,13 +1026,15 @@ public sealed partial class TelegramPollingService(
             await SendReplyAsync(chatId, ImagesUnavailable, cancellationToken);
             return;
         }
-        // The Brain package goes with the text as quoted data (#145); it counts as injected only once the session took it.
+        // The Brain package goes with the text as quoted data (#145); it counts as injected, and is measured (#148), only
+        // once the session took it.
         var brainContext = continuidade is null ? null :
             await continuidade.PrepararAsync(message, sessionId, text, cancellationToken);
-        var result = await SessionSubmitAsync(userId, sessionId, new AgentInput(brainContext?.Texto ?? text, images),
+        var result = await SessionSubmitAsync(userId, sessionId,
+            new AgentInput(brainContext?.Texto ?? text, images) { Correlation = brainContext?.Correlacao },
             MessageDelivery.Queue, cancellationToken);
         if (brainContext is not null && result.Outcome is SubmitOutcome.TurnStarted or SubmitOutcome.Queued)
-            continuidade!.RegistrarInjecao(brainContext);
+            await continuidade!.RegistrarInjecaoAsync(brainContext, cancellationToken);
         var reply = result.Outcome switch
         {
             SubmitOutcome.TurnStarted => null,

@@ -6,6 +6,10 @@ namespace Dante.Worker.Sessions;
 // the order they were sent. Each driver translates it to its CLI; a plain string is a text-only input.
 public sealed record AgentInput(string Text, IReadOnlyList<Attachment> Attachments)
 {
+    // Opaque id of the adapter, kept with the turn this input opens (even after waiting in the queue) and returned on
+    // that turn's completion (#148). Never sent to the agent.
+    public string? Correlation { get; init; }
+
     public static implicit operator AgentInput(string text) => new(text, []);
 
     // Claude Code runs a user message that starts with "/" as one of its own commands (/clear, /compact…), changing the

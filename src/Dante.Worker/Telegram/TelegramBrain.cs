@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Dante.Application.ConstrucaoDeContexto;
+using Dante.Application.Conhecimentos;
+using Dante.Application.MetricasDoBrain;
+using Dante.Worker.Sessions;
 using Dante.Application.ConversaDoBrain;
 using Dante.Application.EspacosDeConhecimento;
 using Dante.Application.Projetos;
@@ -16,7 +19,7 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
     private sealed record Selecao(Guid? Espaco=null,Guid? Projeto=null,IReadOnlyList<EspacoDeConhecimentoDto>? Espacos=null,IReadOnlyList<ProjetoDto>? Projetos=null,
         string? NomeEspaco=null,string? NomeProjeto=null);
     private readonly ConcurrentDictionary<(Guid Tenant,Guid Usuario,long Chat,long Topico),Selecao> selecoes=[];
-    public async Task<string?> AtenderAsync(TelegramMessage mensagem,string texto,CancellationToken cancellationToken=default)
+    public async Task<string?> AtenderAsync(TelegramMessage mensagem,string texto,string? idSessao=null,CancellationToken cancellationToken=default)
     {
         var explicito=string.Equals(texto,"/brain",StringComparison.OrdinalIgnoreCase)||texto.StartsWith("/brain ",StringComparison.OrdinalIgnoreCase);
         if(string.IsNullOrWhiteSpace(configuration.GetConnectionString("Dante")))return explicito?"Brain não configurado neste host.":null;
@@ -51,7 +54,8 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
             var listaEspacos=await escopos.PesquisarAsync(new(identidade.IdUsuario,Limite:100),cancellationToken);
             if(normal is "ajuda" or "help")return "Brain: diga o que você sabe sobre X?, já resolvemos algo parecido?, documente como resolvemos isso, essa informação está errada ou de onde veio essa informação?. Para selecionar, diga listar espaços / usar espaço Nome / usar projeto Nome / usar sem projeto. Alterações pedem confirmação. "+
                 "Estado do trabalho: atualize o contexto de trabalho: objetivo: ...; tarefa: ...; próximo passo: ... / mostre o contexto de trabalho. "+
-                "Conversas com os agentes recebem automaticamente o contexto relevante do escopo selecionado.";
+                "Conversas com os agentes recebem automaticamente o contexto relevante do escopo selecionado. "+
+                "Medição: métricas do Brain / avalie a retomada: repetições: 0; concluída: sim.";
             if(normal is "listar espacos" or "liste espacos" or "meus espacos")
             {
                 selecoes[chave]=estado with{Espacos=listaEspacos};
@@ -106,7 +110,7 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
             }
             var selecionado=mensagem.ReplyToMessage is {Text:not null} reply&&reply.Chat.Id==mensagem.Chat.Id && reply.MessageThreadId==mensagem.MessageThreadId?reply:null;
             var pedido=new PedidoDeConversaDto(conversa,texto,$"conversa:{conversa}:{mensagem.MessageId}",selecionado?.Text,
-                selecionado is null?null:$"conversa:{conversa}:{selecionado.MessageId}");
+                selecionado is null?null:$"conversa:{conversa}:{selecionado.MessageId}",idSessao is null?null:$"{instancia}:{idSessao}");
             var resposta=await operacao.ServiceProvider.GetRequiredService<ConversaDoBrainAppService>().AtenderAsync(acesso,pedido,cancellationToken);
             return resposta??(explicito?"Não entendi a intenção Brain. Diga /brain ajuda para ver exemplos.":null);
             void Limpar()=>bootstrap.ServiceProvider.GetRequiredService<IEstadoDeConversaDoBrain>().LimparConversa(identidade,conversa);
@@ -120,6 +124,10 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
     // Estado por sessão em memória: só chaves/revisões e custo do que foi aceito, nunca o conteúdo injetado.
     private sealed record Injecao(string Escopo,IReadOnlyDictionary<string,int> Injetados,DateTimeOffset AtualizadoEm,int Itens,int Tokens,bool Bootstrap,bool Snapshot);
     private readonly ConcurrentDictionary<string,Injecao> injecoes=new(StringComparer.Ordinal);
+    // Escopo de cada envio aceito até o fim do turno que ele abrir, pela correlação do AgentInput (#148).
+    private readonly ConcurrentDictionary<string,MetricaDoBrainDto> enviosAbertos=new(StringComparer.Ordinal);
+    // IDs de sessão recomeçam a cada processo: o prefixo separa as sessões nas métricas.
+    private readonly string instancia=Guid.NewGuid().ToString("N")[..8];
     public bool Configurado=>!string.IsNullOrWhiteSpace(configuration.GetConnectionString("Dante"));
     public async Task<ContextoParaTurno?> PrepararAsync(TelegramMessage mensagem,string idSessao,string texto,CancellationToken cancellationToken=default)
     {
@@ -142,7 +150,7 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
                 }
             }
             var escopo=Escopo(estado)!;var anterior=injecoes.GetValueOrDefault(idSessao);
-            var mudou=anterior is not null&&anterior.Escopo!=escopo;var inicial=anterior is null||mudou;
+            var mudou=anterior is not null&&anterior.Escopo!=escopo;var inicial=anterior is null||mudou||anterior.Injetados.Count==0;
             using var operacao=scopeFactory.CreateScope();
             var acesso=new AcessoAoBrain(identidade.IdUsuario,estado.Espaco!.Value,estado.Projeto);
             operacao.ServiceProvider.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(identidade,acesso);
@@ -151,18 +159,28 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
                 Mensagem=Limitar(texto,2000),Filtros=new(){Texto=Termos(texto)},OrcamentoDeTokens=inicial?2048:1024,LimiteDeItens=inicial?12:6,
                 JaInjetados=inicial?new Dictionary<string,int>():anterior!.Injetados
             },cancellationToken);
-            if(pacote.Itens.Count==0)return null;
+            var armazenado=await operacao.ServiceProvider.GetRequiredService<IConhecimentoRepository>().MedirEscopoAsync(acesso.IdEspacoDeConhecimento,acesso.IdProjeto,cancellationToken);
+            var envio=new MetricaDoBrainDto{Tipo=MetricaDoBrainDto.Envio,IdTenant=identidade.IdTenant,IdUsuario=identidade.IdUsuario,IdEspacoDeConhecimento=acesso.IdEspacoDeConhecimento,
+                IdProjeto=acesso.IdProjeto,IdSessao=$"{instancia}:{idSessao}",Bootstrap=inicial,Recuperados=pacote.Registros.Select(x=>x.Chave).Distinct(StringComparer.Ordinal).Count(),
+                Selecionados=pacote.Itens.Count,Descartados=pacote.Registros.Count(x=>x.Estado=="descartado"),TokensDoPacote=pacote.Custo.TokensEstimados,
+                TokensDoSnapshot=pacote.Itens.Where(x=>x.Origem=="snapshot").Sum(x=>x.TokensEstimados),CaracteresDoPacote=pacote.Custo.Caracteres,
+                TokensDoPedido=ConstrutorDeContextoAppService.EstimarTokens(texto),ConhecimentosNoEscopo=armazenado.Quantidade,CaracteresNoEscopo=armazenado.Caracteres};
+            if(pacote.Itens.Count==0)return new(idSessao,escopo,texto,pacote,inicial,envio);
             var aviso=mudou?"O escopo do Brain mudou nesta conversa: contexto do Brain enviado antes pertence ao escopo anterior.\n":"";
-            return new(idSessao,escopo,$"{pacote.TextoParaInjecao}{aviso}[fim do contexto do Brain]\n\nMensagem do usuário:\n{texto}",pacote,inicial);
+            return new(idSessao,escopo,$"{pacote.TextoParaInjecao}{aviso}[fim do contexto do Brain]\n\nMensagem do usuário:\n{texto}",pacote,inicial,envio);
         }
         // Sem identidade, escopo ou banco, a conversa segue sem contexto do Brain (falha fechada, nada é injetado).
         catch(Exception ex) when(ex is not OperationCanceledException){return null;}
     }
-    public void RegistrarInjecao(ContextoParaTurno contexto)
+    public async Task RegistrarInjecaoAsync(ContextoParaTurno contexto,CancellationToken cancellationToken=default)
     {
         var pacote=contexto.Pacote.RegistrarInjecao(contexto.Pacote.Itens.Select(x=>x.Chave).ToArray());
         injecoes.AddOrUpdate(contexto.IdSessao,_=>Nova(null),(_,atual)=>Nova(atual));
         if(injecoes.Count>200)foreach(var antiga in injecoes.OrderBy(x=>x.Value.AtualizadoEm).Take(injecoes.Count-200).ToArray())injecoes.TryRemove(antiga.Key,out _);
+        enviosAbertos[contexto.Correlacao]=contexto.Envio with{Em=DateTimeOffset.UtcNow};
+        // Envio descartado da fila (stop/clear) nunca termina um turno: o mais antigo sai quando passa do limite.
+        if(enviosAbertos.Count>1000)foreach(var antigo in enviosAbertos.OrderBy(x=>x.Value.Em).Take(enviosAbertos.Count-1000).ToArray())enviosAbertos.TryRemove(antigo.Key,out _);
+        await GravarAsync(contexto.Envio with{Em=DateTimeOffset.UtcNow,Injetados=pacote.Registros.Count(x=>x.Estado=="injetado")},cancellationToken);
         Injecao Nova(Injecao? atual)
         {
             var injetados=new Dictionary<string,int>(atual is not null&&atual.Escopo==contexto.Escopo&&!contexto.Bootstrap?atual.Injetados:new Dictionary<string,int>(),StringComparer.Ordinal);
@@ -170,6 +188,24 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
             foreach(var item in pacote.Itens)injetados[item.Chave]=item.Revisao;
             return new(contexto.Escopo,injetados,DateTimeOffset.UtcNow,pacote.Custo.Itens,pacote.Custo.TokensEstimados,contexto.Bootstrap,pacote.Itens.Any(x=>x.Origem=="snapshot"));
         }
+    }
+    public async Task RegistrarTurnoAsync(string? correlacao,string agente,int tokensDaResposta,AgentTurnOutcome resultado,AgentTokenUsage? uso,CancellationToken cancellationToken=default)
+    {
+        // Turno sem envio do Brain (steer, vitrine, sem escopo) não entra na medição.
+        if(correlacao is null||!enviosAbertos.TryRemove(correlacao,out var ids))return;
+        await GravarAsync(new(){Tipo=MetricaDoBrainDto.Turno,Em=DateTimeOffset.UtcNow,IdTenant=ids.IdTenant,IdUsuario=ids.IdUsuario,IdEspacoDeConhecimento=ids.IdEspacoDeConhecimento,
+            IdProjeto=ids.IdProjeto,IdSessao=ids.IdSessao,Agente=agente,Resultado=resultado.ToString(),TokensDaResposta=tokensDaResposta,
+            EntradaReportada=uso?.InputTokens,SaidaReportada=uso?.OutputTokens,EntradaEmCache=uso?.CachedInputTokens},cancellationToken);
+    }
+    // Métrica é observação: falha ao gravar nunca impede a conversa.
+    private async Task GravarAsync(MetricaDoBrainDto metrica,CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var scope=scopeFactory.CreateScope();
+            if(scope.ServiceProvider.GetService<IRegistroDeMetricasDoBrain>() is { } registro)await registro.RegistrarAsync(metrica,cancellationToken);
+        }
+        catch(Exception ex) when(ex is not OperationCanceledException){}
     }
     public void ReiniciarSessao(string idSessao)=>injecoes.TryRemove(idSessao,out _);
     public string? EscopoSelecionado(TelegramMessage mensagem)=>Escopo(SelecaoDe(mensagem));
@@ -180,7 +216,7 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
         var linha=selecao?.Espaco is null?"Brain: nenhum espaço selecionado; conversas seguem sem contexto do Brain.":
             $"Brain: espaço {ProtecaoDeSegredos.Redigir(selecao.NomeEspaco??"selecionado")}, {(selecao.Projeto is null?"sem projeto":$"projeto {ProtecaoDeSegredos.Redigir(selecao.NomeProjeto??"selecionado")}")}.";
         if(idSessao is null)return linha;
-        if(!injecoes.TryGetValue(idSessao,out var injecao))return linha+$"\nSessão {idSessao}: nenhum contexto do Brain enviado nesta conversa.";
+        if(!injecoes.TryGetValue(idSessao,out var injecao)||injecao.Injetados.Count==0)return linha+$"\nSessão {idSessao}: nenhum contexto do Brain enviado nesta conversa.";
         return linha+$"\nSessão {idSessao}: {injecao.Injetados.Count} item(ns) do Brain já na conversa; último envio {(injecao.Bootstrap?"inicial":"de atualização")} com {injecao.Itens} item(ns), "+
             $"~{injecao.Tokens} tokens estimados{(injecao.Snapshot?", com o contexto de trabalho":"")}"+(injecao.Escopo==escopo?".":"; o escopo mudou e a próxima mensagem leva o contexto do novo escopo.");
     }
