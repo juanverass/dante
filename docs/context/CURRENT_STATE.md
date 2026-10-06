@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205).
+Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199), e composição modular da Infrastructure (#200).
 
 ## Marcos
 
@@ -519,6 +519,49 @@ continuam no AppService e invariantes no Domain. Mensagens, tipos de exceção e
 passa a expor internals a `Dante.Tests`, como Infrastructure e Worker, para testar os
 validators isoladamente. `MetricasDoBrain` ainda não segue a convenção da AD-49 e
 mantém seu check inline.
+
+## Isolamento técnico do DbContext (#198)
+
+DanteDbContext delega filtros automáticos a FiltrosDoBrain e validação de escrita
+a ValidacaoDeEscritaDoBrain, em Data. Escopo/sensibilidade compartilhados usam
+expressões EF parametrizadas pelo contexto atual; snapshots continuam sem Secreto.
+SaveChanges síncrono/assíncrono preserva validação fail-closed e modo administrativo
+explícito, sem mudar mappings ou migrations. Testes verificam parâmetros por contexto,
+ausência de identidade, escrita cross-user/tenant e isolamento espaço/projeto.
+
+## Casos de uso da conversa Brain (#206)
+
+ConversaDoBrainAppService preserva a entrada do Worker e orquestra intenções,
+validação de acesso, estado pendente e consumo único da confirmação. Consulta,
+captura, fontes, alterações confirmadas, inspeção, contexto de trabalho e avaliação
+ficam em casos coesos em CasosDeUso, com dependências próprias e namespace da feature.
+ContextoDaConversa existe por chamada e compartilha chave/estado/proveniência sem
+service locator; o store continua responsável pelo consumo atômico e expiração.
+Respostas e regras de revisão/sensibilidade são preservadas. Testes diretos dos casos
+cobrem captura citada, inferência, proteção, preparação de correção e entrada inválida.
+O registro scoped acompanha a fachada na Infrastructure; ownership da DI segue na #208.
+
+## Políticas de qualidade, contexto e métricas (#207)
+
+ManutencaoDoBrainAppService mantém acesso, consultas e transações; AnaliseDeQualidade
+recebe o instante e dados já autorizados para analisar duplicatas, contradições,
+validade e truncamento sem alterar entidades. ConstrutorDeContextoAppService delega
+filtros a ElegibilidadeDeContexto e precedência/deduplicação/sobreposição/orçamento
+à SelecaoDeContexto. AgregacaoDeMetricas e ApresentacaoDeMetricas separam cálculo e
+texto do acesso autenticado ao registro, mantendo os métodos estáticos existentes.
+Casos puros ficam em CasosDeUso com namespace da feature; os contratos de Contexto
+e Métricas seguem a organização de módulo complexo. Sem alteração de provider,
+limiares, mensagens ou transações; testes isolados cobrem os algoritmos.
+
+## Administração de banco e migrations (#199)
+
+ComandosDoBrain preserva a interface local --brain nos dois hosts e separa
+importação/auditoria/busca de Banco/ComandosDoBanco. Apenas administração explícita
+resolve AdministracaoDoBanco; startup normal não migra. Migrations e snapshot
+continuam em Data/Migrations, histórico em brain_meta e canônico em brain_data,
+sem migration nova ou projeto Migrator. Fluxo único de geração/listagem/validação
+e aplicação documentado no [guia](../development/persistence.md). Health, backup,
+restore e códigos 0/1 preservados.
 
 ## Composição modular da Infrastructure (#200)
 

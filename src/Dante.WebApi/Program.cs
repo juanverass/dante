@@ -1,4 +1,4 @@
-using Dante.Infrastructure.Banco;
+using Dante.Infrastructure.Brain;
 using Dante.Application;
 using Dante.Infrastructure;
 
@@ -13,7 +13,7 @@ public partial class Program
         var app = builder.Build();
         if (args.FirstOrDefault() == "--brain")
         {
-            Environment.ExitCode = await ComandosDoBanco.ExecutarAsync(app.Services, args);
+            Environment.ExitCode = await ComandosDoBrain.ExecutarAsync(app.Services, args);
             return;
         }
         app.UsarPipelineHttp();

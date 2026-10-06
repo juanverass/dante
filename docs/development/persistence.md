@@ -35,21 +35,48 @@ Não habilitamos logs de dados sensíveis nem retries automáticos de escritas.
 
 ## Migrations explícitas
 
-Instale `dotnet-ef` 10.0.6 e configure a variável externa antes dos comandos:
+Não há projeto Migrator separado. Todas as migrations e o snapshot pertencem a
+`Dante.Infrastructure/Data/Migrations`. Instale `dotnet-ef` 10.0.6 e configure
+`ConnectionStrings__Dante` por secret store/ambiente externo também no design-time;
+a factory exige essa variável e não inicia Worker, Telegram ou WebApi. Nunca passe
+conexão por `--connection`, argumentos de processo ou arquivo versionado.
+
+Fluxo único, a partir da raiz da solução:
 
 ```bash
+# Gerar uma nova migration (apenas quando o modelo mudar).
 dotnet ef migrations add NomeDaMudanca --project src/Dante.Infrastructure --output-dir Data/Migrations
+# Listar a sequência existente e validar o snapshot contra o modelo.
+dotnet ef migrations list --project src/Dante.Infrastructure
 dotnet ef migrations has-pending-model-changes --project src/Dante.Infrastructure
+# Revisar o SQL; mantenha eventual arquivo gerado fora do checkout.
 dotnet ef migrations script --idempotent --project src/Dante.Infrastructure
-dotnet ef database update --project src/Dante.Infrastructure
+# Aplicar explicitamente, com a conta administrativa configurada no ambiente.
+dotnet run --project src/Dante.Worker -- --brain migrate
+# Verificar depois com a conta runtime e grants atualizados.
+dotnet run --project src/Dante.Worker -- --brain health
 ```
 
-A factory de design não inicia Worker/Telegram. Migrações publicadas são imutáveis;
-novas mudanças geram novas migrations e snapshot. O histórico EF fica em
-`brain_meta.__EFMigrationsHistory`. A migration inicial só prepara `brain_data` e
-`brain_index`; ainda não há tabelas funcionais. Seu Down retira o registro da
-migration e preserva os schemas compartilhados, sem apagar dados externos.
-Não use EnsureCreated em produção nem migrations SQL manuais para schema comum.
+WebApi aceita os mesmos comandos e encerra antes de iniciar HTTP. Ambos os hosts
+usam `ComandosDoBrain` para despachar a interface local; apenas migrate, health,
+backup e restore seguem para `Banco/ComandosDoBanco` e `AdministracaoDoBanco`.
+Importação, auditoria e busca não resolvem administração do PostgreSQL.
+Inicializar os hosts normalmente nunca aplica migrations. Sucesso retorna exit code
+0; comando inválido, banco ausente, falha administrativa ou health não saudável
+retornam 1, sem imprimir exceptions que possam conter credenciais.
+
+Migrações publicadas são imutáveis: não recrie, renomeie IDs nem compacte histórico.
+Novas mudanças geram migration e snapshot. O histórico permanece em
+`brain_meta.__EFMigrationsHistory`, o schema canônico em `brain_data` e os derivados
+em `brain_index`. A migration inicial prepara os schemas; as seguintes criam o
+modelo funcional. Down preserva schemas compartilhados. Não use EnsureCreated em
+produção nem migrations SQL manuais para schema comum.
+
+Valide com `dotnet build Dante.sln` e `dotnet test Dante.sln`. Para aplicação real em
+ordem, reaplicação idempotente, health pendente e backup/restore, configure
+`DANTE_TEST_POSTGRES` num servidor exclusivo de testes (ver seção abaixo e
+[operação local](../brain/LOCAL_STORAGE.md)). Sem essa configuração, os testes de
+PostgreSQL são explicitamente pulados; build não prova aplicação em banco.
 
 ## Novos mappings e repositories
 

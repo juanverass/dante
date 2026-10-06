@@ -1678,3 +1678,19 @@ Por quê: os mesmos checks de limite e escopo se repetiam em vários AppServices
 misturavam forma da entrada com regra de negócio; validators puros são localizáveis e
 testáveis sem repository, sem mudar contratos públicos nem a ordem dos erros.
 
+
+## AD-53 — Despacho local do Brain separado da administração PostgreSQL
+
+Status: vigente (#199, Epic #195). Complementa AD-43/AD-48.
+
+`Brain/ComandosDoBrain` mantém a interface local `--brain` comum aos dois hosts e
+encaminha somente migrate, health, backup e restore a `Banco/ComandosDoBanco`.
+Importação, auditoria e busca resolvem seus próprios serviços no escopo, sem
+resolver `AdministracaoDoBanco`. Esta permanece responsável pela única chamada
+produtiva a `Database.MigrateAsync`, exclusivamente em operação administrativa
+explícita. Startup normal não migra. Migrations ficam em Data/Migrations no assembly
+da Infrastructure, sem projeto Migrator, mudança de IDs ou schema nesta entrega.
+
+Por quê: comandos funcionais do Brain não precisam conhecer nem resolver operações
+administrativas do PostgreSQL. Preservar a interface dos hosts evita alterar os
+scripts locais enquanto a divisão interna explicita essa responsabilidade.
