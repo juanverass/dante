@@ -7,19 +7,6 @@ using Dante.Domain.Conhecimentos;
 using Dante.Domain.RelacoesDeConhecimento;
 namespace Dante.Application.RelacoesDeConhecimento;
 
-public sealed record RelacaoDeConhecimentoDto(Guid Id, Guid IdOrigem, Guid IdDestino, TipoDeRelacao Tipo,
-    ProvenienciaDto Proveniencia, DateTimeOffset CriadaEm, Guid? IdConhecimentoEscolhido = null,
-    DateTimeOffset? ResolvidaEm = null, ProvenienciaDto? ProvenienciaDaResolucao = null);
-public sealed record VizinhancaDto(IReadOnlyList<RelacaoDeConhecimentoDto> Relacoes, bool LimiteAtingido);
-
-public interface IRelacaoDeConhecimentoAppService
-{
-    Task<RelacaoDeConhecimentoDto> RelacionarAsync(Guid idEspaco, Guid? idProjeto, Guid idOrigem, Guid idDestino,
-        TipoDeRelacao tipo, ProvenienciaDto proveniencia, CancellationToken cancellationToken = default);
-    Task<VizinhancaDto> ConsultarVizinhancaAsync(Guid idEspaco, Guid? idProjeto, Guid idRaiz,
-        int profundidade = 1, int limite = 50, CancellationToken cancellationToken = default);
-}
-
 public sealed class RelacaoDeConhecimentoAppService(IRelacaoDeConhecimentoRepository relacoes,
     IConhecimentoRepository conhecimentos, IEspacoDeConhecimentoRepository espacos, IProjetoRepository projetos,
     IUnitOfWork unitOfWork, IMapsterTypeAdapter typeAdapter) : IRelacaoDeConhecimentoAppService

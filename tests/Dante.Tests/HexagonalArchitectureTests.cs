@@ -135,6 +135,19 @@ public sealed class HexagonalArchitectureTests
         Assert.DoesNotContain(parametros, parametro => parametro.Name == "TId");
     }
 
+    // #203: subpastas de uma feature (Contratos, Portas, CasosDeUso, Validacao) organizam arquivos, mas não criam
+    // namespace; o contrato público continua sendo Dante.Application.<Feature>.
+    [Fact]
+    public void ApplicationTypesKeepTheFeatureNamespaceInsideSubfolders()
+    {
+        var aplicacao = typeof(AgentContextResolver).Assembly;
+        Assert.Equal("Dante.Application", aplicacao.GetName().Name);
+        var aninhados = aplicacao.GetTypes().Where(t => t.Namespace is { } ns && ns.Split('.').Length > 3)
+            .Select(t => t.FullName);
+        Assert.Empty(aninhados);
+        Assert.Equal("Dante.Application.BuscaDoBrain", typeof(Dante.Application.BuscaDoBrain.IIndiceDeBusca).Namespace);
+    }
+
     // O núcleo não faz IO de filesystem, processos, rede ou banco; manipular texto de caminho (Path) é permitido.
     [Fact]
     public void CoreSourcesDoNotPerformFilesystemProcessOrNetworkAccess()

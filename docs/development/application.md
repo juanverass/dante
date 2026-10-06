@@ -1,0 +1,83 @@
+# Organização de Dante.Application por feature (#203, AD-49)
+
+A Application é organizada verticalmente por feature (Epic #202): uma pasta por
+feature, com namespace `Dante.Application.<Feature>`. DTOs, ports e AppServices
+ficam na feature que os usa; não existe projeto `Dante.Application.DTO`, e a
+Application continua sem EF Core, Npgsql ou outro provider técnico.
+
+## Regras gerais
+
+- **um tipo público de topo por arquivo**, com o nome do tipo (`AcessoAoBrain.cs`,
+  `IIndiceDeBusca.cs`). Não criar arquivos agregadores como `ContratosDe*.cs` nem
+  declarar DTOs/ports dentro do arquivo do AppService;
+- **o namespace é sempre o da feature**, inclusive dentro de subpastas. Subpasta
+  organiza arquivos, não muda o contrato público nem exige `using` novo nos
+  consumidores. `HexagonalArchitectureTests` recusa namespaces abaixo da feature;
+- tipo usado por várias features fica na feature dona do conceito (`ProvenienciaDto`
+  em `Conhecimentos`, `AcessoAoBrain` em `SegurancaDoBrain`). `Comum` guarda só a base
+  genérica de aplicação (CRUD, `IRepository`, `IUnitOfWork`);
+- nomes em PT-BR com os sufixos técnicos estabelecidos: `AppService`, `Repository`,
+  `Dto`, `SearchDto` (AD-36, [base CRUD](crud.md)).
+
+## Módulo simples e módulo complexo
+
+Um módulo é **complexo** quando tem ports além do próprio repository (índices,
+consultas, geradores, estado externo) ou casos de uso internos. Os demais são
+**simples**. A diferença é só física:
+
+| Elemento | Módulo simples | Módulo complexo |
+| --- | --- | --- |
+| AppService/fachada (`<Conceito>AppService`) e sua interface pública | raiz | raiz |
+| Serviço público sem estado da feature (`ResolvedorDeIntencaoDoBrain`) | raiz | raiz |
+| DTO, SearchDto e enum do contrato público | raiz | `Contratos/` |
+| Repository port (`I<Entidade>Repository`) | raiz | `Portas/` |
+| Outras ports implementadas pela Infrastructure e records trocados só com elas | — | `Portas/` |
+| Mapping da feature | raiz | raiz |
+| Validação de entrada | raiz | `Validacao/` |
+| Caso de uso auxiliar interno | raiz | `CasosDeUso/` |
+
+Subpastas só existem quando há arquivo para elas. Mappings ainda são registrados
+centralmente em `Mapeamento/MapeamentosDaApplication` ([mappings](mapping.md)); a
+#204 os traz para a feature e define o registro. Validators por feature são definidos
+pela #205; regra de negócio continua no Domain ou no AppService.
+
+Módulo simples (`Projetos`):
+
+```text
+Projetos/
+├─ IProjetoAppService.cs
+├─ IProjetoRepository.cs
+├─ ProjetoAppService.cs
+├─ ProjetoDto.cs
+└─ ProjetoSearchDto.cs
+```
+
+Módulo complexo (`BuscaDoBrain`), todos os tipos em `Dante.Application.BuscaDoBrain`:
+
+```text
+BuscaDoBrain/
+├─ BuscaDoBrainAppService.cs
+├─ Contratos/
+│  ├─ BuscaDoBrainDto.cs
+│  ├─ BuscaDoBrainSearchDto.cs
+│  ├─ OrigemDoResultado.cs
+│  └─ ResultadoDaBuscaDto.cs
+└─ Portas/
+   ├─ IGeradorDeEmbedding.cs
+   ├─ IIndiceDeBusca.cs
+   ├─ MatchDaBusca.cs
+   └─ ModeloEmbedding.cs
+```
+
+## Classificação atual
+
+| Complexos | Simples |
+| --- | --- |
+| `AuditoriaDoBrain`, `BuscaDoBrain`, `ConversaDoBrain`, `DocumentosFonte`, `QualidadeDoBrain` | `CapturaDeConhecimento`, `Conhecimentos`, `ConstrucaoDeContexto`, `ContextosDeTrabalho`, `EspacosDeConhecimento`, `Projetos`, `RelacoesDeConhecimento`, `SegurancaDoBrain` |
+
+Quando um módulo simples ganhar uma port própria ou um caso de uso interno, ele passa
+a complexo e seus contratos/ports vão para as subpastas no mesmo PR.
+
+`Agentes`, `Anexos`, `Contextos` e `Uso` são legado extraído do Worker e mantêm a
+organização existente até migração explícita (AD-36, AD-38). `Mapeamento` e `Comum`
+são infraestrutura da própria Application.
