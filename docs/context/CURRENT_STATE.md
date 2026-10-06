@@ -519,3 +519,12 @@ continuam no AppService e invariantes no Domain. Mensagens, tipos de exceção e
 passa a expor internals a `Dante.Tests`, como Infrastructure e Worker, para testar os
 validators isoladamente. `MetricasDoBrain` ainda não segue a convenção da AD-49 e
 mantém seu check inline.
+
+## Isolamento técnico do DbContext (#198)
+
+DanteDbContext delega filtros automáticos a FiltrosDoBrain e validação de escrita
+a ValidacaoDeEscritaDoBrain, em Data. Escopo/sensibilidade compartilhados usam
+expressões EF parametrizadas pelo contexto atual; snapshots continuam sem Secreto.
+SaveChanges síncrono/assíncrono preserva validação fail-closed e modo administrativo
+explícito, sem mudar mappings ou migrations. Testes verificam parâmetros por contexto,
+ausência de identidade, escrita cross-user/tenant e isolamento espaço/projeto.
