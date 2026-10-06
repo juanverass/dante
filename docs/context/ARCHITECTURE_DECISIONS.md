@@ -1626,6 +1626,41 @@ a mappings (#204), validators (#205) e casos de uso extraídos (#206/#207), sem 
 namespaces públicos nem os consumidores na Infrastructure e nos hosts.
 Guia: [organização da Application](../development/application.md).
 
+## AD-50 — Persistência de cada entidade em `Modulos/<Modulo>`
+
+Status: vigente (#197, Epic #195). Detalha a pasta `Modulos` da AD-48.
+
+O mapping EF e o repository específico de cada entidade persistente ficam juntos em
+`Dante.Infrastructure/Modulos/<Modulo>`, onde `<Modulo>` é o último segmento do
+namespace da entidade no Domain (`Conhecimentos`, `CapturaDeConhecimento`...), com
+namespace igual à pasta. Mappings se chamam `<Entidade>DbMapping` e continuam
+`IEntityTypeConfiguration<T>` sobre a base `EntidadeConfiguration<T>`, carregados por
+`ApplyConfigurationsFromAssembly`. `Persistence` guarda apenas a infraestrutura
+genérica (`Repository<T>`, `UnitOfWork`, `EntidadeConfiguration<T>`). Filtros globais de
+consulta continuam no `DanteDbContext` até a #198.
+
+Por quê: localizar tudo que implementa a persistência de um conceito sem busca global,
+como em `Infraestrutura/Modulos/<Modulo>` do ComandoFinanceiro, sem alterar o modelo EF
+(o EF não depende do nome nem do namespace da configuration).
+
+## AD-51 — Mappings Mapster por feature, compostos por lista explícita
+
+Status: vigente (#204, Epic #202). Complementa a AD-37 e a AD-49.
+
+Cada feature da Application declara seus pares/direções numa classe
+`internal static <Entidade>Mapping` na raiz da feature, com
+`Registrar(ConfiguracaoMapeamento)`. Projeção reutilizada por outras features fica no
+mapping do dono do tipo (`ConhecimentoMapping.ParaProvenienciaDto`).
+`MapeamentosDaApplication` permanece só como composição: uma lista explícita de
+chamadas, sem expressões nem referência ao Domain, usada por `AddApplication` e
+`AddMapeamentos`. Não há descoberta por reflexão nem scan de assembly; continuam
+valendo `IMapsterTypeAdapter`, o registro explícito por par/direção e a criação por
+constructor do domínio (AD-37).
+
+Por quê: o arquivo central conhecia os detalhes de todas as features e crescia a cada
+uma; a lista explícita mantém a composição auditável sem acoplar o ponto central aos
+campos de cada contrato.
+
 ## AD-52 — Validação de entrada em validators estáticos por feature
 
 Status: vigente (#205, Epic #202). Complementa a AD-49.

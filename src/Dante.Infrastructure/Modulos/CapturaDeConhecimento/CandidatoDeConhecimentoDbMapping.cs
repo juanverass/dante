@@ -6,10 +6,11 @@ using Dante.Domain.Projetos;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Dante.Infrastructure.Modulos.Conhecimentos;
 using Dante.Infrastructure.Persistence;
-namespace Dante.Infrastructure.Modulos;
+namespace Dante.Infrastructure.Modulos.CapturaDeConhecimento;
 
-public sealed class CandidatoDeConhecimentoConfiguration : EntidadeConfiguration<CandidatoDeConhecimento>
+public sealed class CandidatoDeConhecimentoDbMapping : EntidadeConfiguration<CandidatoDeConhecimento>
 {
     private static List<AtoDoCandidato> Ler(string valor) => JsonSerializer.Deserialize<List<AtoDoCandidato>>(valor)!;
     public override void Configure(EntityTypeBuilder<CandidatoDeConhecimento> b)
@@ -30,9 +31,9 @@ public sealed class CandidatoDeConhecimentoConfiguration : EntidadeConfiguration
         b.Property(x => x.IdSolucao).HasColumnName("id_solucao");
         b.Ignore(x => x.Revisao); b.Ignore(x => x.Proveniencia); b.Ignore(x => x.Historico); b.Ignore(x => x.CriadoEm);
         b.Property<List<AtoDoCandidato>>("historico").HasColumnName("historico").HasColumnType("jsonb")
-            .HasConversion(x => ConhecimentoConfiguration.Serializar(x), x => Ler(x))
-            .Metadata.SetValueComparer(new ValueComparer<List<AtoDoCandidato>>((a,c) => ConhecimentoConfiguration.Serializar(a) == ConhecimentoConfiguration.Serializar(c),
-                x => ConhecimentoConfiguration.Serializar(x).GetHashCode(), x => Ler(ConhecimentoConfiguration.Serializar(x))));
+            .HasConversion(x => ConhecimentoDbMapping.Serializar(x), x => Ler(x))
+            .Metadata.SetValueComparer(new ValueComparer<List<AtoDoCandidato>>((a,c) => ConhecimentoDbMapping.Serializar(a) == ConhecimentoDbMapping.Serializar(c),
+                x => ConhecimentoDbMapping.Serializar(x).GetHashCode(), x => Ler(ConhecimentoDbMapping.Serializar(x))));
         b.HasIndex(x => new { x.IdEspacoDeConhecimento, x.IdProjeto, x.Impressao }).IsUnique().AreNullsDistinct(false);
         b.HasIndex(x => new { x.IdEspacoDeConhecimento, x.IdProjeto, x.Estado });
         b.HasOne<EspacoDeConhecimento>().WithMany().HasForeignKey(x => x.IdEspacoDeConhecimento).OnDelete(DeleteBehavior.Restrict);
