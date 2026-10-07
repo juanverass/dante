@@ -32,23 +32,35 @@ public sealed class LivePlanilhasEvidenceTests
         if (Environment.GetEnvironmentVariable("DANTE_LIVE_GOOGLE_CELULA") is not { Length: > 0 } celula) return;
         var origem = new OrigemDaSolicitacao("teste", "LivePlanilhasEvidenceTests");
         var anterior = (await planilhas.LerAsync(alias, celula, 1)).Celulas.SingleOrDefault();
+        Assert.True(anterior is null || anterior.EstaVazia, "Escolha uma célula vazia, sem fórmula.");
         var marcador = $"dante-{Guid.NewGuid():N}"[..14];
-        await planilhas.AtualizarAsync(new EscritaNaPlanilhaDto
+        try
         {
-            Planilha = alias,
-            Alteracoes = [new AlteracaoDeIntervaloDto { Intervalo = celula, Valores = [[ValorDeCelula.DeTexto(marcador)]] }]
-        }, origem);
-        Assert.Equal(marcador, (await planilhas.LerAsync(alias, celula, 1)).Celulas.Single().ValorExibido);
-        await planilhas.AtualizarAsync(new EscritaNaPlanilhaDto
-        {
-            Planilha = alias,
-            Alteracoes = [new AlteracaoDeIntervaloDto
+            await planilhas.AtualizarAsync(new EscritaNaPlanilhaDto
             {
-                Intervalo = celula,
-                Valores = [[anterior?.Formula is { } formula ? ValorDeCelula.DeTexto(formula) : anterior?.ValorBruto ?? ValorDeCelula.Vazio]],
-                ValoresEsperados = [[marcador]]
-            }]
-        }, origem);
+                Planilha = alias,
+                Alteracoes = [new AlteracaoDeIntervaloDto
+                {
+                    Intervalo = celula, Valores = [[ValorDeCelula.DeTexto(marcador)]], ValoresEsperados = [[string.Empty]]
+                }]
+            }, origem);
+            Assert.Equal(marcador, (await planilhas.LerAsync(alias, celula, 1)).Celulas.Single().ValorExibido);
+        }
+        finally
+        {
+            // Mesmo se a verificação falhar, restaura apenas se o marcador ainda está no alvo.
+            if ((await planilhas.LerAsync(alias, celula, 1)).Celulas.SingleOrDefault()?.ValorExibido == marcador)
+                await planilhas.AtualizarAsync(new EscritaNaPlanilhaDto
+                {
+                    Planilha = alias,
+                    Alteracoes = [new AlteracaoDeIntervaloDto
+                    {
+                        Intervalo = celula, Valores = [[ValorDeCelula.Vazio]], ValoresEsperados = [[marcador]]
+                    }]
+                }, origem);
+        }
+        Assert.True((await planilhas.LerAsync(alias, celula, 1)).Celulas.SingleOrDefault()?.EstaVazia ?? true);
+
     }
 
     private sealed class LiveGoogleFactAttribute : FactAttribute

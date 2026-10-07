@@ -44,6 +44,8 @@ internal sealed class GoogleSheetsFalso : HttpMessageHandler
     public List<Requisicao> Requisicoes { get; } = [];
     public Queue<HttpStatusCode> FalhasDaApi { get; } = new();
     public string? TokenRecusado { get; set; }
+    public bool FalharDepoisDoAppend { get; set; }
+    public HttpStatusCode StatusDeRevogacao { get; set; } = HttpStatusCode.OK;
     public bool RefreshInvalido { get; set; }
     public bool SemRefreshToken { get; set; }
     public string Escopo { get; set; } = "openid https://www.googleapis.com/auth/spreadsheets email";
@@ -92,6 +94,13 @@ internal sealed class GoogleSheetsFalso : HttpMessageHandler
         return Abas.Single(a => a.Titulo == aba).Celulas.GetValueOrDefault((intervalo.Linha, intervalo.Coluna));
     }
 
+    private HttpResponseMessage RespostaDoAppend(string intervalo, JsonObject corpo)
+    {
+        var resultado = Acrescentar(intervalo, corpo);
+        if (FalharDepoisDoAppend) throw new HttpRequestException("Resposta perdida após aplicar append.");
+        return Json(HttpStatusCode.OK, resultado);
+    }
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var corpo = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
@@ -120,7 +129,7 @@ internal sealed class GoogleSheetsFalso : HttpMessageHandler
                 ("GET", "/values:batchGet") => Json(HttpStatusCode.OK, LoteDeValores(consulta.Where(c => c.Nome == "ranges").Select(c => c.Valor))),
                 ("POST", "/values:batchUpdate") => Json(HttpStatusCode.OK, Atualizar(JsonNode.Parse(corpo!)!.AsObject())),
                 ("POST", _) when resto.StartsWith("/values/", StringComparison.Ordinal) && resto.EndsWith(":append", StringComparison.Ordinal) =>
-                    Json(HttpStatusCode.OK, Acrescentar(resto["/values/".Length..^":append".Length], JsonNode.Parse(corpo!)!.AsObject())),
+                    RespostaDoAppend(resto["/values/".Length..^":append".Length], JsonNode.Parse(corpo!)!.AsObject()),
                 _ => Json(HttpStatusCode.NotFound, new JsonObject())
             };
         }
@@ -135,7 +144,7 @@ internal sealed class GoogleSheetsFalso : HttpMessageHandler
         if (caminho == "/revoke")
         {
             Revogados.Add(formulario["token"]);
-            return Json(HttpStatusCode.OK, new JsonObject());
+            return Json(StatusDeRevogacao, new JsonObject());
         }
         if (formulario.GetValueOrDefault("grant_type") == "refresh_token")
         {

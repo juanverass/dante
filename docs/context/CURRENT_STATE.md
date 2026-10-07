@@ -642,3 +642,10 @@ ausente/fraco, aba protegida, assinatura ou alvo em fórmula compartilhada/matri
 escrita. Sem recálculo ou reprodução de formatos de exibição; limites no guia. Testes
 emulados cobrem preservação, conflitos, OAuth, MCP e proteções. XLSX real ainda exige o
 teste opt-in com a autorização do usuário.
+
+A correção de review da #224 limita busca/valores Sheets a 250 mil posições e respostas a
+16 MB; descrição de grades maiores não calcula área usada. Append não repete rede/5xx
+com resultado incerto. Cadastro/auditoria têm lock de arquivo entre processos; falha de
+auditoria após escrita informa que a operação foi aplicada e não deve ser repetida.
+Revogação Google só é confirmada em sucesso; configuração DANTE_GOOGLE_KEY é recusada
+para evitar incompatibilidade com MCP, e segredo OAuth/chave são filtrados dos agentes.

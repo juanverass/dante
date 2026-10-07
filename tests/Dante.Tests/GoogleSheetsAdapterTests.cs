@@ -29,6 +29,70 @@ public sealed class GoogleSheetsAdapterTests
     }
 
     [Fact]
+    public async Task AppendRecusadoPor401Ou429PodeSerRepetido()
+    {
+        using var ambiente = ComAba();
+        ambiente.Google.TokenRecusado = "at-1";
+        ambiente.Google.FalhasDaApi.Enqueue(HttpStatusCode.TooManyRequests);
+        await ambiente.Adapter.AdicionarLinhaAsync(ambiente.Google.IdDaPlanilha,
+            IntervaloA1.Interpretar("Dados!A1"), [ValorDeCelula.DeTexto("nova")]);
+        Assert.Equal(3, ambiente.Google.Escritas.Count());
+        Assert.Equal("nova", ambiente.Google.Exibido("Dados", "A2"));
+        Assert.Null(ambiente.Google.Exibido("Dados", "A3"));
+    }
+
+    [Fact]
+    public async Task RespostaGrandeMesmoEmIntervaloPequenoERecusada()
+    {
+        using var ambiente = ComAba();
+        ambiente.Google.Definir("Dados", "A1", new string('x', 17 * 1024 * 1024));
+        var falha = await Assert.ThrowsAsync<FalhaDePlanilhaException>(() => ambiente.Adapter.LerValoresExibidosAsync(
+            ambiente.Google.IdDaPlanilha, [IntervaloA1.Interpretar("Dados!A1")]));
+        Assert.Equal(MotivoDaFalhaDePlanilha.NaoSuportada, falha.Motivo);
+        Assert.Contains("16 MB", falha.Message);
+    }
+
+    [Fact]
+    public async Task AppendAplicadoComRespostaPerdidaNaoERepetido()
+    {
+        using var ambiente = ComAba();
+        ambiente.Google.FalharDepoisDoAppend = true;
+        var falha = await Assert.ThrowsAsync<FalhaDePlanilhaException>(() =>
+            ambiente.Adapter.AdicionarLinhaAsync(ambiente.Google.IdDaPlanilha,
+                IntervaloA1.Interpretar("Dados!A1"), [ValorDeCelula.DeTexto("nova") ]));
+        Assert.Contains("não repita automaticamente", falha.Message);
+        Assert.Single(ambiente.Google.Escritas);
+        Assert.Equal("nova", ambiente.Google.Exibido("Dados", "A2"));
+        Assert.Null(ambiente.Google.Exibido("Dados", "A3"));
+    }
+
+    [Fact]
+    public async Task AppendComErroDoServidorNaoERepetido()
+    {
+        using var ambiente = ComAba();
+        ambiente.Google.FalhasDaApi.Enqueue(HttpStatusCode.ServiceUnavailable);
+        var falha = await Assert.ThrowsAsync<FalhaDePlanilhaException>(() =>
+            ambiente.Adapter.AdicionarLinhaAsync(ambiente.Google.IdDaPlanilha,
+                IntervaloA1.Interpretar("Dados!A1"), [ValorDeCelula.DeTexto("nova")]));
+        Assert.Contains("Confira a planilha", falha.Message);
+        Assert.Single(ambiente.Google.Escritas);
+    }
+
+    [Fact]
+    public async Task GradeGrandeNaoECarregadaParaDescricaoOuBusca()
+    {
+        using var ambiente = new AmbienteDePlanilhas();
+        ambiente.Google.AdicionarAba("Grande", 1000000, 100);
+        var metadados = await ambiente.Adapter.ObterMetadadosAsync(ambiente.Google.IdDaPlanilha, true);
+        Assert.Null(Assert.Single(metadados.Abas).AreaUsada);
+        await Assert.ThrowsAsync<FalhaDePlanilhaException>(() => ambiente.Adapter.LerValoresExibidosAsync(
+            ambiente.Google.IdDaPlanilha, [IntervaloA1.DaAba("Grande")]));
+        Assert.DoesNotContain(ambiente.Google.Requisicoes, r => r.Url.Contains("values:batchGet"));
+        var leitura = await ambiente.Adapter.LerAsync(ambiente.Google.IdDaPlanilha, IntervaloA1.Interpretar("Grande!A1:B3"), 6);
+        Assert.Empty(leitura.Celulas);
+    }
+
+    [Fact]
     public async Task TokenRecusadoRenovaUmaVezERepete()
     {
         using var ambiente = ComAba();

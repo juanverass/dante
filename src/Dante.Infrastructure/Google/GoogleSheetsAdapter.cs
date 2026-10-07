@@ -18,6 +18,7 @@ public sealed class GoogleSheetsAdapter(GoogleOAuthService autenticacao, HttpCli
 {
     internal const string Base = "https://sheets.googleapis.com/v4/spreadsheets/";
     private const int Tentativas = 4;
+    private const long MaximoDePosicoes = 250_000;
     private static readonly Regex UrlDePlanilha =
         new(@"^https?://docs\.google\.com/spreadsheets/(?:u/\d+/)?d/([A-Za-z0-9_-]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex IdDePlanilha = new("^[A-Za-z0-9_-]{25,100}$", RegexOptions.Compiled);
@@ -40,7 +41,14 @@ public sealed class GoogleSheetsAdapter(GoogleOAuthService autenticacao, HttpCli
         var abas = (corpo["sheets"] as JsonArray ?? []).OfType<JsonObject>().Select(Aba).ToList();
         if (calcularAreaUsada)
         {
-            var grades = abas.Where(a => a.Tipo == "GRID").ToArray();
+            long restantes = MaximoDePosicoes;
+            var grades = abas.Where(a =>
+            {
+                var tamanho = (long)a.Linhas * a.Colunas;
+                if (a.Tipo != "GRID" || tamanho > restantes) return false;
+                restantes -= tamanho;
+                return true;
+            }).ToArray();
             var lidos = grades.Length == 0 ? [] :
                 await LerValoresExibidosAsync(idDaPlanilha, grades.Select(a => IntervaloA1.DaAba(a.Titulo)).ToArray(), cancellationToken);
             for (var i = 0; i < grades.Length && i < lidos.Count; i++)
@@ -137,6 +145,21 @@ public sealed class GoogleSheetsAdapter(GoogleOAuthService autenticacao, HttpCli
         IReadOnlyList<IntervaloA1> intervalos, CancellationToken cancellationToken = default)
     {
         if (intervalos.Count == 0) return [];
+        if (intervalos.Any(i => i.AbaInteira))
+        {
+            var metadados = await ObterMetadadosAsync(idDaPlanilha, false, cancellationToken);
+            intervalos = intervalos.Select(i =>
+            {
+                if (!i.AbaInteira) return i;
+                var aba = metadados.Abas.FirstOrDefault(a => a.Titulo == i.Aba);
+                if (aba is null || aba.Linhas < 1 || aba.Colunas < 1)
+                    throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.Invalida, "Aba inexistente ou sem grade.");
+                return IntervaloA1.Retangulo(i.Aba, 1, 1, aba.Linhas, aba.Colunas);
+            }).ToArray();
+        }
+        if (intervalos.Sum(i => i.QuantidadeDeCelulas) > MaximoDePosicoes)
+            throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.NaoSuportada,
+                "A busca/leitura excede 250 mil posições. Informe uma aba ou intervalo menor.");
         var consulta = string.Join('&', intervalos.Select(i => "ranges=" + Uri.EscapeDataString(i.ToString())));
         var corpo = await EnviarAsync(HttpMethod.Get, Id(idDaPlanilha) + "/values:batchGet?" + consulta +
             "&valueRenderOption=FORMATTED_VALUE&majorDimension=ROWS", null, cancellationToken);
@@ -184,7 +207,7 @@ public sealed class GoogleSheetsAdapter(GoogleOAuthService autenticacao, HttpCli
             ["range"] = tabela.ToString(),
             ["majorDimension"] = "ROWS",
             ["values"] = new JsonArray(new JsonArray(valores.Select(Json).ToArray()))
-        }, cancellationToken);
+        }, cancellationToken, repetirEscrita: false);
         var atualizado = Texto(corpo["updates"] as JsonObject, "updatedRange");
         return atualizado is not null && IntervaloA1.TentarInterpretar(atualizado, out var intervalo) && !intervalo!.AbaInteira
             ? intervalo
@@ -193,7 +216,7 @@ public sealed class GoogleSheetsAdapter(GoogleOAuthService autenticacao, HttpCli
     }
 
     private async Task<JsonObject> EnviarAsync(HttpMethod metodo, string caminho, JsonObject? conteudo,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool repetirEscrita = true)
     {
         var renovado = false;
         for (var tentativa = 1; ; tentativa++)
@@ -204,10 +227,11 @@ public sealed class GoogleSheetsAdapter(GoogleOAuthService autenticacao, HttpCli
             if (conteudo is not null)
                 requisicao.Content = new StringContent(conteudo.ToJsonString(), Encoding.UTF8, "application/json");
             HttpResponseMessage resposta;
-            try { resposta = await http.SendAsync(requisicao, cancellationToken); }
+            try { resposta = await http.SendAsync(requisicao, HttpCompletionOption.ResponseHeadersRead, cancellationToken); }
             catch (Exception exception) when (exception is HttpRequestException ||
-                                              exception is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+                                              exception is OperationCanceledException && (!repetirEscrita || !cancellationToken.IsCancellationRequested))
             {
+                if (!repetirEscrita) throw ResultadoIncerto(exception);
                 if (tentativa < Tentativas)
                 {
                     await esperar(Espera(tentativa, null), cancellationToken);
@@ -218,9 +242,17 @@ public sealed class GoogleSheetsAdapter(GoogleOAuthService autenticacao, HttpCli
             }
             using (resposta)
             {
-                var texto = await resposta.Content.ReadAsStringAsync(cancellationToken);
+                if (!repetirEscrita && (int)resposta.StatusCode >= 500)
+                    throw ResultadoIncerto();
+                string texto;
+                try { texto = await LerRespostaLimitadaAsync(resposta.Content, cancellationToken); }
+                catch (Exception exception) when (!repetirEscrita && exception is HttpRequestException or IOException or OperationCanceledException)
+                { throw ResultadoIncerto(exception); }
                 if (resposta.IsSuccessStatusCode)
-                    return (string.IsNullOrWhiteSpace(texto) ? null : JsonNode.Parse(texto) as JsonObject) ?? [];
+                {
+                    try { return (string.IsNullOrWhiteSpace(texto) ? null : JsonNode.Parse(texto) as JsonObject) ?? []; }
+                    catch (JsonException exception) when (!repetirEscrita) { throw ResultadoIncerto(exception); }
+                }
                 var mensagem = MensagemDoGoogle(texto);
                 switch (resposta.StatusCode)
                 {
@@ -257,6 +289,28 @@ public sealed class GoogleSheetsAdapter(GoogleOAuthService autenticacao, HttpCli
             }
         }
     }
+
+    private static async Task<string> LerRespostaLimitadaAsync(HttpContent conteudo, CancellationToken cancellationToken)
+    {
+        const int maximo = 16 * 1024 * 1024;
+        await using var origem = await conteudo.ReadAsStreamAsync(cancellationToken);
+        using var destino = new MemoryStream();
+        var buffer = new byte[8192];
+        int lidos;
+        while ((lidos = await origem.ReadAsync(buffer, cancellationToken)) > 0)
+        {
+            if (destino.Length + lidos > maximo)
+                throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.NaoSuportada,
+                    "A resposta do Google Sheets excede 16 MB. Restrinja o intervalo antes de consultar novamente.");
+            destino.Write(buffer, 0, lidos);
+        }
+        return Encoding.UTF8.GetString(destino.GetBuffer(), 0, (int)destino.Length);
+    }
+
+    private static FalhaDePlanilhaException ResultadoIncerto(Exception? exception = null) =>
+        new(MotivoDaFalhaDePlanilha.Indisponivel,
+            "A linha pode ter sido adicionada, mas o resultado não foi confirmado. Confira a planilha antes de repetir; não repita automaticamente.",
+            innerException: exception);
 
     private static TimeSpan Espera(int tentativa, RetryConditionHeaderValue? retryAfter)
     {

@@ -15,7 +15,11 @@ public sealed class CadastroDePlanilhasEmArquivo(string diretorio) : ICadastroDe
     public async Task<IReadOnlyList<PlanilhaCadastradaDto>> ListarAsync(CancellationToken cancellationToken = default)
     {
         await gate.WaitAsync(cancellationToken);
-        try { return await LerAsync(cancellationToken); }
+        try
+        {
+            await using var arquivoLock = await LockDeArquivo.AdquirirAsync(Caminho + ".lock", cancellationToken);
+            return await LerAsync(cancellationToken);
+        }
         finally { gate.Release(); }
     }
 
@@ -28,6 +32,7 @@ public sealed class CadastroDePlanilhasEmArquivo(string diretorio) : ICadastroDe
         await gate.WaitAsync(cancellationToken);
         try
         {
+            await using var arquivoLock = await LockDeArquivo.AdquirirAsync(Caminho + ".lock", cancellationToken);
             var planilhas = (await LerAsync(cancellationToken))
                 .Where(p => !string.Equals(p.Alias, planilha.Alias, StringComparison.OrdinalIgnoreCase))
                 .Append(planilha).OrderBy(p => p.Alias, StringComparer.Ordinal).ToArray();
@@ -41,6 +46,7 @@ public sealed class CadastroDePlanilhasEmArquivo(string diretorio) : ICadastroDe
         await gate.WaitAsync(cancellationToken);
         try
         {
+            await using var arquivoLock = await LockDeArquivo.AdquirirAsync(Caminho + ".lock", cancellationToken);
             var planilhas = await LerAsync(cancellationToken);
             var restantes = planilhas.Where(p => !string.Equals(p.Alias, alias, StringComparison.OrdinalIgnoreCase)).ToArray();
             if (restantes.Length == planilhas.Count) return false;

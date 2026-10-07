@@ -261,12 +261,21 @@ public sealed class PlanilhasAppService(
     private async Task AuditarAsync(PlanilhaCadastradaDto cadastrada, IReadOnlyList<CelulaAlteradaDto> celulas, string operacao,
         OrigemDaSolicitacao origem, CancellationToken cancellationToken)
     {
-        var conta = (await conexao.ObterEstadoAsync(cancellationToken)).Conta;
-        var instante = DateTimeOffset.UtcNow;
-        foreach (var celula in celulas)
-            await auditoria.RegistrarAsync(new RegistroDeAuditoriaDePlanilha(instante, conta, cadastrada.IdDaPlanilha,
-                cadastrada.Alias, celula.Aba, operacao, celula.Endereco, celula.ValorAnterior, celula.FormulaAnterior,
-                celula.ValorNovo, origem.ToString(), origem.Agente), cancellationToken);
+        try
+        {
+            var conta = (await conexao.ObterEstadoAsync(cancellationToken)).Conta;
+            var instante = DateTimeOffset.UtcNow;
+            foreach (var celula in celulas)
+                await auditoria.RegistrarAsync(new RegistroDeAuditoriaDePlanilha(instante, conta, cadastrada.IdDaPlanilha,
+                    cadastrada.Alias, celula.Aba, operacao, celula.Endereco, celula.ValorAnterior, celula.FormulaAnterior,
+                    celula.ValorNovo, origem.ToString(), origem.Agente), cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.Indisponivel,
+                "A escrita foi aplicada na planilha, mas a auditoria local falhou. Não repita a operação; confira a planilha e a auditoria.",
+                innerException: exception);
+        }
     }
 
     // O valor esperado é comparado com o exibido (o que o agente leu) ou com o bruto, sem espaços nas pontas.

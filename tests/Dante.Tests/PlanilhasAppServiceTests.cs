@@ -10,6 +10,26 @@ public sealed class PlanilhasAppServiceTests
 {
     private static readonly OrigemDaSolicitacao Origem = new("mcp", "telegram:42", "codex");
 
+    private sealed class AuditoriaQueFalha : IAuditoriaDePlanilhas
+    {
+        public Task RegistrarAsync(RegistroDeAuditoriaDePlanilha registro, CancellationToken cancellationToken = default) =>
+            throw new IOException("Disco indisponível");
+    }
+
+    [Fact]
+    public async Task FalhaDeAuditoriaInformaQueAppendJaFoiAplicado()
+    {
+        using var ambiente = Financas();
+        await ambiente.CadastrarAsync();
+        var servico = new PlanilhasAppService(ambiente.Adapter, ambiente.OAuth, ambiente.Cadastro, new AuditoriaQueFalha());
+        var falha = await Assert.ThrowsAsync<FalhaDePlanilhaException>(() => servico.AdicionarLinhaAsync(
+            new AdicaoDeLinhaDto { Planilha = "financas", Intervalo = "Gastos!A1:C1", Valores = [ValorDeCelula.DeTexto("Nova conta"), ValorDeCelula.DeNumero(10), ValorDeCelula.DeNumero(20)] }, Origem));
+        Assert.Contains("A escrita foi aplicada", falha.Message);
+        Assert.Contains("Não repita", falha.Message);
+        Assert.Single(ambiente.Google.Escritas);
+        Assert.Equal("Nova conta", ambiente.Google.Exibido("Gastos", "A5"));
+    }
+
     private static AmbienteDePlanilhas Financas()
     {
         var ambiente = new AmbienteDePlanilhas();

@@ -22,13 +22,14 @@ public sealed record GoogleOptions
 
     public bool Configurada => !string.IsNullOrWhiteSpace(ClientId) && !string.IsNullOrWhiteSpace(ClientSecret);
 
-    // DANTE_GOOGLE_DIR troca ~/.dante/google; DANTE_GOOGLE_KEY (base64 de 32 bytes) substitui o arquivo de chave.
+    // DANTE_GOOGLE_DIR troca ~/.dante/google; a chave fica em arquivo privado compartilhado com o MCP.
     public static GoogleOptions DaConfiguracao(IConfiguration configuration) => new()
     {
         ClientId = configuration["Google:ClientId"],
         ClientSecret = configuration["Google:ClientSecret"],
         DiretorioDaCredencial = configuration["DANTE_GOOGLE_DIR"] is { Length: > 0 } dir ? Path.GetFullPath(dir) : Padrao("google"),
-        ChaveDaCredencial = configuration["DANTE_GOOGLE_KEY"] is { Length: > 0 } chave ? Convert.FromBase64String(chave) : null,
+        ChaveDaCredencial = configuration["DANTE_GOOGLE_KEY"] is { Length: > 0 }
+            ? throw new InvalidOperationException("DANTE_GOOGLE_KEY não é suportada nas sessões MCP. Remova a opção e reconecte a conta Google para usar a chave em arquivo privado.") : null,
         PortaDoCallback = int.TryParse(configuration["Google:CallbackPort"], out var porta) ? porta : 0,
         PermitirXlsxNoDrive = bool.TryParse(configuration["Google:PermitirXlsxNoDrive"], out var xlsx) && xlsx
     };

@@ -19,6 +19,7 @@ public sealed class AuditoriaDePlanilhasEmArquivo(string diretorio) : IAuditoria
         await gate.WaitAsync(cancellationToken);
         try
         {
+            await using var arquivoLock = await LockDeArquivo.AdquirirAsync(Caminho + ".lock", cancellationToken);
             if (OperatingSystem.IsWindows()) Directory.CreateDirectory(diretorio);
             else Directory.CreateDirectory(diretorio, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             var options = new FileStreamOptions { Mode = FileMode.Append, Access = FileAccess.Write, Share = FileShare.Read };

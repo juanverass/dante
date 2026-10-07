@@ -98,12 +98,14 @@ public sealed class GoogleOAuthService(GoogleOptions opcoes, GoogleCredentialSto
         CredencialGoogle? credencial;
         try { credencial = store.Carregar(); }
         catch (FalhaDePlanilhaException) { credencial = null; }
+        var revogacaoConfirmada = credencial is null;
         if (credencial is not null)
         {
             try
             {
                 using var resposta = await http.PostAsync(EnderecoDeRevogacao,
                     new FormUrlEncodedContent(new Dictionary<string, string> { ["token"] = credencial.RefreshToken }), cancellationToken);
+                revogacaoConfirmada = resposta.IsSuccessStatusCode;
             }
             catch (HttpRequestException)
             {
@@ -115,7 +117,11 @@ public sealed class GoogleOAuthService(GoogleOptions opcoes, GoogleCredentialSto
         {
             acesso = null;
             problema = null;
-            return store.Apagar() || credencial is not null;
+            var apagada = store.Apagar() || credencial is not null;
+            if (!revogacaoConfirmada)
+                throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.Indisponivel,
+                    "Credencial local apagada, mas a revogação no Google não foi confirmada. Confira o acesso em myaccount.google.com.");
+            return apagada;
         }
         finally { gate.Release(); }
     }

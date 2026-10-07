@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -10,6 +11,26 @@ namespace Dante.Tests;
 // revogação e reinício sem novo login. O GoogleSheetsFalso faz o papel dos endpoints do Google.
 public sealed class GoogleOAuthServiceTests
 {
+    [Fact]
+    public void ConfiguracaoComChaveExternaERecusadaSemExporSegredo()
+    {
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["DANTE_GOOGLE_KEY"] = "segredo" }).Build();
+        var falha = Assert.Throws<InvalidOperationException>(() => GoogleOptions.DaConfiguracao(configuration));
+        Assert.DoesNotContain("segredo", falha.Message);
+        Assert.Contains("MCP", falha.Message);
+    }
+
+    [Fact]
+    public async Task RevogacaoRecusadaApagaCredencialMasNaoConfirmaRevogacao()
+    {
+        using var ambiente = new AmbienteDePlanilhas();
+        ambiente.Google.StatusDeRevogacao = System.Net.HttpStatusCode.ServiceUnavailable;
+        var falha = await Assert.ThrowsAsync<FalhaDePlanilhaException>(() => ambiente.OAuth.DesconectarAsync());
+        Assert.Contains("revogação no Google não foi confirmada", falha.Message);
+        Assert.Null(ambiente.Store.Carregar());
+    }
+
     [Fact]
     public async Task SemClienteConfiguradoNaoIniciaAutorizacao()
     {
