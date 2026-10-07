@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199), e composição modular da Infrastructure (#200), e ownership da composição na Application (#208), e regras arquiteturais executáveis da Application (#209), e Google Sheets como ferramenta genérica de planilhas (#224).
+Última revisão: 2026-10-07, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199), e composição modular da Infrastructure (#200), e ownership da composição na Application (#208), e regras arquiteturais executáveis da Application (#209), e Google Sheets como ferramenta genérica de planilhas (#224).
 
 ## Marcos
 
@@ -655,3 +655,29 @@ incluindo validação e leitura do estado atual. MCP anuncia sobrescritas de val
 com destructiveHint=true.
 Revogação Google só é confirmada em sucesso; configuração DANTE_GOOGLE_KEY é recusada
 para evitar incompatibilidade com MCP, e segredo OAuth/chave são filtrados dos agentes.
+
+## Brain por ferramentas MCP (#226)
+
+Sessões Claude/Codex com configuração, storage e escopo Brain autorizados recebem
+`dante_brain`, composto com `dante_planilhas` por providers independentes. MCP stdio
+encaminha ao Worker por pipe local exclusivo de sessão; Worker mantém credenciais e
+chama AppServices. Troca de conversa/escopo exige nova sessão; encerramento revoga o pipe.
+Ferramentas cobrem busca, proveniência, captura/correção/listagem de candidatos,
+propostas de consolidação/descarte/relação e snapshot operacional. Aprovação da CLI
+não confirma negócio: o usuário confirma propostas no Telegram, com expiração e
+revisão esperada. Captura preserva título/tags opcionais no histórico JSON e promoção;
+sem migration ou endpoints WebApi. [Guia](../development/brain-mcp.md), AD-56.
+
+O MCP usa a mensagem autenticada do turno ativo, preservada junto à entrada na fila.
+Mensagens recebidas/enfileiradas não substituem essa evidência; entradas sem contexto
+autenticado revogam o acesso. Captura e correção factual exigem conteúdo na origem.
+Relações são projetadas somente quando ambos os alvos permitem leitura; sua prova
+bruta não é exposta no canal MCP. Sessão ausente/revogada falha fechado.
+
+Steer nativo aceito pelo driver atualiza a evidência autenticada do Brain; steer
+recusado mantém a origem anterior. Respostas textuais a perguntas do agente não
+alimentam evidência factual no MCP neste MVP. A listagem de relações percorre
+páginas internas de até 100 itens até preencher o limite de relações permitidas
+ou esgotar a vizinhança; o indicador de limite conta apenas relações autorizadas.
+O prazo por operação continua limitando o percurso, sem retornar lista parcial
+como se a vizinhança tivesse sido esgotada.

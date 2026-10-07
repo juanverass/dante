@@ -10,11 +10,11 @@ public sealed class RelacaoDeConhecimentoRepository(DanteDbContext context) : Re
     public Task<RelacaoDeConhecimento?> ObterEquivalenteAsync(RelacaoDeConhecimento r, CancellationToken ct = default) =>
         DbSet.SingleOrDefaultAsync(x => x.IdEspacoDeConhecimento == r.IdEspacoDeConhecimento && x.IdOrigem == r.IdOrigem && x.IdDestino == r.IdDestino && x.Tipo == r.Tipo, ct);
     public async Task<IReadOnlyList<RelacaoDeConhecimento>> ListarVizinhasAsync(Guid idEspaco, Guid? idProjeto,
-        IReadOnlyCollection<Guid> idsFronteira, int limite, CancellationToken cancellationToken = default)
+        IReadOnlyCollection<Guid> idsFronteira, int limite, CancellationToken cancellationToken = default, int deslocamento = 0)
     {
-        if (idEspaco == Guid.Empty || idProjeto == Guid.Empty || idsFronteira.Count > 201 || limite is < 1 or > 101) throw new ArgumentException("Filtro inválido.");
+        if (idEspaco == Guid.Empty || idProjeto == Guid.Empty || idsFronteira.Count > 201 || limite is < 1 or > 101 || deslocamento < 0) throw new ArgumentException("Filtro inválido.");
         return await DbSet.Where(x => x.IdEspacoDeConhecimento == idEspaco && x.IdProjeto == idProjeto &&
             (idsFronteira.Contains(x.IdOrigem) || idsFronteira.Contains(x.IdDestino)))
-            .OrderBy(x => x.CriadaEm).ThenBy(x => x.Id).Take(limite).ToListAsync(cancellationToken);
+            .OrderBy(x => x.CriadaEm).ThenBy(x => x.Id).Skip(deslocamento).Take(limite).ToListAsync(cancellationToken);
     }
 }

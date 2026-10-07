@@ -43,7 +43,8 @@ public sealed record SessionStartRequest(
     JobExecutionContext Context,
     IReadOnlyDictionary<string, string>? EnvironmentVariables = null,
     AgentPermissionProfile Profile = AgentPermissionProfile.Manual,
-    AgentModelSelection? ModelSelection = null);
+    AgentModelSelection? ModelSelection = null,
+    ContextoDeFerramentas? BrainConversation = null);
 
 // DiscardedMessages: queued messages dropped by an interrupt.
 public sealed record SessionResult(

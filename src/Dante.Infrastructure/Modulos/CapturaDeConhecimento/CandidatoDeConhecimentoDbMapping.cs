@@ -29,7 +29,7 @@ public sealed class CandidatoDeConhecimentoDbMapping : EntidadeConfiguration<Can
         b.Property(x => x.IdConhecimento).HasColumnName("id_conhecimento");
         b.Property(x => x.IdIncidente).HasColumnName("id_incidente");
         b.Property(x => x.IdSolucao).HasColumnName("id_solucao");
-        b.Ignore(x => x.Revisao); b.Ignore(x => x.Proveniencia); b.Ignore(x => x.Historico); b.Ignore(x => x.CriadoEm);
+        b.Ignore(x => x.Titulo); b.Ignore(x => x.Tags); b.Ignore(x => x.Revisao); b.Ignore(x => x.Proveniencia); b.Ignore(x => x.Historico); b.Ignore(x => x.CriadoEm);
         b.Property<List<AtoDoCandidato>>("historico").HasColumnName("historico").HasColumnType("jsonb")
             .HasConversion(x => ConhecimentoDbMapping.Serializar(x), x => Ler(x))
             .Metadata.SetValueComparer(new ValueComparer<List<AtoDoCandidato>>((a,c) => ConhecimentoDbMapping.Serializar(a) == ConhecimentoDbMapping.Serializar(c),

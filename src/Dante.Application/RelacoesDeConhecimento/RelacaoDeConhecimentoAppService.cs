@@ -59,6 +59,17 @@ public sealed class RelacaoDeConhecimentoAppService(IRelacaoDeConhecimentoReposi
         return new(resultado.Values.ToArray(), false);
     }
 
+    // Página direta e estável, sem reabrir o percurso do grafo a cada janela.
+    public async Task<VizinhancaDto> ConsultarPaginaDeVizinhasAsync(Guid idEspaco, Guid? idProjeto, Guid idRaiz,
+        int deslocamento, int limite = 100, CancellationToken cancellationToken = default)
+    {
+        ValidacaoDeEntrada.ExigirFaixa(limite, 1, 100, nameof(limite));
+        if (deslocamento < 0) throw new ArgumentOutOfRangeException(nameof(deslocamento));
+        await ObterNoEscopoAsync(idEspaco, idProjeto, idRaiz, cancellationToken);
+        var pagina = await relacoes.ListarVizinhasAsync(idEspaco, idProjeto, new[] { idRaiz }, limite + 1, cancellationToken, deslocamento);
+        return new(pagina.Take(limite).Select(ParaDto).ToArray(), pagina.Count > limite);
+    }
+
     private async Task<Conhecimento> ObterNoEscopoAsync(Guid espaco, Guid? projeto, Guid id, CancellationToken ct)
     {
         ValidacaoDeEntrada.ExigirEscopo(espaco, projeto);

@@ -11,7 +11,7 @@ public sealed class FerramentasDePlanilhaParaAgentes(
     IServiceScopeFactory scopes,
     IConfiguration configuration,
     ILogger<FerramentasDePlanilhaParaAgentes> logger,
-    (string Command, IReadOnlyList<string> Prefix)? comando = null) : IAgentToolServers
+    (string Command, IReadOnlyList<string> Prefix)? comando = null) : IProvedorDeFerramentas
 {
     public async Task<IReadOnlyList<AgentToolServer>> ForAsync(long ownerUserId, AgentKind agent,
         CancellationToken cancellationToken = default)

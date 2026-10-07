@@ -1785,3 +1785,25 @@ OAuth solicita Drive só com `Google__PermitirXlsxNoDrive=true`; nova autorizaç
 necessária. O escopo Drive permite arquivos existentes por ID, enquanto drive.file
 precisaria de Picker/seleção do arquivo pelo app. Não há descoberta ou ferramenta genérica
 de Drive. Permissões concedidas continuam cifradas e disponíveis ao MCP após reinício.
+
+## AD-56 — Brain dos agentes por MCP e IPC de sessão (#226)
+
+Status: vigente.
+
+`dante_brain` é adapter MCP stdio que encaminha chamadas por named pipe local ao Worker.
+Worker conserva conexão e resolve identidade/autorização/escopo por mensagem Telegram;
+operações chamam AppServices existentes, sem acesso de agente a persistência ou segredo.
+Endpoint aleatório same-user é exclusivo da sessão e não sobrevive a desconexão/fim
+ou reinício. Mudança de escopo ou conversa recusa operações até nova sessão.
+
+Providers independentes de tool servers são compostos por `CompositorDeFerramentas`;
+planilhas permanece um provider, sem assumir conhecimento do Brain. Sem Brain disponível,
+o agente continua utilizável. Aprovação MCP e confirmação de negócio são distintas:
+consolidação/descarte/relação preparam proposta consumível pelo usuário no Telegram,
+revalidando autorização e revisão. Título/tags opcionais são extensões do histórico JSON
+de candidato e conservados na promoção, sem migration ou fusão de itens.
+
+Por quê: permite orquestração de pedidos complexos pelas CLIs sem expor credenciais
+observáveis na configuração MCP nem introduzir HTTP/WebApi como dependência do fluxo.
+O limite de confiança local é a conta do sistema; não protege contra processo malicioso
+do mesmo usuário já capaz de inspecionar as CLIs. Guia e testes: [Brain MCP](../development/brain-mcp.md).

@@ -601,6 +601,22 @@ public sealed class CodexSessionDriverTests
         Assert.Null((await ReadTurnAsync(events)).OfType<TurnCompletedEvent>().Single().Usage);
     }
 
+    [Fact]
+    public async Task BrainEPlanilhasCoexistemSemCredenciaisNaConfiguracao()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new CodexSessionDriver(launcher);
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, IsGeneral: true, ToolServers:
+        [
+            new("dante_planilhas", "/usr/bin/dante", ["--mcp-planilhas"], new Dictionary<string,string>(), ["ler_intervalo"]),
+            new("dante_brain", "/usr/bin/dante", ["--mcp-brain", "--pipe", "dante-brain-session"], new Dictionary<string,string>(), ["brain_obter_escopo"])
+        ]));
+        var args = string.Join(' ', Assert.Single(launcher.Requests).Arguments);
+        Assert.Contains("dante_planilhas", args); Assert.Contains("dante_brain", args);
+        Assert.Contains("--mcp-brain", args); Assert.DoesNotContain("ConnectionStrings", args);
+        Assert.DoesNotContain("brain_confirmar_candidato", args);
+    }
+
     private static readonly AgentToolServer PlanilhasServer = new("dante_planilhas", "/usr/bin/dante",
         ["--mcp-planilhas", "--origem", "telegram:42"], new Dictionary<string, string> { ["HOME"] = "/home/x" }, ["ler_intervalo"]);
 

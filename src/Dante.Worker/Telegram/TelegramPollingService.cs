@@ -1,3 +1,4 @@
+using Dante.Worker.Brain;
 using Dante.Application.Agentes;
 using Dante.Application.Anexos;
 using Dante.Application.Uso;
@@ -602,7 +603,7 @@ public sealed partial class TelegramPollingService(
             var modelSelection = await ResolveModelAsync(userId, agent, model, message.Chat.Id, cancellationToken, effort);
             if (modelSelection is null) return;
             var started = await sessions.StartAsync(new SessionStartRequest(userId, agent, context,
-                environment?.Values, profile, modelSelection), cancellationToken);
+                environment?.Values, profile, modelSelection, message.ParaFerramentas()), cancellationToken);
             if (started.Accepted)
             {
                 delivery.RegisterSession(started.Session!.Id, userId, message.Chat.Id,
@@ -1025,7 +1026,7 @@ public sealed partial class TelegramPollingService(
         var sessionId = active?.Id;
         if (sessionId is null)
         {
-            if (await OpenConversationAsync(userId, chatId, text, cancellationToken) is not { } opened) return;
+            if (await OpenConversationAsync(userId, chatId, text, cancellationToken, message) is not { } opened) return;
             (sessionId, text) = opened;
         }
 
@@ -1040,7 +1041,7 @@ public sealed partial class TelegramPollingService(
         var brainContext = continuidade is null ? null :
             await continuidade.PrepararAsync(message, sessionId, text, cancellationToken);
         var result = await SessionSubmitAsync(userId, sessionId,
-            new AgentInput(brainContext?.Texto ?? text, images) { Correlation = brainContext?.Correlacao },
+            new AgentInput(brainContext?.Texto ?? text, images) { Correlation = brainContext?.Correlacao, BrainConversation = message.ParaFerramentas() },
             MessageDelivery.Queue, cancellationToken);
         if (brainContext is not null && result.Outcome is SubmitOutcome.TurnStarted or SubmitOutcome.Queued)
             await continuidade!.RegistrarInjecaoAsync(brainContext, cancellationToken);
@@ -1056,7 +1057,7 @@ public sealed partial class TelegramPollingService(
     // Without an active session, a conversation opens one with the default agent in the current context (AD-23) and
     // the text, without a leading @alias, becomes its request. Null: it could not start, and the reason was sent.
     private async Task<(string SessionId, string Text)?> OpenConversationAsync(long userId, long chatId, string text,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, TelegramMessage? brainConversation = null)
     {
         var resolved = resolver.Resolve(userId, null, text);
         if (!resolved.Succeeded)
@@ -1073,7 +1074,7 @@ public sealed partial class TelegramPollingService(
         var modelSelection = await ResolveModelAsync(userId, agent, null, chatId, cancellationToken);
         if (modelSelection is null) return null;
         var started = await sessions!.StartAsync(new SessionStartRequest(userId, agent, context,
-            environment?.Values, mode, modelSelection), cancellationToken);
+            environment?.Values, mode, modelSelection, brainConversation?.ParaFerramentas()), cancellationToken);
         if (!started.Accepted)
         {
             // Without a session the request was refused before any process started (e.g. unsupported mode).
@@ -1142,7 +1143,7 @@ public sealed partial class TelegramPollingService(
         string sessionId;
         if (active is null)
         {
-            if (await OpenConversationAsync(userId, chatId, request, cancellationToken) is not { } opened) return;
+            if (await OpenConversationAsync(userId, chatId, request, cancellationToken, message) is not { } opened) return;
             (sessionId, request) = opened;
         }
         else sessionId = active.Id;
@@ -1163,7 +1164,7 @@ public sealed partial class TelegramPollingService(
         showcase.Expect(sessionId, userId, chatId);
         var text = TelegramShowcase.RequestText(request, prints,
             images.ToDictionary(image => image.Id, image => image.Name));
-        var result = await SessionSubmitAsync(userId, sessionId, new AgentInput(text, images), MessageDelivery.Queue,
+        var result = await SessionSubmitAsync(userId, sessionId, new AgentInput(text, images) { BrainConversation = message.ParaFerramentas() }, MessageDelivery.Queue,
             cancellationToken);
         if (result.Outcome == SubmitOutcome.Rejected)
         {
@@ -1204,7 +1205,7 @@ public sealed partial class TelegramPollingService(
             await SendReplyAsync(message.Chat.Id, ImagesUnavailable, cancellationToken);
             return;
         }
-        var result = await SessionSubmitAsync(userId, null, new AgentInput(text, images), mode, cancellationToken);
+        var result = await SessionSubmitAsync(userId, null, new AgentInput(text, images) { BrainConversation = message.ParaFerramentas() }, mode, cancellationToken);
         var response = result.Outcome switch
         {
             SubmitOutcome.TurnStarted => $"Turno {result.TurnId} iniciado na sessão {result.SessionId}.",
