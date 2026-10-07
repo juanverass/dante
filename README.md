@@ -1509,7 +1509,7 @@ Health operacional do host retorna `{"estado":"saudavel"}`. OpenAPI em
 endpoints funcionais do Brain. Veja [operação e contratos HTTP](docs/maintainer/WEBAPI.md).
 
 
-## Planilhas (Google Sheets)
+## Planilhas (Google Sheets e XLSX no Drive)
 
 O D.A.N.T.E. dá aos agentes ferramentas genéricas para ler, localizar e editar planilhas que
 você cadastrou. Crie um cliente OAuth do tipo "app para computador" no Google Cloud, defina
@@ -1526,6 +1526,12 @@ conversas entendem pedidos como "quanto gastei em setembro na planilha financas?
 "atualize o valor da internet para 119,90". Leituras são automáticas; escritas seguem o modo
 da sessão (`manual` pede aprovação) e nunca escolhem sozinhas entre alvos ambíguos.
 `/planilhas` lista o cadastro e `/google disconnect` revoga o acesso.
+
+Para um **XLSX que abre no Google Sheets**, habilite também a Google Drive API, configure
+`Google__PermitirXlsxNoDrive=true`, reinicie e reconecte com `/google connect`, autorizando o
+Drive. Cadastre pelo mesmo link/ID e use as mesmas ferramentas. O arquivo mantém formato
+XLSX e ID; números são brutos e fórmulas usam o resultado salvo, sem recálculo local.
+Veja [permissões, limites e preservação do arquivo](docs/development/planilhas.md#habilitar-xlsx-existente-no-google-drive).
 
 ## Brain por conversa natural
 

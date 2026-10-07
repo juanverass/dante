@@ -23,14 +23,16 @@ public sealed class ServidorMcpDePlanilhas(IServiceScopeFactory scopes, OrigemDa
         ["listar_planilhas", "descrever_planilha", "ler_intervalo", "buscar_na_planilha"];
 
     private const string Instrucoes =
-        "Ferramentas genéricas de planilhas do D.A.N.T.E. (Google Sheets). Trabalhe progressivamente: listar_planilhas → " +
+        "Ferramentas genéricas de planilhas do D.A.N.T.E. (Google Sheets e XLSX cadastrado no Drive). Trabalhe progressivamente: listar_planilhas → " +
         "descrever_planilha (abas, área usada, mesclagens, regiões anotadas) → ler_intervalo de uma região pequena ou " +
         "buscar_na_planilha → expandir só a região relevante → escrever no alvo resolvido. Não leia a aba inteira sem " +
         "necessidade. Planilhas podem ter vários blocos, cabeçalhos em posições diferentes e células mescladas: o valor " +
         "de uma mesclagem vive na célula superior esquerda. Toda escrita usa coordenadas exatas; informe valores_esperados " +
         "com o que você leu. Se houver mais de um alvo plausível, pergunte ao usuário antes de escrever: nunca escolha em " +
         "silêncio. Diga ao usuário o valor anterior e o novo. Exclusão de linhas/abas, limpeza em massa e mudança de " +
-        "estrutura não são suportadas.";
+        "estrutura não são suportadas. Respeite as observações da leitura: XLSX usa valores brutos e o cache salvo das " +
+        "fórmulas, que pode estar desatualizado. Para números no XLSX, envie número JSON; texto fica literal. Não prometa " +
+        "recálculo de fórmulas ou reprodução exata do valor formatado pelo editor.";
 
     // Processo filho lançado pela CLI do agente: compõe Application/Infrastructure sem Telegram nem host, e só escreve
     // JSON-RPC no stdout (logs ficam fora dele).
@@ -186,6 +188,7 @@ public sealed class ServidorMcpDePlanilhas(IServiceScopeFactory scopes, OrigemDa
             .Append("Título: ").Append(planilha.Titulo);
         if (planilha.Localidade is not null) texto.Append(" | localidade ").Append(planilha.Localidade);
         if (planilha.FusoHorario is not null) texto.Append(" | fuso ").Append(planilha.FusoHorario);
+        if (planilha.Observacao is not null) texto.Append('\n').Append(planilha.Observacao);
         texto.Append("\nAbas:");
         foreach (var aba in planilha.Abas)
         {
@@ -203,6 +206,7 @@ public sealed class ServidorMcpDePlanilhas(IServiceScopeFactory scopes, OrigemDa
     {
         var texto = new StringBuilder(leitura.Intervalo).Append(": ").Append(leitura.Celulas.Count(c => !c.EstaVazia))
             .Append(" célula(s) com conteúdo");
+        if (leitura.Observacao is not null) texto.Append('\n').Append(leitura.Observacao);
         foreach (var celula in leitura.Celulas) texto.Append('\n').Append(FormatarCelula(celula));
         if (leitura.Mesclagens.Count > 0) texto.Append("\nMesclagens: ").Append(string.Join(", ", leitura.Mesclagens));
         if (leitura.Truncado) texto.Append("\n[truncado pelo limite de células: leia a região seguinte ou uma menor]");
@@ -213,6 +217,7 @@ public sealed class ServidorMcpDePlanilhas(IServiceScopeFactory scopes, OrigemDa
     {
         var texto = new StringBuilder($"{busca.Ocorrencias.Count} ocorrência(s) de \"{busca.Termo}\" em ")
             .Append(string.Join(", ", busca.AbasConsultadas.Select(a => $"'{a}'"))).Append(" (exatas primeiro)");
+        if (busca.Observacao is not null) texto.Append('\n').Append(busca.Observacao);
         foreach (var ocorrencia in busca.Ocorrencias) texto.Append("\n- ").Append(FormatarOcorrencia(ocorrencia));
         if (busca.Truncado) texto.Append("\n[há mais ocorrências: restrinja a aba/intervalo ou aumente o limite]");
         return Limitar(texto.ToString());

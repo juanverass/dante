@@ -76,7 +76,7 @@ vivo que recebe todos os turnos. O one-shot continua disponível por comando exp
 | `AgentProcessExecutor` | `Dante.Infrastructure/Agentes/` | Inicia o processo sem shell, filtra ambiente, captura saída, cancela a árvore. |
 | `AgentExecutableResolver` | `Dante.Infrastructure/Agentes/` | Resolve apenas `claude`/`codex` em entradas absolutas do `PATH`. |
 | `PlanilhasAppService` | `Dante.Application/Planilhas/` | Planilhas genéricas: cadastro, leitura, busca e escrita exata com auditoria. |
-| `GoogleOAuthService` / `GoogleSheetsAdapter` | `Dante.Infrastructure/Google/` | Conta Google (OAuth local, credencial cifrada) e Sheets API v4. |
+| `GoogleOAuthService` / `GooglePlanilhasAdapter` | `Dante.Infrastructure/Google/` | Conta Google (OAuth local, credencial cifrada), Sheets API v4 e XLSX no Drive por MIME. |
 | `ServidorMcpDePlanilhas` | `Dante.Worker/Planilhas/` | Servidor MCP stdio que dá as ferramentas de planilha às sessões. |
 
 ## Stack
@@ -109,6 +109,8 @@ cair para General Mode; nunca há inferência de repositório pelo texto do prom
 - **PostgreSQL/pgvector** — canônico/índices opcionais do Brain; configuração externa, migrations e reindexação explícitas.
 - **Google Sheets API** — capacidade genérica de planilhas (AD-55): OAuth local com cliente do usuário
   (`Google__ClientId`/`Google__ClientSecret`), exposta aos agentes pelo servidor MCP `dante_planilhas`.
+  XLSX no Drive é opcional (`Google__PermitirXlsxNoDrive=true`): API Drive v2 com ETag e
+  edição limitada OOXML em memória, conservando formato/ID, sem motor de cálculo local.
 
 ## Segurança fundamental
 

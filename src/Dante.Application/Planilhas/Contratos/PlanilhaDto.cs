@@ -7,5 +7,6 @@ public sealed record PlanilhaDto
     public string? Localidade { get; init; }
     public string? FusoHorario { get; init; }
     public string? Url { get; init; }
+    public string? Observacao { get; init; }
     public IReadOnlyList<AbaDaPlanilhaDto> Abas { get; init; } = [];
 }

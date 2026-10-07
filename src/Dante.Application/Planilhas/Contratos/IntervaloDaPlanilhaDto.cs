@@ -9,4 +9,6 @@ public sealed record IntervaloDaPlanilhaDto
     public IReadOnlyList<CelulaDaPlanilhaDto> Celulas { get; init; } = [];
     public IReadOnlyList<string> Mesclagens { get; init; } = [];
     public bool Truncado { get; init; }
+    public string? Revisao { get; init; }
+    public string? Observacao { get; init; }
 }

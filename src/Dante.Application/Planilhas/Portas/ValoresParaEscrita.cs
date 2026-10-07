@@ -1,3 +1,4 @@
 namespace Dante.Application.Planilhas;
 
-public sealed record ValoresParaEscrita(IntervaloA1 Intervalo, IReadOnlyList<IReadOnlyList<ValorDeCelula>> Valores);
+public sealed record ValoresParaEscrita(IntervaloA1 Intervalo, IReadOnlyList<IReadOnlyList<ValorDeCelula>> Valores,
+    string? RevisaoEsperada = null);

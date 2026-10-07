@@ -126,6 +126,7 @@ public sealed class PlanilhasAppService(
             Termo = termo,
             AbasConsultadas = abas,
             Ocorrencias = encontradas.Select(e => e.Ocorrencia).ToArray(),
+            Observacao = fontes.Select(f => f.Observacao).FirstOrDefault(o => o is not null),
             Truncado = truncado
         };
     }
@@ -203,11 +204,13 @@ public sealed class PlanilhasAppService(
         var divergencias = new List<string>();
         var formulas = new List<string>();
         var limpezas = 0;
+        var revisoes = new string?[intervalos.Count];
         for (var a = 0; a < intervalos.Count; a++)
         {
             var intervalo = intervalos[a];
             var alteracao = escrita.Alteracoes[a];
             var atual = await provedor.LerAsync(cadastrada.IdDaPlanilha, intervalo, (int)intervalo.QuantidadeDeCelulas, cancellationToken);
+            revisoes[a] = atual.Revisao;
             var porEndereco = atual.Celulas.ToDictionary(c => (c.Linha, c.Coluna));
             var mesclagens = atual.Mesclagens.Select(m => IntervaloA1.Interpretar(m)).ToArray();
             for (var i = 0; i < intervalo.QuantidadeDeLinhas; i++)
@@ -248,7 +251,8 @@ public sealed class PlanilhasAppService(
             throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.NaoSuportada,
                 $"Limpar {limpezas} células preenchidas de uma vez não é suportado (máximo {MaximoDeCelulasLimpas}).");
 
-        var escritas = intervalos.Select((intervalo, a) => new ValoresParaEscrita(intervalo, escrita.Alteracoes[a].Valores)).ToArray();
+        var escritas = intervalos.Select((intervalo, a) => new ValoresParaEscrita(intervalo, escrita.Alteracoes[a].Valores,
+            revisoes[a])).ToArray();
         var atualizados = await provedor.AtualizarAsync(cadastrada.IdDaPlanilha, escritas, cancellationToken);
         await AuditarAsync(cadastrada, celulas, operacao, origem, cancellationToken);
         return new ResultadoDaEscritaDto { Planilha = cadastrada.Alias, Intervalos = atualizados, Celulas = celulas };

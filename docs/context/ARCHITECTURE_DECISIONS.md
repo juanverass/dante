@@ -1770,3 +1770,18 @@ aprovação de escrita no fluxo que o D.A.N.T.E. já controla.
 Código: `src/Dante.Application/Planilhas`, `src/Dante.Infrastructure/{Google,Planilhas}`,
 `src/Dante.Worker/Planilhas`, `src/Dante.Worker/Telegram/TelegramPlanilhas.cs`; guia em
 [planilhas](../development/planilhas.md).
+
+Ampliação autorizada da #224: XLSX existente no Drive mantém o mesmo ID e formato, sem
+conversão. `GooglePlanilhasAdapter` seleciona por MIME entre Sheets e Drive;
+`GoogleDriveXlsxAdapter` baixa o binário e `DocumentoXlsx` edita apenas valores OOXML em
+memória, preservando as partes não alteradas. Sem dependência nova ou motor de cálculo:
+leitura bruta e cache de fórmulas são declarados ao agente. A Application continua sem
+conceitos do provider; propaga a revisão esperada e observações genéricas dos resultados.
+
+O caminho Drive usa v2, cuja representação Files ainda fornece ETag; v3 retirou esse campo.
+Versão é verificada após download e antes do upload; If-Match protege o envio da nova
+revisão do mesmo arquivo. Upload com resultado incerto não é repetido automaticamente.
+OAuth solicita Drive só com `Google__PermitirXlsxNoDrive=true`; nova autorização é
+necessária. O escopo Drive permite arquivos existentes por ID, enquanto drive.file
+precisaria de Picker/seleção do arquivo pelo app. Não há descoberta ou ferramenta genérica
+de Drive. Permissões concedidas continuam cifradas e disponíveis ao MCP após reinício.

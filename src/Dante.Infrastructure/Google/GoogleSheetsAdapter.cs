@@ -244,6 +244,10 @@ public sealed class GoogleSheetsAdapter(GoogleOAuthService autenticacao, HttpCli
                         throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.NaoEncontrada,
                             "Planilha não encontrada para a conta conectada" + Detalhe(mensagem));
                     case HttpStatusCode.BadRequest:
+                        if (mensagem?.Contains("not supported for this document", StringComparison.OrdinalIgnoreCase) == true)
+                            throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.NaoSuportada,
+                                "Este documento não é uma planilha nativa do Google Sheets. Para XLSX no Drive, habilite " +
+                                "Google__PermitirXlsxNoDrive=true e a API do Drive e reconecte com /google connect.");
                         throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.Invalida,
                             "O Google Sheets recusou o pedido" + Detalhe(mensagem));
                     default:

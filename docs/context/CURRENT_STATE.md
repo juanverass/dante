@@ -93,6 +93,9 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   `dante_planilhas` (Claude e Codex), com ferramentas genéricas para descrever, ler intervalos A1, buscar texto,
   atualizar células/intervalos, escrever por referência e acrescentar linhas; leitura sem aprovação, escrita pelo modo
   da sessão, alvo ambíguo/fórmula/mesclagem/limpeza em massa recusados, valor anterior e auditoria local por célula;
+  XLSX existente no Drive tem caminho opcional por ID, sem conversão: habilitar API Drive,
+  `Google__PermitirXlsxNoDrive=true` e reconectar. Mantém formato/ID/estilos e partes não
+  alteradas, com versão esperada e ETag/If-Match; leitura bruta e cache de fórmulas, sem cálculo local;
 - `/use @alias`, `/use general` e `/use`: repositório ativo por usuário, persistido em
   `~/.dante/settings.json` e usado por toda execução sem `@alias` explícito (AD-14);
 - resolvedor único de agente e contexto (AD-27): `/claude`/`/codex` → agente padrão;
@@ -628,3 +631,14 @@ planilha de treino é cenário E2E sobre o emulador da API, sem código de trein
 `LivePlanilhasEvidenceTests` cobre a planilha real (opt-in). Spike com as CLIs reais (Claude Code
 2.1.287, codex-cli 0.159.3) confirmou o servidor MCP do Worker, leitura sem aprovação e escrita por
 aprovação. [Guia](../development/planilhas.md).
+
+A ampliação da #224 acrescenta `GooglePlanilhasAdapter`, que seleciona por MIME o adapter
+Sheets existente ou `GoogleDriveXlsxAdapter` (Drive v2, que conserva Files.etag). XLSX usa
+`DocumentoXlsx` em memória, sem pacote novo: lê shared strings, valores, fórmulas em cache
+e mesclagens; escreve células e acrescenta linha sem alterar o formato/ID. Application
+propaga revisão esperada e observações neutras. Permissão Drive é opt-in na autorização,
+persistida na credencial cifrada para o processo MCP. Versão divergente/If-Match 412, ETag
+ausente/fraco, aba protegida, assinatura ou alvo em fórmula compartilhada/matricial recusam
+escrita. Sem recálculo ou reprodução de formatos de exibição; limites no guia. Testes
+emulados cobrem preservação, conflitos, OAuth, MCP e proteções. XLSX real ainda exige o
+teste opt-in com a autorização do usuário.

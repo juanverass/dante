@@ -1,8 +1,9 @@
-# Planilhas: Google Sheets como ferramenta genérica (#224, AD-55)
+# Planilhas: Google Sheets e XLSX no Drive (#224, AD-55)
 
 O D.A.N.T.E. oferece aos agentes uma capacidade **genérica** de planilhas: ler, localizar,
 interpretar e editar qualquer planilha que o usuário cadastrou, sem conhecer o domínio dos
 dados (finanças, treino, faculdade...). Google Sheets é o primeiro provedor.
+Arquivos XLSX existentes no Drive também podem ser cadastrados, mantendo formato e ID.
 
 ```text
 Domínio do usuário ──► Claude / Codex (interpreta intenção e estrutura)
@@ -11,7 +12,9 @@ Domínio do usuário ──► Claude / Codex (interpreta intenção e estrutura
                   PlanilhasAppService (contratos genéricos)
                             │ IPlanilhaService / IConexaoDePlanilha
                             ▼
-              GoogleSheetsAdapter + GoogleOAuthService ──► Google Sheets API v4
+              GooglePlanilhasAdapter + GoogleOAuthService
+                    ├── GoogleSheetsAdapter ──► Google Sheets API v4
+                    └── GoogleDriveXlsxAdapter ──► Drive API v2 + DocumentoXlsx
 ```
 
 O adapter conhece planilhas, abas, intervalos A1, células, fórmulas, mesclagens e
@@ -65,6 +68,60 @@ Depois, converse normalmente — "leia a aba Financeiro e me diga quanto gastei 
 iniciadas **com a conta conectada** recebem o servidor MCP `dante_planilhas`; sessões já
 abertas antes de conectar precisam ser reiniciadas (`/session stop` e nova mensagem).
 
+## Habilitar XLSX existente no Google Drive
+
+A interface web do Google Sheets edita arquivos Office no formato original, mas essa
+capacidade não faz parte da API Sheets. Para XLSX, o D.A.N.T.E. acessa o arquivo pela API
+do Drive, baixa o pacote OOXML em memória, altera os valores alvo e envia uma nova revisão
+ao **mesmo ID**, sem converter para Google Sheets nem criar outra planilha.
+
+1. No mesmo projeto do cliente OAuth, habilite também a **Google Drive API**.
+   Na tela de consentimento, acrescente o escopo `https://www.googleapis.com/auth/drive`.
+2. No ambiente do serviço, adicione `Google__PermitirXlsxNoDrive=true` e reinicie.
+3. Em `/google connect`, autorize novamente, incluindo o acesso ao Drive. A autorização
+   antiga de Sheets não dá acesso ao conteúdo binário do XLSX.
+4. Cadastre o arquivo pelo ID, pelo link de edição do Sheets ou pelo link
+   `https://drive.google.com/file/d/<id>/view`, com o mesmo `/planilha add`.
+5. Reinicie sessões abertas antes da reconexão e use os mesmos pedidos e ferramentas.
+
+A opção solicita o escopo `https://www.googleapis.com/auth/drive`, que permite ler e
+alterar arquivos da conta. A implementação só acessa os IDs cadastrados; não oferece
+listagem genérica, exclusão ou busca de arquivos no Drive. `drive.file` não basta para um
+arquivo existente identificado apenas por URL/ID: exige seleção/compartilhamento com o app
+via Picker, que esta integração não possui. Sem a opção, OAuth continua pedindo somente
+Sheets, openid e e-mail. O escopo concedido fica na credencial cifrada, inclusive para o
+processo MCP renovar acesso sem receber segredos ou opções pela linha de comando.
+Para voltar à autorização somente Sheets, desabilite a opção e reconecte.
+
+No XLSX:
+
+- números são lidos em formato bruto; datas podem aparecer como números seriais;
+- fórmulas e o último resultado salvo são lidos, sem motor de cálculo local. Após a
+  escrita, o editor precisa recalcular; o resultado em cache pode continuar antigo até
+  isso acontecer. Essas limitações acompanham metadados, leitura e busca no MCP;
+- números e booleanos JSON mantêm seus tipos. Texto fica literal, exceto `=...`, que
+  grava uma fórmula. Use número JSON para `119.90`, em vez de texto `"119,90"`;
+- estilos da célula e conteúdo fora do alvo são conservados. Partes não alteradas do
+  pacote (estilos, imagens, gráficos, outras abas, strings compartilhadas) mantêm seus
+  bytes; a aba alvo é reserializada sem mudar seus demais elementos;
+- antes da escrita, cada intervalo validado fornece uma revisão esperada. O adapter
+  confere a versão após baixar e antes de enviar, e usa `If-Match` com o ETag do recurso.
+  Drive **v2** é usado neste caminho porque expõe `Files.etag`, removido da v3. ETag
+  ausente/fraco ou mudança de revisão recusam a escrita;
+- upload com falha de rede/5xx não é repetido automaticamente: confira o arquivo antes
+  de tentar outra vez. Leituras repetem 429/5xx e 401 renova o token uma vez;
+- acréscimo de linha escreve após o primeiro bloco contínuo nas colunas do intervalo,
+  sem inserir linhas; não sobrescreve células ocupadas e recusa aba com tabela estruturada;
+- arquivos assinados, abas protegidas e alvos em fórmulas compartilhadas/matriciais não
+  são editados. XLSX Strict, outras variantes Office, macros e edição de estrutura não
+  são suportados. Limites: 25 MB compactado, 100 MB expandido, 200 mil células por aba;
+  busca densa limitada a 250 mil posições (restrinja o intervalo se necessário).
+
+Fontes oficiais: [edição Office na interface](https://support.google.com/a/users/answer/9331167),
+[permissões do Drive](https://developers.google.com/workspace/drive/api/guides/api-specific-auth),
+[recurso v2 e ETag](https://developers.google.com/workspace/drive/api/reference/rest/v2/files),
+[upload v2](https://developers.google.com/workspace/drive/api/reference/rest/v2/files/update).
+
 ## Ferramentas do agente
 
 | Ferramenta | Tipo | O que faz |
@@ -83,7 +140,7 @@ A representação mantém as coordenadas (`B12 = "25"`, `E5 = "22" (fórmula =D5
 final ser determinística. As instruções do servidor orientam o trabalho progressivo:
 metadados → abas → região pequena → busca → região relevante → escrita.
 
-Valores de texto são gravados como digitados por um usuário na localidade da planilha
+No Google Sheets, valores de texto são gravados como digitados por um usuário na localidade da planilha
 (`"129,90"` vira número em pt_BR; `"=A1*2"` vira fórmula); números e booleanos JSON são
 gravados como tais; `null`/`""` limpa a célula. Só valores mudam: formatação e células fora
 do alvo ficam intactas.
@@ -137,6 +194,10 @@ Automática: `PlanilhasNucleoTests`, `PlanilhasAppServiceTests`, `GoogleOAuthSer
 (callback loopback real), `GoogleSheetsAdapterTests`, `ServidorMcpDePlanilhasTests`,
 `PlanilhaDeTreinoCenarioTests`, `TelegramPlanilhasTests` e os testes de driver/sessão, com o
 `GoogleSheetsFalso` emulando a API e os endpoints OAuth.
+`GoogleDriveXlsxAdapterTests` usa pacotes XLSX e um emulador do Drive para validar o caminho
+MCP/Application/adapter, preservação de partes e estilos, revisão/If-Match, ambiguidade,
+proteções, permissões, tipos e uploads sem repetição. OAuth testa a opção Drive, a recusa
+sem esse escopo e a permissão persistida após reinício.
 
 Real, opt-in, com a conta conectada e a planilha cadastrada:
 
@@ -148,3 +209,6 @@ dotnet test tests/Dante.Tests --filter LivePlanilhasEvidenceTests
 ```
 
 A célula informada recebe um marcador e volta ao valor anterior.
+O mesmo teste aceita um alias de XLSX no Drive depois da nova autorização. Escolha uma
+célula vazia, sem fórmula, e evite edições simultâneas. A evidência emulada não substitui
+esse teste contra o Google real, incluindo a resposta 412 do upload condicional.

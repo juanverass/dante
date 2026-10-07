@@ -21,7 +21,8 @@ public interface IPlanilhaService
         CancellationToken cancellationToken = default);
 
     // Grava apenas valores (formatação e células fora dos retângulos ficam intactas). Texto é interpretado como
-    // digitado pelo usuário na localidade da planilha.
+    // digitado pelo usuário na localidade da planilha, quando o provider conhece essa localidade.
+    // Providers de arquivo podem exigir número/booleano tipados e informar essa limitação na leitura.
     Task<IReadOnlyList<string>> AtualizarAsync(string idDaPlanilha, IReadOnlyList<ValoresParaEscrita> escritas,
         CancellationToken cancellationToken = default);
 

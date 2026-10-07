@@ -6,4 +6,5 @@ public sealed record ResultadoDaBuscaNaPlanilhaDto
     public IReadOnlyList<string> AbasConsultadas { get; init; } = [];
     public IReadOnlyList<OcorrenciaNaPlanilhaDto> Ocorrencias { get; init; } = [];
     public bool Truncado { get; init; }
+    public string? Observacao { get; init; }
 }

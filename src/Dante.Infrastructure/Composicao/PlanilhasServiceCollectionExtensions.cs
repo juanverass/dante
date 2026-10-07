@@ -24,7 +24,8 @@ internal static class PlanilhasServiceCollectionExtensions
         services.AddSingleton<IPlanilhaService>(provider =>
         {
             var autenticacao = provider.GetRequiredService<GoogleOAuthService>();
-            return new GoogleSheetsAdapter(autenticacao, autenticacao.Http);
+            return new GooglePlanilhasAdapter(autenticacao, new GoogleSheetsAdapter(autenticacao, autenticacao.Http),
+                new GoogleDriveXlsxAdapter(autenticacao, autenticacao.Http));
         });
         services.AddSingleton<ICadastroDePlanilhas>(_ => new CadastroDePlanilhasEmArquivo(diretorio));
         services.AddSingleton<IAuditoriaDePlanilhas>(_ => new AuditoriaDePlanilhasEmArquivo(diretorio));

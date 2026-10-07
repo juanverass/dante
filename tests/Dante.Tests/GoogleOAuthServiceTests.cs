@@ -154,6 +154,33 @@ public sealed class GoogleOAuthServiceTests
         Assert.Contains("ilegível", falha.Message);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task XlsxSolicitaDriveSomentePorOpcaoEExigeAPermissaoConcedida(bool concedida)
+    {
+        using var ambiente = new AmbienteDePlanilhas(conectado: false);
+        using var oauth = new GoogleOAuthService(ambiente.Opcoes with { PermitirXlsxNoDrive = true }, ambiente.Store, ambiente.Http);
+        ambiente.Google.Escopo = GoogleOptions.Escopos + (concedida ? " " + GoogleOptions.EscopoDeDrive : "");
+        var autorizacao = await oauth.IniciarAsync();
+        var parametros = Parametros(autorizacao.Url);
+        Assert.Contains(GoogleOptions.EscopoDeDrive, parametros["scope"].Split(' '));
+        using var navegador = new HttpClient();
+        await navegador.GetAsync($"{parametros["redirect_uri"]}?code=codigo-valido&state={Uri.EscapeDataString(parametros["state"])}");
+        if (!concedida)
+        {
+            var falha = await Assert.ThrowsAsync<FalhaDePlanilhaException>(() => autorizacao.Conclusao);
+            Assert.Equal(MotivoDaFalhaDePlanilha.SemPermissao, falha.Motivo);
+            Assert.False(ambiente.Store.Existe);
+            return;
+        }
+        Assert.True((await autorizacao.Conclusao).Conectada);
+        Assert.True(oauth.TemPermissaoDeDrive);
+        using var reiniciado = new GoogleOAuthService(new GoogleOptions(), ambiente.Store, ambiente.Http);
+        Assert.True(reiniciado.TemPermissaoDeDrive);
+        Assert.DoesNotContain(GoogleSheetsFalso.RefreshToken, autorizacao.Url.AbsoluteUri);
+    }
+
     private static Dictionary<string, string> Parametros(Uri url) => url.Query.TrimStart('?').Split('&')
         .Select(par => par.Split('=', 2)).ToDictionary(par => par[0], par => Uri.UnescapeDataString(par[1]));
 

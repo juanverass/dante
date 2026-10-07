@@ -29,6 +29,9 @@ public sealed class GoogleOAuthService(GoogleOptions opcoes, GoogleCredentialSto
     private string? problema;
 
     internal HttpClient Http => http;
+    // A permissão concedida fica na credencial cifrada, também disponível no processo MCP.
+    internal bool TemPermissaoDeDrive => store.Carregar()?.Escopos.Split(' ').Contains(GoogleOptions.EscopoDeDrive,
+        StringComparer.Ordinal) == true;
 
     public Task<EstadoDaConexaoDto> ObterEstadoAsync(CancellationToken cancellationToken = default)
     {
@@ -73,7 +76,7 @@ public sealed class GoogleOAuthService(GoogleOptions opcoes, GoogleCredentialSto
             ["client_id"] = opcoes.ClientId!,
             ["redirect_uri"] = redirect,
             ["response_type"] = "code",
-            ["scope"] = GoogleOptions.Escopos,
+            ["scope"] = opcoes.EscoposSolicitados,
             ["code_challenge"] = challenge,
             ["code_challenge_method"] = "S256",
             ["state"] = state,
@@ -246,6 +249,9 @@ public sealed class GoogleOAuthService(GoogleOptions opcoes, GoogleCredentialSto
         if (!escopos.Split(' ').Contains(GoogleOptions.EscopoDePlanilhas, StringComparer.Ordinal))
             throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.SemPermissao,
                 "a permissão de planilhas não foi concedida; conecte de novo marcando o acesso ao Google Sheets.");
+        if (opcoes.PermitirXlsxNoDrive && !escopos.Split(' ').Contains(GoogleOptions.EscopoDeDrive, StringComparer.Ordinal))
+            throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.SemPermissao,
+                "a permissão do Drive para XLSX não foi concedida; conecte de novo marcando o acesso ao Drive.");
         var conta = Email(Texto(corpo, "id_token"));
         var agora = relogio.GetUtcNow();
         await gate.WaitAsync(cancellationToken);
