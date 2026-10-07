@@ -48,10 +48,18 @@ public sealed class TelegramPlanilhasTests
         var desfecho = new TaskCompletionSource<string>();
         var resposta = await comandos.GoogleAsync("connect", texto => { desfecho.SetResult(texto); return Task.CompletedTask; },
             CancellationToken.None);
-        var link = new Uri(resposta.Split('\n')[^1]);
+        // O Telegram termina o link no primeiro espaço: a linha precisa chegar inteira e já codificada, com todos os
+        // parâmetros que o Google exige.
+        var linha = resposta.Split('\n')[^1];
+        Assert.DoesNotContain(' ', linha);
+        var link = new Uri(linha);
+        Assert.Equal(linha, link.AbsoluteUri);
         Assert.Equal("accounts.google.com", link.Host);
         Assert.DoesNotContain("segredo-do-cliente", resposta);
         var consulta = link.Query.TrimStart('?').Split('&').Select(p => p.Split('=', 2)).ToDictionary(p => p[0], p => Uri.UnescapeDataString(p[1]));
+        Assert.Equal(GoogleOptions.Escopos, consulta["scope"]);
+        Assert.Equal("S256", consulta["code_challenge_method"]);
+        Assert.NotEmpty(consulta["code_challenge"]);
         using var navegador = new HttpClient();
         await navegador.GetAsync($"{consulta["redirect_uri"]}?state={Uri.EscapeDataString(consulta["state"])}&code=codigo-valido");
         var aviso = await desfecho.Task.WaitAsync(TimeSpan.FromSeconds(10));

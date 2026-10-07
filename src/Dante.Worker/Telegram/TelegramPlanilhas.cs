@@ -25,9 +25,11 @@ public sealed class TelegramPlanilhas(IServiceScopeFactory scopes, ILogger<Teleg
                 case "connect":
                     var autorizacao = await planilhas.IniciarConexaoAsync(cancellationToken);
                     _ = AcompanharAsync(autorizacao, notificar);
+                    // AbsoluteUri, não ToString(): ToString() desfaz o percent-encoding, e os espaços de scope cortam o
+                    // link no Telegram, que perde code_challenge e state e é bloqueado pelo Google.
                     return "Abra este link no navegador deste computador (o Google volta para um endereço local do D.A.N.T.E.), " +
                            $"entre na conta e autorize o acesso às planilhas. O link vale até {autorizacao.ExpiraEm:HH:mm} UTC.\n" +
-                           autorizacao.Url;
+                           autorizacao.Url.AbsoluteUri;
                 case "disconnect":
                     return await planilhas.DesconectarAsync(cancellationToken)
                         ? "Conta Google desconectada: o acesso foi revogado e a credencial local apagada."
