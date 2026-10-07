@@ -1,6 +1,7 @@
 using Dante.Worker.Artifacts;
 using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
+using Dante.Worker.Planilhas;
 using Dante.Worker.Sessions;
 using Dante.Worker.Telegram;
 using Microsoft.Extensions.Configuration;
@@ -27,6 +28,8 @@ internal static class WorkerComposition
         // Brain metrics (#148) observe the session events on their way to the showcase and the delivery.
         services.AddSingleton<IAgentSessionEventSink>(provider => new MetricasDeSessaoDoBrain(
             provider.GetRequiredService<TelegramShowcase>(), provider.GetRequiredService<TelegramBrain>()));
+        services.AddSingleton<IAgentToolServers, FerramentasDePlanilhaParaAgentes>();
+        services.AddSingleton<TelegramPlanilhas>();
         services.AddSingleton<SessionRegistry>();
         services.AddSingleton(_ => new AttachmentStore());
         services.AddSingleton(_ => new ArtifactStore());

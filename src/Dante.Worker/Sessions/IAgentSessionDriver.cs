@@ -8,7 +8,8 @@ public sealed record AgentSessionStartOptions(
     bool IsGeneral = false,
     IReadOnlyDictionary<string, string>? EnvironmentVariables = null,
     AgentPermissionProfile Profile = AgentPermissionProfile.Manual,
-    AgentModelSelection? ModelSelection = null);
+    AgentModelSelection? ModelSelection = null,
+    IReadOnlyList<AgentToolServer>? ToolServers = null);
 
 // Upstream session id (Claude session_id, Codex thread.id) and the OS id of the process that serves it. Model is the
 // model the CLI reports for the session when it says so at start (Codex thread/start), even without a selection.

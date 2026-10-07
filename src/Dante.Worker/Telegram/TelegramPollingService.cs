@@ -35,7 +35,8 @@ public sealed partial class TelegramPollingService(
     TelegramShowcase? showcase = null,
     IUsageQuotaReader? usage = null,
     TelegramBrain? brain = null,
-    IContinuidadeDoBrain? continuidade = null) : BackgroundService
+    IContinuidadeDoBrain? continuidade = null,
+    TelegramPlanilhas? planilhas = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private const string EffortOption = "effort=";
@@ -236,6 +237,14 @@ public sealed partial class TelegramPollingService(
         if (string.Equals(command, "/uso", StringComparison.OrdinalIgnoreCase))
         {
             await SendReplyAsync(message.Chat.Id, await HandleUsageCommandAsync(prompt, cancellationToken), cancellationToken);
+            return;
+        }
+
+        if (string.Equals(command, "/google", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(command, "/planilhas", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(command, "/planilha", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleSpreadsheetCommandAsync(message.Chat.Id, command.ToLowerInvariant(), prompt, cancellationToken);
             return;
         }
 

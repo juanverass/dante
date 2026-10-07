@@ -74,6 +74,18 @@ internal static class TelegramCommandHelp
             "Substitua o caminho fictício pelo seu. env set é só para valores não sensíveis; " +
             "env bind referencia o nome de uma variável já definida no host, sem enviar o segredo pelo Telegram."),
 
+        new("/google", "PLANILHAS", "Conecte, consulte ou desconecte a conta Google usada pelas planilhas.",
+            "/google connect\n/google status\n/google disconnect",
+            "connect devolve um link para abrir no navegador deste computador; o Google volta para um endereço local do " +
+            "D.A.N.T.E. e o resultado chega aqui. A credencial fica cifrada no host e nunca passa pelo Telegram. disconnect " +
+            "revoga o acesso e apaga a credencial. Novas sessões recebem as ferramentas de planilha quando a conta está conectada."),
+        new("/planilhas", "PLANILHAS", "Liste a conexão e as planilhas cadastradas.", "/planilhas"),
+        new("/planilha", "PLANILHAS", "Cadastre, consulte ou remova uma planilha pela URL ou Spreadsheet ID.",
+            "/planilha add financas https://docs.google.com/spreadsheets/d/ID_FICTICIO/edit gastos mensais\n/planilha show financas\n/planilha remove financas",
+            "add <alias> <url ou id> [descrição] confirma o acesso e guarda o alias; show mostra abas, área usada e mesclagens; " +
+            "remove tira do cadastro sem alterar a planilha. Depois converse normalmente (\"quanto gastei em setembro na " +
+            "planilha financas?\"): o agente lê, busca e edita pelas ferramentas de planilha, e escritas seguem o modo de aprovação."),
+
         new("/approve", "INTERAÇÃO HUMANA", "Fallback contextual: aprove uma ação uma vez, quando o agente pedir.",
             "/approve S000001 T000002 R000003"),
         new("/approve-session", "INTERAÇÃO HUMANA", "Fallback contextual: aprove na sessão, somente quando o agente oferecer essa opção.",

@@ -557,6 +557,32 @@ public sealed class ClaudeSessionDriverTests
     }
 
     // Events up to and including the TurnCompletedEvent.
+    // #224: tool servers go to the CLI as --mcp-config (kept with --strict-mcp-config in General Mode); read-only tools
+    // are pre-allowed, every other tool keeps going through the permission mode and can_use_tool.
+    [Fact]
+    public async Task ToolServersBecomeMcpConfigAndOnlyReadOnlyToolsArePreAllowed()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new ClaudeSessionDriver(launcher);
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, IsGeneral: true, ToolServers:
+        [
+            new AgentToolServer("dante_planilhas", "/usr/bin/dante", ["--mcp-planilhas"],
+                new Dictionary<string, string> { ["HOME"] = "/home/x" }, ["ler_intervalo", "buscar_na_planilha"])
+        ]));
+        var arguments = Assert.Single(launcher.Requests).Arguments.ToList();
+        Assert.Contains("--strict-mcp-config", arguments);
+        var server = System.Text.Json.Nodes.JsonNode.Parse(arguments[arguments.IndexOf("--mcp-config") + 1])!["mcpServers"]!["dante_planilhas"]!;
+        Assert.Equal("""{"type":"stdio","command":"/usr/bin/dante","args":["--mcp-planilhas"],"env":{"HOME":"/home/x"}}""",
+            server.ToJsonString());
+        Assert.Equal("mcp__dante_planilhas__ler_intervalo,mcp__dante_planilhas__buscar_na_planilha",
+            arguments[arguments.IndexOf("--allowedTools") + 1]);
+
+        var semFerramentas = new ProbeLauncher();
+        await using var outro = new ClaudeSessionDriver(semFerramentas);
+        await outro.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        Assert.DoesNotContain("--mcp-config", Assert.Single(semFerramentas.Requests).Arguments);
+    }
+
     private static async Task<List<AgentEvent>> ReadTurnAsync(IAsyncEnumerator<AgentEvent> events)
     {
         var turn = new List<AgentEvent>();

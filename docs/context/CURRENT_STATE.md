@@ -7,7 +7,7 @@ histórico consolidado fica em [DEVELOPMENT_HISTORY](DEVELOPMENT_HISTORY.md).
 Estado de Issues em andamento (worker, branch, handoff) **não** vive aqui: vive nas
 próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitHub.
 
-Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199), e composição modular da Infrastructure (#200), e ownership da composição na Application (#208), e regras arquiteturais executáveis da Application (#209).
+Última revisão: 2026-10-06, com isolamento (#150), fontes (#158), auditoria/exportação (#149), construção seletiva de contexto (#140), Brain por conversa natural (#157), continuidade do Brain nas sessões (#145) e métricas de continuidade (#148), e estrutura física da Infrastructure (#196), e convenção feature-first da Application (#203), e mappings da Application por feature (#204), e validação de entrada da Application (#205), e decomposição da conversa Brain (#206), e políticas puras de qualidade/contexto/métricas (#207), e administração de banco/migrations (#199), e composição modular da Infrastructure (#200), e ownership da composição na Application (#208), e regras arquiteturais executáveis da Application (#209), e Google Sheets como ferramenta genérica de planilhas (#224).
 
 ## Marcos
 
@@ -87,6 +87,15 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   etiquetas), e o envia pelo canal de arquivos da #97. Ajustes são novos `/vitrine` na mesma conversa e geram versões
   `vitrine-T…-vN.png`; exige sessão ociosa; sem `ffmpeg`, recusa antes do agente; fonte Inter quando instalada, senão
   DejaVu Sans;
+- planilhas (#224, AD-55): `/google connect|status|disconnect` conecta uma conta Google por OAuth local (callback
+  loopback no WSL, PKCE, credencial cifrada, renovação automática, revogação) e `/planilha add|show|remove` e
+  `/planilhas` cadastram planilhas por URL/ID com alias. Sessões iniciadas com a conta conectada recebem o servidor MCP
+  `dante_planilhas` (Claude e Codex), com ferramentas genéricas para descrever, ler intervalos A1, buscar texto,
+  atualizar células/intervalos, escrever por referência e acrescentar linhas; leitura sem aprovação, escrita pelo modo
+  da sessão, alvo ambíguo/fórmula/mesclagem/limpeza em massa recusados, valor anterior e auditoria local por célula;
+  XLSX existente no Drive tem caminho opcional por ID, sem conversão: habilitar API Drive,
+  `Google__PermitirXlsxNoDrive=true` e reconectar. Mantém formato/ID/estilos e partes não
+  alteradas, com versão esperada e ETag/If-Match; leitura bruta e cache de fórmulas, sem cálculo local;
 - `/use @alias`, `/use general` e `/use`: repositório ativo por usuário, persistido em
   `~/.dante/settings.json` e usado por toda execução sem `@alias` explícito (AD-14);
 - resolvedor único de agente e contexto (AD-27): `/claude`/`/codex` → agente padrão;
@@ -166,6 +175,10 @@ Detalhes de uso: [README](../../README.md).
 - a validação real foi feita contra as CLIs instaladas com a API do Telegram simulada; o
   dogfooding pelo Telegram real depende do bot do usuário;
 - sem CI no GitHub: validação é local;
+- planilhas (#224): só Google Sheets; o servidor MCP só entra em sessões iniciadas depois de conectar a conta; one-shot
+  (`/claude`, `/codex`) não recebe as ferramentas; o link de `/google connect` só funciona no navegador do próprio
+  computador; sem exclusão de linhas/abas, formatação, gráficos ou descoberta pelo Drive; a validação real com a conta e a
+  planilha de treino do usuário é o `LivePlanilhasEvidenceTests`, opt-in (`DANTE_LIVE_GOOGLE=1`), ainda não executado;
 - áudio e vídeo chegam ao agente só como transcrição e quadros amostrados (nenhuma CLI recebe o arquivo); a
   transcrição é automática e local, e o vídeo é visto só nos quadros amostrados; animações (GIF) são recusadas;
 - one-shot (`/claude`, `/codex`) não envia arquivos gerados: o `codex exec` não informa onde salvou a imagem;
@@ -605,3 +618,40 @@ Infrastructure registra apenas adapters técnicos. Validators/policies estático
 continuam puros. DI do DbContext exige autorização, sem fallback administrativo
 quando AddApplication é omitido. Testes de composição resolvem a lista integral
 com adapters e um CRUD com fakes sem Infrastructure (AD-54).
+
+## Planilhas genéricas (#224)
+
+Feature `Planilhas` na Application (AD-55) com contratos provider-agnostic e sem domínio:
+`PlanilhasAppService` sobre `IPlanilhaService`, `IConexaoDePlanilha`, `ICadastroDePlanilhas` e
+`IAuditoriaDePlanilhas`. A Infrastructure implementa Google Sheets por HTTP (OAuth local com PKCE e
+credencial AES-GCM; adapter com renovação após 401 e repetição de 429/5xx), cadastro e auditoria em
+`~/.dante/planilhas`. O Worker expõe a capacidade às sessões por MCP stdio (`--mcp-planilhas`) e
+mapeia a aprovação MCP do Codex (`mcpServer/elicitation/request`) para o fluxo de aprovações. A
+planilha de treino é cenário E2E sobre o emulador da API, sem código de treino na produção; o
+`LivePlanilhasEvidenceTests` cobre a planilha real (opt-in). Spike com as CLIs reais (Claude Code
+2.1.287, codex-cli 0.159.3) confirmou o servidor MCP do Worker, leitura sem aprovação e escrita por
+aprovação. [Guia](../development/planilhas.md).
+
+A ampliação da #224 acrescenta `GooglePlanilhasAdapter`, que seleciona por MIME o adapter
+Sheets existente ou `GoogleDriveXlsxAdapter` (Drive v2, que conserva Files.etag). XLSX usa
+`DocumentoXlsx` em memória, sem pacote novo: lê shared strings, valores, fórmulas em cache
+e mesclagens; escreve células e acrescenta linha sem alterar o formato/ID. Application
+propaga revisão esperada e observações neutras. Permissão Drive é opt-in na autorização,
+persistida na credencial cifrada para o processo MCP. Versão divergente/If-Match 412, ETag
+ausente/fraco, aba protegida, assinatura ou alvo em fórmula compartilhada/matricial recusam
+escrita. Sem recálculo ou reprodução de formatos de exibição; limites no guia. Testes
+emulados cobrem preservação, conflitos, OAuth, MCP e proteções. O teste opt-in no XLSX real do Drive
+comprovou escrita, leitura posterior e restauração no mesmo arquivo, com autorização do
+usuário. Leituras do teste repetem apenas conflitos transitórios de revisão após upload;
+escritas não são reaplicadas automaticamente. HTTP 412 real não foi provocado; proteção
+condicional continua coberta pelo emulador.
+
+A correção de review da #224 limita busca/valores Sheets a 250 mil posições e respostas a
+16 MB; descrição de grades maiores não calcula área usada. Append não repete rede/5xx
+com resultado incerto. Cadastro/auditoria têm lock de arquivo entre processos; falha de
+auditoria após escrita informa que a operação foi aplicada e não deve ser repetida.
+Cadastro por alias/ID e mutações de regiões são atômicos sob o lock entre processos,
+incluindo validação e leitura do estado atual. MCP anuncia sobrescritas de valores
+com destructiveHint=true.
+Revogação Google só é confirmada em sucesso; configuração DANTE_GOOGLE_KEY é recusada
+para evitar incompatibilidade com MCP, e segredo OAuth/chave são filtrados dos agentes.

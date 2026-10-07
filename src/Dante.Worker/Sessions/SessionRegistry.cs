@@ -17,7 +17,8 @@ public sealed class SessionRegistry(
     IAgentSessionEventSink? sink = null,
     SessionIdGenerator? ids = null,
     TimeSpan? requestTimeout = null,
-    AttachmentStore? attachments = null) : IAsyncDisposable, IDisposable
+    AttachmentStore? attachments = null,
+    IAgentToolServers? toolServers = null) : IAsyncDisposable, IDisposable
 {
     private const int RecentEndedLimit = 20;
     private const string RestartNotice = "Sessões existem só em memória e não sobrevivem ao reinício do Worker.";
@@ -71,7 +72,9 @@ public sealed class SessionRegistry(
                 request.Context.Mode == JobExecutionMode.General,
                 request.EnvironmentVariables,
                 request.Profile,
-                request.ModelSelection), cancellationToken);
+                request.ModelSelection,
+                toolServers is null ? null : await toolServers.ForAsync(request.OwnerUserId, request.Agent, cancellationToken)),
+                cancellationToken);
             entry.ReportedModel = started.Model;
             entry.Session.MarkStarted(started);
         }

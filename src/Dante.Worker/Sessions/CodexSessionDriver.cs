@@ -21,6 +21,8 @@ public sealed class CodexSessionDriver(
     private readonly TimeSpan compactTimeout = compactTimeout ?? TimeSpan.FromMinutes(10);
     private static readonly TimeSpan InterruptedOperationGrace = TimeSpan.FromSeconds(30);
     private const string UserInputMethod = "item/tool/requestUserInput";
+    // MCP tool approval of the app-server (0.159.3): an elicitation with _meta.codex_approval_kind = mcp_tool_call (#224).
+    private const string ElicitationMethod = "mcpServer/elicitation/request";
     private static readonly TimeSpan CloseGracePeriod = TimeSpan.FromSeconds(10);
 
     // Bounded like the process output (AD-17): a slow consumer pauses the reader and, through the pipe, the agent.
@@ -68,7 +70,7 @@ public sealed class CodexSessionDriver(
         var request = new AgentProcessRequest(
             AgentKind.Codex,
             options.WorkingDirectory,
-            ["app-server", "--listen", "stdio://"],
+            ["app-server", "--listen", "stdio://", .. McpConfig(options.ToolServers)],
             options.IsGeneral,
             options.EnvironmentVariables);
         var agent = await launcher.StartAsync(request, cancellationToken: cancellationToken);
@@ -429,9 +431,12 @@ public sealed class CodexSessionDriver(
         var agent = RequireOpen();
         foreach (var request in pending)
         {
-            await WriteAsync(agent, Response(request.Id, request.Method == UserInputMethod
-                ? new JsonObject { ["answers"] = new JsonObject() }
-                : new JsonObject { ["decision"] = "cancel" }), cancellationToken);
+            await WriteAsync(agent, Response(request.Id, request.Method switch
+            {
+                UserInputMethod => new JsonObject { ["answers"] = new JsonObject() },
+                ElicitationMethod => new JsonObject { ["action"] = "cancel", ["content"] = null },
+                _ => new JsonObject { ["decision"] = "cancel" }
+            }), cancellationToken);
         }
 
         if (turn is null)
@@ -478,6 +483,10 @@ public sealed class CodexSessionDriver(
 
             result = (pending.Method == UserInputMethod, response) switch
             {
+                (false, AgentApprovalResponse approval) when pending.Method == ElicitationMethod => new JsonObject
+                {
+                    ["action"] = approval.Decision == AgentApprovalDecision.Deny ? "decline" : "accept", ["content"] = null
+                },
                 (false, AgentApprovalResponse approval) => new JsonObject { ["decision"] = Decision(approval) },
                 (true, AgentInputResponse answers) => InputResult(pending, answers),
                 _ => throw new ArgumentException(
@@ -531,6 +540,36 @@ public sealed class CodexSessionDriver(
 
         await lifetime.CancelAsync();
         End(null);
+    }
+
+    // -c overrides that declare the D.A.N.T.E. tool servers to the app-server (#224); TOML accepts JSON strings and arrays.
+    // Read-only tools are annotated readOnlyHint by the server, so Codex runs them without an approval.
+    private static IEnumerable<string> McpConfig(IReadOnlyList<AgentToolServer>? servers)
+    {
+        foreach (var server in servers ?? [])
+        {
+            var prefix = $"mcp_servers.{server.Name}";
+            yield return "-c";
+            yield return $"{prefix}.command={JsonSerializer.Serialize(server.Command)}";
+            yield return "-c";
+            yield return $"{prefix}.args={JsonSerializer.Serialize(server.Arguments)}";
+            yield return "-c";
+            yield return $"{prefix}.env={{{string.Join(", ", server.Environment.Select(pair => $"{pair.Key} = {JsonSerializer.Serialize(pair.Value)}"))}}}";
+            yield return "-c";
+            yield return $"{prefix}.startup_timeout_sec=30";
+        }
+    }
+
+    // "Allow the X MCP server to run tool \"y\"?" plus the tool parameters: what the user approves.
+    private static string McpToolAction(JsonObject parameters, JsonObject meta)
+    {
+        var message = GetString(parameters, "message") ?? "";
+        var start = message.IndexOf("tool \"", StringComparison.Ordinal);
+        var end = start < 0 ? -1 : message.IndexOf('"', start + 6);
+        var tool = start >= 0 && end > start ? message[(start + 6)..end] : "ferramenta";
+        var arguments = meta["tool_params"]?.ToJsonString() ?? "{}";
+        if (arguments.Length > 800) arguments = arguments[..800] + "…";
+        return $"{GetString(parameters, "serverName") ?? "mcp"}.{tool} {arguments}";
     }
 
     // approvalPolicy and sandbox of thread/start. No profile reaches danger-full-access; that choice is #67's.
@@ -716,8 +755,25 @@ public sealed class CodexSessionDriver(
                 pending = new PendingServerRequest(id.DeepClone(), method, [.. questions.Select(q => q.Id)]);
                 requested = new UserInputRequestedEvent(upstreamId, questions);
                 break;
+            case ElicitationMethod when parameters["_meta"] is JsonObject meta &&
+                                        GetString(meta, "codex_approval_kind") == "mcp_tool_call":
+                bool planning;
+                lock (gate) planning = profile == AgentPermissionProfile.Plan;
+                if (planning)
+                {
+                    // Planning never changes anything outside the conversation: an MCP tool that writes is declined.
+                    await WriteAsync(RequireOpen(), Response(id.DeepClone(), new JsonObject
+                    {
+                        ["action"] = "decline", ["content"] = null
+                    }), lifetime.Token);
+                    return;
+                }
+
+                pending = new PendingServerRequest(id.DeepClone(), method, []);
+                requested = new ApprovalRequestedEvent(upstreamId, AgentToolKind.Tool, McpToolAction(parameters, meta));
+                break;
             default:
-                // Elicitation, permission profiles, dynamic tools, auth refresh…: not enabled by the D.A.N.T.E.;
+                // Other elicitations, permission profiles, dynamic tools, auth refresh…: not enabled by the D.A.N.T.E.;
                 // an error keeps Codex from waiting forever.
                 await WriteAsync(RequireOpen(), new JsonObject
                 {

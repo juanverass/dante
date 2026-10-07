@@ -4,6 +4,7 @@ using Dante.ProcessProbe;
 
 namespace Dante.Tests;
 
+[Collection("AmbienteDosAgentes")]
 public sealed class AgentProcessExecutorTests
 {
     private static readonly string ProbeAssembly = typeof(ProbeMarker).Assembly.Location;
@@ -65,6 +66,8 @@ public sealed class AgentProcessExecutorTests
     }
 
     [Theory]
+    [InlineData("Google__ClientSecret")]
+    [InlineData("DANTE_GOOGLE_KEY")]
     [InlineData("ConnectionStrings__Dante")]
     [InlineData("DANTE_BRAIN_CONNECTION")]
     [InlineData("PGPASSWORD")]

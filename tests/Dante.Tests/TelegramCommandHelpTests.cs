@@ -22,7 +22,7 @@ public sealed class TelegramCommandHelpTests
     public void OverviewIsSplitIntoReadableCategoriesWithValidExamples()
     {
         var messages = TelegramCommandHelp.Messages("");
-        Assert.Equal(8, messages.Count);
+        Assert.Equal(9, messages.Count);
         Assert.All(messages, message => Assert.InRange(message.Length, 1, 4000));
         var help = string.Join('\n', messages);
         Assert.Contains("/session start codex manual", help);

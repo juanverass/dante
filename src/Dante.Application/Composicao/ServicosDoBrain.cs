@@ -24,6 +24,7 @@ internal static class ServicosDoBrain
         Registrar<Dante.Application.ContextosDeTrabalho.ContextoDeTrabalhoAppService>(services);
         Registrar<Dante.Application.MetricasDoBrain.MetricasDoBrainAppService>(services);
         Registrar<Dante.Application.SegurancaDoBrain.LeituraDoBrainAppService>(services);
+        Registrar<Dante.Application.Planilhas.PlanilhasAppService>(services);
         Registrar<Dante.Application.CapturaDeConhecimento.ICapturaDeConhecimentoAppService, Dante.Application.CapturaDeConhecimento.CapturaDeConhecimentoAppService>(services);
         Registrar<Dante.Application.RelacoesDeConhecimento.IRelacaoDeConhecimentoAppService, Dante.Application.RelacoesDeConhecimento.RelacaoDeConhecimentoAppService>(services);
         Registrar<Dante.Application.EspacosDeConhecimento.IEspacoDeConhecimentoAppService, Dante.Application.EspacosDeConhecimento.EspacoDeConhecimentoAppService>(services);

@@ -1,0 +1,88 @@
+using Dante.Application;
+using Dante.Application.Planilhas;
+using Dante.Infrastructure;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Dante.Tests;
+
+// #224: evidência opt-in contra o Google real, com a conta conectada por /google connect e a planilha cadastrada por
+// /planilha add (a planilha de treino é o cenário pretendido). Lê metadados, busca DANTE_LIVE_GOOGLE_TERMO e, com
+// DANTE_LIVE_GOOGLE_CELULA (ex.: 'Aba'!Z99, uma célula vazia), escreve um marcador e restaura o valor anterior.
+public sealed class LivePlanilhasEvidenceTests
+{
+    [LiveGoogleFact]
+    public async Task PlanilhaRealEDescritaBuscadaEEditadaPelaCapacidadeGenerica()
+    {
+        var alias = Environment.GetEnvironmentVariable("DANTE_LIVE_GOOGLE_PLANILHA")!;
+        var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+        await using var provider = new ServiceCollection().AddApplication().AddInfrastructure(configuration).BuildServiceProvider();
+        await using var scope = provider.CreateAsyncScope();
+        var planilhas = scope.ServiceProvider.GetRequiredService<PlanilhasAppService>();
+        Assert.True((await planilhas.ObterConexaoAsync()).Conectada, "Conecte com /google connect antes.");
+
+        var descricao = await planilhas.DescreverAsync(alias);
+        Assert.NotEmpty(descricao.Planilha.Abas);
+        var primeira = descricao.Planilha.Abas.First(a => a.AreaUsada is not null);
+        var leitura = await planilhas.LerAsync(alias, $"{IntervaloA1.DaAba(primeira.Titulo)}!A1:F10");
+        Assert.NotEmpty(leitura.Celulas);
+        if (Environment.GetEnvironmentVariable("DANTE_LIVE_GOOGLE_TERMO") is { Length: > 0 } termo)
+            Assert.NotEmpty((await planilhas.BuscarAsync(alias, termo)).Ocorrencias);
+
+        if (Environment.GetEnvironmentVariable("DANTE_LIVE_GOOGLE_CELULA") is not { Length: > 0 } celula) return;
+        var origem = new OrigemDaSolicitacao("teste", "LivePlanilhasEvidenceTests");
+        var anterior = (await LerCelulaAposUploadAsync(planilhas, alias, celula)).Celulas.SingleOrDefault();
+        Assert.True(anterior is null || anterior.EstaVazia, "Escolha uma célula vazia, sem fórmula.");
+        var marcador = $"dante-{Guid.NewGuid():N}"[..14];
+        try
+        {
+            await planilhas.AtualizarAsync(new EscritaNaPlanilhaDto
+            {
+                Planilha = alias,
+                Alteracoes = [new AlteracaoDeIntervaloDto
+                {
+                    Intervalo = celula, Valores = [[ValorDeCelula.DeTexto(marcador)]], ValoresEsperados = [[string.Empty]]
+                }]
+            }, origem);
+            Assert.Equal(marcador, (await LerCelulaAposUploadAsync(planilhas, alias, celula)).Celulas.Single().ValorExibido);
+        }
+        finally
+        {
+            // Mesmo se a verificação falhar, restaura apenas se o marcador ainda está no alvo.
+            if ((await LerCelulaAposUploadAsync(planilhas, alias, celula)).Celulas.SingleOrDefault()?.ValorExibido == marcador)
+                await planilhas.AtualizarAsync(new EscritaNaPlanilhaDto
+                {
+                    Planilha = alias,
+                    Alteracoes = [new AlteracaoDeIntervaloDto
+                    {
+                        Intervalo = celula, Valores = [[ValorDeCelula.Vazio]], ValoresEsperados = [[marcador]]
+                    }]
+                }, origem);
+        }
+        Assert.True((await LerCelulaAposUploadAsync(planilhas, alias, celula)).Celulas.SingleOrDefault()?.EstaVazia ?? true);
+
+    }
+
+    // O Drive pode atualizar metadados/revisão enquanto processa um upload já concluído.
+    // Repete somente leitura recusada por conflito; nunca reaplica escrita de resultado incerto.
+    private static async Task<IntervaloDaPlanilhaDto> LerCelulaAposUploadAsync(PlanilhasAppService planilhas,
+        string alias, string celula)
+    {
+        for (var tentativa = 0; ; tentativa++)
+        {
+            try { return await planilhas.LerAsync(alias, celula, 1); }
+            catch (FalhaDePlanilhaException exception) when (exception.Motivo == MotivoDaFalhaDePlanilha.Conflito && tentativa < 9)
+            { await Task.Delay(TimeSpan.FromSeconds(1)); }
+        }
+    }
+
+    private sealed class LiveGoogleFactAttribute : FactAttribute
+    {
+        public LiveGoogleFactAttribute()
+        {
+            if (Environment.GetEnvironmentVariable("DANTE_LIVE_GOOGLE") != "1" ||
+                string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DANTE_LIVE_GOOGLE_PLANILHA")))
+                Skip = "Evidência com o Google real; rode com DANTE_LIVE_GOOGLE=1 e DANTE_LIVE_GOOGLE_PLANILHA=<alias>.";
+        }
+    }
+}

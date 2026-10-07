@@ -1245,6 +1245,8 @@ Atualmente:
 | Perfis de ambiente | `~/.dante/repositories.json` |
 | Valores de bindings secretos | não são persistidos |
 | Workspace geral | `~/.dante/workspaces/general` |
+| Conta Google (refresh token cifrado) | `~/.dante/google/` |
+| Planilhas cadastradas e auditoria de escritas | `~/.dante/planilhas/` |
 | Jobs | somente memória |
 | Histórico de jobs | somente memória |
 | Sessões interativas, turnos, filas e solicitações pendentes | somente memória (perdidas ao reiniciar o Worker) |
@@ -1506,6 +1508,30 @@ Health operacional do host retorna `{"estado":"saudavel"}`. OpenAPI em
 `/openapi/v1.json` está disponível apenas em Development. O host ainda não oferece
 endpoints funcionais do Brain. Veja [operação e contratos HTTP](docs/maintainer/WEBAPI.md).
 
+
+## Planilhas (Google Sheets e XLSX no Drive)
+
+O D.A.N.T.E. dá aos agentes ferramentas genéricas para ler, localizar e editar planilhas que
+você cadastrou. Crie um cliente OAuth do tipo "app para computador" no Google Cloud, defina
+`Google__ClientId` e `Google__ClientSecret` no ambiente do serviço e reinicie
+([passo a passo](docs/development/planilhas.md)). Depois:
+
+```text
+/google connect
+/planilha add financas https://docs.google.com/spreadsheets/d/<id>/edit gastos da casa
+```
+
+Abra o link de `/google connect` no navegador deste computador. Com a conta conectada, novas
+conversas entendem pedidos como "quanto gastei em setembro na planilha financas?" ou
+"atualize o valor da internet para 119,90". Leituras são automáticas; escritas seguem o modo
+da sessão (`manual` pede aprovação) e nunca escolhem sozinhas entre alvos ambíguos.
+`/planilhas` lista o cadastro e `/google disconnect` revoga o acesso.
+
+Para um **XLSX que abre no Google Sheets**, habilite também a Google Drive API, configure
+`Google__PermitirXlsxNoDrive=true`, reinicie e reconecte com `/google connect`, autorizando o
+Drive. Cadastre pelo mesmo link/ID e use as mesmas ferramentas. O arquivo mantém formato
+XLSX e ID; números são brutos e fórmulas usam o resultado salvo, sem recálculo local.
+Veja [permissões, limites e preservação do arquivo](docs/development/planilhas.md#habilitar-xlsx-existente-no-google-drive).
 
 ## Brain por conversa natural
 

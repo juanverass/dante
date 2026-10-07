@@ -64,7 +64,9 @@ internal static class AgentProcessStartInfo
         foreach (var name in startInfo.Environment.Keys.Where(name =>
                      name.Equals("ConnectionStrings__Dante", StringComparison.OrdinalIgnoreCase) ||
                      name.StartsWith("DANTE_BRAIN", StringComparison.OrdinalIgnoreCase) ||
-                     name.StartsWith("PG", StringComparison.OrdinalIgnoreCase)).ToArray())
+                     name.StartsWith("PG", StringComparison.OrdinalIgnoreCase) ||
+                     name.Equals("Google__ClientSecret", StringComparison.OrdinalIgnoreCase) ||
+                     name.Equals("DANTE_GOOGLE_KEY", StringComparison.OrdinalIgnoreCase)).ToArray())
             startInfo.Environment.Remove(name);
 
         foreach (var argument in request.Arguments)
