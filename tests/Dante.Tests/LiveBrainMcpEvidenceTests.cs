@@ -36,7 +36,7 @@ public sealed class LiveBrainMcpEvidenceTests(ITestOutputHelper output)
                 await using var eventos = driver.ReadEventsAsync(timeout.Token).GetAsyncEnumerator();
                 await driver.StartTurnAsync(pedido, timeout.Token); output.WriteLine(await RespostaAsync(driver, eventos, timeout.Token));
                 var duplicado = BrainMcpTests.Mensagem("Use brain_capturar_conhecimento para este mesmo conteúdo e reporte a possível duplicidade retornada, sem confirmar: D.A.N.T.E. significa Distributed Agent Network for Task Execution.", 130);
-                app.GetRequiredService<RegistroDeOperacoesBrain>().Observar(duplicado);
+                ferramentas.BeginTurn("LIVE1", new AgentInput(duplicado.Text!, []) { BrainConversation = duplicado.ParaFerramentas() });
                 await driver.StartTurnAsync(duplicado.Text!, timeout.Token); output.WriteLine(await RespostaAsync(driver, eventos, timeout.Token));
             }
             ferramentas.EndSession("LIVE1");

@@ -1041,7 +1041,7 @@ public sealed partial class TelegramPollingService(
         var brainContext = continuidade is null ? null :
             await continuidade.PrepararAsync(message, sessionId, text, cancellationToken);
         var result = await SessionSubmitAsync(userId, sessionId,
-            new AgentInput(brainContext?.Texto ?? text, images) { Correlation = brainContext?.Correlacao },
+            new AgentInput(brainContext?.Texto ?? text, images) { Correlation = brainContext?.Correlacao, BrainConversation = message.ParaFerramentas() },
             MessageDelivery.Queue, cancellationToken);
         if (brainContext is not null && result.Outcome is SubmitOutcome.TurnStarted or SubmitOutcome.Queued)
             await continuidade!.RegistrarInjecaoAsync(brainContext, cancellationToken);
@@ -1164,7 +1164,7 @@ public sealed partial class TelegramPollingService(
         showcase.Expect(sessionId, userId, chatId);
         var text = TelegramShowcase.RequestText(request, prints,
             images.ToDictionary(image => image.Id, image => image.Name));
-        var result = await SessionSubmitAsync(userId, sessionId, new AgentInput(text, images), MessageDelivery.Queue,
+        var result = await SessionSubmitAsync(userId, sessionId, new AgentInput(text, images) { BrainConversation = message.ParaFerramentas() }, MessageDelivery.Queue,
             cancellationToken);
         if (result.Outcome == SubmitOutcome.Rejected)
         {
@@ -1205,7 +1205,7 @@ public sealed partial class TelegramPollingService(
             await SendReplyAsync(message.Chat.Id, ImagesUnavailable, cancellationToken);
             return;
         }
-        var result = await SessionSubmitAsync(userId, null, new AgentInput(text, images), mode, cancellationToken);
+        var result = await SessionSubmitAsync(userId, null, new AgentInput(text, images) { BrainConversation = message.ParaFerramentas() }, mode, cancellationToken);
         var response = result.Outcome switch
         {
             SubmitOutcome.TurnStarted => $"Turno {result.TurnId} iniciado na sessão {result.SessionId}.",

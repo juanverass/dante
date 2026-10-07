@@ -91,3 +91,9 @@ Com `DANTE_TEST_POSTGRES` definido, cada agente recebe os nomes Desenvolvimento 
 D.A.N.T.E. em banco isolado, captura três itens separadamente pelo MCP stdio,
 confirma um pelo fluxo natural e recupera conhecimento/proveniência em outra sessão.
 A conexão de teste nunca vai à CLI. Não habilite esse teste com banco produtivo.
+
+O MCP usa a mensagem autenticada do turno ativo, preservada junto à entrada na fila.
+Mensagens recebidas/enfileiradas não substituem essa evidência; entradas sem contexto
+autenticado revogam o acesso. Captura e correção factual exigem conteúdo na origem.
+Relações são projetadas somente quando ambos os alvos permitem leitura; sua prova
+bruta não é exposta no canal MCP. Sessão ausente/revogada falha fechado.

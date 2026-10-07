@@ -33,7 +33,7 @@ public sealed class FerramentasDoBrainParaAgentes(TelegramBrain brain, Operacoes
             disponibilidade.CancelAfter(TimeSpan.FromSeconds(5));
             var escopo = await brain.ResolverEscopoMcpAsync(mensagem, disponibilidade.Token);
             if (escopo is null) return [];
-            registro.Observar(mensagem, sessionId);
+            registro.RegistrarSessao(sessionId, mensagem);
             var nome = "dante-brain-" + Guid.NewGuid().ToString("N");
             // Endpoint aleatório, local, same-user e exclusivo desta sessão. Sem token persistente/credenciais.
             var pipe = new NamedPipeServerStream(nome, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
@@ -82,7 +82,7 @@ public sealed class FerramentasDoBrainParaAgentes(TelegramBrain brain, Operacoes
                     }
                     using var documento = JsonDocument.Parse(linha); var pedido = documento.RootElement;
                     var nome = pedido.GetProperty("nome").GetString()!; var argumentos = pedido.GetProperty("argumentos");
-                    var resultado = await operacoes.ExecutarAsync(escopo, registro.Atual(inicial), sessao, agente, nome, argumentos, prazo.Token);
+                    var resultado = await operacoes.ExecutarAsync(escopo, registro.Atual(sessao), sessao, agente, nome, argumentos, prazo.Token);
                     var texto = JsonSerializer.Serialize(resultado);
                     if (texto.Length > 45_000) resposta = ServidorMcpDoBrain.Resultado("Resposta excede o limite; reduza a página ou use consulta mais específica.", true);
                     else resposta = ServidorMcpDoBrain.Resultado(resultado);
@@ -96,6 +96,11 @@ public sealed class FerramentasDoBrainParaAgentes(TelegramBrain brain, Operacoes
         }
         catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException or ArgumentException) { }
         finally { EndSession(sessao); }
+    }
+    public void BeginTurn(string sessionId, AgentInput input)
+    {
+        if (input.BrainConversation is { } contexto) registro.IniciarTurno(sessionId, contexto.ParaMensagem());
+        else registro.Revogar(sessionId); // Entrada sem evidência autenticada não reutiliza a origem anterior.
     }
     public void EndSession(string sessionId)
     {

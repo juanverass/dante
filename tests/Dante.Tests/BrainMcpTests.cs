@@ -48,6 +48,7 @@ public sealed class BrainMcpTests
     public async Task ConfirmacaoSoVemDaConversaCorretaERevogacaoImpedeReuso()
     {
         var registro = new RegistroDeOperacoesBrain(); var m = Mensagem("pedido"); var chamadas = 0;
+        registro.RegistrarSessao("S1", m);
         registro.Propor(m, "S1", (_, _) => { chamadas++; return Task.FromResult("feito"); });
         Assert.Null(await registro.AtenderAsync(m with { From = new(7) }, "confirmar", default));
         Assert.Null(await registro.AtenderAsync(m with { Chat = new(99) }, "confirmar", default));
@@ -79,6 +80,54 @@ public sealed class BrainMcpTests
         Assert.Equal(StatusDoConhecimento.Inferido, item.Status); Assert.Equal(TipoDeConhecimento.Inferencia, item.Tipo);
         Assert.Equal("Título original", JsonNode.Parse(item.DadosEstruturados!)!["titulo"]!.GetValue<string>()); Assert.Equal(["brain"], item.Tags);
         Assert.Equal("Título original", c.Historico[^1].Titulo);
+    }
+    [Fact]
+    public async Task SessaoAusenteOuRevogadaNaoAceitaTurnoNemChamadasConcorrentes()
+    {
+        var registro = new RegistroDeOperacoesBrain(); var m = Mensagem("A");
+        Assert.False(registro.ConversaPermitida("S1", m));
+        registro.RegistrarSessao("S1", m); Assert.True(registro.ConversaPermitida("S1", m));
+        await Task.WhenAll(Task.Run(() => registro.Revogar("S1")), Task.Run(() => registro.IniciarTurno("S1", Mensagem("B", 124))));
+        Assert.False(registro.ConversaPermitida("S1", m));
+        Assert.Throws<UnauthorizedAccessException>(() => registro.Atual("S1"));
+        registro.IniciarTurno("S1", m); Assert.False(registro.ConversaPermitida("S1", m));
+        Assert.Throws<UnauthorizedAccessException>(() => registro.Propor(m, "S1", (_, _) => Task.FromResult("indevido")));
+    }
+    [PostgreSqlFact]
+    public async Task MensagemEnfileiradaSoMudaOrigemQuandoSeuTurnoComeca()
+    {
+        await using var banco = await Banco.CriarAsync(); using var app = CriarApp(banco.ConnectionString);
+        var brain = app.GetRequiredService<TelegramBrain>(); await SelecionarAsync(brain);
+        var registro = app.GetRequiredService<RegistroDeOperacoesBrain>(); using var ferramentas = Provedor(app);
+        var drivers = new FakeSessionDriverFactory();
+        await using var sessoes = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance, toolServers: new CompositorDeFerramentas([ferramentas]));
+        var a = Mensagem("Conteúdo do turno A", 200); var b = Mensagem("Conteúdo do turno B", 201);
+        var inicio = await sessoes.StartAsync(new(42, AgentKind.Codex, JobExecutionContext.General(AppContext.BaseDirectory), BrainConversation: a.ParaFerramentas()));
+        var id = inicio.Session!.Id;
+        Assert.Equal(SubmitOutcome.TurnStarted, (await sessoes.SubmitAsync(42, id, new AgentInput(a.Text!, []) { BrainConversation = a.ParaFerramentas() })).Outcome);
+        await brain.AtenderAsync(b, b.Text!, id); // B chegou ao adapter mas A ainda executa.
+        Assert.Equal(SubmitOutcome.Queued, (await sessoes.SubmitAsync(42, id, new AgentInput(b.Text!, []) { BrainConversation = b.ParaFerramentas() })).Outcome);
+        await using var cliente = await Cliente.ConectarAsync(Assert.Single(drivers.Created.Single().StartOptions!.ToolServers!));
+        async Task Capturar(TelegramMessage m) => Assert.False((await cliente.ChamarAsync("brain_capturar_conhecimento", new { conteudo = m.Text, natureza = "DitoPeloUsuario", justificativa = "pedido" }))["isError"]!.GetValue<bool>());
+        await Capturar(a);
+        Assert.True((await cliente.ChamarAsync("brain_capturar_conhecimento", new { conteudo = b.Text, natureza = "DitoPeloUsuario", justificativa = "ainda não iniciou" }))["isError"]!.GetValue<bool>());
+        drivers.Created.Single().Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        using var prazo = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (drivers.Created.Single().TurnInputs.Count < 2) await Task.Delay(10, prazo.Token);
+        await Capturar(b);
+        await using (var db = banco.Contexto())
+        {
+            var itens = await db.CandidatosDeConhecimento.ToListAsync(); Assert.Equal(2, itens.Count);
+            Assert.EndsWith(":200", itens.Single(x => x.Conteudo == a.Text).Proveniencia.ReferenciaDaFonte);
+            Assert.EndsWith(":201", itens.Single(x => x.Conteudo == b.Text).Proveniencia.ReferenciaDaFonte);
+        }
+        ferramentas.EndSession(id);
+        Assert.False(registro.ConversaPermitida(id, a));
+        Assert.Throws<UnauthorizedAccessException>(() => registro.Atual(id));
+        var escopo = (await brain.ResolverEscopoMcpAsync(b))!;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => app.GetRequiredService<OperacoesMcpDoBrain>().ExecutarAsync(escopo, b, id, "codex",
+            "brain_capturar_conhecimento", JsonSerializer.SerializeToElement(new { conteudo = b.Text, natureza = "DitoPeloUsuario", justificativa = "chamada após revogação" })));
+        await using (var db = banco.Contexto()) Assert.Equal(2, await db.CandidatosDeConhecimento.CountAsync());
     }
     [PostgreSqlFact]
     public async Task LoteSeparadoComPostgresDeduplicacaoConfirmacaoENovaSessao()
@@ -122,8 +171,9 @@ public sealed class BrainMcpTests
     public async Task AutorizacaoRevisoesProvenienciaERelacoesNaoPodemSerBurladas()
     {
         await using var banco = await Banco.CriarAsync(); using var app = CriarApp(banco.ConnectionString); var brain = app.GetRequiredService<TelegramBrain>();
-        await SelecionarAsync(brain); var m = Mensagem("Arquitetura hexagonal separa camadas."); var escopo = (await brain.ResolverEscopoMcpAsync(m))!;
+        await SelecionarAsync(brain); var m = Mensagem("Arquitetura hexagonal separa camadas. Correção solicitada: Arquitetura hexagonal isola camadas."); var escopo = (await brain.ResolverEscopoMcpAsync(m))!;
         var ops = app.GetRequiredService<OperacoesMcpDoBrain>();
+        app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S1", m);
         Task<object?> Operar(string nome, object args) => ops.ExecutarAsync(escopo, m, "S1", "claude", nome, JsonSerializer.SerializeToElement(args));
         await Assert.ThrowsAsync<ArgumentException>(() => Operar("brain_obter_escopo", new { usuario = "outro" }));
         await Assert.ThrowsAsync<ArgumentException>(() => Operar("brain_capturar_conhecimento", new { conteudo = "inventado", natureza = "DitoPeloUsuario", justificativa = "solicitado" }));
@@ -132,6 +182,8 @@ public sealed class BrainMcpTests
         Guid id; await using (var db = banco.Contexto()) id = (await db.CandidatosDeConhecimento.SingleAsync()).Id;
         await Assert.ThrowsAsync<InvalidOperationException>(() => Operar("brain_confirmar_candidato", new { id, revisao = 0 }));
         await Operar("brain_confirmar_candidato", new { id, revisao = 1 });
+        await Assert.ThrowsAsync<ArgumentException>(() => Operar("brain_corrigir_candidato", new { id, revisao = 1, conteudo = "conteúdo que o usuário não escreveu", natureza = "DitoPeloUsuario", justificativa = "correção" }));
+        await using (var db = banco.Contexto()) { var c = await db.CandidatosDeConhecimento.SingleAsync(); Assert.Equal(1, c.Revisao); Assert.Equal(m.Text, c.Conteudo); }
         await Operar("brain_corrigir_candidato", new { id, revisao = 1, conteudo = "Arquitetura hexagonal isola camadas.", natureza = "DitoPeloUsuario", justificativa = "correção" });
         Assert.Contains("não foi confirmada", await brain.AtenderAsync(Mensagem("confirmar", 124), "confirmar", "S1"));
         await using (var db = banco.Contexto()) Assert.Empty(await db.Conhecimentos.ToListAsync());
@@ -139,6 +191,7 @@ public sealed class BrainMcpTests
         await using (var db = banco.Contexto()) { Assert.Empty(await db.Conhecimentos.ToListAsync()); Assert.Single(await db.Set<Dante.Domain.ContextosDeTrabalho.ContextoDeTrabalho>().ToListAsync()); }
         await Assert.ThrowsAsync<InvalidOperationException>(() => Operar("brain_atualizar_contexto_de_trabalho", new { revisao = 0, objetivo = "X", tarefa = "X", progresso = "X", ultimo_resultado = "X" }));
         await brain.AtenderAsync(Mensagem("criar projeto Outro"), "criar projeto Outro"); var outro = (await brain.ResolverEscopoMcpAsync(m))!;
+        app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S2", m);
         await Assert.ThrowsAsync<ArgumentException>(() => ops.ExecutarAsync(outro, m, "S2", "codex", "brain_mostrar_origem", JsonSerializer.SerializeToElement(new { id, origem = "candidato" })));
     }
     [PostgreSqlFact]
@@ -148,26 +201,38 @@ public sealed class BrainMcpTests
         var brain = app.GetRequiredService<TelegramBrain>(); await SelecionarAsync(brain);
         var m = Mensagem("pedido"); var escopo = (await brain.ResolverEscopoMcpAsync(m))!;
         var ops = app.GetRequiredService<OperacoesMcpDoBrain>();
+        app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S1", m);
         var prova = new ProvenienciaDoConhecimento(escopo.Acesso.IdUsuario, "fonte de teste", "mensagem:1", trechoDaFonte: "evidência");
         Conhecimento Novo(string texto, Sensibilidade classe, Guid? projeto = null) => new(escopo.Acesso.IdEspacoDeConhecimento, projeto ?? escopo.Acesso.IdProjeto,
             TipoDeConhecimento.Fato, texto, null, StatusDoConhecimento.Inferido, null, classe, null, null, [], prova, DateTimeOffset.UtcNow);
         var a = Novo("camadas hexagonais", Sensibilidade.Pessoal); var b = Novo("interfaces de aplicação", Sensibilidade.Pessoal);
         var secreto = Novo("segredo canônico", Sensibilidade.Secreto); var confidencial = Novo("dado confidencial", Sensibilidade.Confidencial);
         var projetoB = new Projeto(escopo.Acesso.IdEspacoDeConhecimento, "Projeto B"); var fora = Novo("projeto B", Sensibilidade.Pessoal, projetoB.Id);
-        await using(var db = banco.Contexto()) { db.AddRange(projetoB, a, b, secreto, confidencial, fora); await db.SaveChangesAsync(); }
+        var protegida = new ProvenienciaDoConhecimento(escopo.Acesso.IdUsuario, "evidência privada da relação", "fonte restrita", trechoDaFonte: "conteúdo protegido da relação");
+        await using(var db = banco.Contexto())
+        {
+            db.AddRange(projetoB, a, b, secreto, confidencial, fora);
+            db.AddRange(new Dante.Domain.RelacoesDeConhecimento.RelacaoDeConhecimento(a, secreto, Dante.Domain.RelacoesDeConhecimento.TipoDeRelacao.RelacionadoA, protegida, DateTimeOffset.UtcNow),
+                new Dante.Domain.RelacoesDeConhecimento.RelacaoDeConhecimento(a, confidencial, Dante.Domain.RelacoesDeConhecimento.TipoDeRelacao.RelacionadoA, protegida, DateTimeOffset.UtcNow));
+            await db.SaveChangesAsync();
+        }
         Task<object?> Operar(string nome, object args) => ops.ExecutarAsync(escopo, m, "S1", "codex", nome, JsonSerializer.SerializeToElement(args));
         foreach (var alvo in new[] { secreto, confidencial, fora })
             await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Operar("brain_mostrar_origem", new { id = alvo.Id, origem = "conhecimento" }));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Operar("brain_criar_relacao", new { origem = a.Id, destino = fora.Id, revisao_origem = 1, revisao_destino = 1, tipo = "RelacionadoA" }));
         await Operar("brain_criar_relacao", new { origem = a.Id, destino = b.Id, revisao_origem = 1, revisao_destino = 1, tipo = "RelacionadoA" });
-        await using(var db = banco.Contexto()) Assert.Empty(await db.RelacoesDeConhecimento.ToListAsync());
+        await using(var db = banco.Contexto()) Assert.Equal(2, await db.RelacoesDeConhecimento.CountAsync());
         Assert.Contains("cancelada", await brain.AtenderAsync(Mensagem("cancelar"), "cancelar", "S1"));
-        await using(var db = banco.Contexto()) Assert.Empty(await db.RelacoesDeConhecimento.ToListAsync());
+        await using(var db = banco.Contexto()) Assert.Equal(2, await db.RelacoesDeConhecimento.CountAsync());
         await Operar("brain_criar_relacao", new { origem = a.Id, destino = b.Id, revisao_origem = 1, revisao_destino = 1, tipo = "RelacionadoA" });
         Assert.Contains("registrada", await brain.AtenderAsync(Mensagem("confirmar"), "confirmar", "S1"));
         var vizinhas = System.Text.Json.JsonSerializer.Serialize(await Operar("brain_listar_relacoes", new { id = a.Id })); Assert.Contains(b.Id.ToString(), vizinhas);
+        Assert.DoesNotContain(secreto.Id.ToString(), vizinhas); Assert.DoesNotContain(confidencial.Id.ToString(), vizinhas);
+        Assert.DoesNotContain("evidência privada", vizinhas); Assert.DoesNotContain("conteúdo protegido", vizinhas);
+        Assert.DoesNotContain("mensagem:123", vizinhas); Assert.Contains("canal MCP", vizinhas);
         await brain.AtenderAsync(m with { From = new(7) }, "criar espaço Outro usuário");
         var escopoB = (await brain.ResolverEscopoMcpAsync(m with { From = new(7) }))!;
+        app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S2", m with { From = new(7) });
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ops.ExecutarAsync(escopoB, m with { From = new(7) }, "S2", "claude", "brain_mostrar_origem", JsonSerializer.SerializeToElement(new { id = a.Id, origem = "conhecimento" })));
         await Assert.ThrowsAsync<ArgumentException>(() => Operar("brain_capturar_conhecimento", new { conteudo = "senha=supersecreta123", natureza = "ConclusaoDoAgente", justificativa = "teste" }));
     }
@@ -203,6 +268,7 @@ public sealed class BrainMcpTests
         Assert.Contains("candidato", await brain.AtenderAsync(Mensagem("registre no Brain: conteúdo antigo", 120), "registre no Brain: conteúdo antigo"));
         var mensagem = Mensagem("conteúdo novo", 121); var escopo = (await brain.ResolverEscopoMcpAsync(mensagem))!;
         var ops = app.GetRequiredService<OperacoesMcpDoBrain>();
+        app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S1", mensagem);
         await ops.ExecutarAsync(escopo, mensagem, "S1", "codex", "brain_capturar_conhecimento", JsonSerializer.SerializeToElement(new { conteudo = mensagem.Text, natureza = "DitoPeloUsuario", justificativa = "pedido novo" }));
         Guid id; await using(var db = banco.Contexto()) id = (await db.CandidatosDeConhecimento.SingleAsync(x => x.Conteudo == "conteúdo novo")).Id;
         await ops.ExecutarAsync(escopo, mensagem, "S1", "codex", "brain_confirmar_candidato", JsonSerializer.SerializeToElement(new { id, revisao = 1 }));

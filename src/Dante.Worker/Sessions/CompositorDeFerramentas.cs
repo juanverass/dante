@@ -16,6 +16,10 @@ public sealed class CompositorDeFerramentas(IEnumerable<IProvedorDeFerramentas> 
         foreach (var provedor in provedores) resultado.AddRange(await provedor.ForSessionAsync(sessionId, request, ct));
         return resultado;
     }
+    public void BeginTurn(string sessionId, AgentInput input)
+    {
+        foreach (var provedor in provedores) provedor.BeginTurn(sessionId, input);
+    }
     public void EndSession(string sessionId)
     {
         foreach (var provedor in provedores) provedor.EndSession(sessionId);

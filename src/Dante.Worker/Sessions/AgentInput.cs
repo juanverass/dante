@@ -10,6 +10,9 @@ public sealed record AgentInput(string Text, IReadOnlyList<Attachment> Attachmen
     // that turn's completion (#148). Never sent to the agent.
     public string? Correlation { get; init; }
 
+    // Evidência autenticada vinculada a esta entrada, preservada enquanto ela aguarda na fila.
+    public ContextoDeFerramentas? BrainConversation { get; init; }
+
     public static implicit operator AgentInput(string text) => new(text, []);
 
     // Claude Code runs a user message that starts with "/" as one of its own commands (/clear, /compact…), changing the

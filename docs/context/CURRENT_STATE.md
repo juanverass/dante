@@ -667,3 +667,9 @@ propostas de consolidação/descarte/relação e snapshot operacional. Aprovaç�
 não confirma negócio: o usuário confirma propostas no Telegram, com expiração e
 revisão esperada. Captura preserva título/tags opcionais no histórico JSON e promoção;
 sem migration ou endpoints WebApi. [Guia](../development/brain-mcp.md), AD-56.
+
+O MCP usa a mensagem autenticada do turno ativo, preservada junto à entrada na fila.
+Mensagens recebidas/enfileiradas não substituem essa evidência; entradas sem contexto
+autenticado revogam o acesso. Captura e correção factual exigem conteúdo na origem.
+Relações são projetadas somente quando ambos os alvos permitem leitura; sua prova
+bruta não é exposta no canal MCP. Sessão ausente/revogada falha fechado.

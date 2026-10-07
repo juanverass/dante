@@ -375,6 +375,7 @@ public sealed class SessionRegistry(
             switch (result.Outcome)
             {
                 case SubmitOutcome.TurnStarted:
+                    toolServers?.BeginTurn(session.Id, input);
                     await entry.Driver.StartTurnAsync(input, cancellationToken);
                     break;
                 case SubmitOutcome.Steered:
@@ -904,6 +905,7 @@ public sealed class SessionRegistry(
         {
             try
             {
+                toolServers?.BeginTurn(entry.Session.Id, input!);
                 await entry.Driver.StartTurnAsync(input!, cancellationToken);
                 return;
             }

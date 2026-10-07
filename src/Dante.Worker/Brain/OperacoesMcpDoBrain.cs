@@ -20,6 +20,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
     public async Task<object?> ExecutarAsync(TelegramBrain.EscopoBrainDaSessao escopo, TelegramMessage mensagem,
         string sessao, string agente, string nome, JsonElement args, CancellationToken ct = default)
     {
+        if (!registro.ConversaPermitida(sessao, mensagem)) throw new UnauthorizedAccessException("Sessão revogada.");
         ServidorMcpDoBrain.Validar(nome, args);
         await using var scope = scopes.CreateAsyncScope(); var servicos = scope.ServiceProvider; var acesso = escopo.Acesso;
         servicos.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(escopo.Identidade, acesso);
@@ -48,10 +49,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 return new { conhecimento.Proveniencia, conhecimento.Historico };
             case "brain_capturar_conhecimento":
                 var dto = Captura(args, acesso, prova);
-                // Exatamente o conteúdo da mensagem (ou trecho selecionado) pode ser declarado como dito pelo usuário.
-                if (dto.Natureza != NaturezaDoConteudo.ConclusaoDoAgente &&
-                    !(mensagem.Text?.Contains(dto.Conteudo, StringComparison.Ordinal) == true || mensagem.Caption?.Contains(dto.Conteudo, StringComparison.Ordinal) == true || mensagem.ReplyToMessage?.Text?.Contains(dto.Conteudo, StringComparison.Ordinal) == true))
-                    throw new ArgumentException("Conteúdo não consta da mensagem de origem; classifique como conclusão do agente.");
+                ValidarOrigem(dto, mensagem);
                 var salvo = await captura.CapturarAsync(dto, ct);
                 return new { candidato = Resumir(salvo), possivelDuplicidade = salvo.Revisao > 1 || salvo.Estado != EstadoDoCandidato.Pendente, confirmado = false };
             case "brain_corrigir_candidato":
@@ -62,6 +60,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                     Tipo = anterior.Natureza == NaturezaDoConteudo.ConclusaoDoAgente ? TipoDeConhecimento.Inferencia : OpcionalEnum<TipoDeConhecimento>(args, "tipo") ?? anterior.Tipo,
                     Sensibilidade = OpcionalEnum<Sensibilidade>(args, "sensibilidade") ?? anterior.Sensibilidade
                 };
+                ValidarOrigem(correcao, mensagem);
                 if (correcao.Natureza != anterior.Natureza) throw new ArgumentException("Natureza não pode mudar.");
                 return Resumir(await captura.CorrigirAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, anterior.Id, Inteiro(args, "revisao"), correcao, ct));
             case "brain_confirmar_candidato":
@@ -104,7 +103,21 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 return new { origem = origem.Conteudo, destino = destino.Conteudo, tipo = tipo.ToString(), aguardandoConfirmacao = true, instrucao = "Peça confirmar no Telegram; nenhuma relação foi criada ainda." };
             case "brain_listar_relacoes":
                 await ConhecimentoAsync(Id(args, "id"));
-                return await servicos.GetRequiredService<IRelacaoDeConhecimentoAppService>().ConsultarVizinhancaAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, Id(args, "id"), 1, Limite(args), ct);
+                var vizinhanca = await servicos.GetRequiredService<IRelacaoDeConhecimentoAppService>().ConsultarVizinhancaAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, Id(args, "id"), 1, Limite(args), ct);
+                var visiveis = new List<RelacaoDeConhecimentoDto>();
+                foreach (var relacao in vizinhanca.Relacoes)
+                {
+                    var a = await leitura.LerAsync(relacao.IdOrigem, acesso, FinalidadeDeLeitura.Busca, ct);
+                    var b = await leitura.LerAsync(relacao.IdDestino, acesso, FinalidadeDeLeitura.Busca, ct);
+                    if (a is null || b is null || a.ConteudoProtegido || b.ConteudoProtegido ||
+                        a.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido ||
+                        b.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido) continue;
+                    // A evidência da relação pode ter sido produzida quando os alvos eram mais restritos.
+                    // Não expor prova bruta nesse canal, mesmo que a classificação atual permita ler os alvos.
+                    visiveis.Add(relacao with { Proveniencia = new() { Origem = "proveniência protegida no canal MCP" },
+                        ProvenienciaDaResolucao = relacao.ProvenienciaDaResolucao is null ? null : new() { Origem = "proveniência protegida no canal MCP" } });
+                }
+                return new VizinhancaDto(visiveis, visiveis.Count == vizinhanca.Relacoes.Count && vizinhanca.LimiteAtingido);
             case "brain_obter_contexto_de_trabalho": return await servicos.GetRequiredService<ContextoDeTrabalhoAppService>().RetomarAsync(acesso, ct);
             case "brain_atualizar_contexto_de_trabalho":
                 var contextos = servicos.GetRequiredService<ContextoDeTrabalhoAppService>();
@@ -128,6 +141,15 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             if (permitido is null || permitido.ConteudoProtegido || permitido.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido) throw new UnauthorizedAccessException("Conhecimento não permitido.");
             return await servicos.GetRequiredService<IConhecimentoAppService>().ObterPorIdAsync(id, ct) ?? throw new ArgumentException("Conhecimento não encontrado.");
         }
+    }
+    private static void ValidarOrigem(CapturaDeConhecimentoDto dto, TelegramMessage mensagem)
+    {
+        if (dto.Natureza == NaturezaDoConteudo.ConclusaoDoAgente) return;
+        if (mensagem.Text?.Contains(dto.Conteudo, StringComparison.Ordinal) == true ||
+            mensagem.Caption?.Contains(dto.Conteudo, StringComparison.Ordinal) == true ||
+            mensagem.ReplyToMessage is { } fonte && fonte.Chat.Id == mensagem.Chat.Id && fonte.MessageThreadId == mensagem.MessageThreadId &&
+            fonte.Text?.Contains(dto.Conteudo, StringComparison.Ordinal) == true) return;
+        throw new ArgumentException("Conteúdo não consta da mensagem de origem; classifique como conclusão do agente.");
     }
     private static bool Permitida(Sensibilidade s) => s is Sensibilidade.Publico or Sensibilidade.Pessoal or Sensibilidade.Trabalho;
     private static object Resumir(CandidatoDeConhecimentoDto c) => new { c.Id, c.Titulo, c.Conteudo, c.Tags, tipo = c.Tipo.ToString(), natureza = c.Natureza.ToString(), estado = c.Estado.ToString(), c.Revisao, c.IdConhecimento };
