@@ -217,3 +217,10 @@ A célula informada recebe um marcador e volta ao valor anterior.
 O mesmo teste aceita um alias de XLSX no Drive depois da nova autorização. Escolha uma
 célula vazia, sem fórmula, e evite edições simultâneas. A evidência emulada não substitui
 esse teste contra o Google real, incluindo a resposta 412 do upload condicional.
+
+O teste opt-in foi executado com XLSX real no Drive e célula vazia autorizada: escrita do
+marcador, leitura posterior e restauração passaram, com confirmação independente de
+célula vazia. O Drive pode alterar a revisão enquanto processa um upload já concluído;
+o teste repete até dez leituras recusadas por conflito, com espera de um segundo, sem
+repetir escritas. HTTP 412 real não foi provocado; o cenário condicional é coberto pelo
+emulador. Essa evidência não amplia os formatos/estruturas suportados pelo adapter.

@@ -640,8 +640,11 @@ propaga revisão esperada e observações neutras. Permissão Drive é opt-in na
 persistida na credencial cifrada para o processo MCP. Versão divergente/If-Match 412, ETag
 ausente/fraco, aba protegida, assinatura ou alvo em fórmula compartilhada/matricial recusam
 escrita. Sem recálculo ou reprodução de formatos de exibição; limites no guia. Testes
-emulados cobrem preservação, conflitos, OAuth, MCP e proteções. XLSX real ainda exige o
-teste opt-in com a autorização do usuário.
+emulados cobrem preservação, conflitos, OAuth, MCP e proteções. O teste opt-in no XLSX real do Drive
+comprovou escrita, leitura posterior e restauração no mesmo arquivo, com autorização do
+usuário. Leituras do teste repetem apenas conflitos transitórios de revisão após upload;
+escritas não são reaplicadas automaticamente. HTTP 412 real não foi provocado; proteção
+condicional continua coberta pelo emulador.
 
 A correção de review da #224 limita busca/valores Sheets a 250 mil posições e respostas a
 16 MB; descrição de grades maiores não calcula área usada. Append não repete rede/5xx

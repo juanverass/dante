@@ -31,7 +31,7 @@ public sealed class LivePlanilhasEvidenceTests
 
         if (Environment.GetEnvironmentVariable("DANTE_LIVE_GOOGLE_CELULA") is not { Length: > 0 } celula) return;
         var origem = new OrigemDaSolicitacao("teste", "LivePlanilhasEvidenceTests");
-        var anterior = (await planilhas.LerAsync(alias, celula, 1)).Celulas.SingleOrDefault();
+        var anterior = (await LerCelulaAposUploadAsync(planilhas, alias, celula)).Celulas.SingleOrDefault();
         Assert.True(anterior is null || anterior.EstaVazia, "Escolha uma célula vazia, sem fórmula.");
         var marcador = $"dante-{Guid.NewGuid():N}"[..14];
         try
@@ -44,12 +44,12 @@ public sealed class LivePlanilhasEvidenceTests
                     Intervalo = celula, Valores = [[ValorDeCelula.DeTexto(marcador)]], ValoresEsperados = [[string.Empty]]
                 }]
             }, origem);
-            Assert.Equal(marcador, (await planilhas.LerAsync(alias, celula, 1)).Celulas.Single().ValorExibido);
+            Assert.Equal(marcador, (await LerCelulaAposUploadAsync(planilhas, alias, celula)).Celulas.Single().ValorExibido);
         }
         finally
         {
             // Mesmo se a verificação falhar, restaura apenas se o marcador ainda está no alvo.
-            if ((await planilhas.LerAsync(alias, celula, 1)).Celulas.SingleOrDefault()?.ValorExibido == marcador)
+            if ((await LerCelulaAposUploadAsync(planilhas, alias, celula)).Celulas.SingleOrDefault()?.ValorExibido == marcador)
                 await planilhas.AtualizarAsync(new EscritaNaPlanilhaDto
                 {
                     Planilha = alias,
@@ -59,8 +59,21 @@ public sealed class LivePlanilhasEvidenceTests
                     }]
                 }, origem);
         }
-        Assert.True((await planilhas.LerAsync(alias, celula, 1)).Celulas.SingleOrDefault()?.EstaVazia ?? true);
+        Assert.True((await LerCelulaAposUploadAsync(planilhas, alias, celula)).Celulas.SingleOrDefault()?.EstaVazia ?? true);
 
+    }
+
+    // O Drive pode atualizar metadados/revisão enquanto processa um upload já concluído.
+    // Repete somente leitura recusada por conflito; nunca reaplica escrita de resultado incerto.
+    private static async Task<IntervaloDaPlanilhaDto> LerCelulaAposUploadAsync(PlanilhasAppService planilhas,
+        string alias, string celula)
+    {
+        for (var tentativa = 0; ; tentativa++)
+        {
+            try { return await planilhas.LerAsync(alias, celula, 1); }
+            catch (FalhaDePlanilhaException exception) when (exception.Motivo == MotivoDaFalhaDePlanilha.Conflito && tentativa < 9)
+            { await Task.Delay(TimeSpan.FromSeconds(1)); }
+        }
     }
 
     private sealed class LiveGoogleFactAttribute : FactAttribute
