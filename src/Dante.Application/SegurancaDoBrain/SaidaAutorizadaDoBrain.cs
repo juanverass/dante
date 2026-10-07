@@ -25,8 +25,9 @@ internal static class SaidaAutorizadaDoBrain
     };
     public static CandidatoDeConhecimentoDto Projetar(CandidatoDeConhecimentoDto dto, AutorizacaoDoBrain? auth) => auth is null ? dto : dto with
     {
+        Titulo = ProtecaoDeSegredos.Redigir(dto.Titulo), Tags = dto.Tags?.Select(t => ProtecaoDeSegredos.Redigir(t)!).ToArray(),
         Conteudo = ProtecaoDeSegredos.Redigir(dto.Conteudo)!,
         Historico = dto.Historico.Where(r => Permitida(r.Sensibilidade, auth)).Select(r => r with
-        { Conteudo = ProtecaoDeSegredos.Redigir(r.Conteudo)!, Justificativa = ProtecaoDeSegredos.Redigir(r.Justificativa)!, Proveniencia = Redigir(r.Proveniencia) }).ToArray()
+        { Titulo = ProtecaoDeSegredos.Redigir(r.Titulo), Tags = r.Tags?.Select(t => ProtecaoDeSegredos.Redigir(t)!).ToArray(), Conteudo = ProtecaoDeSegredos.Redigir(r.Conteudo)!, Justificativa = ProtecaoDeSegredos.Redigir(r.Justificativa)!, Proveniencia = Redigir(r.Proveniencia) }).ToArray()
     };
 }

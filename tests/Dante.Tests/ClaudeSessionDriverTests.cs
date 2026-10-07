@@ -583,6 +583,22 @@ public sealed class ClaudeSessionDriverTests
         Assert.DoesNotContain("--mcp-config", Assert.Single(semFerramentas.Requests).Arguments);
     }
 
+    [Fact]
+    public async Task BrainEPlanilhasCoexistemSemCredenciaisNaConfiguracao()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new ClaudeSessionDriver(launcher);
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, IsGeneral: true, ToolServers:
+        [
+            new("dante_planilhas", "/usr/bin/dante", ["--mcp-planilhas"], new Dictionary<string,string>(), ["ler_intervalo"]),
+            new("dante_brain", "/usr/bin/dante", ["--mcp-brain", "--pipe", "dante-brain-session"], new Dictionary<string,string>(), ["brain_obter_escopo"])
+        ]));
+        var args = string.Join(' ', Assert.Single(launcher.Requests).Arguments);
+        Assert.Contains("dante_planilhas", args); Assert.Contains("dante_brain", args);
+        Assert.Contains("--mcp-brain", args); Assert.DoesNotContain("ConnectionStrings", args);
+        Assert.DoesNotContain("brain_confirmar_candidato", args);
+    }
+
     private static async Task<List<AgentEvent>> ReadTurnAsync(IAsyncEnumerator<AgentEvent> events)
     {
         var turn = new List<AgentEvent>();

@@ -73,7 +73,7 @@ public sealed class SessionRegistry(
                 request.EnvironmentVariables,
                 request.Profile,
                 request.ModelSelection,
-                toolServers is null ? null : await toolServers.ForAsync(request.OwnerUserId, request.Agent, cancellationToken)),
+                toolServers is null ? null : await toolServers.ForSessionAsync(entry.Session.Id, request, cancellationToken)),
                 cancellationToken);
             entry.ReportedModel = started.Model;
             entry.Session.MarkStarted(started);
@@ -564,6 +564,7 @@ public sealed class SessionRegistry(
 
             if (session.State == AgentSessionState.Closing)
             {
+                toolServers?.EndSession(session.Id);
                 session.MarkClosed();
             }
 
@@ -936,6 +937,7 @@ public sealed class SessionRegistry(
     // Terminal failure; the caller disposes the driver (never from inside the event loop that drains it).
     private async Task FailAsync(Entry entry, string error)
     {
+        toolServers?.EndSession(entry.Session.Id);
         entry.Session.MarkFailed(error);
         if (entry.Session.State != AgentSessionState.Failed || !MarkEnded(entry))
         {

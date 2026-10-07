@@ -10,5 +10,5 @@ internal static class CandidatoDeConhecimentoMapping
         configuracao.Registrar<CandidatoDeConhecimento, CandidatoDeConhecimentoDto>(x => new CandidatoDeConhecimentoDto(
             x.Id, x.IdEspacoDeConhecimento, x.IdProjeto, x.Tipo, x.Conteudo, x.Sensibilidade, x.Natureza,
             x.Modo, x.Estado, x.Revisao, x.IdConhecimento, x.Historico.Select(a => new AtoDoCandidatoDto(a.Revisao, a.Acao,
-                a.Tipo, a.Conteudo, a.Sensibilidade, a.Justificativa, ConhecimentoMapping.ParaProvenienciaDto(a.Proveniencia), a.Instante, a.Estado, a.IdConhecimento)).ToArray()));
+                a.Tipo, a.Conteudo, a.Sensibilidade, a.Justificativa, ConhecimentoMapping.ParaProvenienciaDto(a.Proveniencia), a.Instante, a.Estado, a.IdConhecimento, a.Titulo, a.Tags)).ToArray(), x.Titulo, x.Tags));
 }

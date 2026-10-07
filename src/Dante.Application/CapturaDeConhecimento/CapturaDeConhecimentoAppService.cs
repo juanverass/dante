@@ -17,7 +17,7 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
     public async Task<CandidatoDeConhecimentoDto> CapturarAsync(CapturaDeConhecimentoDto captura, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(captura);
-        ProtecaoDeSegredos.GarantirSeguro(captura.Conteudo, captura.Justificativa);
+        ProtecaoDeSegredos.GarantirSeguro([captura.Conteudo, captura.Justificativa, captura.Titulo, .. captura.Tags]);
         await GarantirEscopoAsync(captura.IdEspacoDeConhecimento, captura.IdProjeto, true, cancellationToken);
         var candidato = Novo(captura);
         await ValidarConsolidacaoAsync(candidato, cancellationToken);
@@ -40,14 +40,14 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
         CapturaDeConhecimentoDto correcao, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(correcao);
-        ProtecaoDeSegredos.GarantirSeguro(correcao.Conteudo, correcao.Justificativa);
+        ProtecaoDeSegredos.GarantirSeguro([correcao.Conteudo, correcao.Justificativa, correcao.Titulo, .. correcao.Tags]);
         var candidato = await ObterAsync(idEspaco, idProjeto, idCandidato, true, cancellationToken);
         if (correcao.IdEspacoDeConhecimento != idEspaco || correcao.IdProjeto != idProjeto || correcao.Natureza != candidato.Natureza ||
             correcao.IdIncidente != candidato.IdIncidente || correcao.IdSolucao != candidato.IdSolucao)
             throw new ArgumentException("Correção não redefine escopo/origem nem vínculos da captura.");
         // Valida no agregado antes da gravação; conflito UNIQUE/concorrência não faz commit parcial.
         candidato.Corrigir(revisaoEsperada, correcao.Tipo, correcao.Conteudo, correcao.Sensibilidade, correcao.Justificativa,
-            ConhecimentoAppService.ParaProveniencia(correcao.Proveniencia), DateTimeOffset.UtcNow);
+            ConhecimentoAppService.ParaProveniencia(correcao.Proveniencia), DateTimeOffset.UtcNow, correcao.Titulo, correcao.Tags);
         var equivalente = await candidatos.ObterEquivalenteAsync(candidato, cancellationToken);
         if (equivalente is not null && equivalente.Id != candidato.Id) throw new InvalidOperationException("Já existe candidato equivalente; revise-o antes de corrigir.");
         candidatos.Atualizar(candidato); await unitOfWork.SalvarAlteracoesAsync(cancellationToken);
@@ -88,15 +88,18 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
         else candidato.Rejeitar(revisao, ConhecimentoAppService.ParaProveniencia(p), DateTimeOffset.UtcNow);
         candidatos.Atualizar(candidato); await unitOfWork.SalvarAlteracoesAsync(ct);
     }
-    public async Task<IReadOnlyList<CandidatoDeConhecimentoDto>> ListarPendentesAsync(Guid idEspaco, Guid? idProjeto, int limite = 50, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<CandidatoDeConhecimentoDto>> ListarPendentesAsync(Guid idEspaco, Guid? idProjeto, int limite = 50, CancellationToken cancellationToken = default, int deslocamento = 0)
     {
         ValidacaoDeEntrada.ExigirFaixa(limite, 1, 100, nameof(limite));
+        ValidacaoDeEntrada.ExigirFaixa(deslocamento, 0, 10000, nameof(deslocamento));
         await GarantirEscopoAsync(idEspaco, idProjeto, false, cancellationToken);
-        return (await candidatos.ListarPendentesAsync(idEspaco, idProjeto, limite, cancellationToken)).Select(ParaDto).ToArray();
+        return (await candidatos.ListarPendentesAsync(idEspaco, idProjeto, limite, cancellationToken, deslocamento)).Select(ParaDto).ToArray();
     }
+    public async Task<CandidatoDeConhecimentoDto> ObterCandidatoAsync(Guid idEspaco, Guid? idProjeto, Guid id, CancellationToken cancellationToken = default) =>
+        ParaDto(await ObterAsync(idEspaco, idProjeto, id, false, cancellationToken));
     private static CandidatoDeConhecimento Novo(CapturaDeConhecimentoDto dto) => new(dto.IdEspacoDeConhecimento, dto.IdProjeto,
         dto.Tipo, dto.Conteudo, dto.Sensibilidade, dto.Natureza, dto.Modo, dto.Justificativa,
-        ConhecimentoAppService.ParaProveniencia(dto.Proveniencia), DateTimeOffset.UtcNow, dto.IdIncidente, dto.IdSolucao);
+        ConhecimentoAppService.ParaProveniencia(dto.Proveniencia), DateTimeOffset.UtcNow, dto.IdIncidente, dto.IdSolucao, dto.Titulo, dto.Tags);
     private CandidatoDeConhecimentoDto ParaDto(CandidatoDeConhecimento x) => SaidaAutorizadaDoBrain.Projetar(typeAdapter.Mapear<CandidatoDeConhecimento, CandidatoDeConhecimentoDto>(x), autorizacao);
     private async Task<CandidatoDeConhecimento> ObterAsync(Guid espaco, Guid? projeto, Guid id, bool gravar, CancellationToken ct)
     {

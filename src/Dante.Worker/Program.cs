@@ -3,6 +3,13 @@ using Dante.Application;
 using Dante.Infrastructure;
 using Dante.Worker;
 using Dante.Worker.Planilhas;
+using Dante.Worker.Brain;
+
+if (args.FirstOrDefault() == ServidorMcpDoBrain.Argumento)
+{
+    Environment.ExitCode = await ServidorMcpDoBrain.ExecutarProcessoAsync(args);
+    return;
+}
 
 // Servidor MCP de planilhas iniciado pela CLI do agente numa sessão (#224): sem Telegram nem host.
 if (args.FirstOrDefault() == ServidorMcpDePlanilhas.Argumento)

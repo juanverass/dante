@@ -64,6 +64,7 @@ vivo que recebe todos os turnos. O one-shot continua disponível por comando exp
 | `TelegramBotApi` | `Telegram/` | Cliente HTTP da Bot API (`getUpdates`, `sendMessage`, `sendChatAction`). |
 | `TelegramDeliveryService` | `Telegram/` | Agrupa, formata, redige e entrega eventos de sessão e resultados de jobs, com retry, `/resend` e indicador de digitação. |
 | `TelegramUserAuthorizer` | `Telegram/` | Allowlist por `message.from.id`; fail-closed. |
+| `FerramentasDoBrainParaAgentes` / `ServidorMcpDoBrain` | `Dante.Worker/Brain/` | MCP stdio/IPC local de sessão; Worker autoriza e opera o Brain via Application. |
 | `TelegramBrain` | `Telegram/` | Identidade/escopo Brain e roteamento de intenções naturais aos casos de uso; confirmação de alterações. |
 | `RepositoryRegistry` | `Dante.Infrastructure/Contextos/` | Catálogo persistente de aliases, paths, GitHub e ambiente por repositório. |
 | `AssistantSettingsStore` | `Dante.Infrastructure/Contextos/` | Agente padrão, repositório ativo e modo padrão por usuário, persistidos em `~/.dante/settings.json`. |
@@ -153,7 +154,10 @@ automático. Identidade e permissões são do adapter autorizado (AD-45), nunca 
 
 Worker oferece intenções Brain por conversa natural (#157), incluindo captura em
 candidato e confirmação antes de alterações. Sem banco/mensagem Brain, conversa com
-agentes mantém seu fluxo. Seleção Brain não muda Repository Mode ou /use. Integração
+agentes mantém seu fluxo. Seleção Brain não muda Repository Mode ou /use. Sessões Claude/Codex autorizadas recebem
+`dante_brain` (#226) por IPC local vinculado à sessão, sem credenciais PostgreSQL na CLI;
+consolidação/descarte/relação pelo MCP preparam propostas para confirmação no Telegram.
+[Guia MCP](../development/brain-mcp.md). Integração
 automática dos pacotes aos drivers/sessões continua na #145, com métricas/E2E nas issues
 próprias. Economia de tokens será medida junto de continuidade/qualidade, não presumida.
 Não há ComfyUI, workers remotos, SaaS ou frontend completo nesta Epic.

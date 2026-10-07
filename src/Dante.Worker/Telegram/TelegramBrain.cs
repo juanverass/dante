@@ -14,7 +14,7 @@ using Microsoft.Extensions.Configuration;
 namespace Dante.Worker.Telegram;
 
 // Adapter de entrada: resolve identidade/seleção fora do texto enviado aos agentes.
-public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfiguration configuration) : IContinuidadeDoBrain
+public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfiguration configuration, Dante.Worker.Brain.RegistroDeOperacoesBrain? operacoesMcp = null) : IContinuidadeDoBrain
 {
     private sealed record Selecao(Guid? Espaco=null,Guid? Projeto=null,IReadOnlyList<EspacoDeConhecimentoDto>? Espacos=null,IReadOnlyList<ProjetoDto>? Projetos=null,
         string? NomeEspaco=null,string? NomeProjeto=null);
@@ -24,6 +24,7 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
         var explicito=string.Equals(texto,"/brain",StringComparison.OrdinalIgnoreCase)||texto.StartsWith("/brain ",StringComparison.OrdinalIgnoreCase);
         if(string.IsNullOrWhiteSpace(configuration.GetConnectionString("Dante")))return explicito?"Brain não configurado neste host.":null;
         if(mensagem.From is null)return null;
+        if(operacoesMcp is not null && await operacoesMcp.AtenderAsync(mensagem, texto, cancellationToken, idSessao) is { } respostaMcp) return respostaMcp;
         if(texto.StartsWith('/')&&!explicito)
         {
             if(texto is "/clear" or "/compact")
@@ -113,7 +114,11 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
                 selecionado is null?null:$"conversa:{conversa}:{selecionado.MessageId}",idSessao is null?null:$"{instancia}:{idSessao}");
             var resposta=await operacao.ServiceProvider.GetRequiredService<ConversaDoBrainAppService>().AtenderAsync(acesso,pedido,cancellationToken);
             return resposta??(explicito?"Não entendi a intenção Brain. Diga /brain ajuda para ver exemplos.":null);
-            void Limpar()=>bootstrap.ServiceProvider.GetRequiredService<IEstadoDeConversaDoBrain>().LimparConversa(identidade,conversa);
+            void Limpar()
+            {
+                operacoesMcp?.InvalidarConversa(mensagem);
+                bootstrap.ServiceProvider.GetRequiredService<IEstadoDeConversaDoBrain>().LimparConversa(identidade,conversa);
+            }
         }
         catch(UnauthorizedAccessException){return "Brain: identidade ou escopo não autorizado. Selecione um espaço permitido.";}
         catch(ConflitoDeConcorrenciaException){return "A informação mudou enquanto você confirmava. Refaça a consulta antes de alterar.";}
@@ -121,6 +126,27 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
         catch(InvalidOperationException){return "Brain: item/estado mudou ou está indisponível. Refaça a consulta e confirme novamente.";}
         catch(Exception ex) when(ex is not OperationCanceledException){return "Brain indisponível. Confira a configuração do host.";}
     }
+    // Resolução de identidade/escopo pelo adapter, nunca por argumentos da ferramenta.
+    public async Task<EscopoBrainDaSessao?> ResolverEscopoMcpAsync(TelegramMessage mensagem, CancellationToken ct = default)
+    {
+        if (!Configurado || mensagem.From is null) return null;
+        using var scope = scopeFactory.CreateScope();
+        var identidade = scope.ServiceProvider.GetRequiredService<IdentidadeTelegramDoBrain>().Resolver(mensagem.From.Id);
+        var chave = (identidade.IdTenant, identidade.IdUsuario, mensagem.Chat.Id, mensagem.MessageThreadId ?? 0);
+        scope.ServiceProvider.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(identidade);
+        var espacos = await scope.ServiceProvider.GetRequiredService<IEspacoDeConhecimentoAppService>().PesquisarAsync(new(identidade.IdUsuario, Limite: 100), ct);
+        var estado = selecoes.GetValueOrDefault(chave);
+        if (estado?.Espaco is null && espacos.Count == 1)
+        { estado = new(espacos[0].Id, NomeEspaco: espacos[0].Nome); selecoes[chave] = estado; }
+        if (estado?.Espaco is not { } id || espacos.SingleOrDefault(e => e.Id == id) is not { } espaco) return null;
+        var acesso = new AcessoAoBrain(identidade.IdUsuario, id, estado.Projeto);
+        using var operacao = scopeFactory.CreateScope();
+        operacao.ServiceProvider.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(identidade, acesso);
+        await operacao.ServiceProvider.GetRequiredService<LeituraDoBrainAppService>().ValidarAcessoAsync(acesso, ct);
+        return new(identidade, acesso, espaco.Nome, estado.NomeProjeto, IdDaConversa(mensagem));
+    }
+    public sealed record EscopoBrainDaSessao(IdentidadeDoBrain Identidade, AcessoAoBrain Acesso, string Espaco, string? Projeto, string Conversa);
+
     // Estado por sessão em memória: só chaves/revisões e custo do que foi aceito, nunca o conteúdo injetado.
     private sealed record Injecao(string Escopo,IReadOnlyDictionary<string,int> Injetados,DateTimeOffset AtualizadoEm,int Itens,int Tokens,bool Bootstrap,bool Snapshot);
     private readonly ConcurrentDictionary<string,Injecao> injecoes=new(StringComparer.Ordinal);

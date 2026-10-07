@@ -1,4 +1,5 @@
 using Dante.Worker.Artifacts;
+using Dante.Worker.Brain;
 using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 using Dante.Worker.Planilhas;
@@ -14,7 +15,8 @@ internal static class WorkerComposition
     public static IServiceCollection AddWorker(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton<JobRegistry>();
-        services.AddSingleton(provider => new TelegramBrain(provider.GetRequiredService<IServiceScopeFactory>(), configuration));
+        services.AddSingleton<RegistroDeOperacoesBrain>();
+        services.AddSingleton(provider => new TelegramBrain(provider.GetRequiredService<IServiceScopeFactory>(), configuration, provider.GetRequiredService<RegistroDeOperacoesBrain>()));
         services.AddSingleton<IMediaTools>(_ => new MediaTools());
         services.AddSingleton<MediaPreparer>();
         services.AddSingleton<IAgentSessionDriverFactory, AgentSessionDriverFactory>();
@@ -28,7 +30,10 @@ internal static class WorkerComposition
         // Brain metrics (#148) observe the session events on their way to the showcase and the delivery.
         services.AddSingleton<IAgentSessionEventSink>(provider => new MetricasDeSessaoDoBrain(
             provider.GetRequiredService<TelegramShowcase>(), provider.GetRequiredService<TelegramBrain>()));
-        services.AddSingleton<IAgentToolServers, FerramentasDePlanilhaParaAgentes>();
+        services.AddSingleton<OperacoesMcpDoBrain>();
+        services.AddSingleton<IProvedorDeFerramentas, FerramentasDePlanilhaParaAgentes>();
+        services.AddSingleton<IProvedorDeFerramentas, FerramentasDoBrainParaAgentes>();
+        services.AddSingleton<IAgentToolServers, CompositorDeFerramentas>();
         services.AddSingleton<TelegramPlanilhas>();
         services.AddSingleton<SessionRegistry>();
         services.AddSingleton(_ => new AttachmentStore());

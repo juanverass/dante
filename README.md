@@ -1563,3 +1563,14 @@ alteram o Brain, e `/status` mostra o escopo e o contexto enviado.
 histórico das conversas anteriores do mesmo escopo; registre a qualidade com
 `avalie a retomada: repetições: 0; concluída: sim; relevantes: 3`.
 [Métricas](docs/development/metricas-brain.md).
+
+### Brain por ferramentas dos agentes
+
+Sessões Claude/Codex iniciadas com Brain acessível e espaço/projeto autorizado recebem
+`dante_brain` (#226), junto das planilhas quando conectadas. Selecione `usar espaço
+Desenvolvimento` e `usar projeto D.A.N.T.E.`, inicie uma sessão e peça, por exemplo:
+“Registre estes conhecimentos separadamente, preserve título/conteúdo/tags, verifique
+possíveis duplicidades e sugira relações”. O agente cria candidatos e apresenta o
+resultado. Consolidação, descarte e relações ainda pedem `confirmar` no Telegram;
+aprovar uma ferramenta não confirma o conhecimento. Troca de escopo exige nova sessão
+para ferramentas MCP. [Ferramentas, segurança e limites](docs/development/brain-mcp.md).

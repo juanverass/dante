@@ -9,10 +9,10 @@ public sealed class CandidatoDeConhecimentoRepository(DanteDbContext context) : 
 {
     public Task<CandidatoDeConhecimento?> ObterEquivalenteAsync(CandidatoDeConhecimento c, CancellationToken ct = default) =>
         DbSet.SingleOrDefaultAsync(x => x.IdEspacoDeConhecimento == c.IdEspacoDeConhecimento && x.IdProjeto == c.IdProjeto && x.Impressao == c.Impressao, ct);
-    public async Task<IReadOnlyList<CandidatoDeConhecimento>> ListarPendentesAsync(Guid idEspaco, Guid? idProjeto, int limite, CancellationToken ct = default)
+    public async Task<IReadOnlyList<CandidatoDeConhecimento>> ListarPendentesAsync(Guid idEspaco, Guid? idProjeto, int limite, CancellationToken ct = default, int deslocamento = 0)
     {
-        if (idEspaco == Guid.Empty || idProjeto == Guid.Empty || limite is < 1 or > 100) throw new ArgumentException("Filtro inválido.");
+        if (idEspaco == Guid.Empty || idProjeto == Guid.Empty || limite is < 1 or > 100 || deslocamento is < 0 or > 10000) throw new ArgumentException("Filtro inválido.");
         return await DbSet.Where(x => x.IdEspacoDeConhecimento == idEspaco && x.IdProjeto == idProjeto && x.Estado == EstadoDoCandidato.Pendente)
-            .OrderBy(x => x.Id).Take(limite).ToListAsync(ct);
+            .OrderBy(x => x.Id).Skip(deslocamento).Take(limite).ToListAsync(ct);
     }
 }

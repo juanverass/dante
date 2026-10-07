@@ -14,4 +14,7 @@ public sealed record AgentToolServer(
 public interface IAgentToolServers
 {
     Task<IReadOnlyList<AgentToolServer>> ForAsync(long ownerUserId, AgentKind agent, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AgentToolServer>> ForSessionAsync(string sessionId, SessionStartRequest request, CancellationToken cancellationToken = default) =>
+        ForAsync(request.OwnerUserId, request.Agent, cancellationToken);
+    void EndSession(string sessionId) { }
 }
