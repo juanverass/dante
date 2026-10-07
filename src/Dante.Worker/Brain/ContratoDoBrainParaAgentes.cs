@@ -15,13 +15,15 @@ internal static class ContratoDoBrainParaAgentes
         Para registrar conhecimento geral ou derivado de um repositório, use brain_capturar_conhecimento com título,
         conteúdo, tags e justificativa da origem; conclusões do agente são Inferencia, nunca DitoPeloUsuario.
         Atualize candidatos pendentes com brain_corrigir_candidato e revisão esperada.
-        Para atualizar conhecimento confirmado, capture a nova versão como candidato e apresente a proposta ao usuário;
-        não declare o conhecimento anterior substituído nem duplicatas fundidas sem operação suportada e confirmação.
+        Para atualizar conhecimento existente, use brain_atualizar_conhecimento com ID e revisão retornados pela consulta,
+        conteúdo, natureza e justificativa. A operação prepara correção no mesmo ID com histórico; não cria outro ativo.
+        A nova versão permanece inferida. Nunca simule atualização promovendo outro candidato independente.
+        Para consolidar conhecimentos duplicados, consulte os equivalentes, escolha destino e duplicatas explicitamente
+        e use brain_consolidar_duplicatas com as revisões de todos. O destino conserva conteúdo e incorpora proveniências;
+        as duplicatas ficam substituídas. Não há fusão automática nem escolha silenciosa de destino.
         brain_confirmar_candidato prepara consolidação de candidato. Aprovação MCP não confirma negócio:
-        apresente a proposta e peça confirmar no Telegram. Propostas de relação e descarte também exigem
-        confirmação no Telegram. Capture itens individualmente e reporte possíveis duplicidades.
-        Não há ferramenta MCP de fusão de conhecimentos duplicados;
-        consulte os equivalentes e apresente-os para revisão, sem simular uma fusão.
+        apresente a proposta e peça confirmar no Telegram. Atualização, consolidação de duplicatas, relação e descarte
+        também exigem confirmação Telegram, com revalidação de escopo e revisões. Capture itens individualmente.
         Falha, ausência ou revogação das ferramentas significa indisponibilidade da capacidade interna do Brain;
         informe essa limitação sem inventar leitura ou persistência bem-sucedida, sem procurar plugins ou URL externa.
         Respeite autorização, sensibilidade, revisões e confirmação; nunca capture transcript ou raciocínio privado.

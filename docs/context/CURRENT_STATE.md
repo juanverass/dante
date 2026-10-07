@@ -688,4 +688,9 @@ Claude e Codex recebem contrato explícito do Brain como capacidade interna, com
 (disponibilizado/indisponível) da sessão. Não procuram plugins/connectors nem pedem URL
 externa para Brain. O contrato acompanha a recriação de thread por `/clear` e o handshake
 MCP; orienta consulta, captura com inferência/proveniência, revisão e confirmação de
-propostas no Telegram, sem simular fusão de duplicatas não exposta pelo MCP.
+propostas no Telegram. `brain_atualizar_conhecimento` corrige o mesmo ID com histórico
+e deixa a nova versão inferida; `brain_consolidar_duplicatas` conserva o destino,
+incorpora proveniências e substitui duplicatas explicitamente selecionadas. Ambas
+revalidam escopo/revisões na confirmação Telegram e mantêm as políticas da Application.
+E2E opt-in com ambas as CLIs lê README de repositório Git descartável, captura inferência
+e recupera o conhecimento/proveniência em nova sessão, sem descoberta de plugin.

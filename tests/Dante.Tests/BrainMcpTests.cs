@@ -39,7 +39,7 @@ public sealed class BrainMcpTests
         Assert.Equal(4, respostas.Length); Assert.Equal("dante_brain", respostas[0]["result"]!["serverInfo"]!["name"]!.GetValue<string>());
         Assert.Contains("capacidade interna", respostas[0]["result"]!["instructions"]!.GetValue<string>());
         Assert.Contains("Nunca procure o Brain em plugins", respostas[0]["result"]!["instructions"]!.GetValue<string>());
-        var tools = respostas[1]["result"]!["tools"]!.AsArray(); Assert.Equal(12, tools.Count);
+        var tools = respostas[1]["result"]!["tools"]!.AsArray(); Assert.Equal(14, tools.Count);
         Assert.All(tools, t => Assert.False(t!["inputSchema"]!["additionalProperties"]!.GetValue<bool>()));
         Assert.True(tools.Single(t => t!["name"]!.GetValue<string>() == "brain_buscar_conhecimento")!["annotations"]!["readOnlyHint"]!.GetValue<bool>());
         Assert.True(tools.Single(t => t!["name"]!.GetValue<string>() == "brain_cancelar_candidato")!["annotations"]!["destructiveHint"]!.GetValue<bool>());

@@ -31,6 +31,12 @@ public static class ServidorMcpDoBrain
         if (correcao) { p["id"] = Id(); p["revisao"] = Revisao(); }
         return p;
     }
+    private static JsonObject Atualizacao()
+    {
+        var propriedades = Captura(true);
+        propriedades.Remove("tipo"); // O agente não promove uma inferência a fato pela correção.
+        return propriedades;
+    }
     public static readonly IReadOnlyList<Ferramenta> Ferramentas =
     [
         new("brain_obter_escopo", "Espaço/projeto autorizado da sessão. Não altera escopo.", true, false, new(), []),
@@ -38,6 +44,10 @@ public static class ServidorMcpDoBrain
             new() { ["texto"] = Texto(2000), ["tipo"] = EnumCampo<Dante.Domain.Conhecimentos.TipoDeConhecimento>(), ["tags"] = Tags(), ["limite"] = Revisao(), ["deslocamento"] = Revisao() }, ["texto"]),
         new("brain_mostrar_origem", "Proveniência de candidato ou conhecimento permitido.", true, false, new() { ["id"] = Id(), ["origem"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("candidato", "conhecimento") } }, ["id", "origem"]),
         new("brain_capturar_conhecimento", "Cria um único candidato pendente. Preserve título/conteúdo/tags. Conclusão do agente continua inferência; nunca declare conteúdo do agente como dito pelo usuário.", false, false, Captura(), ["conteudo", "natureza", "justificativa"]),
+        new("brain_atualizar_conhecimento", "PREPARA correção do conhecimento existente, sem criar outro ativo. Exige revisão e confirmação Telegram; a correção não herda a confirmação anterior.", false, true, Atualizacao(), ["id", "revisao", "conteudo", "natureza", "justificativa"]),
+        new("brain_consolidar_duplicatas", "PREPARA consolidação explícita: conserva o destino, incorpora proveniências e substitui duplicatas. Exige confirmar no Telegram e revisões de todos os alvos.", false, true,
+            new() { ["id"] = Id(), ["revisao"] = Revisao(), ["duplicatas"] = new JsonObject { ["type"] = "array", ["minItems"] = 1, ["maxItems"] = 20,
+                ["items"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject { ["id"] = Id(), ["revisao"] = Revisao() }, ["required"] = new JsonArray("id", "revisao"), ["additionalProperties"] = false } } }, ["id", "revisao", "duplicatas"]),
         new("brain_listar_candidatos", "Candidatos pendentes do escopo, com revisão. Paginação por deslocamento, limite máximo 25.", true, false, new() { ["limite"] = Revisao(), ["deslocamento"] = Revisao() }, []),
         new("brain_corrigir_candidato", "Corrige candidato pendente com revisão esperada, sem redefinir natureza ou escopo.", false, true, Captura(true), ["id", "revisao", "conteudo", "natureza", "justificativa"]),
         new("brain_confirmar_candidato", "PREPARA consolidação. Não consolida pela aprovação MCP. Mostre o candidato e peça ao usuário confirmar no Telegram; uma proposta de cada vez, válida por 5 minutos.", false, false, new() { ["id"] = Id(), ["revisao"] = Revisao() }, ["id", "revisao"]),
