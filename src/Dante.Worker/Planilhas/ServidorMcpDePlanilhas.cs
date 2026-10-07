@@ -431,7 +431,7 @@ public sealed class ServidorMcpDePlanilhas(IServiceScopeFactory scopes, OrigemDa
             ["annotations"] = new JsonObject
             {
                 ["readOnlyHint"] = leitura,
-                ["destructiveHint"] = false,
+                ["destructiveHint"] = nome is "atualizar_celulas" or "atualizar_por_referencia",
                 ["openWorldHint"] = true
             }
         };

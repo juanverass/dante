@@ -149,10 +149,11 @@ do alvo ficam intactas.
 
 - **Sheets:** busca/leitura de valores limitada a 250 mil posições por chamada; respostas HTTP limitadas a 16 MB. Descrição deixa a área usada desconhecida em grades maiores. Informe intervalo menor para busca/leitura nessas abas.
 - **Append Sheets:** não repete falha de rede/5xx com resultado incerto; informa para conferir antes de repetir. 401 renova e 429 pode repetir; batchUpdate de valores usa retry por escrever novamente os mesmos alvos.
-- **Arquivos locais:** cadastro e auditoria usam lock de arquivo compartilhado entre processos. Falha de auditoria após escrita remota informa explicitamente que a escrita foi aplicada e não deve ser repetida.
+- **Arquivos locais:** cadastro e auditoria usam lock de arquivo compartilhado entre processos. Cadastro por alias/ID e inclusão/remoção de regiões executam leitura, validação e mutação na mesma seção crítica; regiões são alteradas sobre o estado atual, sem regravar snapshots antigos. Falha de auditoria após escrita remota informa explicitamente que a escrita foi aplicada e não deve ser repetida.
 - **OAuth:** revogação só é confirmada com resposta de sucesso; falha apaga a credencial local e informa que a revogação não foi confirmada. `DANTE_GOOGLE_KEY` na configuração é recusada: a chave privada em arquivo permite que Worker/MCP compartilhem acesso sem expor a chave nos argumentos.
 - **Leitura** só em planilha cadastrada, sem aprovação (Claude: `--allowedTools` das
   ferramentas de leitura; Codex: `readOnlyHint`).
+- **MCP:** ferramentas que sobrescrevem valores (`atualizar_celulas`, `atualizar_por_referencia`) anunciam `destructiveHint=true`; leitura e operações aditivas anunciam `false`.
 - **Escrita** segue o modo da sessão: `manual` pede aprovação pelo Telegram (Claude por
   `can_use_tool`; Codex por `mcpServer/elicitation/request` com `codex_approval_kind =
   mcp_tool_call`), `auto` deixa a decisão ao revisor automático de cada CLI, e `plan` recusa.

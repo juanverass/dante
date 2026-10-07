@@ -35,6 +35,8 @@ public sealed class ServidorMcpDePlanilhasTests
             ferramentas.Where(t => (bool)t["annotations"]!["readOnlyHint"]!).Select(t => (string)t["name"]!).Order());
         Assert.Equal(["adicionar_linha", "anotar_regiao", "atualizar_celulas", "atualizar_por_referencia", "cadastrar_planilha"],
             ferramentas.Where(t => !(bool)t["annotations"]!["readOnlyHint"]!).Select(t => (string)t["name"]!).Order());
+        Assert.Equal(["atualizar_celulas", "atualizar_por_referencia"],
+            ferramentas.Where(t => (bool)t["annotations"]!["destructiveHint"]!).Select(t => (string)t["name"]!).Order());
         Assert.All(ferramentas, t => Assert.Equal("object", (string?)t["inputSchema"]!["type"]));
         Assert.Equal(-32601, (int)respostas[3]["error"]!["code"]!);
         Assert.NotNull(respostas[4]["result"]);

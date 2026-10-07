@@ -42,26 +42,23 @@ public sealed class PlanilhasAppService(
         var id = provedor.IdentificarPlanilha(urlOuId ?? string.Empty)
                  ?? throw new ArgumentException("Informe a URL da planilha ou o ID dela.", nameof(urlOuId));
         descricao = PlanilhaValidator.ExigirDescricao(descricao);
-        var existentes = await cadastro.ListarAsync(cancellationToken);
-        if (existentes.FirstOrDefault(p => p.Alias == alias) is { } mesmoAlias && mesmoAlias.IdDaPlanilha != id)
-            throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.Conflito,
-                $"O alias {alias} já está cadastrado para outra planilha. Remova-o antes de reutilizar.");
-        if (existentes.FirstOrDefault(p => p.IdDaPlanilha == id && p.Alias != alias) is { } mesmoId)
-            throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.Conflito,
-                $"Esta planilha já está cadastrada como {mesmoId.Alias}.");
         var metadados = await provedor.ObterMetadadosAsync(id, false, cancellationToken);
-        var anterior = existentes.FirstOrDefault(p => p.Alias == alias);
-        var planilha = new PlanilhaCadastradaDto
+        return await cadastro.AtualizarAsync(alias, existentes =>
         {
-            Alias = alias,
-            IdDaPlanilha = id,
-            Titulo = metadados.Titulo,
-            Descricao = descricao ?? anterior?.Descricao,
-            Regioes = anterior?.Regioes ?? [],
-            CadastradaEm = anterior?.CadastradaEm ?? DateTimeOffset.UtcNow
-        };
-        await cadastro.SalvarAsync(planilha, cancellationToken);
-        return planilha;
+            var anterior = existentes.FirstOrDefault(p => string.Equals(p.Alias, alias, StringComparison.OrdinalIgnoreCase));
+            if (anterior is not null && anterior.IdDaPlanilha != id)
+                throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.Conflito,
+                    $"O alias {alias} já está cadastrado para outra planilha. Remova-o antes de reutilizar.");
+            if (existentes.FirstOrDefault(p => p.IdDaPlanilha == id && !string.Equals(p.Alias, alias, StringComparison.OrdinalIgnoreCase)) is { } mesmoId)
+                throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.Conflito,
+                    $"Esta planilha já está cadastrada como {mesmoId.Alias}.");
+            return new PlanilhaCadastradaDto
+            {
+                Alias = alias, IdDaPlanilha = id, Titulo = metadados.Titulo,
+                Descricao = descricao ?? anterior?.Descricao, Regioes = anterior?.Regioes ?? [],
+                CadastradaEm = anterior?.CadastradaEm ?? DateTimeOffset.UtcNow
+            };
+        }, cancellationToken);
     }
 
     public Task<bool> RemoverAsync(string alias, CancellationToken cancellationToken = default) =>
@@ -72,26 +69,41 @@ public sealed class PlanilhasAppService(
     {
         var regiao = PlanilhaValidator.ExigirRegiao(nome, intervalo, descricao);
         var cadastrada = await ResolverAsync(planilha, cancellationToken);
-        var atualizada = cadastrada with
+        return await cadastro.AtualizarAsync(cadastrada.Alias, existentes =>
         {
-            Regioes = cadastrada.Regioes.Where(r => !string.Equals(r.Nome, regiao.Nome, StringComparison.OrdinalIgnoreCase))
-                .Append(new RegiaoConhecidaDto { Nome = regiao.Nome, Intervalo = regiao.Intervalo.ToString(), Descricao = regiao.Descricao })
-                .OrderBy(r => r.Nome, StringComparer.OrdinalIgnoreCase).ToArray()
-        };
-        await cadastro.SalvarAsync(atualizada, cancellationToken);
-        return atualizada;
+            var atual = ExigirCadastroAtual(existentes, cadastrada);
+            return atual with
+            {
+                Regioes = atual.Regioes.Where(r => !string.Equals(r.Nome, regiao.Nome, StringComparison.OrdinalIgnoreCase))
+                    .Append(new RegiaoConhecidaDto { Nome = regiao.Nome, Intervalo = regiao.Intervalo.ToString(), Descricao = regiao.Descricao })
+                    .OrderBy(r => r.Nome, StringComparer.OrdinalIgnoreCase).ToArray()
+            };
+        }, cancellationToken);
     }
 
     public async Task<PlanilhaCadastradaDto> RemoverRegiaoAsync(string planilha, string nome,
         CancellationToken cancellationToken = default)
     {
         var cadastrada = await ResolverAsync(planilha, cancellationToken);
-        var restantes = cadastrada.Regioes.Where(r => !string.Equals(r.Nome, nome?.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (restantes.Length == cadastrada.Regioes.Count)
-            throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.NaoEncontrada, $"A região {nome} não está anotada em {cadastrada.Alias}.");
-        var atualizada = cadastrada with { Regioes = restantes };
-        await cadastro.SalvarAsync(atualizada, cancellationToken);
-        return atualizada;
+        return await cadastro.AtualizarAsync(cadastrada.Alias, existentes =>
+        {
+            var atual = ExigirCadastroAtual(existentes, cadastrada);
+            var restantes = atual.Regioes.Where(r => !string.Equals(r.Nome, nome?.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (restantes.Length == atual.Regioes.Count)
+                throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.NaoEncontrada,
+                    $"A região {nome} não está anotada em {atual.Alias}.");
+            return atual with { Regioes = restantes };
+        }, cancellationToken);
+    }
+
+    private static PlanilhaCadastradaDto ExigirCadastroAtual(IReadOnlyList<PlanilhaCadastradaDto> existentes,
+        PlanilhaCadastradaDto observado)
+    {
+        var atual = existentes.FirstOrDefault(p => string.Equals(p.Alias, observado.Alias, StringComparison.OrdinalIgnoreCase));
+        if (atual is null || atual.IdDaPlanilha != observado.IdDaPlanilha)
+            throw new FalhaDePlanilhaException(MotivoDaFalhaDePlanilha.Conflito,
+                "O cadastro mudou durante a operação; consulte a planilha novamente.");
+        return atual;
     }
 
     public async Task<DescricaoDaPlanilhaDto> DescreverAsync(string planilha, CancellationToken cancellationToken = default)

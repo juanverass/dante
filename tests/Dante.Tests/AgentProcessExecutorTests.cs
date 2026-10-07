@@ -4,6 +4,7 @@ using Dante.ProcessProbe;
 
 namespace Dante.Tests;
 
+[Collection("AmbienteDosAgentes")]
 public sealed class AgentProcessExecutorTests
 {
     private static readonly string ProbeAssembly = typeof(ProbeMarker).Assembly.Location;

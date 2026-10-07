@@ -29,14 +29,26 @@ public sealed class CadastroDePlanilhasEmArquivo(string diretorio) : ICadastroDe
     public async Task SalvarAsync(PlanilhaCadastradaDto planilha, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(planilha);
+        await AtualizarAsync(planilha.Alias, _ => planilha, cancellationToken);
+    }
+
+    public async Task<PlanilhaCadastradaDto> AtualizarAsync(string alias,
+        Func<IReadOnlyList<PlanilhaCadastradaDto>, PlanilhaCadastradaDto> atualizar,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(atualizar);
         await gate.WaitAsync(cancellationToken);
         try
         {
             await using var arquivoLock = await LockDeArquivo.AdquirirAsync(Caminho + ".lock", cancellationToken);
-            var planilhas = (await LerAsync(cancellationToken))
-                .Where(p => !string.Equals(p.Alias, planilha.Alias, StringComparison.OrdinalIgnoreCase))
+            var existentes = await LerAsync(cancellationToken);
+            var planilha = atualizar(existentes);
+            if (!string.Equals(planilha.Alias, alias, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("A atualização não pode mudar o alias.", nameof(atualizar));
+            var planilhas = existentes.Where(p => !string.Equals(p.Alias, alias, StringComparison.OrdinalIgnoreCase))
                 .Append(planilha).OrderBy(p => p.Alias, StringComparer.Ordinal).ToArray();
             await GravarAsync(planilhas, cancellationToken);
+            return planilha;
         }
         finally { gate.Release(); }
     }
