@@ -130,6 +130,70 @@ public sealed class BrainMcpTests
         await using (var db = banco.Contexto()) Assert.Equal(2, await db.CandidatosDeConhecimento.CountAsync());
     }
     [PostgreSqlFact]
+    public async Task SteerNativoAceitoAtualizaOrigemERecusadoPreservaEvidencia()
+    {
+        await using var banco = await Banco.CriarAsync(); using var app = CriarApp(banco.ConnectionString);
+        var brain = app.GetRequiredService<TelegramBrain>(); await SelecionarAsync(brain);
+        var registro = app.GetRequiredService<RegistroDeOperacoesBrain>(); using var ferramentas = Provedor(app);
+        var drivers = new FakeSessionDriverFactory();
+        await using var sessoes = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance, toolServers: new CompositorDeFerramentas([ferramentas]));
+        var a = Mensagem("Decisão exclusiva de A", 300); var b = Mensagem("Decisão exclusiva de B", 301); var c = Mensagem("Decisão recusada de C", 302);
+        AgentInput Entrada(TelegramMessage m) => new(m.Text!, []) { BrainConversation = m.ParaFerramentas() };
+        var inicio = await sessoes.StartAsync(new(42, AgentKind.Codex, JobExecutionContext.General(AppContext.BaseDirectory), BrainConversation: a.ParaFerramentas()));
+        var id = inicio.Session!.Id; var driver = drivers.Created.Single(); Assert.True(driver.Capabilities.NativeSteer);
+        Assert.Equal(SubmitOutcome.TurnStarted, (await sessoes.SubmitAsync(42, id, Entrada(a))).Outcome);
+        await using var cliente = await Cliente.ConectarAsync(Assert.Single(driver.StartOptions!.ToolServers!));
+        async Task<bool> Capturar(TelegramMessage m) => (await cliente.ChamarAsync("brain_capturar_conhecimento", new { conteudo = m.Text, natureza = "DitoPeloUsuario", justificativa = "pedido" }))["isError"]!.GetValue<bool>();
+        driver.SteerFailure = new AgentSteerRejectedException("recusado");
+        Assert.Equal(SubmitOutcome.Rejected, (await sessoes.SubmitAsync(42, id, Entrada(c), MessageDelivery.Steer)).Outcome);
+        Assert.Equal(300, registro.Atual(id).MessageId); Assert.False(await Capturar(a)); Assert.True(await Capturar(c));
+        driver.SteerFailure = null;
+        Assert.Equal(SubmitOutcome.Steered, (await sessoes.SubmitAsync(42, id, Entrada(b), MessageDelivery.Steer)).Outcome);
+        Assert.Equal(301, registro.Atual(id).MessageId); Assert.False(await Capturar(b)); Assert.True(await Capturar(a));
+        driver.SteerFailure = new AgentSteerRejectedException("recusado novamente");
+        Assert.Equal(SubmitOutcome.Rejected, (await sessoes.SubmitAsync(42, id, Entrada(c), MessageDelivery.Steer)).Outcome);
+        Assert.Equal(301, registro.Atual(id).MessageId); Assert.True(await Capturar(c));
+        await using var db = banco.Contexto(); var itens = await db.CandidatosDeConhecimento.ToListAsync(); Assert.Equal(2, itens.Count);
+        Assert.EndsWith(":300", itens.Single(x => x.Conteudo == a.Text).Proveniencia.ReferenciaDaFonte);
+        Assert.EndsWith(":301", itens.Single(x => x.Conteudo == b.Text).Proveniencia.ReferenciaDaFonte);
+    }
+    [PostgreSqlFact]
+    public async Task RelacoesRestritasNaoConsomemLimiteDasPermitidasEmOutraPagina()
+    {
+        await using var banco = await Banco.CriarAsync(); using var app = CriarApp(banco.ConnectionString);
+        var brain = app.GetRequiredService<TelegramBrain>(); await SelecionarAsync(brain);
+        var m = Mensagem("consultar relações"); var escopo = (await brain.ResolverEscopoMcpAsync(m))!;
+        app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S1", m);
+        var instante = DateTimeOffset.UtcNow.AddMinutes(-10);
+        var prova = new ProvenienciaDoConhecimento(escopo.Acesso.IdUsuario, "evidência restrita", "fonte da relação", trechoDaFonte: "prova não exibida");
+        Conhecimento Novo(string texto, Sensibilidade classe) => new(escopo.Acesso.IdEspacoDeConhecimento, escopo.Acesso.IdProjeto, TipoDeConhecimento.Nota,
+            texto, null, StatusDoConhecimento.Inferido, null, classe, null, null, [], prova, instante);
+        var raiz = Novo("raiz permitida", Sensibilidade.Pessoal);
+        var restritos = Enumerable.Range(0, 101).Select(i => Novo($"restrito {i}", i % 2 == 0 ? Sensibilidade.Secreto : Sensibilidade.Confidencial)).ToArray();
+        var permitidos = new[] { Novo("permitido A", Sensibilidade.Pessoal), Novo("permitido B", Sensibilidade.Trabalho) };
+        await using (var db = banco.Contexto())
+        {
+            db.Add(raiz); db.AddRange(restritos); db.AddRange(permitidos);
+            foreach (var (item, i) in restritos.Concat(permitidos).Select((item, i) => (item, i)))
+                db.Add(new Dante.Domain.RelacoesDeConhecimento.RelacaoDeConhecimento(raiz, item, Dante.Domain.RelacoesDeConhecimento.TipoDeRelacao.DependeDe, prova, instante.AddSeconds(i + 1)));
+            await db.SaveChangesAsync();
+        }
+        var ops = app.GetRequiredService<OperacoesMcpDoBrain>();
+        async Task<Dante.Application.RelacoesDeConhecimento.VizinhancaDto> Listar(Guid id, int limite) =>
+            (Dante.Application.RelacoesDeConhecimento.VizinhancaDto)(await ops.ExecutarAsync(escopo, m, "S1", "codex", "brain_listar_relacoes", JsonSerializer.SerializeToElement(new { id, limite })))!;
+        var um = await Listar(raiz.Id, 1); Assert.True(um.LimiteAtingido); Assert.Equal(permitidos[0].Id, Assert.Single(um.Relacoes).IdDestino);
+        var dois = await Listar(raiz.Id, 2); Assert.False(dois.LimiteAtingido); Assert.Equal(permitidos.Select(x => x.Id), dois.Relacoes.Select(x => x.IdDestino));
+        Assert.All(dois.Relacoes, r => { Assert.Contains("protegida", r.Proveniencia.Origem); Assert.Null(r.Proveniencia.TrechoDaFonte); });
+        // Uma raiz permitida com somente vizinhos restritos esgota sem revelar contagem/truncamento.
+        var isolada = Novo("raiz sem vizinhos permitidos", Sensibilidade.Pessoal);
+        await using (var db = banco.Contexto())
+        {
+            db.Add(isolada); db.Add(new Dante.Domain.RelacoesDeConhecimento.RelacaoDeConhecimento(isolada, restritos[0], Dante.Domain.RelacoesDeConhecimento.TipoDeRelacao.DependeDe, prova, instante.AddMinutes(3)));
+            await db.SaveChangesAsync();
+        }
+        var nenhuma = await Listar(isolada.Id, 1); Assert.Empty(nenhuma.Relacoes); Assert.False(nenhuma.LimiteAtingido);
+    }
+    [PostgreSqlFact]
     public async Task LoteSeparadoComPostgresDeduplicacaoConfirmacaoENovaSessao()
     {
         await using var banco = await Banco.CriarAsync(); using var app = CriarApp(banco.ConnectionString);

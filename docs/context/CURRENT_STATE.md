@@ -673,3 +673,11 @@ Mensagens recebidas/enfileiradas não substituem essa evidência; entradas sem c
 autenticado revogam o acesso. Captura e correção factual exigem conteúdo na origem.
 Relações são projetadas somente quando ambos os alvos permitem leitura; sua prova
 bruta não é exposta no canal MCP. Sessão ausente/revogada falha fechado.
+
+Steer nativo aceito pelo driver atualiza a evidência autenticada do Brain; steer
+recusado mantém a origem anterior. Respostas textuais a perguntas do agente não
+alimentam evidência factual no MCP neste MVP. A listagem de relações percorre
+páginas internas de até 100 itens até preencher o limite de relações permitidas
+ou esgotar a vizinhança; o indicador de limite conta apenas relações autorizadas.
+O prazo por operação continua limitando o percurso, sem retornar lista parcial
+como se a vizinhança tivesse sido esgotada.

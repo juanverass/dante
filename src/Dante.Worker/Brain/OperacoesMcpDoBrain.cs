@@ -103,21 +103,28 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 return new { origem = origem.Conteudo, destino = destino.Conteudo, tipo = tipo.ToString(), aguardandoConfirmacao = true, instrucao = "Peça confirmar no Telegram; nenhuma relação foi criada ainda." };
             case "brain_listar_relacoes":
                 await ConhecimentoAsync(Id(args, "id"));
-                var vizinhanca = await servicos.GetRequiredService<IRelacaoDeConhecimentoAppService>().ConsultarVizinhancaAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, Id(args, "id"), 1, Limite(args), ct);
-                var visiveis = new List<RelacaoDeConhecimentoDto>();
-                foreach (var relacao in vizinhanca.Relacoes)
+                var relacoes = servicos.GetRequiredService<IRelacaoDeConhecimentoAppService>();
+                var visiveis = new List<RelacaoDeConhecimentoDto>(); var deslocamento = 0; var limite = Limite(args);
+                while (true)
                 {
-                    var a = await leitura.LerAsync(relacao.IdOrigem, acesso, FinalidadeDeLeitura.Busca, ct);
-                    var b = await leitura.LerAsync(relacao.IdDestino, acesso, FinalidadeDeLeitura.Busca, ct);
-                    if (a is null || b is null || a.ConteudoProtegido || b.ConteudoProtegido ||
-                        a.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido ||
-                        b.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido) continue;
-                    // A evidência da relação pode ter sido produzida quando os alvos eram mais restritos.
-                    // Não expor prova bruta nesse canal, mesmo que a classificação atual permita ler os alvos.
-                    visiveis.Add(relacao with { Proveniencia = new() { Origem = "proveniência protegida no canal MCP" },
-                        ProvenienciaDaResolucao = relacao.ProvenienciaDaResolucao is null ? null : new() { Origem = "proveniência protegida no canal MCP" } });
+                    ct.ThrowIfCancellationRequested();
+                    var janela = await relacoes.ConsultarPaginaDeVizinhasAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, Id(args, "id"), deslocamento, 100, ct);
+                    foreach (var relacao in janela.Relacoes)
+                    {
+                        var a = await leitura.LerAsync(relacao.IdOrigem, acesso, FinalidadeDeLeitura.Busca, ct);
+                        var b = await leitura.LerAsync(relacao.IdDestino, acesso, FinalidadeDeLeitura.Busca, ct);
+                        if (a is null || b is null || a.ConteudoProtegido || b.ConteudoProtegido ||
+                            a.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido ||
+                            b.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido) continue;
+                        // O limite lógico conta apenas alvos autorizados; mais um permitido prova truncamento.
+                        if (visiveis.Count == limite) return new VizinhancaDto(visiveis, true);
+                        // Não expor prova bruta, inclusive de classificações históricas mais restritas.
+                        visiveis.Add(relacao with { Proveniencia = new() { Origem = "proveniência protegida no canal MCP" },
+                            ProvenienciaDaResolucao = relacao.ProvenienciaDaResolucao is null ? null : new() { Origem = "proveniência protegida no canal MCP" } });
+                    }
+                    if (!janela.LimiteAtingido) return new VizinhancaDto(visiveis, false);
+                    deslocamento = checked(deslocamento + janela.Relacoes.Count);
                 }
-                return new VizinhancaDto(visiveis, visiveis.Count == vizinhanca.Relacoes.Count && vizinhanca.LimiteAtingido);
             case "brain_obter_contexto_de_trabalho": return await servicos.GetRequiredService<ContextoDeTrabalhoAppService>().RetomarAsync(acesso, ct);
             case "brain_atualizar_contexto_de_trabalho":
                 var contextos = servicos.GetRequiredService<ContextoDeTrabalhoAppService>();

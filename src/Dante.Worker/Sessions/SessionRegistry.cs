@@ -380,6 +380,7 @@ public sealed class SessionRegistry(
                     break;
                 case SubmitOutcome.Steered:
                     await entry.Driver.SteerAsync(input, cancellationToken);
+                    toolServers?.BeginTurn(session.Id, input); // Só a confirmação do driver substitui a evidência anterior.
                     break;
                 case SubmitOutcome.SteerByInterrupt:
                     await entry.Driver.InterruptTurnAsync(cancellationToken);

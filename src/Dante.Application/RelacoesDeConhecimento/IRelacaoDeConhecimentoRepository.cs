@@ -6,5 +6,5 @@ public interface IRelacaoDeConhecimentoRepository : IRepository<RelacaoDeConheci
 {
     Task<RelacaoDeConhecimento?> ObterEquivalenteAsync(RelacaoDeConhecimento relacao, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RelacaoDeConhecimento>> ListarVizinhasAsync(Guid idEspaco, Guid? idProjeto,
-        IReadOnlyCollection<Guid> idsFronteira, int limite, CancellationToken cancellationToken = default);
+        IReadOnlyCollection<Guid> idsFronteira, int limite, CancellationToken cancellationToken = default, int deslocamento = 0);
 }
