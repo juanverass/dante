@@ -23,7 +23,7 @@ public sealed class LiveBrainMcpEvidenceTests(ITestOutputHelper output)
         var root = Directory.CreateTempSubdirectory("dante-live-brain-").FullName;
         try
         {
-            var pedido = "Use SOMENTE as ferramentas dante_brain. Consulte o escopo. Registre cada um dos três itens abaixo como candidato SEPARADO, preserve conteúdo e título exatos, tags dante. Não confirme. Não use arquivos, terminal ou outras ferramentas.\n" +
+            var pedido = "Crie conhecimentos no Brain para cada um dos três itens abaixo, separadamente. Preserve conteúdo e título exatos, tags dante. Não confirme ainda.\n" +
                 "Título: Nome D.A.N.T.E.\nConteúdo: D.A.N.T.E. significa Distributed Agent Network for Task Execution.\n\n" +
                 "Título: Orquestração local\nConteúdo: O D.A.N.T.E. coordena agentes de IA e ferramentas locais.\n\n" +
                 "Título: Adapter Telegram\nConteúdo: Telegram é um adapter de interação do D.A.N.T.E.\n";
@@ -34,8 +34,12 @@ public sealed class LiveBrainMcpEvidenceTests(ITestOutputHelper output)
             {
                 await driver.StartAsync(new(root, IsGeneral: true, Profile: AgentPermissionProfile.Auto, ToolServers: servidores), timeout.Token);
                 await using var eventos = driver.ReadEventsAsync(timeout.Token).GetAsyncEnumerator();
-                await driver.StartTurnAsync(pedido, timeout.Token); output.WriteLine(await RespostaAsync(driver, eventos, timeout.Token));
-                var duplicado = BrainMcpTests.Mensagem("Use brain_capturar_conhecimento para este mesmo conteúdo e reporte a possível duplicidade retornada, sem confirmar: D.A.N.T.E. significa Distributed Agent Network for Task Execution.", 130);
+                await driver.StartTurnAsync(pedido, timeout.Token);
+                var usadas = new List<string>();
+                output.WriteLine(await RespostaAsync(driver, eventos, timeout.Token, usadas));
+                Assert.Contains(usadas, x => x.Contains("brain_capturar_conhecimento", StringComparison.Ordinal));
+                Assert.DoesNotContain(usadas, x => x.Contains("plugin", StringComparison.OrdinalIgnoreCase));
+                var duplicado = BrainMcpTests.Mensagem("Crie no Brain este mesmo conteúdo e reporte possível duplicidade, sem confirmar: D.A.N.T.E. significa Distributed Agent Network for Task Execution.", 130);
                 ferramentas.BeginTurn("LIVE1", new AgentInput(duplicado.Text!, []) { BrainConversation = duplicado.ParaFerramentas() });
                 await driver.StartTurnAsync(duplicado.Text!, timeout.Token); output.WriteLine(await RespostaAsync(driver, eventos, timeout.Token));
             }
@@ -48,7 +52,7 @@ public sealed class LiveBrainMcpEvidenceTests(ITestOutputHelper output)
             // Confirmação pelo fluxo natural de negócio, independente de auto-approval da CLI.
             Assert.Contains("Candidatos pendentes", await brain.AtenderAsync(BrainMcpTests.Mensagem("listar candidatos", 124), "listar candidatos"));
             Assert.Contains("consolidado", await brain.AtenderAsync(BrainMcpTests.Mensagem("confirmar primeira", 125), "confirmar primeira"));
-            var consultar = BrainMcpTests.Mensagem("Use dante_brain para buscar o conhecimento consolidado por palavras do assunto e mostrar a origem dele. Use somente essas ferramentas, sem terminal/arquivos. Responda conteúdo e referência da fonte.", 126);
+            var consultar = BrainMcpTests.Mensagem("Consulte o Brain sobre este assunto e mostre a origem do conhecimento. Responda conteúdo e referência da fonte.", 126);
             app.GetRequiredService<RegistroDeOperacoesBrain>().Observar(consultar);
             var novosServidores = await ferramentas.ForSessionAsync("LIVE2", new(42, agente, Dante.Application.Contextos.JobExecutionContext.General(root), BrainConversation: consultar.ParaFerramentas()), timeout.Token);
             string conteudo; await using (var db = banco.Contexto()) conteudo = (await db.Conhecimentos.SingleAsync()).Conteudo!;
@@ -59,6 +63,7 @@ public sealed class LiveBrainMcpEvidenceTests(ITestOutputHelper output)
                 await driver.StartTurnAsync(consultar.Text! + " Assunto: " + conteudo, timeout.Token);
                 var usadas = new List<string>();
                 var resposta = await RespostaAsync(driver, eventos, timeout.Token, usadas); output.WriteLine(resposta);
+                Assert.DoesNotContain(usadas, x => x.Contains("plugin", StringComparison.OrdinalIgnoreCase));
                 Assert.Contains("conversa:", resposta); Assert.Contains(usadas, x => x.Contains("brain_mostrar_origem", StringComparison.Ordinal));
             }
             ferramentas.EndSession("LIVE2");

@@ -3,7 +3,17 @@
 O Worker oferece `dante_brain` às sessões Claude/Codex iniciadas com Brain configurado,
 storage acessível, identidade Telegram resolvida e espaço/projeto permitido. Sem esses
 requisitos a sessão inicia normalmente, sem ferramentas Brain. One-shot não recebe
-esse servidor. `dante_planilhas` continua disponível por um provider independente;
+esse servidor. O harness de ambas as CLIs declara explicitamente o Brain como capacidade
+interna, inclusive quando indisponível, sem descoberta de plugin/connector ou solicitação
+de URL externa (#228). Claude recebe o contrato por `--append-system-prompt`; Codex por
+`developerInstructions` em toda `thread/start`, incluindo `/clear`. O MCP também anuncia
+o contrato em `initialize.instructions`. O contrato distingue captura de candidato,
+correção com revisão, proposta de consolidação e confirmação no Telegram; atualização
+de conhecimento confirmado passa por novo candidato. Fusão de duplicatas não está
+exposta pelo MCP: o agente consulta equivalentes e apresenta revisão sem simular fusão.
+O escopo autorizado permanece independente do repositório investigado.
+
+`dante_planilhas` continua disponível por um provider independente;
 `CompositorDeFerramentas` reúne os providers de `IProvedorDeFerramentas`.
 
 ## Canal local e escopo

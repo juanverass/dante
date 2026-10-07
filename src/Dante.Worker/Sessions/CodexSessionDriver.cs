@@ -46,6 +46,7 @@ public sealed class CodexSessionDriver(
     private AgentPermissionProfile? pendingProfile;
     private TaskCompletionSource? modeConfirmation;
     private string? workingDirectory;
+    private string brainInstructions = "";
     private string? effectiveEffort;
     private bool closing;
     private bool ended;
@@ -80,6 +81,7 @@ public sealed class CodexSessionDriver(
             profile = options.Profile;
             workingDirectory = options.WorkingDirectory;
             effort = options.ModelSelection?.Effort;
+            brainInstructions = Dante.Worker.Brain.ContratoDoBrainParaAgentes.ParaSessao(options.ToolServers);
         }
 
         _ = ReadOutputAsync(agent);
@@ -99,6 +101,7 @@ public sealed class CodexSessionDriver(
                 ["approvalPolicy"] = approvalPolicy,
                 ["approvalsReviewer"] = approvalsReviewer,
                 ["sandbox"] = sandbox,
+                ["developerInstructions"] = brainInstructions,
                 // D.A.N.T.E. sessions live only while the Worker runs (Epic #60).
                 ["ephemeral"] = true
             };
@@ -168,6 +171,7 @@ public sealed class CodexSessionDriver(
             ["approvalPolicy"] = approvalPolicy,
             ["approvalsReviewer"] = approvalsReviewer,
             ["sandbox"] = sandbox,
+            ["developerInstructions"] = brainInstructions,
             ["ephemeral"] = true
         };
         // The model the thread reported, so a change of the CLI default does not slip into the same session.

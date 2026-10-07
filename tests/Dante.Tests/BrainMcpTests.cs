@@ -37,6 +37,8 @@ public sealed class BrainMcpTests
         { chamadas++; return Task.FromResult(ServidorMcpDoBrain.Resultado(new { espaco = "Desenvolvimento" })); });
         var respostas = saida.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(x => JsonNode.Parse(x)!).ToArray();
         Assert.Equal(4, respostas.Length); Assert.Equal("dante_brain", respostas[0]["result"]!["serverInfo"]!["name"]!.GetValue<string>());
+        Assert.Contains("capacidade interna", respostas[0]["result"]!["instructions"]!.GetValue<string>());
+        Assert.Contains("Nunca procure o Brain em plugins", respostas[0]["result"]!["instructions"]!.GetValue<string>());
         var tools = respostas[1]["result"]!["tools"]!.AsArray(); Assert.Equal(12, tools.Count);
         Assert.All(tools, t => Assert.False(t!["inputSchema"]!["additionalProperties"]!.GetValue<bool>()));
         Assert.True(tools.Single(t => t!["name"]!.GetValue<string>() == "brain_buscar_conhecimento")!["annotations"]!["readOnlyHint"]!.GetValue<bool>());
@@ -204,7 +206,7 @@ public sealed class BrainMcpTests
         await using var sessoes = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance, toolServers: compositor);
         var conteudos = Enumerable.Range(1, 24).Select(i => $"Decisão canônica {i}: D.A.N.T.E. coordena agentes locais para tarefa {i}.").ToArray();
         var mensagem = Mensagem(string.Join('\n', conteudos)); registro.Observar(mensagem);
-        var started = await sessoes.StartAsync(new(42, AgentKind.Codex, JobExecutionContext.General(AppContext.BaseDirectory), BrainConversation: mensagem.ParaFerramentas()));
+        var started = await sessoes.StartAsync(new(42, AgentKind.Codex, JobExecutionContext.Repository("cognexa-backend", AppContext.BaseDirectory), BrainConversation: mensagem.ParaFerramentas()));
         Assert.True(started.Accepted); Assert.Equal(2, drivers.Created.Single().StartOptions!.ToolServers!.Count);
         var server = drivers.Created.Single().StartOptions!.ToolServers!.Single(x => x.Name == "dante_brain");
         Assert.Empty(server.Environment); Assert.DoesNotContain(banco.ConnectionString, string.Join(' ', server.Arguments));

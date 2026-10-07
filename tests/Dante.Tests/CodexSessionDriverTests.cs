@@ -601,6 +601,31 @@ public sealed class CodexSessionDriverTests
         Assert.Null((await ReadTurnAsync(events)).OfType<TurnCompletedEvent>().Single().Usage);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task HarnessReconheceBrainInternoComESemFerramentas(bool disponivel, bool geral)
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new CodexSessionDriver(launcher);
+        IReadOnlyList<AgentToolServer> servidores = disponivel
+            ? [new("dante_brain", "/usr/bin/dante", ["--mcp-brain", "--pipe", "dante-brain-test"], new Dictionary<string, string>(), ["brain_obter_escopo"])] : [];
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, IsGeneral: geral, ToolServers: servidores));
+        await using var eventos = driver.ReadEventsAsync().GetAsyncEnumerator();
+        for (var i = 0; i < 2; i++)
+        {
+            await driver.StartTurnAsync("brain-contract");
+            var contrato = (await ReadTurnAsync(eventos)).OfType<MessageCompletedEvent>().Single().Text;
+            Assert.Contains("capacidade interna", contrato);
+            Assert.Contains("Nunca procure o Brain em plugins", contrato);
+            Assert.Contains("brain_capturar_conhecimento", contrato);
+            Assert.Contains(disponivel ? "foi disponibilizado" : "indisponível nesta sessão", contrato);
+            if (i == 0) await driver.ClearContextAsync();
+        }
+    }
+
     [Fact]
     public async Task BrainEPlanilhasCoexistemSemCredenciaisNaConfiguracao()
     {

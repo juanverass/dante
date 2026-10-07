@@ -101,7 +101,7 @@ public static class ServidorMcpDoBrain
                 var metodo = pedido.GetProperty("method").GetString();
                 JsonObject resultado;
                 if (metodo == "initialize") resultado = new() { ["protocolVersion"] = "2025-06-18", ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() }, ["serverInfo"] = new JsonObject { ["name"] = Nome, ["version"] = "1.0.0" },
-                    ["instructions"] = "Use o escopo autorizado. Capture itens individualmente e reporte duplicidades. Aprovação da ferramenta não confirma negócio. Propostas de consolidação/relação/descarte exigem confirmar no Telegram. Nunca capture transcript ou chain-of-thought." };
+                    ["instructions"] = ContratoDoBrainParaAgentes.Instrucoes };
                 else if (metodo == "ping") resultado = new();
                 else if (metodo == "tools/list") resultado = Lista();
                 else if (metodo == "tools/call")
