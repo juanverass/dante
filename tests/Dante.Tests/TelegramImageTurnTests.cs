@@ -353,7 +353,7 @@ public sealed class TelegramImageTurnTests : IAsyncDisposable
         await Eventually(() => driver.Calls.Any(call => call.StartsWith("turn:o que eu disse?\n\n[Anexos processados")));
         Assert.True(File.Exists(Path.Combine(Attachments, "123", "S000001", "A000001.ogg")));
         Assert.False(File.Exists(Path.Combine(Attachments, "123", "S000001", "A000001-audio.wav")));
-        Assert.Contains("→ Processando 1 áudio localmente (transcrição)\n", await api.NextMessageAsync());
+        Assert.Contains("→ Processando 1 áudio...\n", await api.NextMessageAsync());
     }
 
     [Fact]

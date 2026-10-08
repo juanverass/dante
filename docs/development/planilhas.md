@@ -224,3 +224,37 @@ célula vazia. O Drive pode alterar a revisão enquanto processa um upload já c
 o teste repete até dez leituras recusadas por conflito, com espera de um segundo, sem
 repetir escritas. HTTP 412 real não foi provocado; o cenário condicional é coberto pelo
 emulador. Essa evidência não amplia os formatos/estruturas suportados pelo adapter.
+
+## Descoberta natural e apresentação (#230)
+
+`ContratoDePlanilhasParaAgentes` orienta o harness dos dois agentes e as instruções
+MCP: a capacidade contém dados estruturados de qualquer domínio. Pedido por dados
+pessoais ausentes do contexto pode iniciar `listar_planilhas`, seleção por
+alias/descrição, descrição da candidata e busca/leitura pequena. O agente esclarece
+ambiguidade persistente, sem exigir que o usuário conheça aba ou célula. O estado do
+Brain não define a disponibilidade de planilhas.
+
+`ToolStartedEvent` mantém `Description`, `Server` e `ToolName` para diagnóstico e
+oferece `Presentation`. `ApresentacaoDeFerramentas` resolve identidade estruturada
+nos drivers (incluindo nomes MCP do Claude), sem analisar descrições/argumentos.
+Novas capacidades estendem o catálogo ou fornecem apresentação no evento; Telegram
+não precisa conhecer suas operações. Ferramenta desconhecida recebe progresso
+genérico. Falha reutiliza apresentação do início; comandos mantêm seu formato.
+Logs debug registram identidade sem argumentos. Orientações de conversa evitam
+narração de correções e linguagem técnica desnecessária, preservando dados literais
+e respostas técnicas explicitamente pedidas.
+
+E2E de seleção semântica com CLIs reais, fixture de dados genéricos, Google emulado,
+servidor MCP/Application/adapters reais e transporte Telegram gravado (Linux/python3):
+
+```bash
+DANTE_LIVE_PLANILHAS_AGENTES=1 dotnet test Dante.sln \
+  --filter FullyQualifiedName~LiveDescobertaDePlanilhasTests
+```
+
+Passou com Claude Code 2.1.292 e codex-cli 0.159.3 em 2026-10-08. Verifica descoberta sem dica de planilha,
+ordem progressiva, leitura pequena solicitada pelo agente, dados corretos, ausência
+de bloqueio pelo Brain e ausência de nomes técnicos no Telegram. A ponte
+stdio/loopback existe só no teste; não altera a integração de produção nem usa a
+conta Google ou planilha do usuário. Testes determinísticos cobrem apresentação,
+falha, fallback, logs, comandos e contrato do harness após `/clear` no Codex.

@@ -627,6 +627,24 @@ public sealed class CodexSessionDriverTests
     }
 
     [Fact]
+    public async Task HarnessDescobrePlanilhasSemBrainEAposClear()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new CodexSessionDriver(launcher);
+        await driver.StartAsync(new(AppContext.BaseDirectory, IsGeneral: true, ToolServers: [PlanilhasServer]));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        for (var i = 0; i < 2; i++)
+        {
+            await driver.StartTurnAsync("brain-contract");
+            var contrato = (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text;
+            Assert.Contains("mesmo sem a palavra planilha", contrato);
+            Assert.Contains("frases curtas e naturais", contrato);
+            Assert.Contains("indisponível nesta sessão", contrato);
+            if (i == 0) await driver.ClearContextAsync();
+        }
+    }
+
+    [Fact]
     public async Task BrainEPlanilhasCoexistemSemCredenciaisNaConfiguracao()
     {
         var launcher = new ProbeLauncher();

@@ -23,7 +23,12 @@ public enum AgentToolKind
     Tool
 }
 
-public sealed record ToolStartedEvent(string ItemId, AgentToolKind Kind, string Description) : AgentEvent;
+public sealed record ToolStartedEvent(string ItemId, AgentToolKind Kind, string Description) : AgentEvent
+{
+    public string? Server { get; init; }
+    public string? ToolName { get; init; }
+    public string? Presentation { get; init; }
+}
 
 public sealed record ToolCompletedEvent(string ItemId, AgentToolKind Kind, bool Succeeded, string? Output = null)
     : AgentEvent;

@@ -1807,3 +1807,23 @@ Por quê: permite orquestração de pedidos complexos pelas CLIs sem expor crede
 observáveis na configuração MCP nem introduzir HTTP/WebApi como dependência do fluxo.
 O limite de confiança local é a conta do sistema; não protege contra processo malicioso
 do mesmo usuário já capaz de inspecionar as CLIs. Guia e testes: [Brain MCP](../development/brain-mcp.md).
+
+## AD-57 — Identidade de ferramenta separada da apresentação de conversa
+
+Status: vigente (#230). Complementa AD-55/AD-56.
+
+`ToolStartedEvent` conserva descrição técnica e carrega servidor/nome estruturados
+e apresentação opcional. Os drivers resolvem identidade em catálogo central de
+apresentação, incluindo o formato MCP do Claude; Telegram consome apresentação
+ou fallback genérico e reutiliza o texto na falha. Novas capacidades não exigem
+condicionais no transporte. Comandos de terminal mantêm tratamento próprio e
+logs debug conservam identidade sem argumentos.
+
+O contrato de conversa compõe instruções Brain e planilhas e orientações de linguagem
+no harness de ambos os agentes. Descoberta de fontes é tarefa do agente, usando
+aliases/descrições e leitura progressiva, sem regras específicas de domínio.
+Indisponibilidade de uma capacidade não impede outra. Texto literal não é reescrito.
+
+Por quê: status técnico direto expunha detalhes de implementação no Telegram;
+uma representação distinta mantém diagnóstico e oferece progresso natural sem
+parsing frágil de descrições, enquanto o contrato torna a seleção semântica explícita.

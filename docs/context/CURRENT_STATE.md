@@ -694,3 +694,25 @@ incorpora proveniências e substitui duplicatas explicitamente selecionadas. Amb
 revalidam escopo/revisões na confirmação Telegram e mantêm as políticas da Application.
 E2E opt-in com ambas as CLIs lê README de repositório Git descartável, captura inferência
 e recupera o conhecimento/proveniência em nova sessão, sem descoberta de plugin.
+
+## Conversa e descoberta de planilhas (#230)
+
+O harness de Claude/Codex compõe contrato de conversa e de planilhas com o contrato
+Brain. Pedidos que dependem de dados pessoais ausentes do contexto consideram a
+capacidade interna de planilhas: aliases/descrições orientam descoberta progressiva,
+sem regras de domínio nem leitura indiscriminada. Brain indisponível não bloqueia
+outra capacidade. O contrato permanece na recriação de thread por `/clear`.
+
+Eventos de início de ferramenta conservam descrição/identidade técnica e levam
+apresentação opcional. Drivers resolvem nomes estruturados em catálogo central;
+Telegram mostra progresso/falha amigáveis, com fallback genérico para ferramentas
+não conhecidas. Comandos de terminal mantêm exibição própria. Logs debug conservam
+servidor/nome da ferramenta sem seus argumentos. Texto literal do agente não é
+reescrito; linguagem natural é orientada no harness.
+
+`LiveDescobertaDePlanilhasTests` passou com Claude Code 2.1.292 e codex-cli 0.159.3
+em 2026-10-08, usando
+Google emulado, MCP/Application/adapters reais e Telegram gravado. O pedido por
+pendências de uma data, sem mencionar planilha, encontrou o cadastro, descreveu,
+leu região pequena e respondeu corretamente, sem identificadores técnicos no canal
+normal. Não acessa nem altera a planilha do usuário. Execução no guia de planilhas.

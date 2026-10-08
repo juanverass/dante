@@ -359,7 +359,7 @@ public sealed class ClaudeSessionDriver(
             "--permission-mode", PermissionMode(options.Profile),
             // Without it Claude denies escalations itself instead of asking the host.
             "--permission-prompt-tool", "stdio",
-            "--append-system-prompt", Dante.Worker.Brain.ContratoDoBrainParaAgentes.ParaSessao(options.ToolServers)
+            "--append-system-prompt", ContratoDaConversaParaAgentes.ParaSessao(options.ToolServers)
         ];
         if (options.IsGeneral)
         {
@@ -685,7 +685,7 @@ public sealed class ClaudeSessionDriver(
                         tools[toolId] = new ToolUse(kind, kind == AgentToolKind.FileChange ? FilePath(input) : null);
                     }
 
-                    await EmitAsync(new ToolStartedEvent(toolId, kind, Describe(name, input)));
+                    await EmitAsync(ApresentacaoDeFerramentas.DoClaude(toolId, kind, name, Describe(name, input)));
                     break;
             }
         }
