@@ -606,6 +606,23 @@ public sealed class ClaudeSessionDriverTests
         Assert.Contains(disponivel ? "foi disponibilizado" : "indisponível nesta sessão", contrato);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HarnessDescobrePlanilhasSemBrain(bool disponivel)
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new ClaudeSessionDriver(launcher);
+        IReadOnlyList<AgentToolServer> servers = disponivel
+            ? [new("dante_planilhas", "/usr/bin/dante", ["--mcp-planilhas"], new Dictionary<string,string>(), ["ler_intervalo"])] : [];
+        await driver.StartAsync(new(AppContext.BaseDirectory, IsGeneral: true, ToolServers: servers));
+        var args = Assert.Single(launcher.Requests).Arguments.ToList();
+        var contrato = args[args.IndexOf("--append-system-prompt") + 1];
+        Assert.Contains("frases curtas e naturais", contrato);
+        Assert.Contains(disponivel ? "mesmo sem a palavra planilha" : "planilhas não foi disponibilizada", contrato);
+        Assert.Contains("indisponível nesta sessão", contrato);
+    }
+
     [Fact]
     public async Task BrainEPlanilhasCoexistemSemCredenciaisNaConfiguracao()
     {

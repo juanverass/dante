@@ -22,7 +22,7 @@ public sealed class ServidorMcpDePlanilhas(IServiceScopeFactory scopes, OrigemDa
     public static readonly IReadOnlyList<string> FerramentasDeLeitura =
         ["listar_planilhas", "descrever_planilha", "ler_intervalo", "buscar_na_planilha"];
 
-    private const string Instrucoes =
+    private const string Instrucoes = ContratoDePlanilhasParaAgentes.Instrucoes + "\n" +
         "Ferramentas genéricas de planilhas do D.A.N.T.E. (Google Sheets e XLSX cadastrado no Drive). Trabalhe progressivamente: listar_planilhas → " +
         "descrever_planilha (abas, área usada, mesclagens, regiões anotadas) → ler_intervalo de uma região pequena ou " +
         "buscar_na_planilha → expandir só a região relevante → escrever no alvo resolvido. Não leia a aba inteira sem " +

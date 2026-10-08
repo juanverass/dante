@@ -236,7 +236,9 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
             MessageDeltaEvent delta => Delta(record.Id, delta),
             MessageCompletedEvent completed => CompleteMessage(record.Id, completed),
             ToolStartedEvent tool => Line(record,
-                $"→ {Remember(record.Id, Unwrapped(Relative(session, tool.Description)), tool)}\n"),
+                $"→ {Remember(record.Id, tool.Kind == AgentToolKind.Tool
+                    ? tool.Presentation ?? "Executando a tarefa..."
+                    : Unwrapped(Relative(session, tool.Description)), tool)}\n"),
             ToolCompletedEvent { Succeeded: false } tool => Line(record,
                 $"✗ {toolDescriptions.GetValueOrDefault(record.Id + "/" + tool.ItemId) ?? "Ferramenta"} falhou.\n"),
             FileChangeEvent change => Line(record,
@@ -260,7 +262,11 @@ public sealed partial class TelegramDeliveryService(ITelegramBotApi botApi, ILog
 
     private string Remember(string id, string description, ToolStartedEvent tool)
     {
-        toolDescriptions[id + "/" + tool.ItemId] = description;
+        // O diagnóstico conserva a identidade técnica, sem argumentos que possam conter dados/segredos.
+        logger.LogDebug("Ferramenta {ItemId}: {Server}/{ToolName}, tipo {Kind}.",
+            tool.ItemId, tool.Server, tool.ToolName, tool.Kind);
+        toolDescriptions[id + "/" + tool.ItemId] = tool.Kind == AgentToolKind.Tool
+            ? description.TrimEnd('.', '…') : description;
         return description;
     }
 

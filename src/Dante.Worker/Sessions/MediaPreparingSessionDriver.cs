@@ -46,7 +46,8 @@ public sealed class MediaPreparingSessionDriver(IAgentSessionDriver inner, Media
             // Written before anything can interrupt the turn, so progress never follows its end.
             events.Writer.TryWrite(new ToolStartedEvent(ProgressItem, AgentToolKind.Tool,
                 $"Processando {MediaPreparer.Describe(input.Attachments)} localmente " +
-                $"({(video ? "quadros e transcrição" : "transcrição")})"));
+                $"({(video ? "quadros e transcrição" : "transcrição")})")
+            { Presentation = $"Processando {MediaPreparer.Describe(input.Attachments)}..." });
         }
         _ = Task.Run(() => PrepareAndStartAsync(preparation), CancellationToken.None);
         return Task.CompletedTask;
