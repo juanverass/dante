@@ -3,7 +3,22 @@
 O Worker oferece `dante_brain` às sessões Claude/Codex iniciadas com Brain configurado,
 storage acessível, identidade Telegram resolvida e espaço/projeto permitido. Sem esses
 requisitos a sessão inicia normalmente, sem ferramentas Brain. One-shot não recebe
-esse servidor. `dante_planilhas` continua disponível por um provider independente;
+esse servidor. O harness de ambas as CLIs declara explicitamente o Brain como capacidade
+interna, inclusive quando indisponível, sem descoberta de plugin/connector ou solicitação
+de URL externa (#228). Claude recebe o contrato por `--append-system-prompt`; Codex por
+`developerInstructions` em toda `thread/start`, incluindo `/clear`. O MCP também anuncia
+o contrato em `initialize.instructions`. O contrato distingue captura de candidato,
+correção com revisão, proposta de consolidação e confirmação no Telegram; atualização
+de conhecimento existente usa `brain_atualizar_conhecimento`: corrige o mesmo ID,
+preserva histórico e metadados não alterados e deixa a nova versão inferida.
+`brain_consolidar_duplicatas` preserva o destino escolhido, incorpora proveniências
+e substitui as duplicatas selecionadas. Ambas preparam proposta para confirmação
+Telegram, revalidam todos os IDs/revisões e reutilizam os AppServices existentes.
+Consolidação recusa conflito aberto, redução de sensibilidade e troca de confirmação
+por inferência. Não há escolha automática de destino.
+O escopo autorizado permanece independente do repositório investigado.
+
+`dante_planilhas` continua disponível por um provider independente;
 `CompositorDeFerramentas` reúne os providers de `IProvedorDeFerramentas`.
 
 ## Canal local e escopo
@@ -33,6 +48,8 @@ recusa o canal anterior. Reinício do Worker não restaura capacidades.
 | brain_mostrar_origem | Proveniência e histórico autorizado de candidato/conhecimento |
 | brain_capturar_conhecimento | Um candidato por chamada; título, conteúdo, tags, tipo, natureza, sensibilidade e justificativa |
 | brain_listar_candidatos | Pendentes com IDs e revisões para o agente, sem pedir GUID ao usuário |
+| brain_atualizar_conhecimento | Prepara correção auditada no mesmo ID, revisão esperada e confirmação Telegram |
+| brain_consolidar_duplicatas | Prepara consolidação de 1–20 duplicatas explícitas em um destino, com revisões de todos |
 | brain_corrigir_candidato | Correção com revisão esperada, sem alterar natureza ou escopo |
 | brain_confirmar_candidato | Prepara proposta de consolidação, sem promovê-la |
 | brain_cancelar_candidato | Prepara descarte auditado, sem aplicá-lo |
@@ -105,3 +122,11 @@ páginas internas de até 100 itens até preencher o limite de relações permit
 ou esgotar a vizinhança; o indicador de limite conta apenas relações autorizadas.
 O prazo por operação continua limitando o percurso, sem retornar lista parcial
 como se a vizinhança tivesse sido esgotada.
+
+A regressão #228 usa pedidos naturais nas duas CLIs reais, sem nomear ferramentas.
+`AgenteInvestigaRepositorioECapturaInferenciaQueOutraSessaoRecupera` cria repositório
+Git descartável com README e marcador único, pede análise e captura como inferência,
+confirma pelo Telegram e recupera conteúdo e proveniência em nova sessão. É fixture
+local, sem acesso ao repositório real do usuário. Testes MCP/PostgreSQL verificam
+atualização sem duplicata, confirmação/cancelamento, revisão concorrente, escopo,
+sensibilidade, conflitos e preservação de proveniências na consolidação.

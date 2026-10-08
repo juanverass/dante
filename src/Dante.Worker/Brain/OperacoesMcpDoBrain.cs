@@ -1,10 +1,12 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Dante.Application.BuscaDoBrain;
 using Dante.Application.CapturaDeConhecimento;
 using Dante.Application.ConversaDoBrain;
 using Dante.Application.Conhecimentos;
 using Dante.Application.ContextosDeTrabalho;
 using Dante.Application.RelacoesDeConhecimento;
+using Dante.Application.QualidadeDoBrain;
 using Dante.Application.SegurancaDoBrain;
 using Dante.Domain.CapturaDeConhecimento;
 using Dante.Domain.Conhecimentos;
@@ -81,6 +83,57 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                     return nome == "brain_cancelar_candidato" ? "Candidato descartado com auditoria." : "Candidato consolidado com proveniência; inferências permanecem inferidas.";
                 });
                 return new { candidato = Resumir(alvo), aguardandoConfirmacao = true, instrucao = "Mostre a proposta ao usuário. Ele deve enviar confirmar no Telegram (ou cancelar). Nenhuma consolidação/descarte foi aplicada." };
+            case "brain_atualizar_conhecimento":
+                var existente = await ConhecimentoAsync(Id(args, "id"));
+                if (existente.Revisao != Inteiro(args, "revisao")) throw new InvalidOperationException("Revisão mudou.");
+                var novaVersao = Captura(args, acesso, prova);
+                ValidarOrigem(novaVersao, mensagem);
+                var sensibilidadeNova = OpcionalEnum<Sensibilidade>(args, "sensibilidade") ?? existente.Sensibilidade;
+                if (sensibilidadeNova < existente.Sensibilidade) throw new UnauthorizedAccessException("Atualização não reduz sensibilidade.");
+                var atualizado = existente with
+                {
+                    Conteudo = novaVersao.Conteudo,
+                    Tipo = novaVersao.Natureza == NaturezaDoConteudo.ConclusaoDoAgente ? TipoDeConhecimento.Inferencia : existente.Tipo,
+                    Sensibilidade = sensibilidadeNova,
+                    Tags = args.TryGetProperty("tags", out _) ? novaVersao.Tags : existente.Tags,
+                    DadosEstruturados = args.TryGetProperty("titulo", out _) ? AtualizarTitulo(existente.DadosEstruturados, novaVersao.Titulo!) : existente.DadosEstruturados,
+                    Proveniencia = novaVersao.Proveniencia
+                };
+                ProporAlteracao([existente], async (services, confirmacao, cancelamento) =>
+                {
+                    var resultado = await services.GetRequiredService<IConhecimentoAppService>().CorrigirAsync(existente.Id,
+                        atualizado with { Proveniencia = atualizado.Proveniencia with
+                        { Origem = $"{atualizado.Proveniencia.Origem};confirmacao:{confirmacao.MessageId}" } }, cancelamento);
+                    if (resultado is null) throw new InvalidOperationException("Conhecimento ausente.");
+                    return "Conhecimento atualizado no mesmo ID com histórico e proveniência; a correção não herda a confirmação anterior.";
+                });
+                return new { existente.Id, existente.Revisao, anterior = existente.Conteudo, proposto = new { atualizado.Conteudo, atualizado.DadosEstruturados, atualizado.Tags,
+                        tipo = atualizado.Tipo.ToString(), sensibilidade = atualizado.Sensibilidade.ToString() },
+                    aguardandoConfirmacao = true, instrucao = "Mostre a correção e peça confirmar no Telegram; nenhuma atualização foi aplicada." };
+            case "brain_consolidar_duplicatas":
+                var destinoDaConsolidacao = await ConhecimentoAsync(Id(args, "id"));
+                if (destinoDaConsolidacao.Revisao != Inteiro(args, "revisao")) throw new InvalidOperationException("Revisão mudou.");
+                var listaDuplicatas = args.GetProperty("duplicatas");
+                if (listaDuplicatas.ValueKind != JsonValueKind.Array || listaDuplicatas.GetArrayLength() is < 1 or > 20) throw new ArgumentException("Informe de 1 a 20 duplicatas.");
+                var duplicatas = new List<ConhecimentoDto>();
+                foreach (var item in listaDuplicatas.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object || item.EnumerateObject().Any(p => p.Name is not ("id" or "revisao"))) throw new ArgumentException("Duplicata inválida.");
+                    var duplicata = await ConhecimentoAsync(Id(item, "id"));
+                    if (duplicata.Id == destinoDaConsolidacao.Id || duplicatas.Any(d => d.Id == duplicata.Id)) throw new ArgumentException("Alvos devem ser distintos.");
+                    if (duplicata.Revisao != Inteiro(item, "revisao")) throw new InvalidOperationException("Revisão mudou.");
+                    duplicatas.Add(duplicata);
+                }
+                ProporAlteracao([destinoDaConsolidacao, .. duplicatas], async (services, confirmacao, cancelamento) =>
+                {
+                    await services.GetRequiredService<ManutencaoDoBrainAppService>().ConsolidarAsync(acesso,
+                        new(destinoDaConsolidacao.Id, destinoDaConsolidacao.Revisao), duplicatas.Select(d => new RevisaoEsperadaDto(d.Id, d.Revisao)).ToArray(),
+                        Prova(confirmacao, acesso.IdUsuario, escopo.Conversa, sessao, agente), cancelamento);
+                    return "Duplicatas consolidadas: destino preservado, proveniências incorporadas e duplicatas substituídas.";
+                });
+                return new { destino = new { destinoDaConsolidacao.Id, destinoDaConsolidacao.Conteudo, destinoDaConsolidacao.Revisao },
+                    duplicatas = duplicatas.Select(d => new { d.Id, d.Conteudo, d.Revisao }), aguardandoConfirmacao = true,
+                    instrucao = "Mostre o destino e todas as duplicatas, peça confirmar no Telegram; nenhuma consolidação foi aplicada." };
             case "brain_criar_relacao":
                 var origem = await ConhecimentoAsync(Id(args, "origem")); var destino = await ConhecimentoAsync(Id(args, "destino"));
                 if (origem.Revisao != Inteiro(args, "revisao_origem") || destino.Revisao != Inteiro(args, "revisao_destino")) throw new InvalidOperationException("Revisão mudou.");
@@ -137,6 +190,25 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                     $"{prova.Origem};{prova.ReferenciaDaFonte}", snapshot?.ExpiraEm, ct);
             default: throw new ArgumentException("Ferramenta desconhecida.");
         }
+        void ProporAlteracao(IReadOnlyList<ConhecimentoDto> alvos,
+            Func<IServiceProvider, TelegramMessage, CancellationToken, Task<string>> aplicar)
+        {
+            registro.Propor(mensagem, sessao, async (confirmacao, cancelamento) =>
+            {
+                if (registro.VersaoConversa(confirmacao) != geracao || await brain.ResolverEscopoMcpAsync(confirmacao, cancelamento) != escopo) throw new UnauthorizedAccessException("Escopo mudou.");
+                await using var confirmScope = scopes.CreateAsyncScope(); var services = confirmScope.ServiceProvider;
+                services.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(escopo.Identidade, acesso);
+                var l = services.GetRequiredService<LeituraDoBrainAppService>();
+                await l.ValidarAcessoAsync(acesso, cancelamento);
+                foreach (var alvo in alvos)
+                {
+                    var atual = await l.LerAsync(alvo.Id, acesso, FinalidadeDeLeitura.Busca, cancelamento);
+                    if (atual is null || atual.ConteudoProtegido || atual.Revisao != alvo.Revisao ||
+                        atual.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido) throw new InvalidOperationException("Alvo mudou.");
+                }
+                return await aplicar(services, confirmacao, cancelamento);
+            });
+        }
         async Task<CandidatoDeConhecimentoDto> CandidatoAsync()
         {
             var candidato = await captura.ObterCandidatoAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, Id(args, "id"), ct);
@@ -148,6 +220,13 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             if (permitido is null || permitido.ConteudoProtegido || permitido.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido) throw new UnauthorizedAccessException("Conhecimento não permitido.");
             return await servicos.GetRequiredService<IConhecimentoAppService>().ObterPorIdAsync(id, ct) ?? throw new ArgumentException("Conhecimento não encontrado.");
         }
+    }
+    private static string AtualizarTitulo(string? dados, string titulo)
+    {
+        var objeto = dados is null ? new JsonObject() : JsonNode.Parse(dados) as JsonObject ??
+            throw new ArgumentException("Metadados existentes não permitem atualizar título.");
+        objeto["titulo"] = titulo;
+        return objeto.ToJsonString();
     }
     private static void ValidarOrigem(CapturaDeConhecimentoDto dto, TelegramMessage mensagem)
     {

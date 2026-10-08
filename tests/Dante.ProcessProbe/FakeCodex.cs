@@ -350,6 +350,10 @@ internal static class FakeCodex
 
                     switch (text)
                     {
+                        case "brain-contract":
+                            Message((string?)threadParams!["developerInstructions"] ?? "ausente");
+                            Complete("completed");
+                            break;
                         case "thread":
                             // A late item of the previous thread must not reach the session after a clear (#120).
                             if (previousThread is not null)

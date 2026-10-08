@@ -358,7 +358,8 @@ public sealed class ClaudeSessionDriver(
             "--include-partial-messages", "--session-id", sessionId,
             "--permission-mode", PermissionMode(options.Profile),
             // Without it Claude denies escalations itself instead of asking the host.
-            "--permission-prompt-tool", "stdio"
+            "--permission-prompt-tool", "stdio",
+            "--append-system-prompt", Dante.Worker.Brain.ContratoDoBrainParaAgentes.ParaSessao(options.ToolServers)
         ];
         if (options.IsGeneral)
         {

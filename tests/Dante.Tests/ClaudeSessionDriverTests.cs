@@ -261,7 +261,10 @@ public sealed class ClaudeSessionDriverTests
             "--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
             "--include-partial-messages", "--session-id", started.UpstreamSessionId,
             "--permission-mode", "manual", "--permission-prompt-tool", "stdio"
-        ], request.Arguments);
+        ], request.Arguments.Take(13));
+        Assert.Equal("--append-system-prompt", request.Arguments[13]);
+        Assert.Contains("capacidade interna", request.Arguments[14]);
+        Assert.Equal(15, request.Arguments.Count);
         Assert.Equal(AgentDriverCapabilities.Claude, driver.Capabilities);
         Assert.False(HasExited(started.ProcessId));
     }
@@ -583,6 +586,26 @@ public sealed class ClaudeSessionDriverTests
         Assert.DoesNotContain("--mcp-config", Assert.Single(semFerramentas.Requests).Arguments);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task HarnessReconheceBrainInternoComESemFerramentas(bool disponivel, bool geral)
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new ClaudeSessionDriver(launcher);
+        IReadOnlyList<AgentToolServer> servidores = disponivel
+            ? [new("dante_brain", "/usr/bin/dante", ["--mcp-brain", "--pipe", "dante-brain-test"], new Dictionary<string, string>(), ["brain_obter_escopo"])] : [];
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, IsGeneral: geral, ToolServers: servidores));
+        var args = Assert.Single(launcher.Requests).Arguments.ToList();
+        var contrato = args[args.IndexOf("--append-system-prompt") + 1];
+        Assert.Contains("capacidade interna", contrato);
+        Assert.Contains("Nunca procure o Brain em plugins", contrato);
+        Assert.Contains("brain_capturar_conhecimento", contrato);
+        Assert.Contains(disponivel ? "foi disponibilizado" : "indisponível nesta sessão", contrato);
+    }
+
     [Fact]
     public async Task BrainEPlanilhasCoexistemSemCredenciaisNaConfiguracao()
     {
@@ -596,7 +619,8 @@ public sealed class ClaudeSessionDriverTests
         var args = string.Join(' ', Assert.Single(launcher.Requests).Arguments);
         Assert.Contains("dante_planilhas", args); Assert.Contains("dante_brain", args);
         Assert.Contains("--mcp-brain", args); Assert.DoesNotContain("ConnectionStrings", args);
-        Assert.DoesNotContain("brain_confirmar_candidato", args);
+        var argumentos = Assert.Single(launcher.Requests).Arguments.ToList();
+        Assert.DoesNotContain("brain_confirmar_candidato", argumentos[argumentos.IndexOf("--allowedTools") + 1]);
     }
 
     private static async Task<List<AgentEvent>> ReadTurnAsync(IAsyncEnumerator<AgentEvent> events)
