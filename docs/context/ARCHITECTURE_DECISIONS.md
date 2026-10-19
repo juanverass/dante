@@ -1827,3 +1827,61 @@ Indisponibilidade de uma capacidade não impede outra. Texto literal não é ree
 Por quê: status técnico direto expunha detalhes de implementação no Telegram;
 uma representação distinta mantém diagnóstico e oferece progresso natural sem
 parsing frágil de descrições, enquanto o contrato torna a seleção semântica explícita.
+
+## AD-58 — Repositórios vinculados por cadastro explícito, congelados com o principal
+
+Status: vigente (#232). Complementa AD-08/AD-14/AD-27, AD-09, AD-10, AD-11 e AD-20, sem substituí-las.
+
+Um repositório cadastrado pode ter **vinculados**: outros aliases do catálogo cujos checkouts
+o agente lê e altera na mesma tarefa, ao lado do principal. O caso de origem é frontend e
+backend em repositórios separados.
+
+- **cadastro**: `/repo link @principal @vinculado`, `/repo unlink` e `/repo links`. O vínculo
+  vive em `Links` da entrada do principal em `~/.dante/repositories.json`, com a mesma escrita
+  atômica do catálogo; catálogos sem o campo continuam válidos. Só entre aliases cadastrados,
+  nunca para o próprio repositório nem entre checkouts aninhados; repetido ou para si mesmo no
+  arquivo impede a carga. Nada é inferido de nome, caminho ou texto do prompt;
+- **direção e alcance**: direcional e direto. `@front → @back` dá ao front acesso ao back, não o
+  contrário, e os vínculos do back não são seguidos. Vários vinculados diretos são permitidos;
+- **resolução**: o principal continua vindo da precedência da AD-27 (`@alias` explícito →
+  repositório ativo → General). O `AgentContextResolver` acrescenta os vinculados do principal
+  pela porta `ICatalogoDeRepositorios.ResolverVinculos`. Vinculado fora do catálogo, diretório
+  inexistente ou checkouts sobrepostos recusam a execução (`ContextResolutionFailure.InvalidLink`)
+  com instrução de correção: nunca há execução com menos repositórios, troca de principal ou queda
+  para General Mode. `/repo remove` apaga, no mesmo save, os vínculos que apontavam para o alias;
+- **snapshot**: `JobExecutionContext.RepositoriosVinculados` (alias + caminho) é congelado com o
+  principal (AD-11) e fixado na sessão (AD-20). `link`/`unlink`/`remove` valem para jobs e sessões
+  novos; os existentes mantêm o que receberam, inclusive após clear, troca de modo, interrupt ou
+  timeout. `Label` continua sendo só o principal; `Descricao` (`@front + @back`) aparece em
+  `/status` e nas confirmações;
+- **ambiente**: só o do principal (AD-10). Variáveis e bindings do vinculado nunca são resolvidos
+  nem herdados. Não há concessão de ambiente do vinculado nesta decisão;
+- **acesso das CLIs**: somente os checkouts resolvidos, nunca o diretório pai. Claude recebe um
+  `--add-dir` por vinculado (one-shot e stream-json); Codex `exec` recebe `--add-dir`, e o
+  `app-server` recebe `config.sandbox_workspace_write.writable_roots` no `thread/start` (início e
+  clear) e os mesmos `writableRoots` no `sandboxPolicy` da troca de modo. O driver exige que a
+  resposta de `thread/start` e a notificação de settings confirmem exatamente esses roots (validado
+  na codex-cli 0.159.3); sem confirmação, a sessão não começa e o clear não acontece. `plan`
+  continua `read-only`. General Mode recusa diretórios adicionais nos runners e drivers (AD-09);
+- **Git e PRs**: o D.A.N.T.E. continua sem executar `git`/`gh`. Com vinculados, o agente recebe o
+  `ContratoMultirrepositorio` (prompt de sistema/`developerInstructions` na sessão; antes do pedido
+  no one-shot): checkouts autorizados, ambiente só do principal, consistência de contratos
+  compartilhados e validação por checkout, branch e PR próprios por repositório alterado com
+  referência cruzada, nenhum PR sem alteração, nunca merge e relato por repositório em falha
+  parcial. Sem vinculados, nada muda no prompt;
+- **concorrência**: não há bloqueio novo sobre checkouts; vale o mesmo que para o principal hoje.
+  `/send` continua aceitando só caminhos sob o diretório de trabalho (AD-29).
+
+Por quê: features que atravessam frontend e backend exigiam pedidos separados, e o agente de um
+lado não enxergava o contrato real do outro. O vínculo cadastrado mantém a escolha explícita das
+AD-08/AD-14, e o snapshot fail-closed impede que um vínculo inválido mude silenciosamente onde o
+agente escreve. Orquestrar branches e PRs dentro do D.A.N.T.E. contrariaria o limite de não ser
+shell remoto; o contrato entregue ao agente mantém a responsabilidade onde o Git já é operado.
+
+Código: `Dante.Infrastructure/Contextos/RepositoryRegistry.cs`,
+`Dante.Application/Contextos/AgentContextResolver.cs`, `JobExecutionContext.cs`,
+`ContratoMultirrepositorio.cs`, `Dante.Infrastructure/Agentes/DiretoriosVinculados.cs`, runners,
+`Sessions/ClaudeSessionDriver.cs`, `Sessions/CodexSessionDriver.cs`, `Sessions/SessionRegistry.cs`,
+`Telegram/TelegramPollingService.cs`; testes em `RepositoryRegistryTests`,
+`AgentContextResolverTests`, `ClaudeRunnerTests`, `CodexRunnerTests`, `ClaudeSessionDriverTests`,
+`CodexSessionDriverTests`, `SessionRegistryTests` e `TelegramRepositoryCommandTests`.

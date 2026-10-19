@@ -66,12 +66,15 @@ internal static class TelegramCommandHelp
             "/cancel J000001"),
 
         new("/repos", "REPOSITÓRIOS", "Liste os repositórios cadastrados.", "/repos"),
-        new("/repo", "REPOSITÓRIOS", "Cadastre, consulte ou remova repositórios e configurações persistentes de ambiente.",
+        new("/repo", "REPOSITÓRIOS", "Cadastre, consulte, vincule ou remova repositórios e configurações persistentes de ambiente.",
             "/repo add @exemplo /caminho/do/repositorio\n/repo show @exemplo\n/repo remove @exemplo\n" +
+            "/repo link @exemplo_front @exemplo\n/repo unlink @exemplo_front @exemplo\n/repo links @exemplo_front\n" +
             "/repo env set @exemplo APP_ENV development\n/repo env bind @exemplo API_TOKEN TOKEN_DO_HOST\n" +
             "/repo env list @exemplo\n/repo env remove @exemplo APP_ENV",
             "add exige caminho absoluto de uma raiz Git; pode receber owner/repo após o caminho. Use aspas se houver espaços. " +
-            "Substitua o caminho fictício pelo seu. env set é só para valores não sensíveis; " +
+            "Substitua o caminho fictício pelo seu. link dá às execuções do primeiro repositório acesso de leitura e escrita " +
+            "ao segundo, na mesma tarefa; só nessa direção, sem seguir os vínculos do vinculado, e só com as variáveis do " +
+            "primeiro. env set é só para valores não sensíveis; " +
             "env bind referencia o nome de uma variável já definida no host, sem enviar o segredo pelo Telegram."),
 
         new("/google", "PLANILHAS", "Conecte, consulte ou desconecte a conta Google usada pelas planilhas.",

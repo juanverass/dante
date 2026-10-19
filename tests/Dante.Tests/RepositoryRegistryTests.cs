@@ -1,3 +1,4 @@
+using Dante.Application.Contextos;
 using Dante.Infrastructure.Contextos;
 using System.Diagnostics;
 
@@ -83,6 +84,132 @@ public sealed class RepositoryRegistryTests : IDisposable
         Assert.False(reopened.RemoveEnvironment("@project", "DATABASE_PASSWORD"));
         Assert.DoesNotContain(new RepositoryRegistry(file).Get("@project")!.Environment!,
             entry => entry.Key == "DATABASE_PASSWORD");
+    }
+
+    // #232 (AD-58): links are directional, persisted with the catalog and only between registered repositories.
+    [Fact]
+    public void LinksArePersistedDirectionalAndValidated()
+    {
+        var file = Path.Combine(root, "repositories.json");
+        var registry = new RepositoryRegistry(file);
+        registry.Add("@front", CreateRepository("front"));
+        registry.Add("@back", CreateRepository("back"));
+        registry.Add("@docs", CreateRepository("docs"));
+
+        Assert.True(registry.Link("@FRONT", "@Back"));
+        Assert.False(registry.Link("@front", "@back"));
+        Assert.True(registry.Link("@front", "@docs"));
+        Assert.Throws<ArgumentException>(() => registry.Link("@front", "@front"));
+        Assert.Throws<ArgumentException>(() => registry.Link("@front", "@ghost"));
+        Assert.Throws<ArgumentException>(() => registry.Link("@ghost", "@back"));
+        Assert.Throws<ArgumentException>(() => registry.Link("@front", "@bad-alias"));
+
+        var reopened = new RepositoryRegistry(file);
+        Assert.Equal(["@back", "@docs"], reopened.Get("@front")!.Links!);
+        Assert.Null(reopened.Get("@back")!.Links);
+        ICatalogoDeRepositorios catalog = reopened;
+        Assert.Equal(["@back", "@docs"], catalog.ResolverVinculos("@front").Select(linked => linked.Alias));
+        Assert.Equal(reopened.Get("@back")!.Path, catalog.ResolverVinculos("@front")[0].Caminho);
+        // Directional and direct: the back gains nothing from being linked.
+        Assert.Empty(catalog.ResolverVinculos("@back"));
+
+        Assert.True(reopened.Unlink("@front", "@docs"));
+        Assert.False(reopened.Unlink("@front", "@docs"));
+        Assert.Throws<ArgumentException>(() => reopened.Unlink("@ghost", "@docs"));
+        Assert.Equal(["@back"], new RepositoryRegistry(file).Get("@front")!.Links!);
+    }
+
+    [Fact]
+    public void LinksAreNotTransitive()
+    {
+        var registry = new RepositoryRegistry(Path.Combine(root, "repositories.json"));
+        registry.Add("@front", CreateRepository("front"));
+        registry.Add("@back", CreateRepository("back"));
+        registry.Add("@infra", CreateRepository("infra"));
+        registry.Link("@front", "@back");
+        registry.Link("@back", "@infra");
+
+        Assert.Equal(["@back"], ((ICatalogoDeRepositorios)registry).ResolverVinculos("@front").Select(linked => linked.Alias));
+    }
+
+    [Fact]
+    public void NestedCheckoutsCannotBeLinked()
+    {
+        var registry = new RepositoryRegistry(Path.Combine(root, "repositories.json"));
+        var outer = CreateRepository("outer");
+        registry.Add("@outer", outer);
+        registry.Add("@inner", CreateRepository(Path.Combine("outer", "inner")));
+
+        Assert.Throws<ArgumentException>(() => registry.Link("@outer", "@inner"));
+        Assert.Throws<ArgumentException>(() => registry.Link("@inner", "@outer"));
+        Assert.Null(registry.Get("@outer")!.Links);
+    }
+
+    [Fact]
+    public void RemovingARepositoryRemovesTheLinksToItInTheSameSave()
+    {
+        var file = Path.Combine(root, "repositories.json");
+        var registry = new RepositoryRegistry(file);
+        registry.Add("@front", CreateRepository("front"));
+        registry.Add("@admin", CreateRepository("admin"));
+        registry.Add("@back", CreateRepository("back"));
+        registry.Link("@front", "@back");
+        registry.Link("@admin", "@back");
+        registry.Link("@front", "@admin");
+
+        Assert.True(registry.Remove("@back"));
+
+        var reopened = new RepositoryRegistry(file);
+        Assert.Equal(["@admin"], reopened.Get("@front")!.Links!);
+        Assert.Empty(reopened.Get("@admin")!.Links!);
+    }
+
+    // A catalog edited by hand, or a checkout moved away, blocks new executions instead of dropping the link.
+    [Fact]
+    public void BrokenLinksAreRefusedAtResolution()
+    {
+        var file = Path.Combine(root, "repositories.json");
+        var registry = new RepositoryRegistry(file);
+        registry.Add("@front", CreateRepository("front"));
+        var back = CreateRepository("back");
+        registry.Add("@back", back);
+        registry.Link("@front", "@back");
+
+        Directory.Delete(back, recursive: true);
+        var moved = Assert.Throws<InvalidOperationException>(() =>
+            ((ICatalogoDeRepositorios)new RepositoryRegistry(file)).ResolverVinculos("@front"));
+        Assert.Contains("/repo unlink @front @back", moved.Message);
+
+        File.WriteAllText(file, File.ReadAllText(file).Replace("\"@back\"\n", "\"@ghost\"\n"));
+        var removed = Assert.Throws<InvalidOperationException>(() =>
+            ((ICatalogoDeRepositorios)new RepositoryRegistry(file)).ResolverVinculos("@front"));
+        Assert.Contains("@ghost não está mais cadastrado", removed.Message);
+    }
+
+    [Theory]
+    [InlineData("[\"@back\", \"@back\"]")]
+    [InlineData("[\"@front\"]")]
+    [InlineData("[\"bad\"]")]
+    public void InvalidLinksInTheFileStopTheLoad(string links)
+    {
+        var file = Path.Combine(root, "repositories.json");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(file, $$"""[{"Alias":"@front","Path":"/repos/front","GitHub":null,"Links":{{links}}}]""");
+
+        Assert.ThrowsAny<Exception>(() => new RepositoryRegistry(file));
+    }
+
+    // Catalogs written before #232 have no Links field and keep working unchanged.
+    [Fact]
+    public void CatalogWithoutLinksStillLoads()
+    {
+        var file = Path.Combine(root, "repositories.json");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(file, """[{"Alias":"@front","Path":"/repos/front","GitHub":null,"Environment":null}]""");
+
+        var registry = new RepositoryRegistry(file);
+        Assert.Null(registry.Get("@front")!.Links);
+        Assert.Empty(((ICatalogoDeRepositorios)registry).ResolverVinculos("@front"));
     }
 
     private string CreateRepository(string name)

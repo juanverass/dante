@@ -14,9 +14,11 @@ internal static class ContratoDaConversaParaAgentes
         A indisponibilidade de uma capacidade não impede usar outra disponível para atender ao pedido.
         """;
 
-    internal static string ParaSessao(IReadOnlyList<AgentToolServer>? servidores) =>
+    // contexto: instruções do contexto de execução, como o contrato multirrepositório (AD-58); null quando não há.
+    internal static string ParaSessao(IReadOnlyList<AgentToolServer>? servidores, string? contexto = null) =>
         Linguagem + "\n" + ContratoDoBrainParaAgentes.ParaSessao(servidores) + "\n" +
         (servidores?.Any(s => s.Name == ServidorMcpDePlanilhas.Nome) == true
             ? ContratoDePlanilhasParaAgentes.Instrucoes
-            : "A capacidade interna de planilhas não foi disponibilizada nesta sessão. Não invente acesso ou dados.");
+            : "A capacidade interna de planilhas não foi disponibilizada nesta sessão. Não invente acesso ou dados.") +
+        (contexto is null ? string.Empty : "\n" + contexto);
 }

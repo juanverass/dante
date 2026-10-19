@@ -323,7 +323,7 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
     {
         public static Runner Instance{get;}=new();
         public Task<AgentProcessResult> RunAsync(string prompt,string workingDirectory,CancellationToken cancellationToken=default,bool generalMode=false,
-            IReadOnlyDictionary<string,string>? environment=null,string? model=null,string? effort=null,IReadOnlyList<Attachment>? attachments=null)=>
+            IReadOnlyDictionary<string,string>? environment=null,string? model=null,string? effort=null,IReadOnlyList<Attachment>? attachments=null, IReadOnlyList<string>? additionalDirectories = null)=>
             throw new InvalidOperationException("no one-shot expected");
     }
 

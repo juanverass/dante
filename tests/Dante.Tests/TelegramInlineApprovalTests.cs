@@ -262,7 +262,7 @@ public sealed class TelegramInlineApprovalTests
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
             CancellationToken cancellationToken = default, bool generalMode = false,
             IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null,
-            IReadOnlyList<Dante.Application.Anexos.Attachment>? attachments = null)
+            IReadOnlyList<Dante.Application.Anexos.Attachment>? attachments = null, IReadOnlyList<string>? additionalDirectories = null)
             => throw new InvalidOperationException("Callbacks não iniciam jobs.");
     }
 }

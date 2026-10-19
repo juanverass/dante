@@ -9,7 +9,11 @@ public sealed record AgentSessionStartOptions(
     IReadOnlyDictionary<string, string>? EnvironmentVariables = null,
     AgentPermissionProfile Profile = AgentPermissionProfile.Manual,
     AgentModelSelection? ModelSelection = null,
-    IReadOnlyList<AgentToolServer>? ToolServers = null);
+    IReadOnlyList<AgentToolServer>? ToolServers = null,
+    // Linked repositories of the context (AD-58): checkouts the agent may read and write besides the working directory,
+    // and the instructions that tell it which they are and how to deliver per repository.
+    IReadOnlyList<string>? AdditionalDirectories = null,
+    string? ContextInstructions = null);
 
 // Upstream session id (Claude session_id, Codex thread.id) and the OS id of the process that serves it. Model is the
 // model the CLI reports for the session when it says so at start (Codex thread/start), even without a selection.

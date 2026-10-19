@@ -241,5 +241,7 @@ public sealed class ProjetoAppServiceTests : IDisposable
         }
 
         public ResolvedRepositoryEnvironment ResolverAmbiente(string alias) => throw new NotSupportedException();
+
+        public IReadOnlyList<RepositorioCadastrado> ResolverVinculos(string alias) => throw new NotSupportedException();
     }
 }

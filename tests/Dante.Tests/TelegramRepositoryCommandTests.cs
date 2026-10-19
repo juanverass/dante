@@ -135,6 +135,116 @@ public sealed class TelegramRepositoryCommandTests : IDisposable
         }
     }
 
+    // #232 (AD-58): link, list and unlink only between registered repositories, shown in /repos and /repo links.
+    [Fact]
+    public async Task LinkCommandsManageDirectionalLinks()
+    {
+        var registry = new RepositoryRegistry(Path.Combine(root, "catalog", "repositories.json"));
+        registry.Add("@front", CreateRepository("front"));
+        registry.Add("@back", CreateRepository("back"));
+        var api = new BotApi();
+        using var service = CreateService(api, registry);
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            api.Enqueue("/repo link @Front @BACK");
+            var created = await api.NextMessageAsync();
+            Assert.Contains("Vínculo criado: execuções em @front também acessam @back.", created);
+            Assert.Contains("os que já estão em andamento mantêm o contexto", created);
+            api.Enqueue("/repo link @front @back");
+            Assert.Contains("@back já está vinculado a @front.", await api.NextMessageAsync());
+            api.Enqueue("/repo link @front @front");
+            Assert.Contains("ele mesmo", await api.NextMessageAsync());
+            api.Enqueue("/repo link @front @ghost");
+            Assert.Contains("@ghost não cadastrado", await api.NextMessageAsync());
+            api.Enqueue("/repo links @front");
+            Assert.Equal($"Vinculados a @front:\n- @back: {registry.Get("@back")!.Path}", await api.NextMessageAsync());
+            api.Enqueue("/repo links @back");
+            Assert.Equal("@back não tem repositórios vinculados.", await api.NextMessageAsync());
+            api.Enqueue("/repos");
+            Assert.Contains("| vinculados: @back", await api.NextMessageAsync());
+            api.Enqueue("/repo link @front");
+            Assert.StartsWith("Uso: /repo add", await api.NextMessageAsync());
+
+            api.Enqueue("/repo unlink @front @back");
+            Assert.Contains("Vínculo removido: execuções em @front não acessam mais @back.", await api.NextMessageAsync());
+            api.Enqueue("/repo unlink @front @back");
+            Assert.Equal("@back não está vinculado a @front.", await api.NextMessageAsync());
+            Assert.Empty(new RepositoryRegistry(Path.Combine(root, "catalog", "repositories.json")).Get("@front")!.Links!);
+        }
+        finally { await service.StopAsync(CancellationToken.None); }
+    }
+
+    // #232: a job in the primary reaches the linked checkout with the contract, only with the primary's environment, and
+    // reports both in its messages and in /status. Removing the linked repository removes the link with it.
+    [Fact]
+    public async Task JobsInALinkedRepositoryGetTheCheckoutAndTheContract()
+    {
+        var registry = new RepositoryRegistry(Path.Combine(root, "catalog", "repositories.json"));
+        var front = CreateRepository("front");
+        var back = CreateRepository("back");
+        registry.Add("@front", front);
+        registry.Add("@back", back);
+        registry.SetLiteral("@front", "APP_ENV", "front");
+        registry.Bind("@back", "API_TOKEN", "DANTE_TEST_LINKED_MISSING_" + Guid.NewGuid().ToString("N"));
+        registry.Link("@front", "@back");
+        var api = new BotApi();
+        var runner = new UnusedRunner();
+        using var service = CreateService(api, registry, runner);
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            api.Enqueue("/codex @front crie o endpoint e o cliente");
+            Assert.StartsWith("Codex iniciado. Job ID: J000001 (@front + @back)", await api.NextMessageAsync());
+            Assert.StartsWith("Codex concluído. Job J000001 (@front + @back).", await api.NextMessageAsync());
+            Assert.Equal((front, back), (runner.WorkingDirectory, Assert.Single(runner.AdditionalDirectories!)));
+            Assert.Equal(new Dictionary<string, string> { ["APP_ENV"] = "front" }, runner.Environment);
+            Assert.StartsWith("Contexto multirrepositório escolhido pelo usuário", runner.Prompt);
+            Assert.Contains($"- principal: @front em {front} (diretório de trabalho)\n- vinculado: @back em {back}", runner.Prompt);
+            Assert.Contains("abra o PR no remoto de cada um", runner.Prompt);
+            Assert.EndsWith("\nPedido do usuário:\ncrie o endpoint e o cliente", runner.Prompt);
+            api.Enqueue("/status");
+            Assert.Contains("J000001 Codex @front + @back: Succeeded", await api.NextMessageAsync());
+
+            // Without links the prompt goes as typed.
+            api.Enqueue("/codex @back revise");
+            Assert.Contains("não está configurada", await api.NextMessageAsync());
+            api.Enqueue("/repo remove @back");
+            Assert.Equal("Repositório removido. Vínculos removidos junto: @front → @back.", await api.NextMessageAsync());
+            api.Enqueue("/claude @front revise");
+            Assert.StartsWith("Claude iniciado. Job ID: J000002 (@front)", await api.NextMessageAsync());
+            await api.NextMessageAsync();
+            Assert.Equal(("revise", 0), (runner.Prompt, runner.AdditionalDirectories!.Count));
+        }
+        finally { await service.StopAsync(CancellationToken.None); }
+    }
+
+    // A linked checkout that disappeared blocks the execution; the agent never runs with fewer repositories.
+    [Fact]
+    public async Task BrokenLinkBlocksTheJobWithGuidance()
+    {
+        var registry = new RepositoryRegistry(Path.Combine(root, "catalog", "repositories.json"));
+        registry.Add("@front", CreateRepository("front"));
+        var back = CreateRepository("back");
+        registry.Add("@back", back);
+        registry.Link("@front", "@back");
+        Directory.Delete(back, recursive: true);
+        var api = new BotApi();
+        var runner = new UnusedRunner();
+        using var service = CreateService(api, registry, runner);
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            api.Enqueue("/codex @front crie o endpoint");
+            Assert.Equal("O diretório do repositório vinculado @back não existe mais. Corrija o cadastro ou use " +
+                "/repo unlink @front @back.", await api.NextMessageAsync());
+            api.Enqueue("/status");
+            Assert.DoesNotContain("J000001", await api.NextMessageAsync());
+            Assert.Null(runner.Prompt);
+        }
+        finally { await service.StopAsync(CancellationToken.None); }
+    }
+
     private TelegramPollingService CreateService(BotApi api, RepositoryRegistry? registry = null, UnusedRunner? runner = null)
     {
         var options = Options.Create(new TelegramOptions { BotToken = "test", AllowedUserIds = "123" });
@@ -192,12 +302,16 @@ public sealed class TelegramRepositoryCommandTests : IDisposable
     private sealed class UnusedRunner : ICodexRunner, IClaudeRunner
     {
         public IReadOnlyDictionary<string, string>? Environment { get; private set; }
+        public string? Prompt { get; private set; }
+        public string? WorkingDirectory { get; private set; }
+        public IReadOnlyList<string>? AdditionalDirectories { get; private set; }
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
             CancellationToken cancellationToken = default, bool generalMode = false,
             IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null,
-            IReadOnlyList<Dante.Application.Anexos.Attachment>? attachments = null)
+            IReadOnlyList<Dante.Application.Anexos.Attachment>? attachments = null, IReadOnlyList<string>? additionalDirectories = null)
         {
             Environment = environment;
+            (Prompt, WorkingDirectory, AdditionalDirectories) = (prompt, workingDirectory, additionalDirectories);
             return Task.FromResult(new AgentProcessResult(AgentProcessStatus.Succeeded, "secret-value-123", "", 0,
                 DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         }

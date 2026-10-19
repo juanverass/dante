@@ -38,6 +38,11 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 - `/claude [@alias] <prompt>` e `/codex [@alias] <prompt>`;
 - General Mode em workspace isolado e Repository Mode por `@alias`;
 - `/repos` e `/repo add|show|remove`;
+- repositórios vinculados (#232, AD-58): `/repo link|unlink|links` cadastram vínculos direcionais e diretos entre
+  aliases; execuções no principal (one-shot e sessões, Claude e Codex) dão acesso de leitura e escrita aos checkouts
+  vinculados, congelados no início, só com o ambiente do principal e com o contrato multirrepositório de entrega
+  (branch e PR por repositório, referência cruzada, relato por repositório em falha parcial). Vínculo inválido
+  recusa a execução; `/repo remove` remove os vínculos para o alias; `/status` mostra `@principal + @vinculado`;
 - `/repo env set|bind|list|remove` com segredos por referência ao host;
 - `/status` com contexto de cada job e `/cancel <jobId>`;
 - configurações do assistente em `~/.dante/settings.json` (agente padrão, Claude quando
@@ -166,6 +171,11 @@ Detalhes de uso: [README](../../README.md).
   sem informar a idade; contas por API key ou provedor de nuvem não têm cota de assinatura nas duas CLIs (AD-31);
 - como serviço, o D.A.N.T.E. fica disponível a partir do logon no Windows, não do boot (AD-28);
 - sem worktrees, fila persistente ou execução concorrente isolada por Issue;
+- repositórios vinculados (AD-58): o D.A.N.T.E. não executa `git`/`gh`; branches, PRs e referências cruzadas são do
+  agente, guiado pelo contrato multirrepositório. Não há concessão de variáveis do vinculado, bloqueio de checkout
+  nem `/send` de arquivos do vinculado. O cenário real front + back com as CLIs e PRs no GitHub não foi exercitado:
+  os testes usam as CLIs simuladas, e a confirmação de `writableRoots` do `app-server` foi conferida na codex-cli
+  0.159.3;
 - sessões interativas e resultados recentes de entrega ficam apenas em memória; ao
   reiniciar o Worker, sessões e saídas pendentes não podem ser recuperadas;
 - perfil `full` não é oferecido, pois não há mapeamento comum validado entre as CLIs;
@@ -716,3 +726,13 @@ Google emulado, MCP/Application/adapters reais e Telegram gravado. O pedido por
 pendências de uma data, sem mencionar planilha, encontrou o cadastro, descreveu,
 leu região pequena e respondeu corretamente, sem identificadores técnicos no canal
 normal. Não acessa nem altera a planilha do usuário. Execução no guia de planilhas.
+
+## Repositórios vinculados (#232)
+
+Um repositório cadastrado pode vincular outros (`/repo link @front @back`), persistidos em `Links` do catálogo. O
+resolvedor mantém a precedência da AD-27 para o principal e congela os vinculados diretos no `JobExecutionContext`;
+vinculado ausente, diretório inexistente ou checkouts sobrepostos recusam a execução sem fallback. Claude recebe
+`--add-dir` por vinculado; Codex recebe `--add-dir` no `exec` e `writable_roots` confirmados no `app-server`, também no
+clear e na troca de modo. O ambiente é só do principal. O contrato multirrepositório orienta o agente a entregar
+branch e PR por repositório alterado, com referência cruzada, sem PR em repositório sem alteração e sem merge.
+General Mode e execuções sem vínculo não mudam.

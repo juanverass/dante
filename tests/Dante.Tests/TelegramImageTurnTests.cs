@@ -482,7 +482,7 @@ public sealed class TelegramImageTurnTests : IAsyncDisposable
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
             CancellationToken cancellationToken = default, bool generalMode = false,
             IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null,
-            IReadOnlyList<Attachment>? attachments = null)
+            IReadOnlyList<Attachment>? attachments = null, IReadOnlyList<string>? additionalDirectories = null)
         {
             attachments ??= [];
             runs.Enqueue(new Run(prompt, attachments, attachments.All(attachment => File.Exists(attachment.Path))));

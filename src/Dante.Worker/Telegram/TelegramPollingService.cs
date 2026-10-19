@@ -410,7 +410,7 @@ public sealed partial class TelegramPollingService(
             }
 
             var response = jobs.TryCancel(prompt, out var cancelled)
-                ? $"Cancelamento solicitado para {cancelled!.Id} ({cancelled.Context.Label})."
+                ? $"Cancelamento solicitado para {cancelled!.Id} ({cancelled.Context.Descricao})."
                 : $"Job {prompt} não encontrado ou já encerrado.";
             await SendReplyAsync(message.Chat.Id, response, cancellationToken);
             return;
@@ -464,7 +464,7 @@ public sealed partial class TelegramPollingService(
         try
         {
             await SendReplyAsync(message.Chat.Id,
-                $"{agent} iniciado. Job ID: {job.Id} ({context.Label}){ModelSuffix(modelSelection)}{ImageSuffix(images)}." +
+                $"{agent} iniciado. Job ID: {job.Id} ({context.Descricao}){ModelSuffix(modelSelection)}{ImageSuffix(images)}." +
                 OverrideNotice(message.From.Id, resolution), cancellationToken);
         }
         catch
@@ -493,7 +493,8 @@ public sealed partial class TelegramPollingService(
 
     private async Task HandleRepositoryCommandAsync(long chatId, string prompt, CancellationToken cancellationToken)
     {
-        const string usage = "Uso: /repo add @alias <path> [owner/repo] | show @alias | remove @alias";
+        const string usage = "Uso: /repo add @alias <path> [owner/repo] | show @alias | remove @alias | " +
+            "link @alias @vinculado | unlink @alias @vinculado | links @alias";
         var parts = SplitCommandArguments(prompt);
         if (parts is null)
         {
@@ -527,9 +528,35 @@ public sealed partial class TelegramPollingService(
             }
             else if (parts[0].Equals("remove", StringComparison.OrdinalIgnoreCase) && parts.Length == 2)
             {
+                var alias = RepositoryRegistry.NormalizeAlias(parts[1]);
+                var linking = repositories.List().Where(repository => repository.Links?.Contains(alias) == true)
+                    .Select(repository => repository.Alias).ToArray();
                 var removed = repositories.Remove(parts[1]);
                 if (removed) ClearActiveRepository(parts[1]);
-                response = removed ? "Repositório removido." : "Repositório não cadastrado.";
+                response = !removed ? "Repositório não cadastrado." : linking.Length == 0 ? "Repositório removido." :
+                    $"Repositório removido. Vínculos removidos junto: {string.Join(", ", linking.Select(from => $"{from} → {alias}"))}.";
+            }
+            else if (parts[0].Equals("link", StringComparison.OrdinalIgnoreCase) && parts.Length == 3)
+            {
+                var (alias, linked) = (RepositoryRegistry.NormalizeAlias(parts[1]), RepositoryRegistry.NormalizeAlias(parts[2]));
+                response = (repositories.Link(alias, linked)
+                    ? $"Vínculo criado: execuções em {alias} também acessam {linked}."
+                    : $"{linked} já está vinculado a {alias}.") + LinkScopeNotice;
+            }
+            else if (parts[0].Equals("unlink", StringComparison.OrdinalIgnoreCase) && parts.Length == 3)
+            {
+                var (alias, linked) = (RepositoryRegistry.NormalizeAlias(parts[1]), RepositoryRegistry.NormalizeAlias(parts[2]));
+                response = repositories.Unlink(alias, linked)
+                    ? $"Vínculo removido: execuções em {alias} não acessam mais {linked}." + LinkScopeNotice
+                    : $"{linked} não está vinculado a {alias}.";
+            }
+            else if (parts[0].Equals("links", StringComparison.OrdinalIgnoreCase) && parts.Length == 2)
+            {
+                var found = repositories.Get(parts[1]);
+                response = found is null ? "Repositório não cadastrado." : found.Links is not { Count: > 0 } links
+                    ? $"{found.Alias} não tem repositórios vinculados."
+                    : $"Vinculados a {found.Alias}:\n" + string.Join('\n', links.Select(link =>
+                        repositories.Get(link) is { } linked ? $"- {linked.Alias}: {linked.Path}" : $"- {link}: não cadastrado (use /repo unlink)"));
             }
             else response = usage;
         }
@@ -610,7 +637,7 @@ public sealed partial class TelegramPollingService(
                     environment?.HasSecrets == true);
                 SyncActiveSession(userId);
                 await SendReplyAsync(message.Chat.Id,
-                    $"Sessão {started.Session.Id} iniciada com {agent} ({context.Label}), modo {AgentSessionModes.Label(profile)}{ModelSuffix(modelSelection)}. Envie uma mensagem para iniciar o turno.",
+                    $"Sessão {started.Session.Id} iniciada com {agent} ({context.Descricao}), modo {AgentSessionModes.Label(profile)}{ModelSuffix(modelSelection)}. Envie uma mensagem para iniciar o turno.",
                     cancellationToken);
             }
             // Without a session the request was refused before any process started (e.g. unsupported mode).
@@ -1487,7 +1514,12 @@ public sealed partial class TelegramPollingService(
 
     private static string FormatRepository(RepositoryDefinition repository) =>
         $"{repository.Alias}: {repository.Path}" +
-        (repository.GitHub is null ? string.Empty : $" ({repository.GitHub})");
+        (repository.GitHub is null ? string.Empty : $" ({repository.GitHub})") +
+        (repository.Links is { Count: > 0 } links ? $" | vinculados: {string.Join(", ", links)}" : string.Empty);
+
+    // A link is read when an execution starts (AD-58, AD-11): running jobs and open sessions keep their checkouts.
+    private const string LinkScopeNotice =
+        "\nVale para jobs e sessões novos; os que já estão em andamento mantêm o contexto com que começaram.";
 
     private static string[]? SplitCommandArguments(string input)
     {
@@ -1578,13 +1610,16 @@ public sealed partial class TelegramPollingService(
                         jobToken);
                     (prompt, images) = (prepared.Text, prepared.Attachments);
                 }
+                // Linked repositories (AD-58): their checkouts go to the CLI and the request carries the contract.
+                var linked = context.RepositoriosVinculados.Select(repository => repository.Caminho).ToArray();
+                prompt = ContratoMultirrepositorio.NoPedido(context, prompt);
                 result = isCodex
                     ? await codexRunner.RunAsync(prompt, context.WorkingDirectory, jobToken,
                         context.Mode == JobExecutionMode.General,
-                        repositoryEnvironment?.Values, selection.Model, selection.Effort, images)
+                        repositoryEnvironment?.Values, selection.Model, selection.Effort, images, linked)
                     : await claudeRunner.RunAsync(prompt, context.WorkingDirectory, jobToken,
                         context.Mode == JobExecutionMode.General,
-                        repositoryEnvironment?.Values, selection.Model, selection.Effort, images);
+                        repositoryEnvironment?.Values, selection.Model, selection.Effort, images, linked);
                 status = result.Status;
                 errorMessage = result.ErrorMessage;
             }
@@ -1608,7 +1643,7 @@ public sealed partial class TelegramPollingService(
 
         var completed = jobs.Complete(id, status, result?.ExitCode, errorMessage);
         ReleaseJobImages(userId, id, received);
-        var label = completed.Context.Label;
+        var label = completed.Context.Descricao;
         var response = completed.Status switch
         {
             _ when repositoryEnvironment?.HasSecrets == true =>
@@ -1634,7 +1669,7 @@ public sealed partial class TelegramPollingService(
     }
 
     private static string FormatJob(JobSnapshot job) =>
-        $"{job.Id} {job.Agent} {job.Context.Label}: {job.Status}" +
+        $"{job.Id} {job.Agent} {job.Context.Descricao}: {job.Status}" +
         (job.CancellationRequested && job.Status is JobStatus.Queued or JobStatus.Running
             ? " (cancelamento solicitado)" : string.Empty) +
         (job.ModelSelection?.Model is { } model ? $" | modelo {model}" : string.Empty) +
@@ -1642,7 +1677,7 @@ public sealed partial class TelegramPollingService(
         $" | criado {job.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
 
     private static string FormatSession(AgentSessionSnapshot session) =>
-        $"{session.Id} {session.Agent} {session.Context.Label}: {session.State}" +
+        $"{session.Id} {session.Agent} {session.Context.Descricao}: {session.State}" +
         (session.IsActive ? " (ativa)" : string.Empty) +
         (session.ActiveTurnId is null ? string.Empty : $" | turno {session.ActiveTurnId}") +
         (session.Compacting ? " | compactando" : string.Empty) +

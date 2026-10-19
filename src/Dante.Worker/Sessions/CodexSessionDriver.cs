@@ -47,6 +47,8 @@ public sealed class CodexSessionDriver(
     private TaskCompletionSource? modeConfirmation;
     private string? workingDirectory;
     private string conversationInstructions = "";
+    // Checkouts of the linked repositories (AD-58): writable roots of every workspace-write thread and mode switch.
+    private IReadOnlyList<string> writableRoots = [];
     private string? effectiveEffort;
     private bool closing;
     private bool ended;
@@ -67,6 +69,7 @@ public sealed class CodexSessionDriver(
 
         var (approvalPolicy, sandbox) = Policy(options.Profile);
         var approvalsReviewer = options.Profile == AgentPermissionProfile.Auto ? "auto_review" : "user";
+        var roots = DiretoriosVinculados.Validar(options.AdditionalDirectories, options.IsGeneral).ToArray();
         // The prompt never goes on the command line: turns are JSON-RPC requests on stdin.
         var request = new AgentProcessRequest(
             AgentKind.Codex,
@@ -80,8 +83,10 @@ public sealed class CodexSessionDriver(
             process = agent;
             profile = options.Profile;
             workingDirectory = options.WorkingDirectory;
+            writableRoots = roots;
             effort = options.ModelSelection?.Effort;
-            conversationInstructions = ContratoDaConversaParaAgentes.ParaSessao(options.ToolServers);
+            conversationInstructions = ContratoDaConversaParaAgentes.ParaSessao(options.ToolServers,
+                options.ContextInstructions);
         }
 
         _ = ReadOutputAsync(agent);
@@ -107,7 +112,11 @@ public sealed class CodexSessionDriver(
             };
             // Without a selection the CLI picks its own default model (#77); thread/start reports it either way.
             if (options.ModelSelection?.Model is { } selectedModel) threadParameters["model"] = selectedModel;
+            AddWritableRoots(threadParameters, roots);
             var thread = await SendRequestAsync("thread/start", threadParameters, cancellationToken);
+            // A session that cannot write to the linked repositories would fail the task halfway (AD-58).
+            if (!ConfirmsWritableRoots(thread, options.Profile, roots))
+                throw new AgentProtocolException("O Codex não confirmou o acesso aos repositórios vinculados. Atualize a CLI ou remova o vínculo.");
             // Do not silently run auto without the reviewer requested by the user.
             if (options.Profile == AgentPermissionProfile.Auto &&
                 (GetString(thread, "approvalPolicy") != approvalPolicy ||
@@ -155,12 +164,13 @@ public sealed class CodexSessionDriver(
         AgentPermissionProfile current;
         string? currentModel;
         string? directory;
+        IReadOnlyList<string> roots;
         lock (gate)
         {
             previous = RequireThread();
             if (activeTurnId is not null || pendingRequests.Count != 0 || pendingProfile is not null)
                 throw new AgentContextUnchangedException("A sessão do Codex não está ociosa; a conversa não foi limpa.");
-            (current, currentModel, directory) = (profile, model, workingDirectory);
+            (current, currentModel, directory, roots) = (profile, model, workingDirectory, writableRoots);
         }
 
         var (approvalPolicy, sandbox) = Policy(current);
@@ -176,6 +186,7 @@ public sealed class CodexSessionDriver(
         };
         // The model the thread reported, so a change of the CLI default does not slip into the same session.
         if (currentModel is not null) parameters["model"] = currentModel;
+        AddWritableRoots(parameters, roots);
         JsonObject thread;
         try
         {
@@ -190,7 +201,8 @@ public sealed class CodexSessionDriver(
         var id = GetString(thread["thread"] as JsonObject, "id");
         if (id is null || (current == AgentPermissionProfile.Auto &&
                            (GetString(thread, "approvalPolicy") != approvalPolicy ||
-                            GetString(thread, "approvalsReviewer") != approvalsReviewer)))
+                            GetString(thread, "approvalsReviewer") != approvalsReviewer)) ||
+            !ConfirmsWritableRoots(thread, current, roots))
         {
             if (id is not null) await UnsubscribeQuietlyAsync(id);
             throw new AgentContextUnchangedException(
@@ -329,9 +341,11 @@ public sealed class CodexSessionDriver(
         AgentPermissionProfile current;
         string? currentModel;
         TaskCompletionSource? confirmation;
+        IReadOnlyList<string> roots;
         lock (gate)
         {
             thread = RequireThread();
+            roots = writableRoots;
             current = pendingProfile ?? profile;
             confirmation = pendingProfile is null ? null : new(TaskCreationOptions.RunContinuationsAsynchronously);
             modeConfirmation = confirmation;
@@ -348,7 +362,7 @@ public sealed class CodexSessionDriver(
                 ? new JsonObject { ["type"] = "readOnly" }
                 : new JsonObject
                 {
-                    ["type"] = "workspaceWrite", ["writableRoots"] = new JsonArray(),
+                    ["type"] = "workspaceWrite", ["writableRoots"] = Roots(roots),
                     ["networkAccess"] = false, ["excludeTmpdirEnvVar"] = false, ["excludeSlashTmp"] = false
                 };
         }
@@ -584,6 +598,31 @@ public sealed class CodexSessionDriver(
         AgentPermissionProfile.Plan => ("on-request", "read-only"),
         _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Perfil de permissão desconhecido.")
     };
+
+    // Linked repositories reach thread/start as the sandbox_workspace_write.writable_roots override (codex-cli 0.159.3).
+    private static void AddWritableRoots(JsonObject parameters, IReadOnlyList<string> roots)
+    {
+        if (roots.Count == 0) return;
+        parameters["config"] = new JsonObject
+        {
+            ["sandbox_workspace_write"] = new JsonObject { ["writable_roots"] = Roots(roots) }
+        };
+    }
+
+    // thread/start answers with the effective sandbox: without linked repositories nothing new is checked; with them a
+    // workspace-write thread must list exactly those roots. A read-only (plan) thread writes nowhere.
+    private static bool ConfirmsWritableRoots(JsonObject thread, AgentPermissionProfile requested,
+        IReadOnlyList<string> roots) =>
+        roots.Count == 0 || requested == AgentPermissionProfile.Plan ||
+        (thread["sandbox"] is JsonObject sandbox && GetString(sandbox, "type") == "workspaceWrite" &&
+         SameRoots(sandbox["writableRoots"] as JsonArray, roots));
+
+    private static bool SameRoots(JsonArray? reported, IReadOnlyList<string> roots) =>
+        reported is not null && reported.Count == roots.Count &&
+        reported.Select(root => root?.GetValueKind() == JsonValueKind.String ? root.GetValue<string>() : null)
+            .Order(StringComparer.Ordinal).SequenceEqual(roots.Order(StringComparer.Ordinal));
+
+    private static JsonArray Roots(IReadOnlyList<string> roots) => new(roots.Select(root => (JsonNode?)root).ToArray());
 
     // Codex decisions carry no message: a denial reason stays with the D.A.N.T.E.
     private static string Decision(AgentApprovalResponse approval) => approval.Decision switch
@@ -895,7 +934,7 @@ public sealed class CodexSessionDriver(
             GetString(sandbox, "type") != (requested == AgentPermissionProfile.Plan ? "readOnly" : "workspaceWrite") ||
             sandbox?["networkAccess"] is not JsonValue network || network.GetValueKind() != JsonValueKind.False ||
             (requested != AgentPermissionProfile.Plan &&
-                (sandbox?["writableRoots"] is not JsonArray { Count: 0 } ||
+                (!SameRoots(sandbox?["writableRoots"] as JsonArray, writableRoots) ||
                  sandbox["excludeTmpdirEnvVar"]?.GetValue<bool>() != false || sandbox["excludeSlashTmp"]?.GetValue<bool>() != false)) ||
             GetString(collaboration, "mode") != (requested == AgentPermissionProfile.Plan ? "plan" : "default") ||
             GetString(settings, "cwd") != workingDirectory || GetString(settings, "model") != model ||

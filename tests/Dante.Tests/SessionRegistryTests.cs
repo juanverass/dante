@@ -73,7 +73,28 @@ public sealed class SessionRegistryTests
         await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Claude,
             JobExecutionContext.General("/home/user/.dante/workspaces/general")));
 
-        Assert.True(drivers.Created.Single().StartOptions!.IsGeneral);
+        var options = drivers.Created.Single().StartOptions!;
+        Assert.True(options.IsGeneral);
+        Assert.Empty(options.AdditionalDirectories!);
+        Assert.Null(options.ContextInstructions);
+    }
+
+    // #232 (AD-58): the session keeps the linked checkouts it started with; the driver gets them and the contract.
+    [Fact]
+    public async Task LinkedRepositoriesOfTheContextReachTheDriverWithTheContract()
+    {
+        await using var registry = CreateRegistry();
+        var context = JobExecutionContext.Repository("@front", "/repos/front",
+            [new RepositorioCadastrado("@back", "/repos/back")]);
+
+        var result = await registry.StartAsync(new SessionStartRequest(Owner, AgentKind.Codex, context));
+
+        Assert.Equal(("@front + @back", context), (result.Session!.Context.Descricao, result.Session.Context));
+        var options = drivers.Created.Single().StartOptions!;
+        Assert.Equal(["/repos/back"], options.AdditionalDirectories!);
+        Assert.Contains("- vinculado: @back em /repos/back", options.ContextInstructions);
+        Assert.Contains("Não crie branch nem PR em repositório sem alterações e nunca faça merge.",
+            options.ContextInstructions);
     }
 
     [Fact]

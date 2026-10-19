@@ -127,6 +127,98 @@ public sealed class AgentContextResolverTests : IDisposable
         Assert.True(resolver.Resolve(UserId, null, "@repo olá").Succeeded);
     }
 
+    // #232 (AD-58): the primary comes from the usual precedence and brings its registered links, frozen with it.
+    [Theory]
+    [InlineData(null, "@fitness_front crie o endpoint", ContextSource.Explicit)]
+    [InlineData("@fitness_front", "crie o endpoint", ContextSource.Active)]
+    public void LinkedRepositoriesFollowThePrimary(string? active, string text, ContextSource source)
+    {
+        var (resolver, _) = Create(AgentKind.Claude, active, out var registry);
+        var front = CreateGitRepository("fitness_front");
+        registry.Add("@fitness_front", front);
+        registry.Link("@fitness_front", "@fitness_backend");
+        registry.Bind("@fitness_backend", "API_TOKEN", "DANTE_RESOLVER_MISSING_" + Guid.NewGuid().ToString("N"));
+
+        var resolved = resolver.Resolve(UserId, null, text);
+
+        Assert.True(resolved.Succeeded, resolved.Error);
+        Assert.Equal((source, "@fitness_front", front), (resolved.ContextSource, resolved.Context!.Label,
+            resolved.Context.WorkingDirectory));
+        var linked = Assert.Single(resolved.Context.RepositoriosVinculados);
+        Assert.Equal(("@fitness_backend", registry.Get("@fitness_backend")!.Path), (linked.Alias, linked.Caminho));
+        Assert.Equal("@fitness_front + @fitness_backend", resolved.Context.Descricao);
+        // Only the primary's environment: the backend's missing binding does not even get resolved.
+        Assert.Empty(resolved.Environment!.Values);
+
+        // The snapshot does not follow later catalog changes (AD-11).
+        registry.Unlink("@fitness_front", "@fitness_backend");
+        Assert.Single(resolved.Context.RepositoriosVinculados);
+        Assert.Empty(resolver.Resolve(UserId, null, text).Context!.RepositoriosVinculados);
+    }
+
+    [Fact]
+    public void LinksOfTheActiveRepositoryDoNotFollowAnExplicitOverride()
+    {
+        var (resolver, _) = Create(AgentKind.Claude, "@fitness_front", out var registry);
+        registry.Add("@fitness_front", CreateGitRepository("fitness_front"));
+        registry.Link("@fitness_front", "@fitness_backend");
+
+        var resolved = resolver.Resolve(UserId, null, "@dante revise");
+
+        Assert.Equal(("@dante", "@dante"), (resolved.Context!.Label, resolved.Context.Descricao));
+        Assert.Empty(resolved.Context.RepositoriosVinculados);
+    }
+
+    [Fact]
+    public void BrokenLinkRefusesWithoutFallingBack()
+    {
+        var catalog = new InMemoryCatalog(new RepositorioCadastrado("@front", "/repos/front"))
+        {
+            BrokenLink = "O repositório vinculado @back não está mais cadastrado. Use /repo unlink @front @back."
+        };
+        var resolver = new AgentContextResolver(new InMemoryWorkspace("/workspaces/general"), catalog,
+            new InMemoryPreferences(AgentKind.Claude, "@front"));
+
+        foreach (var text in new[] { "crie o endpoint", "@front crie o endpoint" })
+        {
+            var resolved = resolver.Resolve(UserId, null, text);
+            Assert.Equal((ContextResolutionFailure.InvalidLink, catalog.BrokenLink), (resolved.Failure, resolved.Error));
+            Assert.Null(resolved.Context);
+            Assert.Null(resolved.Environment);
+        }
+    }
+
+    [Theory]
+    [InlineData("/repos/front/back")]
+    [InlineData("/repos")]
+    [InlineData("/repos/front")]
+    public void OverlappingCheckoutsAreRefused(string linkedPath)
+    {
+        var catalog = new InMemoryCatalog(new RepositorioCadastrado("@front", "/repos/front"));
+        catalog.Links["@front"] = [new("@shared", "/repos/shared"), new("@back", linkedPath)];
+        var resolver = new AgentContextResolver(new InMemoryWorkspace("/workspaces/general"), catalog);
+
+        var resolved = resolver.Resolve(UserId, null, "@front crie o endpoint");
+
+        Assert.Equal(ContextResolutionFailure.InvalidLink, resolved.Failure);
+        Assert.Contains("se sobrepõem", resolved.Error);
+    }
+
+    // General Mode never reaches a repository, linked or not (AD-09).
+    [Fact]
+    public void GeneralModeHasNoLinkedRepositories()
+    {
+        var catalog = new InMemoryCatalog(new RepositorioCadastrado("@front", "/repos/front"));
+        catalog.Links["@front"] = [new("@back", "/repos/back")];
+        var resolver = new AgentContextResolver(new InMemoryWorkspace("/workspaces/general"), catalog);
+
+        var resolved = resolver.Resolve(UserId, null, "olá");
+
+        Assert.Equal((JobExecutionMode.General, "General"), (resolved.Context!.Mode, resolved.Context.Descricao));
+        Assert.Empty(resolved.Context.RepositoriosVinculados);
+        Assert.Null(ContratoMultirrepositorio.Para(resolved.Context));
+    }
+
     // #166: the use case lives in the Application and runs on its ports alone, without any Worker adapter.
     [Fact]
     public void ResolvesThroughApplicationPortsWithoutWorkerAdapters()
@@ -211,5 +303,13 @@ public sealed class AgentContextResolverTests : IDisposable
 
         public ResolvedRepositoryEnvironment ResolverAmbiente(string alias) =>
             new(new Dictionary<string, string> { ["API_TOKEN"] = "valor" }, true);
+
+        // Direct links by primary alias; a broken link answers like the real catalog, with InvalidOperationException.
+        public Dictionary<string, RepositorioCadastrado[]> Links { get; } = [];
+
+        public string? BrokenLink { get; set; }
+
+        public IReadOnlyList<RepositorioCadastrado> ResolverVinculos(string alias) =>
+            BrokenLink is { } broken ? throw new InvalidOperationException(broken) : Links.GetValueOrDefault(alias) ?? [];
     }
 }

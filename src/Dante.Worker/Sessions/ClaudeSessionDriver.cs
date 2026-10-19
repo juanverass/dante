@@ -359,13 +359,17 @@ public sealed class ClaudeSessionDriver(
             "--permission-mode", PermissionMode(options.Profile),
             // Without it Claude denies escalations itself instead of asking the host.
             "--permission-prompt-tool", "stdio",
-            "--append-system-prompt", ContratoDaConversaParaAgentes.ParaSessao(options.ToolServers)
+            "--append-system-prompt", ContratoDaConversaParaAgentes.ParaSessao(options.ToolServers, options.ContextInstructions)
         ];
         if (options.IsGeneral)
         {
             // Same restrictions as the one-shot General Mode, plus AskUserQuestion so the agent can ask the user.
             arguments.AddRange(["--restricted", "--strict-mcp-config", "--tools", "Read,Write,Edit,AskUserQuestion"]);
         }
+
+        // Linked repositories (AD-58) get the same tool access as the working directory; never in General Mode.
+        foreach (var directory in DiretoriosVinculados.Validar(options.AdditionalDirectories, options.IsGeneral))
+            arguments.AddRange(["--add-dir", directory]);
 
         // D.A.N.T.E. tool servers (#224): read-only tools run without asking; the others follow the permission mode and
         // reach the host as can_use_tool. The config holds no secret (it is visible on the command line).

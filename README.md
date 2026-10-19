@@ -438,6 +438,47 @@ O agente não é responsável por procurar o projeto no disco.
 
 ---
 
+## Repositórios vinculados (front + back)
+
+Quando uma feature atravessa dois repositórios cadastrados, como frontend e backend, vincule-os explicitamente:
+
+```text
+/repo link @fitness_front @fitness_backend
+```
+
+Daí em diante, toda execução em `@fitness_front` (por `@alias`, `/use`, conversa, `/session start`, `/claude` ou
+`/codex`) também dá ao agente leitura e escrita no checkout de `@fitness_backend`, na mesma tarefa:
+
+```text
+/use @fitness_front
+crie o endpoint de metas no backend e a tela que o consome no front
+```
+
+```text
+/repo links @fitness_front
+/repo unlink @fitness_front @fitness_backend
+```
+
+Regras:
+
+- o vínculo é direcional e direto: `@fitness_backend` não ganha acesso ao front, e os vínculos do vinculado não são
+  seguidos;
+- o repositório principal continua sendo o diretório de trabalho e o único cujas variáveis e segredos
+  (`/repo env`) entram na execução;
+- vinculado removido do catálogo ou com diretório inexistente bloqueia a execução, com instrução para corrigir; nunca
+  há troca silenciosa de contexto nem execução com menos repositórios;
+- `/repo remove` remove junto os vínculos que apontavam para o repositório;
+- jobs e sessões guardam os vinculados com que começaram; um `link`/`unlink` vale para os novos;
+- `/status` e as confirmações mostram o contexto completo, por exemplo `@fitness_front + @fitness_backend`;
+- General Mode nunca recebe repositórios vinculados.
+
+O D.A.N.T.E. não executa `git` nem `gh`: o agente recebe a lista dos checkouts e um contrato de entrega por
+repositório. Ao versionar, ele usa uma branch e um PR próprios em cada repositório alterado, com referência cruzada
+entre os PRs, não abre PR em repositório sem alterações, não faz merge e informa por repositório o que ficou pendente
+quando uma etapa falha.
+
+---
+
 # Variáveis de ambiente por repositório
 
 Cada repositório pode possuir seu próprio perfil de ambiente.
@@ -1064,7 +1105,10 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/repos` | Lista repositórios cadastrados |
 | `/repo add @alias <path> [owner/repo]` | Cadastra um repositório |
 | `/repo show @alias` | Exibe um repositório |
-| `/repo remove @alias` | Remove um repositório |
+| `/repo remove @alias` | Remove um repositório e os vínculos que apontam para ele |
+| `/repo link @alias @vinculado` | Dá às execuções de `@alias` acesso ao checkout de `@vinculado` |
+| `/repo unlink @alias @vinculado` | Remove o vínculo |
+| `/repo links @alias` | Lista os repositórios vinculados a `@alias` |
 | `/repo env set @alias KEY VALUE` | Define configuração literal não sensível |
 | `/repo env bind @alias KEY HOST_ENV` | Vincula uma variável a uma variável do host |
 | `/repo env list @alias` | Lista nomes e origens das variáveis |

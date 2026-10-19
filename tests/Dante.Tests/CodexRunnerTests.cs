@@ -38,6 +38,21 @@ public sealed class CodexRunnerTests
             "-i", "/a/A000001.png", "-i", "/a/A000002.gif", "--", "compare"], executor.Request!.Arguments);
     }
 
+    // #232 (AD-58): linked checkouts become writable roots with --add-dir; General Mode refuses them.
+    [Fact]
+    public async Task LinkedRepositoriesAreWritableRootsOutsideGeneralMode()
+    {
+        var executor = new RecordingExecutor(Result(AgentProcessStatus.Succeeded));
+        await new CodexRunner(executor).RunAsync("crie o endpoint", "/repos/front",
+            additionalDirectories: ["/repos/back"]);
+
+        Assert.Equal(["exec", "--approve-for-me", "--add-dir", "/repos/back", "--", "crie o endpoint"],
+            executor.Request!.Arguments);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new CodexRunner(executor).RunAsync("x",
+            AppContext.BaseDirectory, generalMode: true, additionalDirectories: ["/repos/back"]));
+    }
+
     [Fact]
     public async Task GeneralModeUsesWorkspaceSandboxWithoutGitRequirement()
     {
