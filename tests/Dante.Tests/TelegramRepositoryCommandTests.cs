@@ -167,7 +167,8 @@ public sealed class TelegramRepositoryCommandTests : IDisposable
             Assert.StartsWith("Uso: /repo add", await api.NextMessageAsync());
 
             api.Enqueue("/repo unlink @front @back");
-            Assert.Contains("Vínculo removido: execuções em @front não acessam mais @back.", await api.NextMessageAsync());
+            Assert.Equal("Vínculo removido: jobs e sessões novos em @front não acessam mais @back.\n" +
+                "Nenhum job ou sessão em andamento acessa @back.", await api.NextMessageAsync());
             api.Enqueue("/repo unlink @front @back");
             Assert.Equal("@back não está vinculado a @front.", await api.NextMessageAsync());
             Assert.Empty(new RepositoryRegistry(Path.Combine(root, "catalog", "repositories.json")).Get("@front")!.Links!);
@@ -196,7 +197,12 @@ public sealed class TelegramRepositoryCommandTests : IDisposable
         {
             api.Enqueue("/codex @front crie o endpoint e o cliente");
             Assert.StartsWith("Codex iniciado. Job ID: J000001 (@front + @back)", await api.NextMessageAsync());
-            Assert.StartsWith("Codex concluído. Job J000001 (@front + @back).", await api.NextMessageAsync());
+            // The report of each checkout comes right after the header, before the agent's output.
+            var branch = CurrentBranch(front);
+            Assert.StartsWith("Codex concluído. Job J000001 (@front + @back).\nEstado dos repositórios:\n" +
+                $"- @front: branch {branch}, sem alterações locais, sem upstream (branch não enviada)\n" +
+                $"- @back: branch {branch}, sem alterações locais, sem upstream (branch não enviada)\n\n",
+                await api.NextMessageAsync());
             Assert.Equal((front, back), (runner.WorkingDirectory, Assert.Single(runner.AdditionalDirectories!)));
             Assert.Equal(new Dictionary<string, string> { ["APP_ENV"] = "front" }, runner.Environment);
             Assert.StartsWith("Contexto multirrepositório escolhido pelo usuário", runner.Prompt);
@@ -210,10 +216,11 @@ public sealed class TelegramRepositoryCommandTests : IDisposable
             api.Enqueue("/codex @back revise");
             Assert.Contains("não está configurada", await api.NextMessageAsync());
             api.Enqueue("/repo remove @back");
-            Assert.Equal("Repositório removido. Vínculos removidos junto: @front → @back.", await api.NextMessageAsync());
+            Assert.Equal("Repositório removido. Vínculos removidos junto: @front → @back.\n" +
+                "Nenhum job ou sessão em andamento acessa @back.", await api.NextMessageAsync());
             api.Enqueue("/claude @front revise");
             Assert.StartsWith("Claude iniciado. Job ID: J000002 (@front)", await api.NextMessageAsync());
-            await api.NextMessageAsync();
+            Assert.DoesNotContain("Estado dos repositórios", await api.NextMessageAsync());
             Assert.Equal(("revise", 0), (runner.Prompt, runner.AdditionalDirectories!.Count));
         }
         finally { await service.StopAsync(CancellationToken.None); }
@@ -251,7 +258,20 @@ public sealed class TelegramRepositoryCommandTests : IDisposable
         runner ??= new UnusedRunner();
         return new TelegramPollingService(api, options, new TelegramUserAuthorizer(options), runner, runner,
             new JobRegistry(), NullLogger<TelegramPollingService>.Instance,
-            registry ?? new RepositoryRegistry(Path.Combine(root, "catalog", "repositories.json")));
+            registry ?? new RepositoryRegistry(Path.Combine(root, "catalog", "repositories.json")),
+            checkouts: new LeitorDeCheckoutsGit());
+    }
+
+    private static string CurrentBranch(string path)
+    {
+        using var process = Process.Start(new ProcessStartInfo("git")
+        {
+            WorkingDirectory = path, UseShellExecute = false, RedirectStandardOutput = true,
+            RedirectStandardError = true, ArgumentList = { "branch", "--show-current" }
+        })!;
+        var branch = process.StandardOutput.ReadToEnd().Trim();
+        process.WaitForExit();
+        return branch;
     }
 
     private string CreateRepository(string name = "project")

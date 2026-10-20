@@ -186,6 +186,60 @@ public sealed class RepositoryRegistryTests : IDisposable
         Assert.Contains("@ghost não está mais cadastrado", removed.Message);
     }
 
+    // #232 review: overlap is checked on the physical paths. A checkout swapped for a symlink after registration, or a
+    // catalog path through a symlink, cannot reach the primary's directory nor redirect a link.
+    [Fact]
+    public void SymlinkedCheckoutsAreComparedByTheirPhysicalPath()
+    {
+        var file = Path.Combine(root, "repositories.json");
+        var registry = new RepositoryRegistry(file);
+        var front = CreateRepository("front");
+        var back = CreateRepository("back");
+        registry.Add("@front", front);
+        registry.Add("@back", back);
+        registry.Add("@other", CreateRepository("other"));
+        registry.Link("@front", "@other");
+
+        // @back becomes a link to the front's own checkout: linking is refused.
+        Directory.Delete(back, recursive: true);
+        Directory.CreateSymbolicLink(back, front);
+        Assert.Throws<ArgumentException>(() => registry.Link("@front", "@back"));
+
+        // @other becomes a link into the front after the link existed: resolution refuses it.
+        var other = registry.Get("@other")!.Path;
+        Directory.Delete(other, recursive: true);
+        Directory.CreateDirectory(Path.Combine(front, "src"));
+        Directory.CreateSymbolicLink(other, Path.Combine(front, "src"));
+        var nested = Assert.Throws<InvalidOperationException>(() =>
+            ((ICatalogoDeRepositorios)registry).ResolverVinculos("@front"));
+        Assert.Contains("mesmo checkout ou a checkouts aninhados", nested.Message);
+    }
+
+    [Fact]
+    public void LinkedCheckoutGoesOutByItsPhysicalPath()
+    {
+        var file = Path.Combine(root, "repositories.json");
+        var registry = new RepositoryRegistry(file);
+        registry.Add("@front", CreateRepository("front"));
+        var back = CreateRepository("back");
+        registry.Add("@back", back);
+        registry.Link("@front", "@back");
+        var alias = Path.Combine(root, "atalho");
+        Directory.CreateSymbolicLink(alias, back);
+        File.WriteAllText(file, File.ReadAllText(file).Replace(JsonPath(back), JsonPath(alias)));
+
+        var linked = Assert.Single(((ICatalogoDeRepositorios)new RepositoryRegistry(file)).ResolverVinculos("@front"));
+        Assert.Equal(("@back", back), (linked.Alias, linked.Caminho));
+    }
+
+    [Theory]
+    [InlineData("/mnt/c/Repos/front", "/mnt/c/repos/front", true)]
+    [InlineData("/mnt/c/Repos/front", "/mnt/c/repos/FRONT/src", true)]
+    [InlineData("/mnt/c/Repos/front", "/mnt/c/Repos/frontend", false)]
+    [InlineData("/mnt/c/Repos/front", "/mnt/c/Repos/back", false)]
+    public void OverlapIgnoresCaseLikeTheWindowsDrive(string first, string second, bool overlaps) =>
+        Assert.Equal(overlaps, CaminhoReal.Sobrepoe(first, second));
+
     [Theory]
     [InlineData("[\"@back\", \"@back\"]")]
     [InlineData("[\"@front\"]")]
@@ -211,6 +265,8 @@ public sealed class RepositoryRegistryTests : IDisposable
         Assert.Null(registry.Get("@front")!.Links);
         Assert.Empty(((ICatalogoDeRepositorios)registry).ResolverVinculos("@front"));
     }
+
+    private static string JsonPath(string path) => System.Text.Json.JsonSerializer.Serialize(path);
 
     private string CreateRepository(string name)
     {

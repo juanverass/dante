@@ -156,6 +156,33 @@ public sealed class AgentContextResolverTests : IDisposable
         Assert.Empty(resolver.Resolve(UserId, null, text).Context!.RepositoriosVinculados);
     }
 
+    // #232 review: a started execution keeps the physical checkout it resolved. Repointing a symlink in the catalog
+    // afterwards only changes new resolutions, never one that already started.
+    [Fact]
+    public void RepointingASymlinkDoesNotMoveAStartedExecution()
+    {
+        var file = Path.Combine(root, "config", "repositories.json");
+        var registry = new RepositoryRegistry(file);
+        registry.Add("@front", CreateGitRepository("front"));
+        var first = CreateGitRepository("back_v1");
+        var second = CreateGitRepository("back_v2");
+        registry.Add("@back", first);
+        registry.Link("@front", "@back");
+        var shortcut = Path.Combine(root, "back_atual");
+        Directory.CreateSymbolicLink(shortcut, first);
+        File.WriteAllText(file, File.ReadAllText(file).Replace(System.Text.Json.JsonSerializer.Serialize(first),
+            System.Text.Json.JsonSerializer.Serialize(shortcut)));
+        var resolver = new AgentContextResolver(new GeneralWorkspace(Path.Combine(root, "general")),
+            new RepositoryRegistry(file));
+
+        var started = resolver.Resolve(UserId, null, "@front crie").Context!;
+        Directory.Delete(shortcut);
+        Directory.CreateSymbolicLink(shortcut, second);
+
+        Assert.Equal(first, Assert.Single(started.RepositoriosVinculados).Caminho);
+        Assert.Equal(second, Assert.Single(resolver.Resolve(UserId, null, "@front crie").Context!.RepositoriosVinculados).Caminho);
+    }
+
     [Fact]
     public void LinksOfTheActiveRepositoryDoNotFollowAnExplicitOverride()
     {

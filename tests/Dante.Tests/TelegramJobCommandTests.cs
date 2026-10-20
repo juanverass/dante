@@ -177,6 +177,75 @@ public sealed class TelegramJobCommandTests
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
+    // #232 review: unlink and remove do not revoke what already started; the reply names each session and job that
+    // keeps the linked checkout and the command that ends it, and /status shows where each checkout stands.
+    [Fact]
+    public async Task UnlinkAndRemoveNameWhoKeepsTheLinkedCheckout()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dante-unlink-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var registry = new RepositoryRegistry(Path.Combine(root, "repositories.json"));
+            var front = CreateRepository(Path.Combine(root, "front"));
+            var back = CreateRepository(Path.Combine(root, "back"));
+            registry.Add("@front", front);
+            registry.Add("@back", back);
+            registry.Link("@front", "@back");
+            var api = new InteractiveBotApi();
+            var runner = new BlockingRunner();
+            var options = Options.Create(new TelegramOptions { BotToken = "test-token", AllowedUserIds = "123" });
+            await using var sessions = new SessionRegistry(new FakeSessionDriverFactory(),
+                NullLogger<SessionRegistry>.Instance);
+            await sessions.StartAsync(new SessionStartRequest(123, AgentKind.Codex,
+                JobExecutionContext.Repository("@front", front, [new RepositorioCadastrado("@back", back)])));
+            var checkouts = new FixedCheckouts();
+            using var service = new TelegramPollingService(api, options, new TelegramUserAuthorizer(options), runner,
+                runner, new JobRegistry(), NullLogger<TelegramPollingService>.Instance, registry, sessions: sessions,
+                checkouts: checkouts);
+            await service.StartAsync(CancellationToken.None);
+            try
+            {
+                api.Enqueue("/codex @front implemente");
+                Assert.StartsWith("Codex iniciado. Job ID: J000001 (@front + @back)", await api.NextMessageAsync());
+                await runner.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+                api.Enqueue("/repo unlink @front @back");
+                Assert.Equal("Vínculo removido: jobs e sessões novos em @front não acessam mais @back.\n" +
+                    "Ainda acessam @back até terminar, porque guardam o contexto com que começaram: sessão S000001 " +
+                    "(encerre com /session close S000001), job J000001 (cancele com /cancel J000001).",
+                    await api.NextMessageAsync());
+
+                api.Enqueue("/status");
+                var status = await api.NextMessageAsync();
+                Assert.Contains("J000001 Codex @front + @back: Running", status);
+                Assert.Contains("S000001 Codex @front + @back: Idle", status);
+                Assert.Contains("S000001:\nEstado dos repositórios:\n" +
+                    "- @front: branch feat/metas, 2 arquivo(s) alterado(s) sem commit, sem upstream (branch não enviada)\n" +
+                    "- @back: branch feat/metas, sem alterações locais, 1 commit(s) não enviado(s)", status);
+                Assert.Equal([front, back], checkouts.Read);
+
+                // Removing @back names the session that still holds it, although no link points to it anymore.
+                api.Enqueue("/repo remove @back");
+                Assert.Equal("Repositório removido.\nAinda acessam @back até terminar, porque guardam o contexto com " +
+                    "que começaram: sessão S000001 (encerre com /session close S000001), job J000001 (cancele com " +
+                    "/cancel J000001).", await api.NextMessageAsync());
+                registry.Add("@back", back);
+
+                api.Enqueue("/cancel J000001");
+                Assert.Contains("Cancelamento solicitado para J000001 (@front + @back).", await api.NextMessageAsync());
+                await api.NextMessageAsync();
+                await sessions.CloseAsync(123, "S000001");
+                api.Enqueue("/repo link @front @back");
+                await api.NextMessageAsync();
+                api.Enqueue("/repo remove @back");
+                Assert.Equal("Repositório removido. Vínculos removidos junto: @front → @back.\n" +
+                    "Nenhum job ou sessão em andamento acessa @back.", await api.NextMessageAsync());
+            }
+            finally { await service.StopAsync(CancellationToken.None); }
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     private static string CreateRepository(string path)
     {
         Directory.CreateDirectory(path);
@@ -239,6 +308,19 @@ public sealed class TelegramJobCommandTests
             }
 
             throw new InvalidOperationException("Unreachable");
+        }
+    }
+
+    private sealed class FixedCheckouts : ILeitorDeCheckouts
+    {
+        public List<string> Read { get; } = [];
+
+        public Task<EstadoDoCheckout> LerAsync(string caminho, CancellationToken cancellationToken = default)
+        {
+            Read.Add(caminho);
+            return Task.FromResult(Read.Count == 1
+                ? new EstadoDoCheckout("feat/metas", 2, null, false)
+                : new EstadoDoCheckout("feat/metas", 0, 1, true));
         }
     }
 

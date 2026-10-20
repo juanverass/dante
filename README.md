@@ -468,11 +468,19 @@ Regras:
 - vinculado removido do catálogo ou com diretório inexistente bloqueia a execução, com instrução para corrigir; nunca
   há troca silenciosa de contexto nem execução com menos repositórios;
 - `/repo remove` remove junto os vínculos que apontavam para o repositório;
-- jobs e sessões guardam os vinculados com que começaram; um `link`/`unlink` vale para os novos;
+- jobs e sessões guardam os vinculados com que começaram; um `link`/`unlink` vale para os novos. Para revogar o
+  acesso de quem já está rodando, encerre a sessão (`/session close`) ou cancele o job (`/cancel`): a resposta do
+  `unlink`/`remove` lista quem ainda tem acesso;
+- dois aliases que levam ao mesmo diretório ou a diretórios aninhados (inclusive por link simbólico ou por
+  maiúsculas diferentes no `/mnt/c`) não podem ser vinculados;
 - `/status` e as confirmações mostram o contexto completo, por exemplo `@fitness_front + @fitness_backend`;
 - General Mode nunca recebe repositórios vinculados.
 
-O D.A.N.T.E. não executa `git` nem `gh`: o agente recebe a lista dos checkouts e um contrato de entrega por
+Ao fim de cada job, e em `/status` para sessões abertas, o D.A.N.T.E. mostra o estado de cada repositório: branch,
+arquivos alterados sem commit e commits ainda não enviados (ou branch sem upstream). Assim uma entrega parcial, como
+o back enviado e o front ainda sem commit, fica visível sem depender do relato do agente.
+
+O D.A.N.T.E. não executa `git` de escrita nem `gh`: o agente recebe a lista dos checkouts e um contrato de entrega por
 repositório. Ao versionar, ele usa uma branch e um PR próprios em cada repositório alterado, com referência cruzada
 entre os PRs, não abre PR em repositório sem alterações, não faz merge e informa por repositório o que ficou pendente
 quando uma etapa falha.

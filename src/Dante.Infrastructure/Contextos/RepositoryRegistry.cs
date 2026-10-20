@@ -96,19 +96,29 @@ public sealed class RepositoryRegistry : ICatalogoDeRepositorios
 
     ResolvedRepositoryEnvironment ICatalogoDeRepositorios.ResolverAmbiente(string alias) => ResolveEnvironment(alias);
 
+    // The linked checkouts go out by their physical path, resolved now: a symlink swapped in later cannot redirect
+    // an execution that already started, and two aliases reaching the same directory are caught here (AD-58).
     IReadOnlyList<RepositorioCadastrado> ICatalogoDeRepositorios.ResolverVinculos(string alias)
     {
         var repository = Get(alias) ?? throw new ArgumentException("Repositório não cadastrado.", nameof(alias));
-        return (repository.Links ?? []).Select(link =>
+        if (repository.Links is not { Count: > 0 } links) return [];
+        List<RepositorioCadastrado> checkouts = [new(repository.Alias, CaminhoReal.Resolver(repository.Path))];
+        foreach (var link in links)
         {
-            // A link edited by hand to a removed alias, or a checkout moved away, blocks new executions (AD-58).
+            // A link edited by hand to a removed alias, or a checkout moved away, blocks new executions.
             var linked = Get(link) ?? throw new InvalidOperationException(
                 $"O repositório vinculado {link} não está mais cadastrado. Use /repo unlink {repository.Alias} {link}.");
             if (!Directory.Exists(linked.Path))
                 throw new InvalidOperationException(
                     $"O diretório do repositório vinculado {linked.Alias} não existe mais. Corrija o cadastro ou use /repo unlink {repository.Alias} {linked.Alias}.");
-            return ParaCadastrado(linked);
-        }).ToArray();
+            var physical = CaminhoReal.Resolver(linked.Path);
+            if (checkouts.FirstOrDefault(checkout => CaminhoReal.Sobrepoe(checkout.Caminho, physical)) is { } other)
+                throw new InvalidOperationException(
+                    $"Os diretórios de {other.Alias} e {linked.Alias} levam ao mesmo checkout ou a checkouts aninhados " +
+                    $"(links simbólicos incluídos). Use /repo unlink {repository.Alias} {linked.Alias}.");
+            checkouts.Add(new RepositorioCadastrado(linked.Alias, physical));
+        }
+        return checkouts.Skip(1).ToArray();
     }
 
     private static RepositorioCadastrado ParaCadastrado(RepositoryDefinition repository) =>
@@ -145,9 +155,9 @@ public sealed class RepositoryRegistry : ICatalogoDeRepositorios
             var linked = repositories.GetValueOrDefault(linkedAlias)
                 ?? throw new ArgumentException($"Repositório {linkedAlias} não cadastrado.", nameof(linkedAlias));
             if (repository.Links?.Contains(linkedAlias) == true) return false;
-            if (IsWithin(repository.Path, linked.Path) || IsWithin(linked.Path, repository.Path))
-                throw new ArgumentException("Os diretórios dos dois repositórios se sobrepõem; não é possível vinculá-los.",
-                    nameof(linkedAlias));
+            if (CaminhoReal.Sobrepoe(repository.Path, linked.Path))
+                throw new ArgumentException("Os diretórios dos dois repositórios se sobrepõem (links simbólicos e " +
+                    "maiúsculas incluídos); não é possível vinculá-los.", nameof(linkedAlias));
             repositories[alias] = repository with { Links = [.. repository.Links ?? [], linkedAlias] };
             try { Save(); }
             catch { repositories[alias] = repository; throw; }
@@ -174,13 +184,6 @@ public sealed class RepositoryRegistry : ICatalogoDeRepositorios
     {
         repositories.Clear();
         foreach (var (alias, repository) in previous) repositories.Add(alias, repository);
-    }
-
-    private static bool IsWithin(string path, string root)
-    {
-        var relative = System.IO.Path.GetRelativePath(root, path);
-        return relative == "." || (relative != ".." && !relative.StartsWith(".." + System.IO.Path.DirectorySeparatorChar,
-            StringComparison.Ordinal) && !System.IO.Path.IsPathFullyQualified(relative));
     }
 
     public RepositoryDefinition SetLiteral(string alias, string key, string value)

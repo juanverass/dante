@@ -62,6 +62,34 @@ public sealed class CodexSessionDriverTests
             (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
     }
 
+    // #232 review: the session keeps the root it started with while the directory goes away and comes back; clear and
+    // a mode switch send the same frozen root instead of re-resolving it. Revoking access means closing the session.
+    [Fact]
+    public async Task FrozenRootSurvivesTheDirectoryBeingRemovedAndRecreated()
+    {
+        var back = Path.Combine(Path.GetTempPath(), "dante-linked-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(back);
+        try
+        {
+            await using var driver = new CodexSessionDriver(new ProbeLauncher());
+            await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, AdditionalDirectories: [back]));
+            await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+
+            Directory.Delete(back);
+            await driver.ClearContextAsync();
+            await driver.StartTurnAsync("roots");
+            Assert.Equal($"roots:{back};turn:", (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+
+            Directory.CreateDirectory(back);
+            await driver.ChangeModeAsync(AgentPermissionProfile.Auto);
+            await driver.StartTurnAsync("roots");
+            var switched = await ReadTurnAsync(events);
+            Assert.Equal(AgentPermissionProfile.Auto, switched.OfType<ModeAppliedEvent>().Single().Profile);
+            Assert.Equal($"roots:{back};turn:{back}", switched.OfType<MessageCompletedEvent>().Single().Text);
+        }
+        finally { if (Directory.Exists(back)) Directory.Delete(back); }
+    }
+
     [Fact]
     public async Task WritableRootsTheServerDoesNotConfirmFailTheStart()
     {

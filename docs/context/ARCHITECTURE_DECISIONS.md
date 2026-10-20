@@ -1849,11 +1849,20 @@ backend em repositórios separados.
   inexistente ou checkouts sobrepostos recusam a execução (`ContextResolutionFailure.InvalidLink`)
   com instrução de correção: nunca há execução com menos repositórios, troca de principal ou queda
   para General Mode. `/repo remove` apaga, no mesmo save, os vínculos que apontavam para o alias;
+- **caminho físico**: sobreposição é verificada no `link` e em cada resolução sobre o caminho real
+  (`CaminhoReal`: symlinks e junctions resolvidos em todos os componentes) e sem diferenciar
+  maiúsculas, como no `/mnt/c` do WSL; na dúvida, recusa. O `/repo add` já exigia a raiz devolvida
+  pelo `git rev-parse --show-toplevel`, que resolve links; a resolução cobre o diretório trocado por
+  link depois do cadastro e o catálogo editado à mão. O vinculado sai da resolução pelo caminho
+  físico, então reapontar um link depois não redireciona uma execução já iniciada;
 - **snapshot**: `JobExecutionContext.RepositoriosVinculados` (alias + caminho) é congelado com o
   principal (AD-11) e fixado na sessão (AD-20). `link`/`unlink`/`remove` valem para jobs e sessões
   novos; os existentes mantêm o que receberam, inclusive após clear, troca de modo, interrupt ou
-  timeout. `Label` continua sendo só o principal; `Descricao` (`@front + @back`) aparece em
-  `/status` e nas confirmações;
+  timeout: clear e troca de modo reenviam o mesmo root congelado, sem nova resolução, mesmo que o
+  diretório tenha sido removido ou recriado. **Revogar o acesso de uma sessão ou job em andamento
+  exige encerrá-lo** (`/session close`, `/cancel`); a resposta de `unlink` e `remove` lista cada
+  sessão e job do usuário que ainda acessa o vinculado, com esse comando. `Label` continua sendo só
+  o principal; `Descricao` (`@front + @back`) aparece em `/status` e nas confirmações;
 - **ambiente**: só o do principal (AD-10). Variáveis e bindings do vinculado nunca são resolvidos
   nem herdados. Não há concessão de ambiente do vinculado nesta decisão;
 - **acesso das CLIs**: somente os checkouts resolvidos, nunca o diretório pai. Claude recebe um
@@ -1868,7 +1877,12 @@ backend em repositórios separados.
   no one-shot): checkouts autorizados, ambiente só do principal, consistência de contratos
   compartilhados e validação por checkout, branch e PR próprios por repositório alterado com
   referência cruzada, nenhum PR sem alteração, nunca merge e relato por repositório em falha
-  parcial. Sem vinculados, nada muda no prompt;
+  parcial. Sem vinculados, nada muda no prompt. O contrato orienta, não garante: para que um
+  resultado parcial seja observável sem depender do relato do agente, o D.A.N.T.E. lê o estado de
+  cada checkout pela porta `ILeitorDeCheckouts` (git somente leitura, sem shell, com
+  `core.fsmonitor=false` e prazo por consulta): branch, arquivos alterados sem commit e commits não
+  enviados ou branch sem upstream. O relatório sai no fim de cada job e em `/status` para cada
+  sessão viva com vinculados. A criação real de PRs não é rastreada pelo D.A.N.T.E.;
 - **concorrência**: não há bloqueio novo sobre checkouts; vale o mesmo que para o principal hoje.
   `/send` continua aceitando só caminhos sob o diretório de trabalho (AD-29).
 
@@ -1880,8 +1894,10 @@ shell remoto; o contrato entregue ao agente mantém a responsabilidade onde o Gi
 
 Código: `Dante.Infrastructure/Contextos/RepositoryRegistry.cs`,
 `Dante.Application/Contextos/AgentContextResolver.cs`, `JobExecutionContext.cs`,
-`ContratoMultirrepositorio.cs`, `Dante.Infrastructure/Agentes/DiretoriosVinculados.cs`, runners,
+`ContratoMultirrepositorio.cs`, `ILeitorDeCheckouts.cs`, `Dante.Infrastructure/Contextos/CaminhoReal.cs`,
+`LeitorDeCheckoutsGit.cs`, `Dante.Infrastructure/Agentes/DiretoriosVinculados.cs`, runners,
 `Sessions/ClaudeSessionDriver.cs`, `Sessions/CodexSessionDriver.cs`, `Sessions/SessionRegistry.cs`,
 `Telegram/TelegramPollingService.cs`; testes em `RepositoryRegistryTests`,
 `AgentContextResolverTests`, `ClaudeRunnerTests`, `CodexRunnerTests`, `ClaudeSessionDriverTests`,
-`CodexSessionDriverTests`, `SessionRegistryTests` e `TelegramRepositoryCommandTests`.
+`CodexSessionDriverTests`, `SessionRegistryTests`, `LeitorDeCheckoutsGitTests`, `TelegramJobCommandTests` e
+`TelegramRepositoryCommandTests`.

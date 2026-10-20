@@ -37,7 +37,8 @@ public sealed partial class TelegramPollingService(
     IUsageQuotaReader? usage = null,
     TelegramBrain? brain = null,
     IContinuidadeDoBrain? continuidade = null,
-    TelegramPlanilhas? planilhas = null) : BackgroundService
+    TelegramPlanilhas? planilhas = null,
+    ILeitorDeCheckouts? checkouts = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private const string EffortOption = "effort=";
@@ -260,7 +261,7 @@ public sealed partial class TelegramPollingService(
 
         if (string.Equals(command, "/repo", StringComparison.OrdinalIgnoreCase))
         {
-            await HandleRepositoryCommandAsync(message.Chat.Id, prompt, cancellationToken);
+            await HandleRepositoryCommandAsync(message.Chat.Id, message.From!.Id, prompt, cancellationToken);
             return;
         }
 
@@ -292,6 +293,11 @@ public sealed partial class TelegramPollingService(
                 response += "\n\nSessões:\n" + string.Join('\n', ownSessions.Select(session =>
                     FormatSession(session) + (session.Error is null || delivery.HidesOutput(session.Id)
                         ? string.Empty : $" | erro: {session.Error}")));
+                // Live multi-repository sessions show where each checkout stands (AD-58).
+                foreach (var session in ownSessions.Where(session => session.State is not (AgentSessionState.Failed or
+                             AgentSessionState.Closing or AgentSessionState.Closed)))
+                    if (await CheckoutReportAsync(session.Context, cancellationToken) is { Length: > 0 } report)
+                        response += $"\n\n{session.Id}:{report}";
             }
             if (continuidade?.DescreverStatus(message, sessions?.GetActive(message.From!.Id)?.Id) is { } brainStatus)
                 response += "\n\n" + brainStatus;
@@ -491,7 +497,8 @@ public sealed partial class TelegramPollingService(
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
-    private async Task HandleRepositoryCommandAsync(long chatId, string prompt, CancellationToken cancellationToken)
+    private async Task HandleRepositoryCommandAsync(long chatId, long userId, string prompt,
+        CancellationToken cancellationToken)
     {
         const string usage = "Uso: /repo add @alias <path> [owner/repo] | show @alias | remove @alias | " +
             "link @alias @vinculado | unlink @alias @vinculado | links @alias";
@@ -533,21 +540,26 @@ public sealed partial class TelegramPollingService(
                     .Select(repository => repository.Alias).ToArray();
                 var removed = repositories.Remove(parts[1]);
                 if (removed) ClearActiveRepository(parts[1]);
-                response = !removed ? "Repositório não cadastrado." : linking.Length == 0 ? "Repositório removido." :
-                    $"Repositório removido. Vínculos removidos junto: {string.Join(", ", linking.Select(from => $"{from} → {alias}"))}.";
+                response = (!removed ? "Repositório não cadastrado." : linking.Length == 0 ? "Repositório removido." :
+                    $"Repositório removido. Vínculos removidos junto: {string.Join(", ", linking.Select(from => $"{from} → {alias}"))}.") +
+                    // A session may still hold it from before an earlier unlink: name it even without links left.
+                    (removed && (linking.Length > 0 || LinkedHolders(userId, alias).Length > 0)
+                        ? StillLinkedNotice(userId, alias) : string.Empty);
             }
             else if (parts[0].Equals("link", StringComparison.OrdinalIgnoreCase) && parts.Length == 3)
             {
                 var (alias, linked) = (RepositoryRegistry.NormalizeAlias(parts[1]), RepositoryRegistry.NormalizeAlias(parts[2]));
                 response = (repositories.Link(alias, linked)
                     ? $"Vínculo criado: execuções em {alias} também acessam {linked}."
-                    : $"{linked} já está vinculado a {alias}.") + LinkScopeNotice;
+                    : $"{linked} já está vinculado a {alias}.") + "\nVale para jobs e sessões novos; os que já estão " +
+                    "em andamento mantêm o contexto com que começaram.";
             }
             else if (parts[0].Equals("unlink", StringComparison.OrdinalIgnoreCase) && parts.Length == 3)
             {
                 var (alias, linked) = (RepositoryRegistry.NormalizeAlias(parts[1]), RepositoryRegistry.NormalizeAlias(parts[2]));
                 response = repositories.Unlink(alias, linked)
-                    ? $"Vínculo removido: execuções em {alias} não acessam mais {linked}." + LinkScopeNotice
+                    ? $"Vínculo removido: jobs e sessões novos em {alias} não acessam mais {linked}." +
+                      StillLinkedNotice(userId, linked, alias)
                     : $"{linked} não está vinculado a {alias}.";
             }
             else if (parts[0].Equals("links", StringComparison.OrdinalIgnoreCase) && parts.Length == 2)
@@ -1517,9 +1529,51 @@ public sealed partial class TelegramPollingService(
         (repository.GitHub is null ? string.Empty : $" ({repository.GitHub})") +
         (repository.Links is { Count: > 0 } links ? $" | vinculados: {string.Join(", ", links)}" : string.Empty);
 
-    // A link is read when an execution starts (AD-58, AD-11): running jobs and open sessions keep their checkouts.
-    private const string LinkScopeNotice =
-        "\nVale para jobs e sessões novos; os que já estão em andamento mantêm o contexto com que começaram.";
+    // A link is read when an execution starts (AD-58, AD-11): running jobs and open sessions keep their checkouts until
+    // they end. Name them, with the command that revokes the access now, instead of a generic warning.
+    private string StillLinkedNotice(long userId, string linked, string? primary = null) =>
+        LinkedHolders(userId, linked, primary) is { Length: > 0 } holders
+            ? $"\nAinda acessam {linked} até terminar, porque guardam o contexto com que começaram: {string.Join(", ", holders)}."
+            : "\nNenhum job ou sessão em andamento acessa " + linked + ".";
+
+    private string[] LinkedHolders(long userId, string linked, string? primary = null)
+    {
+        bool Reaches(JobExecutionContext context) =>
+            (primary is null || string.Equals(context.RepositoryAlias, primary, StringComparison.OrdinalIgnoreCase)) &&
+            context.RepositoriosVinculados.Any(repository =>
+                string.Equals(repository.Alias, linked, StringComparison.OrdinalIgnoreCase));
+        return (sessions?.List(userId) ?? [])
+            .Where(session => session.State is not (AgentSessionState.Failed or AgentSessionState.Closing or
+                AgentSessionState.Closed) && Reaches(session.Context))
+            .Select(session => $"sessão {session.Id} (encerre com /session close {session.Id})")
+            .Concat(jobs.GetVisible().Where(job => job.Status is JobStatus.Queued or JobStatus.Running && Reaches(job.Context))
+                .Select(job => $"job {job.Id} (cancele com /cancel {job.Id})"))
+            .ToArray();
+    }
+
+    // Read-only state of each checkout of a context with linked repositories (AD-58), so a partial result is visible:
+    // one repository with commits to push while the other has none, or a branch that never reached the remote.
+    private async Task<string> CheckoutReportAsync(JobExecutionContext context, CancellationToken cancellationToken)
+    {
+        if (checkouts is null || context.RepositoriosVinculados.Count == 0) return string.Empty;
+        var lines = new List<string>();
+        try
+        {
+            foreach (var (alias, path) in context.RepositoriosVinculados
+                         .Select(repository => (repository.Alias, repository.Caminho))
+                         .Prepend((context.RepositoryAlias!, context.WorkingDirectory)))
+                lines.Add($"- {alias}: {FormatCheckout(await checkouts.LerAsync(path, cancellationToken))}");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return string.Empty; }
+        return "\nEstado dos repositórios:\n" + string.Join('\n', lines);
+    }
+
+    private static string FormatCheckout(EstadoDoCheckout state) => state.Branch is null ? state.Erro! :
+        $"branch {state.Branch}, " +
+        (state.ArquivosAlterados is not { } changed ? state.Erro
+            : changed == 0 ? "sem alterações locais" : $"{changed} arquivo(s) alterado(s) sem commit") + ", " +
+        (!state.TemUpstream ? "sem upstream (branch não enviada)"
+            : state.CommitsNaoEnviados == 0 ? "nada a enviar" : $"{state.CommitsNaoEnviados} commit(s) não enviado(s)");
 
     private static string[]? SplitCommandArguments(string input)
     {
@@ -1644,13 +1698,15 @@ public sealed partial class TelegramPollingService(
         var completed = jobs.Complete(id, status, result?.ExitCode, errorMessage);
         ReleaseJobImages(userId, id, received);
         var label = completed.Context.Descricao;
+        var report = await CheckoutReportAsync(completed.Context, stoppingToken);
         var response = completed.Status switch
         {
             _ when repositoryEnvironment?.HasSecrets == true =>
-                $"{agent} {completed.Status}. Job {id} ({label}). Saída omitida para proteger segredos do ambiente.",
-            JobStatus.Succeeded => $"{agent} concluído. Job {id} ({label}).\n\n{OutputOrFallback(result!.StandardOutput)}",
-            JobStatus.Cancelled => $"{agent} cancelado. Job {id} ({label}).",
-            _ => $"{agent} falhou. Job {id} ({label}).\n\n{(result is null ? errorMessage : FailureDetails(result))}"
+                $"{agent} {completed.Status}. Job {id} ({label}). Saída omitida para proteger segredos do ambiente.{report}",
+            // The checkout report goes right after the header, before an output that may be long.
+            JobStatus.Succeeded => $"{agent} concluído. Job {id} ({label}).{report}\n\n{OutputOrFallback(result!.StandardOutput)}",
+            JobStatus.Cancelled => $"{agent} cancelado. Job {id} ({label}).{report}",
+            _ => $"{agent} falhou. Job {id} ({label}).{report}\n\n{(result is null ? errorMessage : FailureDetails(result))}"
         };
 
         try
