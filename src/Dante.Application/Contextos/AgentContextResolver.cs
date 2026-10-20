@@ -16,7 +16,8 @@ public enum ContextResolutionFailure
     UnknownAlias,
     StaleActiveRepository,
     Environment,
-    GeneralWorkspaceOverlap
+    GeneralWorkspaceOverlap,
+    InvalidLink
 }
 
 public sealed record AgentContextResolution(
@@ -91,11 +92,27 @@ public sealed class AgentContextResolver(
                 : Refuse(ContextResolutionFailure.UnknownAlias, $"Repositório {alias} não cadastrado. Veja /repos.");
         }
 
+        // Linked repositories join the primary only as registered links, frozen with it (AD-58). Any invalid link
+        // refuses the execution: it never runs with fewer checkouts than the user linked, nor falls back elsewhere.
+        IReadOnlyList<RepositorioCadastrado> linked;
+        try { linked = repositories!.ResolverVinculos(repository.Alias); }
+        catch (InvalidOperationException exception)
+        {
+            return Refuse(ContextResolutionFailure.InvalidLink, exception.Message);
+        }
+        var checkouts = linked.Prepend(repository).ToArray();
+        for (var i = 0; i < checkouts.Length; i++)
+        for (var j = i + 1; j < checkouts.Length; j++)
+            if (IsWithin(checkouts[i].Caminho, checkouts[j].Caminho) || IsWithin(checkouts[j].Caminho, checkouts[i].Caminho))
+                return Refuse(ContextResolutionFailure.InvalidLink,
+                    $"Os diretórios de {checkouts[i].Alias} e {checkouts[j].Alias} se sobrepõem; ajuste os vínculos com /repo unlink.");
+
         try
         {
+            // Only the primary's environment: a linked repository's variables and secrets are never inherited (AD-10).
             return new AgentContextResolution(agent, agentSource,
-                JobExecutionContext.Repository(repository.Alias, repository.Caminho), source,
-                repositories!.ResolverAmbiente(repository.Alias), string.Empty);
+                JobExecutionContext.Repository(repository.Alias, repository.Caminho, linked), source,
+                repositories.ResolverAmbiente(repository.Alias), string.Empty);
         }
         catch (InvalidOperationException exception)
         {

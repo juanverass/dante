@@ -100,6 +100,9 @@ Telegram User ID; `@alias` explícito vale só para aquela execução). Executa 
 cadastrado do repositório, com o ambiente configurado para aquele alias. Alias
 desconhecido é erro; repositório ativo que saiu do catálogo recusa a execução em vez de
 cair para General Mode; nunca há inferência de repositório pelo texto do prompt.
+Repositórios vinculados ao principal por `/repo link` (AD-58) entram na mesma execução como
+checkouts adicionais de leitura e escrita, congelados no início e só com o ambiente do
+principal; vínculo inválido recusa a execução.
 
 ## Integrações
 

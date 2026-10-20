@@ -43,6 +43,24 @@ public sealed class ClaudeRunnerTests
             AppContext.BaseDirectory, attachments: [images[0] with { Kind = AttachmentKind.Audio }]));
     }
 
+    // #232 (AD-58): each linked checkout is one more --add-dir, before the separator; General Mode refuses them.
+    [Fact]
+    public async Task LinkedRepositoriesAreAddedDirectoriesOutsideGeneralMode()
+    {
+        var executor = new RecordingExecutor(Result(AgentProcessStatus.Succeeded));
+        await new ClaudeRunner(executor).RunAsync("crie o cliente", "/repos/front",
+            additionalDirectories: ["/repos/back", "/repos/shared"]);
+
+        Assert.Equal(["--print", "--permission-mode", "auto", "--permission-prompts", "none",
+            "--add-dir", "/repos/back", "--add-dir", "/repos/shared", "--", "crie o cliente"], executor.Request!.Arguments);
+        Assert.Equal("/repos/front", executor.Request.WorkingDirectory);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new ClaudeRunner(executor).RunAsync("x",
+            AppContext.BaseDirectory, generalMode: true, additionalDirectories: ["/repos/back"]));
+        await Assert.ThrowsAsync<ArgumentException>(() => new ClaudeRunner(executor).RunAsync("x",
+            "/repos/front", additionalDirectories: ["back"]));
+    }
+
     [Fact]
     public async Task GeneralModeRestrictsToolsToWorkspaceFiles()
     {

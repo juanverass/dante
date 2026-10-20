@@ -13,6 +13,7 @@ internal static class ContextServiceCollectionExtensions
         services.AddSingleton<IWorkspaceGeral>(provider => provider.GetRequiredService<GeneralWorkspace>());
         services.AddSingleton<RepositoryRegistry>();
         services.AddSingleton<ICatalogoDeRepositorios>(provider => provider.GetRequiredService<RepositoryRegistry>());
+        services.AddSingleton<ILeitorDeCheckouts, LeitorDeCheckoutsGit>(_ => new LeitorDeCheckoutsGit());
         services.AddSingleton<AssistantSettingsStore>();
         services.AddSingleton<IPreferenciasDoAssistente>(provider =>
             provider.GetRequiredService<AssistantSettingsStore>());

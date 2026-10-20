@@ -141,7 +141,7 @@ public sealed class TelegramAssistantCommandTests : IDisposable
         public Task<AgentProcessResult> RunAsync(string prompt, string workingDirectory,
             CancellationToken cancellationToken = default, bool generalMode = false,
             IReadOnlyDictionary<string, string>? environment = null, string? model = null, string? effort = null,
-            IReadOnlyList<Dante.Application.Anexos.Attachment>? attachments = null)
+            IReadOnlyList<Dante.Application.Anexos.Attachment>? attachments = null, IReadOnlyList<string>? additionalDirectories = null)
         {
             Interlocked.Increment(ref calls);
             return Task.FromResult(new AgentProcessResult(AgentProcessStatus.Succeeded, "done", "", 0,

@@ -163,7 +163,18 @@ internal static class FakeCodex
                         ["approvalPolicy"] = (string?)parameters["approvalPolicy"],
                         ["approvalsReviewer"] = args.Contains("wrong-reviewer") ? "user" :
                             args.Contains("missing-reviewer") ? null : (string?)parameters["approvalsReviewer"],
-                        ["model"] = (string?)parameters["model"] ?? "fake-model"
+                        ["model"] = (string?)parameters["model"] ?? "fake-model",
+                        // Like 0.159.3: the effective sandbox, with the writable_roots override applied (#232).
+                        // ignore-writable-roots plays an older server that drops it.
+                        ["sandbox"] = (string?)parameters["sandbox"] == "read-only"
+                            ? new JsonObject { ["type"] = "readOnly", ["networkAccess"] = false }
+                            : new JsonObject
+                            {
+                                ["type"] = "workspaceWrite",
+                                ["writableRoots"] = args.Contains("ignore-writable-roots") ? new JsonArray()
+                                    : parameters["config"]?["sandbox_workspace_write"]?["writable_roots"]?.DeepClone() ?? new JsonArray(),
+                                ["networkAccess"] = false, ["excludeTmpdirEnvVar"] = false, ["excludeSlashTmp"] = false
+                            }
                     });
                     break;
                 case "thread/compact/start":
@@ -350,6 +361,14 @@ internal static class FakeCodex
 
                     switch (text)
                     {
+                        case "roots":
+                            // The writable roots of the current thread and of the last mode switch (#232).
+                            Message("roots:" + string.Join(",", (threadParams!["config"]?["sandbox_workspace_write"]?
+                                ["writable_roots"]?.AsArray() ?? []).Select(root => (string?)root)) + ";turn:" +
+                                string.Join(",", (turnParams?["sandboxPolicy"]?["writableRoots"]?.AsArray() ?? [])
+                                    .Select(root => (string?)root)));
+                            Complete("completed");
+                            break;
                         case "brain-contract":
                             Message((string?)threadParams!["developerInstructions"] ?? "ausente");
                             Complete("completed");

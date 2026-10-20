@@ -14,7 +14,8 @@ public sealed class ClaudeRunner(IAgentProcessExecutor processExecutor) : IClaud
         bool generalMode = false,
         IReadOnlyDictionary<string, string>? environment = null,
         string? model = null, string? effort = null,
-        IReadOnlyList<Attachment>? attachments = null)
+        IReadOnlyList<Attachment>? attachments = null,
+        IReadOnlyList<string>? additionalDirectories = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
@@ -32,6 +33,9 @@ public sealed class ClaudeRunner(IAgentProcessExecutor processExecutor) : IClaud
             throw new ArgumentException("O Claude só recebe imagens como anexo.", nameof(attachments));
         string[] attachmentArguments = [.. attachments.Select(attachment => Path.GetDirectoryName(attachment.Path)!)
             .Distinct(StringComparer.Ordinal).SelectMany(directory => new[] { "--add-dir", directory })];
+        // Linked repositories are --add-dir too; General Mode never reaches a repository (AD-09, AD-58).
+        string[] linkedArguments = [.. DiretoriosVinculados.Validar(additionalDirectories, generalMode)
+            .SelectMany(directory => new[] { "--add-dir", directory })];
         if (attachments.Count > 0)
             prompt += "\n\nImagens anexadas, na ordem (abra cada uma com a ferramenta Read):\n" + string.Join('\n',
                 attachments.Select((attachment, index) => $"{index + 1}. {attachment.Path}" +
@@ -44,7 +48,7 @@ public sealed class ClaudeRunner(IAgentProcessExecutor processExecutor) : IClaud
                     "--permission-mode", "auto", "--permission-prompts", "none", .. modelArguments, .. effortArguments,
                     .. attachmentArguments, "--", prompt]
                 : ["--print", "--permission-mode", "auto", "--permission-prompts", "none", .. modelArguments, .. effortArguments,
-                    .. attachmentArguments, "--", prompt],
+                    .. attachmentArguments, .. linkedArguments, "--", prompt],
             generalMode,
             environment);
 

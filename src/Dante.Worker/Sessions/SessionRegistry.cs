@@ -73,7 +73,9 @@ public sealed class SessionRegistry(
                 request.EnvironmentVariables,
                 request.Profile,
                 request.ModelSelection,
-                toolServers is null ? null : await toolServers.ForSessionAsync(entry.Session.Id, request, cancellationToken)),
+                toolServers is null ? null : await toolServers.ForSessionAsync(entry.Session.Id, request, cancellationToken),
+                request.Context.RepositoriosVinculados.Select(linked => linked.Caminho).ToArray(),
+                ContratoMultirrepositorio.Para(request.Context)),
                 cancellationToken);
             entry.ReportedModel = started.Model;
             entry.Session.MarkStarted(started);

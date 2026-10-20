@@ -35,6 +35,88 @@ public sealed class CodexSessionDriverTests
         Assert.Equal("thread-1", started.UpstreamSessionId);
     }
 
+    // #232 (AD-58): linked checkouts are writable roots confirmed by thread/start, kept by the clear and by every
+    // mode switch, and the contract reaches the thread with the conversation instructions.
+    [Fact]
+    public async Task LinkedRepositoriesAreConfirmedWritableRootsAcrossClearAndModeSwitch()
+    {
+        var back = Path.Combine(Path.GetTempPath(), "dante-linked-back");
+        await using var driver = new CodexSessionDriver(new ProbeLauncher());
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan,
+            AdditionalDirectories: [back], ContextInstructions: "CONTRATO-MULTIRREPOSITORIO"));
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+
+        await driver.StartTurnAsync("roots");
+        Assert.Equal($"roots:{back};turn:", (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+        await driver.ChangeModeAsync(AgentPermissionProfile.Manual);
+        await driver.StartTurnAsync("roots");
+        var switched = await ReadTurnAsync(events);
+        Assert.Equal(AgentPermissionProfile.Manual, switched.OfType<ModeAppliedEvent>().Single().Profile);
+        Assert.Equal($"roots:{back};turn:{back}", switched.OfType<MessageCompletedEvent>().Single().Text);
+
+        await driver.ClearContextAsync();
+        await driver.StartTurnAsync("roots");
+        Assert.Equal($"roots:{back};turn:", (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+        await driver.StartTurnAsync("brain-contract");
+        Assert.EndsWith("CONTRATO-MULTIRREPOSITORIO",
+            (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+    }
+
+    // #232 review: the session keeps the root it started with while the directory goes away and comes back; clear and
+    // a mode switch send the same frozen root instead of re-resolving it. Revoking access means closing the session.
+    [Fact]
+    public async Task FrozenRootSurvivesTheDirectoryBeingRemovedAndRecreated()
+    {
+        var back = Path.Combine(Path.GetTempPath(), "dante-linked-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(back);
+        try
+        {
+            await using var driver = new CodexSessionDriver(new ProbeLauncher());
+            await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, AdditionalDirectories: [back]));
+            await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+
+            Directory.Delete(back);
+            await driver.ClearContextAsync();
+            await driver.StartTurnAsync("roots");
+            Assert.Equal($"roots:{back};turn:", (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+
+            Directory.CreateDirectory(back);
+            await driver.ChangeModeAsync(AgentPermissionProfile.Auto);
+            await driver.StartTurnAsync("roots");
+            var switched = await ReadTurnAsync(events);
+            Assert.Equal(AgentPermissionProfile.Auto, switched.OfType<ModeAppliedEvent>().Single().Profile);
+            Assert.Equal($"roots:{back};turn:{back}", switched.OfType<MessageCompletedEvent>().Single().Text);
+        }
+        finally { if (Directory.Exists(back)) Directory.Delete(back); }
+    }
+
+    [Fact]
+    public async Task WritableRootsTheServerDoesNotConfirmFailTheStart()
+    {
+        var launcher = new ProbeLauncher("ignore-writable-roots");
+        await using var driver = new CodexSessionDriver(launcher);
+
+        var refused = await Assert.ThrowsAsync<AgentProtocolException>(() => driver.StartAsync(
+            new AgentSessionStartOptions(AppContext.BaseDirectory, AdditionalDirectories: ["/repos/back"])));
+        Assert.Contains("repositórios vinculados", refused.Message);
+        await WaitUntilExitedAsync(Assert.Single(launcher.Started).ProcessId);
+
+        // Without linked repositories nothing new is required of the server.
+        await using var unlinked = new CodexSessionDriver(new ProbeLauncher("ignore-writable-roots"));
+        await unlinked.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+    }
+
+    [Fact]
+    public async Task GeneralModeRefusesLinkedRepositoriesBeforeStarting()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new CodexSessionDriver(launcher);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => driver.StartAsync(new AgentSessionStartOptions(
+            AppContext.BaseDirectory, IsGeneral: true, AdditionalDirectories: ["/repos/back"])));
+        Assert.Empty(launcher.Requests);
+    }
+
     [Fact]
     public async Task AnOlderServerWithoutSettingsConfirmationDoesNotApplyTheSnapshotMode()
     {

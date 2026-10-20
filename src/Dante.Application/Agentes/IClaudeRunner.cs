@@ -12,5 +12,7 @@ public interface IClaudeRunner
         bool generalMode = false,
         IReadOnlyDictionary<string, string>? environment = null,
         string? model = null, string? effort = null,
-        IReadOnlyList<Attachment>? attachments = null);
+        IReadOnlyList<Attachment>? attachments = null,
+        // Checkouts of the linked repositories (AD-58), readable and writable besides the working directory.
+        IReadOnlyList<string>? additionalDirectories = null);
 }

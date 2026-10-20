@@ -28,7 +28,10 @@ public sealed class RepositoryRegistry : ICatalogoDeRepositorios
             foreach (var item in saved)
             {
                 var alias = NormalizeAlias(item.Alias);
-                if (!repositories.TryAdd(alias, item with { Alias = alias }))
+                var links = item.Links?.Select(NormalizeAlias).ToArray();
+                if (links?.Distinct(StringComparer.Ordinal).Count() != links?.Length || links?.Contains(alias) == true)
+                    throw new InvalidDataException($"Vínculos repetidos ou para o próprio repositório no catálogo: {alias}.");
+                if (!repositories.TryAdd(alias, item with { Alias = alias, Links = links }))
                     throw new InvalidDataException($"Alias duplicado no catálogo: {alias}.");
             }
         }
@@ -93,19 +96,94 @@ public sealed class RepositoryRegistry : ICatalogoDeRepositorios
 
     ResolvedRepositoryEnvironment ICatalogoDeRepositorios.ResolverAmbiente(string alias) => ResolveEnvironment(alias);
 
+    // The linked checkouts go out by their physical path, resolved now: a symlink swapped in later cannot redirect
+    // an execution that already started, and two aliases reaching the same directory are caught here (AD-58).
+    IReadOnlyList<RepositorioCadastrado> ICatalogoDeRepositorios.ResolverVinculos(string alias)
+    {
+        var repository = Get(alias) ?? throw new ArgumentException("Repositório não cadastrado.", nameof(alias));
+        if (repository.Links is not { Count: > 0 } links) return [];
+        List<RepositorioCadastrado> checkouts = [new(repository.Alias, CaminhoReal.Resolver(repository.Path))];
+        foreach (var link in links)
+        {
+            // A link edited by hand to a removed alias, or a checkout moved away, blocks new executions.
+            var linked = Get(link) ?? throw new InvalidOperationException(
+                $"O repositório vinculado {link} não está mais cadastrado. Use /repo unlink {repository.Alias} {link}.");
+            if (!Directory.Exists(linked.Path))
+                throw new InvalidOperationException(
+                    $"O diretório do repositório vinculado {linked.Alias} não existe mais. Corrija o cadastro ou use /repo unlink {repository.Alias} {linked.Alias}.");
+            var physical = CaminhoReal.Resolver(linked.Path);
+            if (checkouts.FirstOrDefault(checkout => CaminhoReal.Sobrepoe(checkout.Caminho, physical)) is { } other)
+                throw new InvalidOperationException(
+                    $"Os diretórios de {other.Alias} e {linked.Alias} levam ao mesmo checkout ou a checkouts aninhados " +
+                    $"(links simbólicos incluídos). Use /repo unlink {repository.Alias} {linked.Alias}.");
+            checkouts.Add(new RepositorioCadastrado(linked.Alias, physical));
+        }
+        return checkouts.Skip(1).ToArray();
+    }
+
     private static RepositorioCadastrado ParaCadastrado(RepositoryDefinition repository) =>
         new(repository.Alias, repository.Path);
 
+    // Links to the removed repository go away in the same save, so none is left pointing to it (AD-58).
     public bool Remove(string alias)
     {
         alias = NormalizeAlias(alias);
         lock (gate)
         {
-            if (!repositories.Remove(alias, out var removed)) return false;
+            if (!repositories.ContainsKey(alias)) return false;
+            var previous = new Dictionary<string, RepositoryDefinition>(repositories, repositories.Comparer);
+            repositories.Remove(alias);
+            foreach (var linking in repositories.Values.Where(repository => repository.Links?.Contains(alias) == true).ToArray())
+                repositories[linking.Alias] = linking with { Links = linking.Links!.Where(link => link != alias).ToArray() };
             try { Save(); }
-            catch { repositories.Add(alias, removed); throw; }
+            catch { Restore(previous); throw; }
             return true;
         }
+    }
+
+    // Directional and direct: @front linked to @back gives the front's executions access to the back, not the other way
+    // around, and the back's own links are not followed (AD-58).
+    public bool Link(string alias, string linkedAlias)
+    {
+        alias = NormalizeAlias(alias);
+        linkedAlias = NormalizeAlias(linkedAlias);
+        if (alias == linkedAlias)
+            throw new ArgumentException("Um repositório não pode ser vinculado a ele mesmo.", nameof(linkedAlias));
+        lock (gate)
+        {
+            var repository = RequireRepository(alias);
+            var linked = repositories.GetValueOrDefault(linkedAlias)
+                ?? throw new ArgumentException($"Repositório {linkedAlias} não cadastrado.", nameof(linkedAlias));
+            if (repository.Links?.Contains(linkedAlias) == true) return false;
+            if (CaminhoReal.Sobrepoe(repository.Path, linked.Path))
+                throw new ArgumentException("Os diretórios dos dois repositórios se sobrepõem (links simbólicos e " +
+                    "maiúsculas incluídos); não é possível vinculá-los.", nameof(linkedAlias));
+            repositories[alias] = repository with { Links = [.. repository.Links ?? [], linkedAlias] };
+            try { Save(); }
+            catch { repositories[alias] = repository; throw; }
+            return true;
+        }
+    }
+
+    public bool Unlink(string alias, string linkedAlias)
+    {
+        alias = NormalizeAlias(alias);
+        linkedAlias = NormalizeAlias(linkedAlias);
+        lock (gate)
+        {
+            var repository = RequireRepository(alias);
+            if (repository.Links?.Contains(linkedAlias) != true) return false;
+            repositories[alias] = repository with { Links = repository.Links.Where(link => link != linkedAlias).ToArray() };
+            try { Save(); }
+            catch { repositories[alias] = repository; throw; }
+            return true;
+        }
+    }
+
+    private void Restore(Dictionary<string, RepositoryDefinition> previous)
+    {
+        repositories.Clear();
+        foreach (var (alias, repository) in previous) repositories.Add(alias, repository);
     }
 
     public RepositoryDefinition SetLiteral(string alias, string key, string value)

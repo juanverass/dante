@@ -14,7 +14,8 @@ public sealed class CodexRunner(IAgentProcessExecutor processExecutor) : ICodexR
         bool generalMode = false,
         IReadOnlyDictionary<string, string>? environment = null,
         string? model = null, string? effort = null,
-        IReadOnlyList<Attachment>? attachments = null)
+        IReadOnlyList<Attachment>? attachments = null,
+        IReadOnlyList<string>? additionalDirectories = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
@@ -30,13 +31,17 @@ public sealed class CodexRunner(IAgentProcessExecutor processExecutor) : ICodexR
         if (attachments.Any(attachment => attachment.Kind != AttachmentKind.Image))
             throw new ArgumentException("O Codex só recebe imagens como anexo.", nameof(attachments));
         string[] imageArguments = [.. attachments.SelectMany(attachment => new[] { "-i", attachment.Path })];
+        // Linked repositories become writable roots of the workspace-write sandbox (AD-58); never in General Mode.
+        string[] linkedArguments = [.. DiretoriosVinculados.Validar(additionalDirectories, generalMode)
+            .SelectMany(directory => new[] { "--add-dir", directory })];
         var request = new AgentProcessRequest(
             AgentKind.Codex,
             workingDirectory,
             generalMode
                 ? ["exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "--ignore-user-config",
                     .. modelArguments, .. effortArguments, .. imageArguments, "--", prompt]
-                : ["exec", "--approve-for-me", .. modelArguments, .. effortArguments, .. imageArguments, "--", prompt],
+                : ["exec", "--approve-for-me", .. modelArguments, .. effortArguments, .. imageArguments, .. linkedArguments,
+                    "--", prompt],
             generalMode,
             environment);
 

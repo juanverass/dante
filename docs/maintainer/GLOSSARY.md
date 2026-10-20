@@ -62,6 +62,14 @@ Arquivo padrão:
 
 ---
 
+## Repositório vinculado
+
+Repositório cadastrado que outro repositório vincula com `/repo link @principal @vinculado` (AD-58). Execuções no
+principal também leem e alteram o checkout do vinculado, só com o ambiente do principal. O vínculo é direcional e
+direto, e o contexto da execução o mostra como `@principal + @vinculado`.
+
+---
+
 ## AssistantSettingsStore
 
 Store persistente das preferências do usuário.

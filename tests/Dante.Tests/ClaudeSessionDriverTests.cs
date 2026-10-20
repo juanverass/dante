@@ -269,6 +269,28 @@ public sealed class ClaudeSessionDriverTests
         Assert.False(HasExited(started.ProcessId));
     }
 
+    // #232 (AD-58): each linked checkout is one --add-dir and the contract closes the appended system prompt.
+    [Fact]
+    public async Task LinkedRepositoriesAreAddedDirectoriesWithTheContract()
+    {
+        var launcher = new ProbeLauncher();
+        await using var driver = new ClaudeSessionDriver(launcher);
+
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory,
+            AdditionalDirectories: ["/repos/back", "/repos/shared"], ContextInstructions: "CONTRATO-MULTIRREPOSITORIO"));
+
+        var arguments = Assert.Single(launcher.Requests).Arguments.ToList();
+        Assert.Equal(["--add-dir", "/repos/back", "--add-dir", "/repos/shared"], arguments[15..19]);
+        Assert.EndsWith("\nCONTRATO-MULTIRREPOSITORIO", arguments[arguments.IndexOf("--append-system-prompt") + 1]);
+        Assert.Contains("capacidade interna", arguments[arguments.IndexOf("--append-system-prompt") + 1]);
+
+        var general = new ProbeLauncher();
+        await using var generalDriver = new ClaudeSessionDriver(general);
+        await Assert.ThrowsAsync<ArgumentException>(() => generalDriver.StartAsync(new AgentSessionStartOptions(
+            AppContext.BaseDirectory, IsGeneral: true, AdditionalDirectories: ["/repos/back"])));
+        Assert.Empty(general.Requests);
+    }
+
     [Theory]
     [InlineData(AgentPermissionProfile.Manual, "manual")]
     [InlineData(AgentPermissionProfile.Auto, "auto")]
