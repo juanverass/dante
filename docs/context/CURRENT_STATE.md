@@ -402,6 +402,9 @@ canônico transacionais, FKs compostas e xmin; health e backup/restore explícit
 dois hosts. PR #163 reestruturada na mesma branch; modelo genérico/SQL manual removido.
 Banco permanece opcional. Busca, fontes e identidade Telegram são compostas pelas
 entregas #154/#158/#150, sem acoplar o storage ao canal.
+Os grants do runtime cobrem `brain_index`, cujos triggers de derivados rodam com os privilégios de
+quem escreve; um teste PostgreSQL aplica os grants publicados a uma conta runtime e cobre captura,
+índices derivados, consulta e ausência de privilégios elevados, CREATE ou ownership (#244).
 Guia: [operação local](../brain/LOCAL_STORAGE.md).
 
 ## Relações de Conhecimento (#153)

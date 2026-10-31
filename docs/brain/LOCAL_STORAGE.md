@@ -25,10 +25,28 @@ Crie uma conta runtime LOGIN sem SUPERUSER, CREATEDB, CREATEROLE ou BYPASSRLS. A
 com a conta administrativa, conceda (substitua `dante_runtime` pela conta escolhida):
 
 ```sql
-GRANT USAGE ON SCHEMA brain_data, brain_meta TO dante_runtime;
+GRANT USAGE ON SCHEMA brain_data, brain_meta, brain_index TO dante_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA brain_data TO dante_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA brain_index TO dante_runtime;
 GRANT SELECT ON ALL TABLES IN SCHEMA brain_meta TO dante_runtime;
 ```
+
+`brain_index` guarda derivados mantidos pelo próprio runtime. Os triggers
+`brain_index.atualizar_conhecimento()` e `brain_index.atualizar_partes_fonte()` disparam a cada
+INSERT/UPDATE em `brain_data.conhecimentos` e `brain_data.documentos_fonte` e rodam com os
+privilégios de quem escreve (não são `SECURITY DEFINER`): sem esses grants, a primeira captura
+falha com `permission denied for schema brain_index`. O runtime usa:
+
+| Tabela | Operações | Origem |
+| --- | --- | --- |
+| `trabalhos` | SELECT, INSERT, UPDATE, DELETE | trigger de conhecimentos (upsert; remoção ao virar Secreto), busca, `search-rebuild-lexical` |
+| `representacoes` | SELECT, INSERT, UPDATE, DELETE | trigger (remoção ao virar Secreto), embeddings (upsert), troca/reconstrução de modelo, busca |
+| `partes_fontes` | SELECT, INSERT, UPDATE, DELETE | trigger de fontes (remove e recria partes), vetores das partes, busca e trechos |
+
+Não há sequências (IDs são Guid); funções de trigger e o tipo `vector` usam o EXECUTE/USAGE
+padrão de PUBLIC. TRUNCATE não é necessário. `brain_meta` é somente leitura: o runtime não
+registra migrations. `search-enable-vector` (`CREATE EXTENSION` e `ALTER TABLE`) continua
+exclusivo da conta migradora, proprietária das tabelas.
 
 Não conceda CREATE no schema, ownership ou membership na conta migradora. Reaplique os grants
 após novas migrations/restore. Configure o runtime com essa conta e verifique:
