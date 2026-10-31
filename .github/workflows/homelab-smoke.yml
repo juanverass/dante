@@ -1,0 +1,39 @@
+name: Homelab Runner Smoke Test
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  homelab-smoke-test:
+    name: Validate self-hosted runner
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+
+    steps:
+      - name: Identify runner
+        shell: bash
+        run: |
+          echo "Runner host: $(hostname)"
+          echo "Runner user: $(whoami)"
+          echo "Working directory: $PWD"
+
+      - name: Verify installed tools
+        shell: bash
+        run: |
+          echo "=== .NET SDKs ==="
+          dotnet --list-sdks
+
+          echo "=== Git ==="
+          git --version
+
+          echo "=== Docker CLI ==="
+          docker --version
+
+      - name: Verify NVMe workspace
+        shell: bash
+        run: |
+          test -d /srv
+          df -h /srv
+          echo "Homelab runner smoke test completed successfully."
