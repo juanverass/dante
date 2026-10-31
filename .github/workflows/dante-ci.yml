@@ -1,0 +1,36 @@
+name: DANTE CI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dante-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test (.NET 10)
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify .NET SDK
+        shell: bash
+        run: |
+          dotnet --info
+          dotnet --list-sdks
+
+      - name: Restore dependencies
+        run: dotnet restore Dante.sln
+
+      - name: Build solution
+        run: dotnet build Dante.sln --configuration Release --no-restore
+
+      - name: Run automated tests
+        run: dotnet test Dante.sln --configuration Release --no-build --no-restore --logger "console;verbosity=normal"
