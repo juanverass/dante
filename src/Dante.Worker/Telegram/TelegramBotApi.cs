@@ -2,13 +2,25 @@ using System.Net.Http.Json;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Dante.Worker.Telegram;
 
-public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptions> options) : ITelegramBotApi
+public sealed class TelegramBotApi(
+    HttpClient httpClient,
+    IOptions<TelegramOptions> options,
+    ILogger<TelegramBotApi>? logger = null,
+    TimeProvider? timeProvider = null) : ITelegramBotApi
 {
+    private const int LongPollTimeoutSeconds = 25;
+    // A long poll answers within its own timeout; well past it, the request is stuck somewhere in the transport.
+    internal static readonly TimeSpan SlowPollThreshold = TimeSpan.FromSeconds(LongPollTimeoutSeconds + 10);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private readonly ILogger logger = logger ?? NullLogger<TelegramBotApi>.Instance;
+    private readonly TimeProvider time = timeProvider ?? TimeProvider.System;
+    private long pollSequence;
+    private long lastPollEnded;
 
     // Telegram rejects optional fields sent as JSON null ("unsupported parse_mode", "object expected as reply
     // markup"); an unset option must be omitted from the request.
@@ -26,23 +38,58 @@ public sealed class TelegramBotApi(HttpClient httpClient, IOptions<TelegramOptio
             Content = JsonContent.Create(new
             {
                 offset,
-                timeout = 25,
+                timeout = LongPollTimeoutSeconds,
                 allowed_updates = new[] { "message", "callback_query" }
             })
         };
 
-        using var response = await httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var envelope = await response.Content.ReadFromJsonAsync<TelegramEnvelope<TelegramUpdate[]>>(
-            JsonOptions, cancellationToken);
-
-        if (envelope is not { Ok: true, Result: not null })
+        // Diagnostics only: sequence, timings, status, HTTP version and exception types — never the URL,
+        // the token, the exception message or update contents.
+        var sequence = Interlocked.Increment(ref pollSequence);
+        var started = time.GetTimestamp();
+        var previousEnd = Interlocked.Read(ref lastPollEnded);
+        logger.LogDebug(
+            "getUpdates #{Sequence} iniciado (long poll {LongPollSeconds}s, HttpClient.Timeout {ClientTimeoutSeconds}s, intervalo desde o anterior {IntervalMs} ms).",
+            sequence, LongPollTimeoutSeconds, httpClient.Timeout.TotalSeconds,
+            previousEnd == 0 ? (long?)null : (long)time.GetElapsedTime(previousEnd, started).TotalMilliseconds);
+        HttpStatusCode? status = null;
+        Version? version = null;
+        try
         {
-            throw new JsonException("Resposta inválida da API do Telegram.");
-        }
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            status = response.StatusCode;
+            version = response.Version;
+            response.EnsureSuccessStatusCode();
 
-        return envelope.Result;
+            var envelope = await response.Content.ReadFromJsonAsync<TelegramEnvelope<TelegramUpdate[]>>(
+                JsonOptions, cancellationToken);
+
+            if (envelope is not { Ok: true, Result: not null })
+            {
+                throw new JsonException("Resposta inválida da API do Telegram.");
+            }
+
+            var elapsed = time.GetElapsedTime(started);
+            logger.Log(elapsed >= SlowPollThreshold ? LogLevel.Warning : LogLevel.Debug,
+                "getUpdates #{Sequence} concluído em {DurationMs} ms: HTTP {StatusCode} HTTP/{HttpVersion}, {UpdateCount} updates.",
+                sequence, (long)elapsed.TotalMilliseconds, (int)response.StatusCode, response.Version, envelope.Result.Length);
+            return envelope.Result;
+        }
+        catch (Exception exception)
+        {
+            var origin = DiagnosticoHttpDoTelegram.OrigemDoCancelamento(exception, cancellationToken);
+            logger.Log(origin == DiagnosticoHttpDoTelegram.Encerramento ? LogLevel.Debug : LogLevel.Warning,
+                "getUpdates #{Sequence} falhou após {DurationMs} ms: {ErrorType} (interna: {InnerErrorType}; {Detail}); cancelamento: {CancellationOrigin}; HTTP {StatusCode} HTTP/{HttpVersion}.",
+                sequence, (long)time.GetElapsedTime(started).TotalMilliseconds, exception.GetType().Name,
+                DiagnosticoHttpDoTelegram.TipoInterno(exception) ?? "-", DiagnosticoHttpDoTelegram.Detalhe(exception),
+                origin, status is { } code ? ((int)code).ToString(System.Globalization.CultureInfo.InvariantCulture) : "-",
+                version?.ToString() ?? "-");
+            throw;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref lastPollEnded, time.GetTimestamp());
+        }
     }
 
     public bool SupportsInputMessages => true;

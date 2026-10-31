@@ -24,7 +24,10 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
 
 ## Funcionalidades disponíveis
 
-- bot Telegram por long polling com allowlist de usuários;
+- bot Telegram por long polling com allowlist de usuários; o `HttpClient` exclusivo do Telegram conecta com Happy
+  Eyeballs (RFC 8305: famílias intercaladas, nova tentativa a cada 250 ms, perdedoras canceladas e descartadas), de
+  modo que um IPv6 que não responde ao SYN não impede o IPv4 antes do `HttpClient.Timeout` de 100 s; polling e conexão
+  registram duração, status, versão HTTP, família, tipos de exceção e origem do cancelamento, sem token, URL ou conteúdo;
 - `/ping`;
 - `/uso claude|codex` (#116, #117, AD-31): percentual usado da janela de sessão do provedor e da semana, e tempo até a
   janela de sessão renovar, da conta autenticada na CLI (inclusive uso fora do D.A.N.T.E.). Consulta num processo
