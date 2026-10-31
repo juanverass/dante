@@ -41,6 +41,7 @@ public sealed partial class TelegramPollingService(
     ILeitorDeCheckouts? checkouts = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
+    private static readonly TimeSpan PollRetryDelay = TimeSpan.FromSeconds(3);
     private const string EffortOption = "effort=";
     private const string ModelOption = "model=";
     private readonly object runningGate = new();
@@ -82,11 +83,18 @@ public sealed partial class TelegramPollingService(
 
         SweepAttachments();
         long offset = 0;
+        var consecutiveFailures = 0;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 var updates = await botApi.GetUpdatesAsync(offset, stoppingToken);
+                if (consecutiveFailures > 0)
+                {
+                    logger.LogInformation("Polling do Telegram restabelecido após {ConsecutiveFailures} falha(s) seguida(s).",
+                        consecutiveFailures);
+                    consecutiveFailures = 0;
+                }
                 foreach (var update in updates)
                 {
                     // Advance before dispatch so a failed command is not executed again on the next poll.
@@ -110,13 +118,17 @@ public sealed partial class TelegramPollingService(
             }
             catch (Exception exception)
             {
-                // Exception messages from HTTP clients can contain the token-bearing request URL.
-                logger.LogWarning("Falha no polling do Telegram ({ErrorType}); tentando novamente.",
-                    exception.GetType().Name);
+                // Exception messages from HTTP clients can contain the token-bearing request URL: types and codes only.
+                consecutiveFailures++;
+                logger.LogWarning(
+                    "Falha no polling do Telegram ({ErrorType}); tentando novamente em {RetryDelaySeconds}s. Interna: {InnerErrorType}; {Detail}; cancelamento: {CancellationOrigin}; falhas seguidas: {ConsecutiveFailures}.",
+                    exception.GetType().Name, PollRetryDelay.TotalSeconds,
+                    DiagnosticoHttpDoTelegram.TipoInterno(exception) ?? "-", DiagnosticoHttpDoTelegram.Detalhe(exception),
+                    DiagnosticoHttpDoTelegram.OrigemDoCancelamento(exception, stoppingToken), consecutiveFailures);
 
                 try
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
+                    await Task.Delay(PollRetryDelay, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {

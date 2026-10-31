@@ -42,7 +42,10 @@ internal static class WorkerComposition
             new PendingAttachments(provider.GetRequiredService<AttachmentStore>()));
         services.Configure<TelegramOptions>(configuration.GetSection(TelegramOptions.SectionName));
         services.AddSingleton<TelegramUserAuthorizer>();
-        services.AddSingleton<HttpClient>();
+        // Only the Telegram adapter consumes this client. Same transport and 100s timeout as `new HttpClient()`, but
+        // connecting with Happy Eyeballs (IPv6 that ignores the SYN no longer blocks IPv4) and connection diagnostics.
+        services.AddSingleton(provider => new HttpClient(DiagnosticoHttpDoTelegram.CriarHandler(
+            provider.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(DiagnosticoHttpDoTelegram)))));
         services.AddSingleton<ITelegramBotApi, TelegramBotApi>();
         services.AddHostedService<Worker>();
         services.AddHostedService<TelegramPollingService>();
