@@ -268,6 +268,76 @@ public sealed class ConexaoTcpDoTelegramTests
     }
 
     [Fact]
+    public async Task CallerCancellationReturnsAtOnceEvenWhenEveryPendingAttemptIgnoresTheToken()
+    {
+        // Review do #243: com todos os endereços iniciados não há espera entre tentativas; o cancelamento do chamador
+        // precisa encerrar a disputa sozinho, sem depender de as tentativas cooperarem.
+        var naoObservadas = new ConcurrentBag<Exception>();
+        void Registrar(object? _, UnobservedTaskExceptionEventArgs e)
+        {
+            if (e.Exception.Flatten().InnerExceptions.Any(x => x is FalhaDaPerdedoraException)) naoObservadas.Add(e.Exception);
+        }
+        TaskScheduler.UnobservedTaskException += Registrar;
+        try
+        {
+            var v6b = IPAddress.Parse("2001:db8::2");
+            var liberar = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            // Nenhuma das três coopera: só registram o token recebido e esperam o teste liberar.
+            var tokens = new ConcurrentBag<CancellationToken>();
+            var rede = new RedeSimulada([V6, v6b, V4]);
+            rede.Roteiros[V6] = async token =>
+            {
+                tokens.Add(token);
+                await liberar.Task;
+                throw new FalhaDaPerdedoraException();
+            };
+            rede.Roteiros[V4] = async token =>
+            {
+                tokens.Add(token);
+                await liberar.Task;
+                return new StreamRastreado();
+            };
+            rede.Roteiros[v6b] = async token =>
+            {
+                tokens.Add(token);
+                await liberar.Task;
+                throw new FalhaDaPerdedoraException();
+            };
+            using var cancelamento = new CancellationTokenSource();
+            var logger = new CapturingLogger();
+
+            var conexao = Conexao(rede, logger, TimeSpan.FromMilliseconds(10)).ConectarAsync(Telegram, cancelamento.Token);
+            var deadline = Stopwatch.StartNew();
+            while (rede.Tentativas.Length < 3 && deadline.Elapsed < TimeSpan.FromSeconds(5)) await Task.Delay(5);
+            Assert.Equal([V6, V4, v6b], rede.Tentativas);
+            cancelamento.Cancel();
+
+            var erro = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+                await conexao.AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal(cancelamento.Token, erro.CancellationToken);
+            Assert.Equal(3, tokens.Count);
+            Assert.All(tokens, token => Assert.True(token.IsCancellationRequested, "toda tentativa recebe o cancelamento"));
+            Assert.False(rede.Conexao!.LimpezasConcluidasAsync().IsCompleted, "as tentativas que ignoram o token seguem na limpeza");
+            Assert.Contains("conexão abandonada pelo HttpClient",
+                Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning).Message);
+
+            liberar.SetResult();
+            await rede.AssertSemVazamentoAsync(vencedor: null);
+            Assert.True(rede.StreamDe(V4)!.Descartado);
+            for (var i = 0; i < 3; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+            Assert.Empty(naoObservadas);
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= Registrar;
+        }
+    }
+
+    [Fact]
     public async Task AFailingDisposeDoesNotStopTheCleanupOfTheOtherLosers()
     {
         // Cenário E: duas perdedoras conectam depois da vitória; o descarte da primeira lança, o da segunda acontece.

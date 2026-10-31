@@ -59,6 +59,11 @@ internal sealed class ConexaoTcpDoTelegram(
         var proxima = 0;
         CancellationTokenSource? esperaCts = null;
         Task? espera = null;
+        // O cancelamento do chamador participa de toda espera da disputa: sem ele, com todos os endereços já
+        // iniciados, só uma tentativa que observasse o token acordaria o laço. Sinal nunca falha (TrySetResult).
+        var cancelado = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registroDoCancelamento = cancellationToken.Register(
+            static estado => ((TaskCompletionSource)estado!).TrySetResult(), cancelado);
 
         void IniciarProxima()
         {
@@ -80,9 +85,9 @@ internal sealed class ConexaoTcpDoTelegram(
             IniciarProxima();
             while (true)
             {
-                Task concluida = espera is null
-                    ? await Task.WhenAny(pendentes.Keys)
-                    : await Task.WhenAny(pendentes.Keys.Append(espera));
+                var sinais = pendentes.Keys.Append(cancelado.Task);
+                Task concluida = await Task.WhenAny(espera is null ? sinais : sinais.Append(espera));
+                // Preserva a semântica do token do chamador; o finally cancela e rastreia todas as pendentes.
                 cancellationToken.ThrowIfCancellationRequested();
 
                 if (concluida == espera)
