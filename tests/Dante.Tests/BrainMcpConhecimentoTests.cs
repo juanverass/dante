@@ -128,10 +128,19 @@ public sealed class BrainMcpConhecimentoTests
         public ProvenienciaDoConhecimento Prova => new(escopo.Acesso.IdUsuario, "fonte verificável", "fonte:" + Guid.NewGuid(), trechoDaFonte: "evidência");
         public static async Task<Ambiente> CriarAsync()
         {
-            var banco = await Dante.Tests.Banco.CriarAsync(); var app = BrainMcpTests.CriarApp(banco.ConnectionString); var brain = app.GetRequiredService<TelegramBrain>();
-            await BrainMcpTests.SelecionarAsync(brain); var escopo = (await brain.ResolverEscopoMcpAsync(BrainMcpTests.Mensagem("pedido")))!;
-            app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S1", BrainMcpTests.Mensagem("pedido"));
-            return new(banco, app, brain, escopo);
+            var banco = await Dante.Tests.Banco.CriarAsync(); ServiceProvider? app = null;
+            try
+            {
+                app = BrainMcpTests.CriarApp(banco.ConnectionString); var brain = app.GetRequiredService<TelegramBrain>();
+                await BrainMcpTests.SelecionarAsync(brain); var escopo = (await brain.ResolverEscopoMcpAsync(BrainMcpTests.Mensagem("pedido")))!;
+                app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S1", BrainMcpTests.Mensagem("pedido"));
+                return new(banco, app, brain, escopo);
+            }
+            catch
+            {
+                // Sem Ambiente devolvido, ninguém chamaria DisposeAsync: o banco temporário ficaria abandonado (#246).
+                app?.Dispose(); await banco.DisposeAsync(); throw;
+            }
         }
         public Conhecimento Novo(string texto, Sensibilidade classe = Sensibilidade.Pessoal, Guid? projeto = null, string? dados = null) =>
             new(escopo.Acesso.IdEspacoDeConhecimento, projeto ?? escopo.Acesso.IdProjeto, TipoDeConhecimento.Fato, texto, dados,

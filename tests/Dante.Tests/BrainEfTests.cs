@@ -125,24 +125,12 @@ public sealed class BrainEfTests
         await using var banco = await Banco.CriarAsync();
         await using var c = banco.Contexto();
         Assert.False(await new AdministracaoDoBanco(c).VerificarSaudeAsync());
-        var role = "runtime_" + Guid.NewGuid().ToString("N");
-        await using var admin = new NpgsqlConnection(Environment.GetEnvironmentVariable("DANTE_TEST_POSTGRES"));
-        await admin.OpenAsync();
-        await using (var create = new NpgsqlCommand($"CREATE ROLE {role} LOGIN", admin)) await create.ExecuteNonQueryAsync();
-        try
-        {
-            await c.Database.ExecuteSqlRawAsync($"GRANT USAGE ON SCHEMA brain_data, brain_meta TO {role}; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA brain_data TO {role}; GRANT SELECT ON ALL TABLES IN SCHEMA brain_meta TO {role}");
-            var config = new NpgsqlConnectionStringBuilder(banco.ConnectionString) { Username = role };
-            await using var runtime = Banco.Contexto(config.ConnectionString);
-            Assert.True(await new AdministracaoDoBanco(runtime).VerificarSaudeAsync());
-            runtime.Add(new EspacoDeConhecimento(Guid.NewGuid(), "mínimo")); await runtime.SaveChangesAsync();
-            await Assert.ThrowsAsync<PostgresException>(() => runtime.Database.ExecuteSqlRawAsync("CREATE TABLE brain_data.proibida(id int)"));
-        }
-        finally
-        {
-            await c.Database.ExecuteSqlRawAsync($"DROP OWNED BY {role}");
-            await using var drop = new NpgsqlCommand($"DROP ROLE {role}", admin); await drop.ExecuteNonQueryAsync();
-        }
+        await using var role = await RoleDeTeste.CriarAsync(banco, "runtime");
+        await c.Database.ExecuteSqlRawAsync($"GRANT USAGE ON SCHEMA brain_data, brain_meta TO {role.Nome}; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA brain_data TO {role.Nome}; GRANT SELECT ON ALL TABLES IN SCHEMA brain_meta TO {role.Nome}");
+        await using var runtime = Banco.Contexto(role.ConnectionString);
+        Assert.True(await new AdministracaoDoBanco(runtime).VerificarSaudeAsync());
+        runtime.Add(new EspacoDeConhecimento(Guid.NewGuid(), "mínimo")); await runtime.SaveChangesAsync();
+        await Assert.ThrowsAsync<PostgresException>(() => runtime.Database.ExecuteSqlRawAsync("CREATE TABLE brain_data.proibida(id int)"));
     }
 
     [PostgreSqlFact]
@@ -188,23 +176,42 @@ public sealed class BrainEfTests
 internal sealed class Banco : IAsyncDisposable
 {
     private readonly string nome = "brain_test_" + Guid.NewGuid().ToString("N");
+    public string Nome => nome;
     public string ConnectionString { get; private set; } = "";
-    public static async Task<Banco> CriarAsync(bool migrar = true)
+    // Sempre a string original da variável: com Persist Security Info=false (padrão), NpgsqlConnection.ConnectionString
+    // perde a senha depois de Open, e o banco temporário deixaria de autenticar sob SCRAM (#246).
+    internal static string Administrativa => Environment.GetEnvironmentVariable("DANTE_TEST_POSTGRES")!;
+    internal static string ParaBanco(string administrativa, string nome) =>
+        new NpgsqlConnectionStringBuilder(administrativa) { Database = nome, Pooling = false }.ConnectionString;
+    // migracao substitui MigrateAsync só para provar a limpeza quando a migration falha.
+    public static async Task<Banco> CriarAsync(bool migrar = true, Func<DanteDbContext, Task>? migracao = null)
     {
         var banco = new Banco();
-        await using var admin = new NpgsqlConnection(Environment.GetEnvironmentVariable("DANTE_TEST_POSTGRES"));
-        await admin.OpenAsync();
-        await using var create = new NpgsqlCommand($"CREATE DATABASE {banco.nome}", admin); await create.ExecuteNonQueryAsync();
-        banco.ConnectionString = new NpgsqlConnectionStringBuilder(admin.ConnectionString) { Database = banco.nome, Pooling = false }.ConnectionString;
-        if (migrar) { await using var c = banco.Contexto(); await c.Database.MigrateAsync(); }
-        return banco;
+        await using (var admin = new NpgsqlConnection(Administrativa))
+        {
+            await admin.OpenAsync();
+            await using var create = new NpgsqlCommand($"CREATE DATABASE {banco.nome}", admin); await create.ExecuteNonQueryAsync();
+        }
+        try
+        {
+            banco.ConnectionString = ParaBanco(Administrativa, banco.nome);
+            if (migrar) { await using var c = banco.Contexto(); await (migracao ?? (x => x.Database.MigrateAsync()))(c); }
+            return banco;
+        }
+        catch
+        {
+            // O chamador nunca recebe o banco: sem esta limpeza ele ficaria abandonado no servidor.
+            await banco.DisposeAsync();
+            throw;
+        }
     }
     public DanteDbContext Contexto() => Contexto(ConnectionString);
     public static DanteDbContext Contexto(string connectionString) => new(new DbContextOptionsBuilder<DanteDbContext>().UseNpgsql(connectionString,
         pg => pg.MigrationsHistoryTable("__EFMigrationsHistory", "brain_meta")).Options);
     public async ValueTask DisposeAsync()
     {
-        await using var admin = new NpgsqlConnection(Environment.GetEnvironmentVariable("DANTE_TEST_POSTGRES")); await admin.OpenAsync();
-        await using var drop = new NpgsqlCommand($"DROP DATABASE {nome} WITH (FORCE)", admin); await drop.ExecuteNonQueryAsync();
+        // Só o banco desta instância, pelo nome aleatório; IF EXISTS torna a limpeza repetível.
+        await using var admin = new NpgsqlConnection(Administrativa); await admin.OpenAsync();
+        await using var drop = new NpgsqlCommand($"DROP DATABASE IF EXISTS {nome} WITH (FORCE)", admin); await drop.ExecuteNonQueryAsync();
     }
 }

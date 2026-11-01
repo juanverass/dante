@@ -23,25 +23,17 @@ public sealed class AdministracaoDoBancoTests
         Assert.Equal(migrations, await contexto.Database.GetAppliedMigrationsAsync());
 
         // Health precisa de conta runtime; a conta administrativa é recusada mesmo com schema completo.
-        var role = "health_" + Guid.NewGuid().ToString("N");
-        await contexto.Database.ExecuteSqlRawAsync($"CREATE ROLE {role} LOGIN; GRANT USAGE ON SCHEMA brain_meta TO {role}; GRANT SELECT ON ALL TABLES IN SCHEMA brain_meta TO {role}");
-        try
-        {
-            var conexao = new Npgsql.NpgsqlConnectionStringBuilder(banco.ConnectionString) { Username = role };
-            await using var runtime = Banco.Contexto(conexao.ConnectionString);
-            var health = new AdministracaoDoBanco(runtime);
-            Assert.True(await health.VerificarSaudeAsync());
-            await contexto.GetService<IMigrator>().MigrateAsync(migrations[^2]);
-            Assert.False(await health.VerificarSaudeAsync());
-            await admin.MigrarAsync();
-            Assert.True(await health.VerificarSaudeAsync());
-            await contexto.Database.ExecuteSqlRawAsync("INSERT INTO brain_meta.\"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") VALUES ('99999999999999_Desconhecida', '10.0.6')");
-            Assert.False(await health.VerificarSaudeAsync());
-        }
-        finally
-        {
-            await contexto.Database.ExecuteSqlRawAsync($"DROP OWNED BY {role}; DROP ROLE {role}");
-        }
+        await using var role = await RoleDeTeste.CriarAsync(banco, "health");
+        await contexto.Database.ExecuteSqlRawAsync($"GRANT USAGE ON SCHEMA brain_meta TO {role.Nome}; GRANT SELECT ON ALL TABLES IN SCHEMA brain_meta TO {role.Nome}");
+        await using var runtime = Banco.Contexto(role.ConnectionString);
+        var health = new AdministracaoDoBanco(runtime);
+        Assert.True(await health.VerificarSaudeAsync());
+        await contexto.GetService<IMigrator>().MigrateAsync(migrations[^2]);
+        Assert.False(await health.VerificarSaudeAsync());
+        await admin.MigrarAsync();
+        Assert.True(await health.VerificarSaudeAsync());
+        await contexto.Database.ExecuteSqlRawAsync("INSERT INTO brain_meta.\"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") VALUES ('99999999999999_Desconhecida', '10.0.6')");
+        Assert.False(await health.VerificarSaudeAsync());
     }
 
     [Fact]
