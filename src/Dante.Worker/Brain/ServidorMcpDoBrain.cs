@@ -15,11 +15,19 @@ public static class ServidorMcpDoBrain
     public const string Argumento = "--mcp-brain";
     public const int MaximoEntrada = 32_000;
     public const int MaximoResposta = 60_000;
+    // Paginação: os mesmos limites são validados em runtime por OperacoesMcpDoBrain.
+    public const int LimiteMaximo = 25;
+    public const int LimitePadrao = 10;
+    public const int DeslocamentoMaximo = 10_000;
     public sealed record Ferramenta(string Nome, string Descricao, bool Leitura, bool Destrutiva, JsonObject Propriedades, string[] Obrigatorios);
     private static JsonObject Campo(string tipo, string? descricao = null) => new() { ["type"] = tipo, ["description"] = descricao ?? "" };
     private static JsonObject EnumCampo<T>() where T : struct, Enum => new() { ["type"] = "string", ["enum"] = new JsonArray(Enum.GetNames<T>().Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()) };
     private static JsonObject Id() => Campo("string", "Identificador retornado por outra ferramenta; nunca solicite GUID ao usuário.");
     private static JsonObject Revisao() => Campo("integer", "Revisão esperada retornada na consulta.");
+    private static JsonObject Limite() => new() { ["type"] = "integer", ["minimum"] = 1, ["maximum"] = LimiteMaximo,
+        ["description"] = $"Quantidade máxima de itens por página (1 a {LimiteMaximo}; padrão {LimitePadrao})." };
+    private static JsonObject Deslocamento() => new() { ["type"] = "integer", ["minimum"] = 0, ["maximum"] = DeslocamentoMaximo,
+        ["description"] = $"Quantidade de itens a pular para paginar (0 a {DeslocamentoMaximo}; padrão 0)." };
     private static JsonObject Texto(int maximo) => new() { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = maximo };
     private static JsonObject Tags() => new() { ["type"] = "array", ["maxItems"] = 50, ["items"] = Texto(100) };
     private static JsonObject Captura(bool correcao = false)
@@ -40,21 +48,21 @@ public static class ServidorMcpDoBrain
     public static readonly IReadOnlyList<Ferramenta> Ferramentas =
     [
         new("brain_obter_escopo", "Espaço/projeto autorizado da sessão. Não altera escopo.", true, false, new(), []),
-        new("brain_buscar_conhecimento", "Busca permitida; consulte equivalentes antes de capturar e reporte possíveis duplicidades.", true, false,
-            new() { ["texto"] = Texto(2000), ["tipo"] = EnumCampo<Dante.Domain.Conhecimentos.TipoDeConhecimento>(), ["tags"] = Tags(), ["limite"] = Revisao(), ["deslocamento"] = Revisao() }, ["texto"]),
+        new("brain_buscar_conhecimento", "Busca permitida em conhecimentos e fontes do escopo; candidatos pendentes não entram (use brain_listar_candidatos). Sem modelo de embedding a busca é lexical e exige todos os termos; use \"or\" entre termos alternativos. Tags filtram, mas não substituem o texto. Consulte equivalentes antes de capturar e reporte possíveis duplicidades.", true, false,
+            new() { ["texto"] = Texto(2000), ["tipo"] = EnumCampo<Dante.Domain.Conhecimentos.TipoDeConhecimento>(), ["tags"] = Tags(), ["limite"] = Limite(), ["deslocamento"] = Deslocamento() }, ["texto"]),
         new("brain_mostrar_origem", "Proveniência de candidato ou conhecimento permitido.", true, false, new() { ["id"] = Id(), ["origem"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("candidato", "conhecimento") } }, ["id", "origem"]),
         new("brain_capturar_conhecimento", "Cria um único candidato pendente. Preserve título/conteúdo/tags. Conclusão do agente continua inferência; nunca declare conteúdo do agente como dito pelo usuário.", false, false, Captura(), ["conteudo", "natureza", "justificativa"]),
         new("brain_atualizar_conhecimento", "PREPARA correção do conhecimento existente, sem criar outro ativo. Exige revisão e confirmação Telegram; a correção não herda a confirmação anterior.", false, true, Atualizacao(), ["id", "revisao", "conteudo", "natureza", "justificativa"]),
         new("brain_consolidar_duplicatas", "PREPARA consolidação explícita: conserva o destino, incorpora proveniências e substitui duplicatas. Exige confirmar no Telegram e revisões de todos os alvos.", false, true,
             new() { ["id"] = Id(), ["revisao"] = Revisao(), ["duplicatas"] = new JsonObject { ["type"] = "array", ["minItems"] = 1, ["maxItems"] = 20,
                 ["items"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject { ["id"] = Id(), ["revisao"] = Revisao() }, ["required"] = new JsonArray("id", "revisao"), ["additionalProperties"] = false } } }, ["id", "revisao", "duplicatas"]),
-        new("brain_listar_candidatos", "Candidatos pendentes do escopo, com revisão. Paginação por deslocamento, limite máximo 25.", true, false, new() { ["limite"] = Revisao(), ["deslocamento"] = Revisao() }, []),
+        new("brain_listar_candidatos", "Candidatos pendentes do escopo, com revisão. Paginação por deslocamento, limite máximo 25.", true, false, new() { ["limite"] = Limite(), ["deslocamento"] = Deslocamento() }, []),
         new("brain_corrigir_candidato", "Corrige candidato pendente com revisão esperada, sem redefinir natureza ou escopo.", false, true, Captura(true), ["id", "revisao", "conteudo", "natureza", "justificativa"]),
         new("brain_confirmar_candidato", "PREPARA consolidação. Não consolida pela aprovação MCP. Mostre o candidato e peça ao usuário confirmar no Telegram; uma proposta de cada vez, válida por 5 minutos.", false, false, new() { ["id"] = Id(), ["revisao"] = Revisao() }, ["id", "revisao"]),
         new("brain_cancelar_candidato", "PREPARA descarte auditado; exige confirmação de negócio pelo Telegram.", false, true, new() { ["id"] = Id(), ["revisao"] = Revisao() }, ["id", "revisao"]),
         new("brain_criar_relacao", "PREPARA relação explícita entre dois conhecimentos autorizados com revisões. Peça confirmar no Telegram; sugestões não são relações persistidas.", false, false,
             new() { ["origem"] = Id(), ["destino"] = Id(), ["revisao_origem"] = Revisao(), ["revisao_destino"] = Revisao(), ["tipo"] = EnumCampo<Dante.Domain.RelacoesDeConhecimento.TipoDeRelacao>() }, ["origem", "destino", "revisao_origem", "revisao_destino", "tipo"]),
-        new("brain_listar_relacoes", "Relações autorizadas de um conhecimento, limite máximo 25.", true, false, new() { ["id"] = Id(), ["limite"] = Revisao() }, ["id"]),
+        new("brain_listar_relacoes", "Relações autorizadas de um conhecimento, limite máximo 25. Aceita somente ID de conhecimento ativo (retornado por brain_buscar_conhecimento); candidatos pendentes não têm relações.", true, false, new() { ["id"] = Id(), ["limite"] = Limite() }, ["id"]),
         new("brain_obter_contexto_de_trabalho", "Snapshot operacional atual, distinto de conhecimento.", true, false, new(), []),
         new("brain_atualizar_contexto_de_trabalho", "Atualiza snapshot operacional com revisão esperada. Não armazena transcript nem raciocínio privado e não cria Conhecimento.", false, true,
             new() { ["revisao"] = Revisao(), ["objetivo"] = Texto(2000), ["tarefa"] = Texto(2000), ["progresso"] = Texto(2000), ["ultimo_resultado"] = Texto(2000),

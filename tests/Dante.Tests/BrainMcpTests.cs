@@ -47,6 +47,35 @@ public sealed class BrainMcpTests
         await Assert.ThrowsAsync<ArgumentException>(() => ServidorMcpDoBrain.LerLinhaAsync(new StringReader(new string('x', 33_000)), 32_000, default));
     }
     [Fact]
+    public void ContratoDasFerramentasDescrevePaginacaoEUniversoSemConfundirComRevisao()
+    {
+        var tools = ServidorMcpDoBrain.Lista()["tools"]!.AsArray().Select(t => t!.AsObject()).ToArray();
+        Assert.All(tools, t => Assert.False(string.IsNullOrWhiteSpace(t["description"]!.GetValue<string>())));
+        var paginacao = tools.SelectMany(t => t["inputSchema"]!["properties"]!.AsObject()
+            .Where(p => p.Key is "limite" or "deslocamento").Select(p => (Ferramenta: t["name"]!.GetValue<string>(), Campo: p.Key, Schema: p.Value!))).ToArray();
+        // Toda ferramenta paginada é coberta; um campo novo de paginação fora do helper falha aqui.
+        Assert.Equal(["brain_buscar_conhecimento:deslocamento", "brain_buscar_conhecimento:limite", "brain_listar_candidatos:deslocamento",
+            "brain_listar_candidatos:limite", "brain_listar_relacoes:limite"], paginacao.Select(p => $"{p.Ferramenta}:{p.Campo}").Order(StringComparer.Ordinal));
+        foreach (var (_, campo, schema) in paginacao)
+        {
+            Assert.Equal("integer", schema["type"]!.GetValue<string>());
+            Assert.DoesNotContain("Revisão", schema["description"]!.GetValue<string>());
+            Assert.Equal(campo == "limite" ? 1 : 0, schema["minimum"]!.GetValue<int>());
+            Assert.Equal(campo == "limite" ? ServidorMcpDoBrain.LimiteMaximo : ServidorMcpDoBrain.DeslocamentoMaximo, schema["maximum"]!.GetValue<int>());
+        }
+        // Mesmos limites documentados para agentes em docs/development/brain-mcp.md.
+        Assert.Equal((25, 10, 10_000), (ServidorMcpDoBrain.LimiteMaximo, ServidorMcpDoBrain.LimitePadrao, ServidorMcpDoBrain.DeslocamentoMaximo));
+        string Descricao(string nome) => tools.Single(t => t["name"]!.GetValue<string>() == nome)["description"]!.GetValue<string>();
+        Assert.Contains("somente ID de conhecimento", Descricao("brain_listar_relacoes"));
+        Assert.Contains("candidatos pendentes não têm relações", Descricao("brain_listar_relacoes"));
+        Assert.Contains("conhecimentos e fontes", Descricao("brain_buscar_conhecimento"));
+        Assert.Contains("candidatos pendentes não entram", Descricao("brain_buscar_conhecimento"));
+        Assert.Contains("exige todos os termos", Descricao("brain_buscar_conhecimento"));
+        // Revisão continua descrita como revisão onde de fato é revisão.
+        Assert.Equal("Revisão esperada retornada na consulta.",
+            tools.Single(t => t["name"]!.GetValue<string>() == "brain_confirmar_candidato")["inputSchema"]!["properties"]!["revisao"]!["description"]!.GetValue<string>());
+    }
+    [Fact]
     public async Task ConfirmacaoSoVemDaConversaCorretaERevogacaoImpedeReuso()
     {
         var registro = new RegistroDeOperacoesBrain(); var m = Mensagem("pedido"); var chamadas = 0;

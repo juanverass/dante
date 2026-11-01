@@ -257,8 +257,8 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
     }
     private static Guid Id(JsonElement a, string campo) => Guid.TryParse(Texto(a, campo, 40), out var id) && id != Guid.Empty ? id : throw new ArgumentException("Identificador inválido.");
     private static int Inteiro(JsonElement a, string campo) => a.GetProperty(campo).TryGetInt32(out var n) && n >= 0 ? n : throw new ArgumentException("Número inválido.");
-    private static int Limite(JsonElement a) => a.TryGetProperty("limite", out _) ? Inteiro(a, "limite") is > 0 and <= 25 ? Inteiro(a, "limite") : throw new ArgumentException("Limite entre 1 e 25.") : 10;
-    private static int Deslocamento(JsonElement a) => a.TryGetProperty("deslocamento", out _) ? Inteiro(a, "deslocamento") is <= 10000 ? Inteiro(a, "deslocamento") : throw new ArgumentException("Deslocamento máximo 10000.") : 0;
+    private static int Limite(JsonElement a) => a.TryGetProperty("limite", out _) ? Inteiro(a, "limite") is > 0 and <= ServidorMcpDoBrain.LimiteMaximo ? Inteiro(a, "limite") : throw new ArgumentException("Limite entre 1 e 25.") : ServidorMcpDoBrain.LimitePadrao;
+    private static int Deslocamento(JsonElement a) => a.TryGetProperty("deslocamento", out _) ? Inteiro(a, "deslocamento") is <= ServidorMcpDoBrain.DeslocamentoMaximo ? Inteiro(a, "deslocamento") : throw new ArgumentException("Deslocamento máximo 10000.") : 0;
     private static string Texto(JsonElement a, string campo, int maximo)
     { var texto = a.GetProperty(campo).GetString(); return !string.IsNullOrWhiteSpace(texto) && texto.Length <= maximo ? texto : throw new ArgumentException("Texto inválido."); }
     private static string[] Lista(JsonElement a, string campo)
