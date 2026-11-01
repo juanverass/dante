@@ -239,9 +239,11 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
     }
     private static bool Permitida(Sensibilidade s) => s is Sensibilidade.Publico or Sensibilidade.Pessoal or Sensibilidade.Trabalho;
     private static object Resumir(CandidatoDeConhecimentoDto c) => new { c.Id, c.Titulo, c.Conteudo, c.Tags, tipo = c.Tipo.ToString(), natureza = c.Natureza.ToString(), estado = c.Estado.ToString(), c.Revisao, c.IdConhecimento };
-    private static ProvenienciaDto Prova(TelegramMessage m, Guid usuario, string conversa, string sessao, string agente) => new()
+    // S00000N recomeça a cada processo do Worker; a instância torna a sessão única na proveniência (#249).
+    internal static string Origem(string agente, string instancia, string sessao) => $"MCP/agente:{agente};sessao:{instancia}:{sessao}";
+    private ProvenienciaDto Prova(TelegramMessage m, Guid usuario, string conversa, string sessao, string agente) => new()
     {
-        IdResponsavel = usuario, Origem = $"MCP/agente:{agente};sessao:{sessao}", ReferenciaDaFonte = $"conversa:{conversa}:{m.MessageId}",
+        IdResponsavel = usuario, Origem = Origem(agente, brain.Instancia, sessao), ReferenciaDaFonte = $"conversa:{conversa}:{m.MessageId}",
         // Seleção factual de evidência, nunca transcript integral.
         TrechoDaFonte = m.Text is "confirmar" or "confirme" ? m.Text : "Operação solicitada nesta mensagem; conteúdo selecionado registrado no candidato."
     };

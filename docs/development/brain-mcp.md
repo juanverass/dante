@@ -78,6 +78,10 @@ retorna o candidato existente e sinaliza possível duplicidade; origem equivalen
 é auditada. Equivalência semântica requer busca e análise do agente: os resultados
 são possibilidades para apresentar, nunca autorização para consolidar silenciosamente.
 Proveniência registra MCP/agente, sessão, referência da mensagem e trecho selecionado.
+A sessão é gravada como `sessao:<instância>:<S00000N>`: o número curto recomeça a cada
+processo do Worker, e a instância (a mesma usada nas métricas de continuidade) o torna
+único entre reinícios. Registros anteriores, no formato `sessao:<S00000N>`, não são
+reescritos e continuam legíveis como estão.
 Não registra transcript completo ou raciocínio privado.
 
 Confidential/Secret não recebem grants adicionais. Falta de autorização falha fechado;

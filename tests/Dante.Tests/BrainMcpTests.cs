@@ -218,14 +218,15 @@ public sealed class BrainMcpTests
         await using (var db = banco.Contexto())
         {
             Assert.Empty(await db.Conhecimentos.ToListAsync()); var candidatos = await db.CandidatosDeConhecimento.ToListAsync(); Assert.Equal(24, candidatos.Count);
-            Assert.All(candidatos, c => { Assert.Equal(EstadoDoCandidato.Pendente, c.Estado); Assert.Contains("MCP/agente:codex", c.Proveniencia.Origem); Assert.Contains(":123", c.Proveniencia.ReferenciaDaFonte); Assert.NotNull(c.Titulo); });
+            Assert.All(candidatos, c => { Assert.Equal(EstadoDoCandidato.Pendente, c.Estado); Assert.Equal(OperacoesMcpDoBrain.Origem("codex", brain.Instancia, started.Session!.Id), c.Proveniencia.Origem); Assert.Contains(":123", c.Proveniencia.ReferenciaDaFonte); Assert.NotNull(c.Titulo); });
             var primeiro = candidatos.Single(x => x.Conteudo == conteudos[0]);
             var preparar = await cliente.ChamarAsync("brain_confirmar_candidato", new { id = primeiro.Id, revisao = primeiro.Revisao }); Assert.False(preparar["isError"]!.GetValue<bool>());
             Assert.Empty(await db.Conhecimentos.ToListAsync());
         }
         Assert.Contains("consolidado", await brain.AtenderAsync(Mensagem("confirmar", 124), "confirmar", started.Session!.Id));
         await using (var db = banco.Contexto())
-        { var item = await db.Conhecimentos.SingleAsync(); Assert.Equal(StatusDoConhecimento.Confirmado, item.Status); Assert.Equal(["dante"], item.Tags); Assert.NotNull(item.DadosEstruturados); }
+        { var item = await db.Conhecimentos.SingleAsync(); Assert.Equal(StatusDoConhecimento.Confirmado, item.Status); Assert.Equal(["dante"], item.Tags); Assert.NotNull(item.DadosEstruturados);
+          Assert.All(item.Historico, r => Assert.Equal(OperacoesMcpDoBrain.Origem("codex", brain.Instancia, started.Session!.Id), r.Proveniencia.Origem)); }
         var nova = await sessoes.StartAsync(new(42, AgentKind.Claude, JobExecutionContext.General(AppContext.BaseDirectory), BrainConversation: Mensagem("consulte orquestração", 125).ParaFerramentas()));
         Assert.True(nova.Accepted); await using var novoCliente = await Cliente.ConectarAsync(drivers.Created.Last().StartOptions!.ToolServers!.Single(x => x.Name == "dante_brain"));
         var busca = await novoCliente.ChamarAsync("brain_buscar_conhecimento", new { texto = "coordena agentes" }); Assert.Contains(conteudos[0], busca["content"]![0]!["text"]!.GetValue<string>());
@@ -326,6 +327,66 @@ public sealed class BrainMcpTests
         finally { if (!processo.HasExited) processo.Kill(true); }
     }
 
+    [Fact]
+    public void ProvenienciaMcpQualificaSessaoCurtaComAInstanciaDoWorker()
+    {
+        using var vazio = new ServiceCollection().BuildServiceProvider(); var config = new ConfigurationBuilder().Build();
+        var antes = new TelegramBrain(vazio.GetRequiredService<IServiceScopeFactory>(), config);
+        var depois = new TelegramBrain(vazio.GetRequiredService<IServiceScopeFactory>(), config);
+        // Dois processos do Worker: o contador recomeça e ambos chamam a primeira sessão de S000001.
+        Assert.Matches("^[0-9a-f]{8}$", antes.Instancia); Assert.NotEqual(antes.Instancia, depois.Instancia);
+        Assert.Equal($"MCP/agente:claude;sessao:{antes.Instancia}:S000001", OperacoesMcpDoBrain.Origem("claude", antes.Instancia, "S000001"));
+        Assert.NotEqual(OperacoesMcpDoBrain.Origem("claude", antes.Instancia, "S000001"), OperacoesMcpDoBrain.Origem("claude", depois.Instancia, "S000001"));
+    }
+    [PostgreSqlFact]
+    public async Task ProvenienciaDistingueSessoesHomonimasAntesEDepoisDoReinicio()
+    {
+        await using var banco = await Banco.CriarAsync(); var conteudo = "Brain integrado ao PostgreSQL antes do reinício";
+        var captura = Mensagem(conteudo, 121); string instanciaAnterior; Guid id;
+        using (var anterior = CriarApp(banco.ConnectionString))
+        {
+            var brain = anterior.GetRequiredService<TelegramBrain>(); await SelecionarAsync(brain); instanciaAnterior = brain.Instancia;
+            anterior.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S000001", captura);
+            await anterior.GetRequiredService<OperacoesMcpDoBrain>().ExecutarAsync((await brain.ResolverEscopoMcpAsync(captura))!, captura, "S000001", "claude",
+                "brain_capturar_conhecimento", JsonSerializer.SerializeToElement(new { conteudo, natureza = "DitoPeloUsuario", justificativa = "pedido do usuário" }));
+            await using var db = banco.Contexto(); var candidato = await db.CandidatosDeConhecimento.SingleAsync(); id = candidato.Id;
+            Assert.Equal(OperacoesMcpDoBrain.Origem("claude", instanciaAnterior, "S000001"), candidato.Proveniencia.Origem);
+        }
+        // Reinício simulado: novo processo, mesmo banco, contador de sessões de volta a S000001.
+        using var atual = CriarApp(banco.ConnectionString); var novo = atual.GetRequiredService<TelegramBrain>();
+        Assert.NotEqual(instanciaAnterior, novo.Instancia);
+        Assert.Contains("selecionado", await novo.AtenderAsync(Mensagem("usar espaço Desenvolvimento"), "usar espaço Desenvolvimento"));
+        Assert.Contains("selecionado", await novo.AtenderAsync(Mensagem("usar projeto D.A.N.T.E."), "usar projeto D.A.N.T.E."));
+        var pedido = Mensagem("confirme o candidato", 122); atual.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S000001", pedido);
+        await atual.GetRequiredService<OperacoesMcpDoBrain>().ExecutarAsync((await novo.ResolverEscopoMcpAsync(pedido))!, pedido, "S000001", "claude",
+            "brain_confirmar_candidato", JsonSerializer.SerializeToElement(new { id, revisao = 1 }));
+        Assert.Contains("consolidado", await novo.AtenderAsync(Mensagem("confirmar", 123), "confirmar", "S000001"));
+        await using (var db = banco.Contexto())
+        {
+            var item = await db.Conhecimentos.SingleAsync(); Assert.Equal(StatusDoConhecimento.Confirmado, item.Status);
+            // Captura e confirmação têm o mesmo rótulo curto, mas instâncias diferentes; nenhuma é reescrita.
+            Assert.Equal([OperacoesMcpDoBrain.Origem("claude", instanciaAnterior, "S000001"), OperacoesMcpDoBrain.Origem("claude", novo.Instancia, "S000001")],
+                item.Historico.Select(x => x.Proveniencia.Origem));
+        }
+        var snapshot = Mensagem("registre o estado", 124); atual.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S000002", snapshot);
+        var contexto = (Dante.Application.ContextosDeTrabalho.ContextoDeTrabalhoDto)(await atual.GetRequiredService<OperacoesMcpDoBrain>().ExecutarAsync((await novo.ResolverEscopoMcpAsync(snapshot))!, snapshot,
+            "S000002", "claude", "brain_atualizar_contexto_de_trabalho", JsonSerializer.SerializeToElement(new { revisao = 0, objetivo = "validar", tarefa = "#249", progresso = "captura e confirmação", ultimo_resultado = "ok" })))!;
+        Assert.StartsWith(OperacoesMcpDoBrain.Origem("claude", novo.Instancia, "S000002") + ";", contexto.Origem);
+    }
+    [PostgreSqlFact]
+    public async Task ProvenienciaNoFormatoAnteriorContinuaLegivel()
+    {
+        await using var banco = await Banco.CriarAsync(); using var app = CriarApp(banco.ConnectionString); var brain = app.GetRequiredService<TelegramBrain>();
+        await SelecionarAsync(brain); var mensagem = Mensagem("origem antiga", 121); var escopo = (await brain.ResolverEscopoMcpAsync(mensagem))!;
+        var antigo = new Conhecimento(escopo.Acesso.IdEspacoDeConhecimento, escopo.Acesso.IdProjeto, TipoDeConhecimento.Fato, "registro anterior à #249", null,
+            StatusDoConhecimento.Inferido, null, Sensibilidade.Trabalho, null, null, [],
+            new(escopo.Acesso.IdUsuario, "MCP/agente:claude;sessao:S000002", "conversa:42:0:9244", trechoDaFonte: "registro anterior à #249"), DateTimeOffset.UtcNow);
+        await using (var db = banco.Contexto()) { db.Add(antigo); await db.SaveChangesAsync(); }
+        app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S000001", mensagem);
+        var origem = JsonSerializer.Serialize(await app.GetRequiredService<OperacoesMcpDoBrain>().ExecutarAsync(escopo, mensagem, "S000001", "claude",
+            "brain_mostrar_origem", JsonSerializer.SerializeToElement(new { id = antigo.Id, origem = "conhecimento" })));
+        Assert.Contains("MCP/agente:claude;sessao:S000002", origem);
+    }
     [PostgreSqlFact]
     public async Task PropostaMcpNaoDeixaConfirmacaoNaturalAntigaReutilizavel()
     {

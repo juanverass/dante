@@ -154,6 +154,8 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
     private readonly ConcurrentDictionary<string,MetricaDoBrainDto> enviosAbertos=new(StringComparer.Ordinal);
     // IDs de sessão recomeçam a cada processo: o prefixo separa as sessões nas métricas.
     private readonly string instancia=Guid.NewGuid().ToString("N")[..8];
+    // Mesmo prefixo na proveniência MCP: S000001 de outro processo não se confunde com o atual (#249).
+    public string Instancia=>instancia;
     public bool Configurado=>!string.IsNullOrWhiteSpace(configuration.GetConnectionString("Dante"));
     public async Task<ContextoParaTurno?> PrepararAsync(TelegramMessage mensagem,string idSessao,string texto,CancellationToken cancellationToken=default)
     {
