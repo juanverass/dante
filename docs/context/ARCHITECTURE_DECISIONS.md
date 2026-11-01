@@ -1901,3 +1901,206 @@ Código: `Dante.Infrastructure/Contextos/RepositoryRegistry.cs`,
 `AgentContextResolverTests`, `ClaudeRunnerTests`, `CodexRunnerTests`, `ClaudeSessionDriverTests`,
 `CodexSessionDriverTests`, `SessionRegistryTests`, `LeitorDeCheckoutsGitTests`, `TelegramJobCommandTests` e
 `TelegramRepositoryCommandTests`.
+
+## AD-59 — Classificação semântica do conhecimento separada da autoria e do estado epistêmico
+
+Status: **aprovada na revisão humana (#248)**; vigente a partir do merge do PR #263. Nenhum
+código, schema ou dado muda por esta decisão; a implementação vem nas Issues derivadas
+listadas abaixo, depois da #264. Complementa a ADR do Brain (#134) e a AD-56.
+
+### Contexto
+
+Três perguntas distintas sobre um conhecimento estão hoje respondidas por dois campos:
+
+| Pergunta | Hoje |
+| --- | --- |
+| **O que é** (Fato, Decisão, Incidente, Solução, Aprendizado…) | `TipoDeConhecimento` |
+| **Quem afirmou** (usuário literal, agente, fonte selecionada) | `NaturezaDoConteudo`, **só no candidato** |
+| **Quanto vale** (inferido × confirmado) | `StatusDoConhecimento` |
+
+E o tipo é sobrescrito para carregar autoria:
+
+- `CandidatoDeConhecimento` (construtor): `ConclusaoDoAgente` força `Tipo = Inferencia`. O tipo
+  sugerido é descartado já na captura e não fica em nenhum ato do histórico;
+- `CandidatoDeConhecimento.Promover`: confirma somente se `Tipo != Inferencia`;
+- `Conhecimento.Confirmar`: recusa `Tipo == Inferencia`;
+- `OperacoesMcpDoBrain` (`brain_corrigir_candidato`, `brain_atualizar_conhecimento`) repete a
+  regra: conclusão do agente sempre vira `Inferencia`;
+- `Conhecimento` não persiste `Natureza`. Depois da promoção, `Tipo = Inferencia` é o único
+  sinal de que o conteúdo veio do agente;
+- a promoção com vínculo incidente→solução exige `Tipo = Aprendizado`
+  (`CapturaDeConhecimentoAppService.ConfirmarAsync`), o que é inalcançável para conclusões
+  do agente.
+
+Além disso, a autoria declarada não é verificada contra quem escreveu a fonte:
+`OperacoesMcpDoBrain.ValidarOrigem` aceita `DitoPeloUsuario` quando o conteúdo está na mensagem
+respondida, sem conferir o autor dela; a captura natural (`TelegramBrain`, `CapturaDaConversa`)
+classifica qualquer mensagem respondida como `FonteSelecionada`; e
+`DocumentoFonteAppService.GerarCandidatoAsync` classifica todo trecho de documento como
+`FonteSelecionada`. Nenhum desses caminhos confirma sozinho (a confirmação exige "confirmar" no
+Telegram), mas um texto do bot ou do agente pode ser consolidado com autoria do usuário. A
+correção do comportamento atual é a #264, independente desta ADR.
+
+Consequências observadas na validação E2E (#147): os candidatos de teste deixaram de ser
+Incidente/Solução; filtros por tipo não encontram um incidente diagnosticado pelo agente; o
+vínculo `ResolvidoPor` entre eles não é representável (#259); decisões e inferências ficam
+distinguíveis só por convenção de tipo.
+
+### Opções
+
+**A — manter o modelo atual.** Nenhum custo. O tipo semântico continua perdido para
+conclusões do agente; `Inferencia` continua sendo ao mesmo tempo tipo e autoria; #259
+permanece sem solução sem exceções ad hoc.
+
+**B — eixos ortogonais (escolhida).**
+
+- `Tipo` volta a ser **somente semântico**. Conclusão do agente conserva o tipo sugerido
+  (Incidente, Solução, Decisão…);
+- `Natureza` (`DitoPeloUsuario`, `ConclusaoDoAgente`, `FonteSelecionada`, e `Desconhecida`
+  somente para legado) passa a ser persistida também no `Conhecimento`, por revisão (no
+  histórico), como natureza de origem do item e como natureza da revisão atual;
+- `Status` continua sendo o eixo epistêmico. Conclusão do agente entra e permanece
+  `Inferido`;
+- `Inferencia` deixa de ser gravado em itens novos e fica como valor legado, mantido no
+  enum para leitura e filtro dos registros existentes.
+
+Custo: migration (coluna de natureza em conhecimentos e no histórico JSON), ajuste de
+promoção, confirmação, correção, MCP, Telegram, busca e Context Builder.
+
+**C — intermediária.** Manter `Tipo = Inferencia` e guardar o tipo sugerido em
+`DadosEstruturados` (ex.: `tipoSugerido`). Sem migration de schema, mas o tipo real fica fora
+dos filtros e índices, `Inferencia` continua sobrecarregado e cada consumidor precisa conhecer
+o campo auxiliar. Resolve parcialmente #259.
+
+### Decisão
+
+Adotar **B**, com as decisões da revisão humana:
+
+| # | Decisão | Onde se aplica |
+| --- | --- | --- |
+| D1 | Mensagem respondida sem autor identificável nunca é declaração do usuário | P1, I3 |
+| D2 | Conhecimento produzido pelo agente permanece identificado como conclusão do agente, independentemente de confirmação humana | P4, I1, I2, I10 |
+| D3 | Conhecimento antigo sem autoria registrada permanece com autoria desconhecida; não se inventa proveniência retroativa | Dados existentes |
+| D4 | `IConhecimentoAppService.ConfirmarAsync` obedece às mesmas invariantes; não existe caminho alternativo que as contorne | I11 |
+| D5 | #264 é implementada antes das funcionalidades que dependem das novas regras de autoria | Ordem de implementação |
+| D6 | "documente isso" respondendo a uma mensagem do agente registra o conteúdo, mas não o transforma em fato confirmado | P2, I9 |
+| D7 | O tipo do conhecimento é preservado independentemente da autoria e do estado epistêmico | I12 |
+
+### Princípios de autoria
+
+- **P1:** uma mensagem do agente ou do bot **nunca** é declaração literal do usuário. Só conta
+  como `DitoPeloUsuario` o texto escrito pelo próprio usuário autenticado, na mensagem atual ou
+  numa mensagem respondida cujo autor é comprovadamente esse usuário. Mensagem respondida sem
+  autor identificável não é do usuário (D1).
+- **P2:** a autoria da fonte é preservada independentemente de quem solicitou a captura. Pedir
+  para registrar não torna o solicitante autor do conteúdo: o usuário que responde a uma
+  mensagem do agente com "documente isso" autoriza o **registro** de uma conclusão do agente,
+  não a transforma em declaração sua nem em fato confirmado (D6).
+- **P3:** evidências produzidas pelo agente continuam sendo conclusões do agente, mesmo quando
+  armazenadas como documento, fonte, anexo ou trecho importado.
+- **P4:** a autoria de origem é **permanente**. Confirmação humana, consolidação, promoção e
+  correção não alteram retroativamente quem produziu a informação. Um conhecimento produzido
+  pelo agente continua identificado como conclusão do agente em todo o seu ciclo de vida (D2).
+  Se o usuário quiser afirmar o mesmo conteúdo como fato, ele o declara com as próprias
+  palavras, gerando **outro conhecimento** de autoria do usuário, que pode referenciar o
+  original (`DerivadoDe`) sem alterá-lo.
+
+### Invariantes (verificáveis por teste em qualquer implementação)
+
+1. **I1:** conhecimento cuja natureza de origem **ou** natureza da revisão atual seja
+   `ConclusaoDoAgente` nunca tem `Status = Confirmado`, por nenhum caminho: promoção,
+   confirmação, consolidação, atualização ou correção (D2).
+2. **I2:** `Status = Confirmado` exige, cumulativamente: natureza de origem e natureza da
+   revisão atual iguais a `DitoPeloUsuario` ou `FonteSelecionada` de autoria do usuário
+   (I3, I9); confirmação humana explícita no Telegram. `Desconhecida` não satisfaz I2 (D3).
+3. **I3:** `DitoPeloUsuario` exige origem literal **escrita pelo usuário autenticado**: o texto
+   está na mensagem atual do usuário ou numa mensagem respondida cujo autor (`From.Id`) é esse
+   mesmo usuário. Mensagem respondida do bot, do agente, de outro usuário ou **sem autor
+   identificável** nunca é origem literal (P1, D1). Vale para MCP (captura, correção,
+   atualização) e para a captura natural.
+4. **I4:** correção ou atualização feita pelo agente grava `Natureza = ConclusaoDoAgente` na
+   nova revisão e devolve o item a `Inferido`; nunca herda confirmação anterior.
+5. **I5:** a natureza de um candidato não muda por correção (regra atual); a natureza de origem
+   de um conhecimento e a natureza registrada em cada revisão são imutáveis.
+6. **I6:** decisão referenciada pelo snapshot exige `Tipo = Decisao` e `Status = Confirmado`;
+   por I1, nunca é conclusão do agente.
+7. **I7:** o Context Builder, a busca e as exportações rotulam pela natureza e pelo `Status`,
+   não pelo tipo: todo item `Inferido`, `ConclusaoDoAgente` ou `Desconhecida` aparece como não
+   confirmado ou de autoria não comprovada, conforme o caso.
+8. **I8:** a impressão de deduplicação do candidato continua incluindo a natureza.
+9. **I9:** `FonteSelecionada` registra **quem escreveu a fonte** (usuário; documento importado
+   pelo usuário; documento, evidência ou anexo produzido pelo agente; mensagem do bot),
+   independentemente de quem pediu a captura (P2). Fonte de autoria do agente ou do bot é
+   registrada como `ConclusaoDoAgente` (P3, D6).
+10. **I10:** confirmação, consolidação de duplicatas e promoção não mudam a natureza de origem
+    nem a de nenhuma revisão existente (P4). Consolidar uma duplicata `ConclusaoDoAgente` em um
+    destino confirmado incorpora a proveniência sem promover a duplicata nem rebaixar o destino.
+11. **I11:** **todo** caminho que grava `Status = Confirmado` passa pela mesma regra de domínio
+    (`Conhecimento.Confirmar` e a promoção de candidato), que aplica I1/I2. Isso inclui
+    `IConhecimentoAppService.ConfirmarAsync` (hoje sem chamador), WebApi, MCP, Telegram e
+    qualquer caminho futuro. A regra vive no Domain, não nos adapters, para que nenhum caminho
+    alternativo a contorne (D4).
+12. **I12:** o tipo é escolhido pela semântica do conteúdo e **nunca é reescrito** por autoria
+    ou estado epistêmico: captura, correção, atualização, promoção e confirmação conservam o
+    tipo informado (D7). `Inferencia` deixa de ser atribuído automaticamente e permanece no
+    enum apenas para leitura e filtro de registros legados.
+
+### Impacto por componente
+
+| Componente | Muda? | O quê |
+| --- | --- | --- |
+| Domain — `CandidatoDeConhecimento` | sim | não força `Inferencia` (I12); `Promover` decide confirmação por natureza (I1/I2) e repassa a natureza |
+| Domain — `Conhecimento` | sim | natureza de origem e natureza por revisão, imutáveis (I5/I10); `Confirmar` aplica I1/I2 por natureza, não por tipo; ponto único de confirmação (I11) |
+| Application — `ConhecimentoAppService.ConfirmarAsync` | sim | sujeito a I1/I2 pelo Domain; sem atalho próprio (I11, D4) |
+| Persistência / migrations | sim | natureza de origem e da revisão atual em conhecimentos e no histórico JSON; valor `Desconhecida` para legado |
+| Application — captura/confirmação | sim | vínculo incidente→solução deixa de exigir `Aprendizado` para conclusões do agente (#259) |
+| Worker — MCP | sim | correção/atualização deixam de reescrever `Tipo` (I12); saídas exibem natureza |
+| Worker — `OperacoesMcpDoBrain.ValidarOrigem` | sim | verifica o autor da mensagem respondida; sem autor identificável, recusa (I3, D1; #264) |
+| Telegram/Application — captura natural (`TelegramBrain`, `CapturaDaConversa`) | sim | trecho respondido registra o autor da fonte; mensagem do bot ou sem autor gera conclusão do agente (I3, I9, D6; #264) |
+| Telegram — fluxo natural (`AlteracoesDaConversa`) | sim | textos de consolidação usam natureza/status em vez de `Tipo == Inferencia` |
+| Application — `DocumentoFonte` | sim | autoria do documento registrada na importação; trecho de documento do agente gera conclusão do agente (I9; #264) |
+| Evidências do agente (#257) | sim | evidência registrada pelo agente nasce com autoria do agente; candidato gerado dela é `ConclusaoDoAgente` (P3, I9) |
+| Busca | sim | filtro opcional por natureza; `tipo = Inferencia` continua retornando os itens legados |
+| Context Builder | sim | rótulo por status/natureza (I7) |
+| Snapshot | não | validação de decisões já exige `Decisao` + `Confirmado` (I6) |
+| Relações | não | apenas consomem o novo caminho de promoção (#259) e `DerivadoDe` existente (P4) |
+
+### Dados existentes (D3)
+
+- A natureza de origem de um conhecimento existente vem **somente** de autoria já registrada:
+  a natureza do candidato que o originou (`IdConhecimento`), quando ele existir. Sem candidato
+  (criação direta, importação), a natureza é `Desconhecida`.
+- **Nada é deduzido** de tipo, texto ou cadeias de origem. Em particular, `Tipo = Inferencia`
+  não prova autoria do agente: a captura natural aceita o tipo explícito (`inferencia: …`) com
+  `DitoPeloUsuario` (`CapturaDaConversa`). Item legado `Inferencia` sem candidato fica
+  `Desconhecida`.
+- O tipo original das conclusões do agente já gravadas como `Inferencia` **não é
+  recuperável** (descartado na captura) e não é reconstruído. Reclassificação só por correção
+  explícita, registrada como revisão nova (I4, I12).
+- Status existentes não são alterados retroativamente. Novas confirmações seguem I2, e
+  `Desconhecida` não satisfaz I2.
+- Nenhuma revisão histórica é reescrita: revisões antigas sem o campo são lidas como
+  "natureza não registrada".
+
+### Ordem de implementação (D5)
+
+1. **#264**: verificação do autor da mensagem respondida e da autoria de documentos (I3, I9 no
+   modelo atual). Precede tudo que depende das novas regras de autoria.
+2. **Natureza persistida no conhecimento**: Domain, migration, valor `Desconhecida` e
+   preenchimento só a partir de candidatos; I1, I2, I5, I10, I11 (inclui
+   `ConhecimentoAppService.ConfirmarAsync`). Depende desta ADR e da #264.
+3. **Tipo preservado independentemente da autoria**: captura, correção, atualização, MCP e
+   Telegram; I4, I8, I12. Depende de 2.
+4. **Busca e Context Builder por natureza**: filtro e rótulo; I7. Depende de 2.
+5. **#257** (evidências do agente) depende de #264; **#259** (vínculo incidente→solução)
+   depende de 3.
+
+As Issues 2–4 são criadas após o merge desta ADR.
+
+### Por quê
+
+Separar "o que é" de "quem afirmou" e de "quanto vale" mantém a regra de segurança central
+(conclusão do agente não vira fato, e nenhuma confirmação reescreve quem afirmou) e para de
+destruir informação semântica útil para busca, relações e retomada de contexto. Concentrar a
+regra de confirmação no Domain impede que um adapter ou API nova a contorne. A opção C adia o
+problema para cada consumidor; a opção A mantém o bloqueio observado na #147.
