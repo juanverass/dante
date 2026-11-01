@@ -1932,6 +1932,15 @@ E o tipo é sobrescrito para carregar autoria:
   (`CapturaDeConhecimentoAppService.ConfirmarAsync`), o que é inalcançável para conclusões
   do agente.
 
+Além disso, a autoria declarada não é verificada contra quem escreveu a fonte:
+`OperacoesMcpDoBrain.ValidarOrigem` aceita `DitoPeloUsuario` quando o conteúdo está na mensagem
+respondida, sem conferir o autor dela; a captura natural (`TelegramBrain`, `CapturaDaConversa`)
+classifica qualquer mensagem respondida como `FonteSelecionada`; e
+`DocumentoFonteAppService.GerarCandidatoAsync` classifica todo trecho de documento como
+`FonteSelecionada`. Nenhum desses caminhos confirma sozinho (a confirmação exige "confirmar" no
+Telegram), mas um texto do bot ou do agente pode ser consolidado com autoria do usuário. A
+correção do comportamento atual é a #264, independente desta ADR.
+
 Consequências observadas na validação E2E (#147): os candidatos de teste deixaram de ser
 Incidente/Solução; filtros por tipo não encontram um incidente diagnosticado pelo agente; o
 vínculo `ResolvidoPor` entre eles não é representável (#259); decisões e inferências ficam
@@ -1966,15 +1975,36 @@ o campo auxiliar. Resolve parcialmente #259.
 
 Adotar **B**.
 
+### Princípios de autoria
+
+- **P1:** uma mensagem do agente ou do bot **nunca** é declaração literal do usuário. Só conta
+  como `DitoPeloUsuario` o texto escrito pelo próprio usuário autenticado, na mensagem atual ou
+  numa mensagem respondida de sua autoria.
+- **P2:** a autoria da fonte é preservada independentemente de quem solicitou a captura. Pedir
+  para registrar não torna o solicitante autor do conteúdo: o usuário que manda guardar uma
+  resposta do agente registra uma conclusão do agente.
+- **P3:** evidências produzidas pelo agente continuam sendo conclusões do agente, mesmo quando
+  armazenadas como documento, fonte, anexo ou trecho importado.
+- **P4:** a confirmação humana de um candidato consolida o registro, mas **não altera
+  retroativamente a autoria** da informação: a natureza capturada permanece na revisão de
+  origem e no item. Para o conteúdo passar a ter autoria do usuário, é preciso uma nova
+  revisão com origem literal do usuário (I2), registrada como ato próprio, com instante e
+  proveniência.
+
 ### Invariantes (verificáveis por teste em qualquer implementação)
 
 1. **I1:** conteúdo com `Natureza = ConclusaoDoAgente` nunca resulta em
    `Status = Confirmado`, seja por promoção, confirmação, consolidação ou atualização. Confirmar
    no Telegram consolida o candidato, mas não transforma a conclusão em fato.
 2. **I2:** item `ConclusaoDoAgente` só chega a `Confirmado` por uma **nova revisão** com
-   `Natureza = DitoPeloUsuario` (texto literal validado por `ValidarOrigem`) ou
-   `FonteSelecionada` (fonte citada), seguida de confirmação humana no Telegram.
-3. **I3:** `DitoPeloUsuario` continua exigindo origem literal na mensagem ou na resposta citada.
+   `Natureza = DitoPeloUsuario` (texto literal do usuário, conforme I3) ou `FonteSelecionada`
+   de autoria do usuário ou de documento importado pelo usuário (I9), seguida de confirmação
+   humana no Telegram.
+3. **I3:** `DitoPeloUsuario` exige origem literal **escrita pelo usuário autenticado**: o texto
+   está na mensagem atual do usuário ou numa mensagem respondida cujo autor (`From.Id`) é esse
+   mesmo usuário. Mensagem respondida do bot, do agente, de outro usuário ou sem autor
+   identificado nunca é origem literal (P1). Vale para MCP (captura, correção, atualização) e
+   para a captura natural.
 4. **I4:** correção ou atualização feita pelo agente grava `Natureza = ConclusaoDoAgente` na
    nova revisão e devolve o item a `Inferido`; nunca herda confirmação anterior (comportamento
    atual da AD-56, agora sem reescrever o tipo).
@@ -1985,19 +2015,31 @@ Adotar **B**.
 7. **I7:** o Context Builder rotula pelo `Status` e pela `Natureza`, não pelo tipo: todo item
    `Inferido` ou `ConclusaoDoAgente` é apresentado como inferência.
 8. **I8:** a impressão de deduplicação do candidato continua incluindo a natureza.
+9. **I9:** `FonteSelecionada` registra **quem escreveu a fonte** (usuário; documento importado
+   pelo usuário; documento, evidência ou anexo produzido pelo agente; mensagem do bot),
+   independentemente de quem pediu a captura (P2). Fonte de autoria do agente ou do bot é
+   tratada como `ConclusaoDoAgente` para I1 e I2: nunca chega a `Confirmado` e não satisfaz
+   I2 (P3).
+10. **I10:** confirmação, consolidação de duplicatas e promoção não mudam a natureza de nenhuma
+    revisão existente (P4). Consolidar uma duplicata `ConclusaoDoAgente` em um destino
+    confirmado incorpora a proveniência sem promover a duplicata nem rebaixar o destino.
 
 ### Impacto por componente
 
 | Componente | Muda? | O quê |
 | --- | --- | --- |
 | Domain — `CandidatoDeConhecimento` | sim | não força `Inferencia`; `Promover` decide confirmação por natureza (I1) e repassa a natureza |
-| Domain — `Conhecimento` | sim | natureza por revisão; `Confirmar` recusa por natureza (I1/I2), não por tipo |
+| Domain — `Conhecimento` | sim | natureza por revisão, imutável no histórico; `Confirmar` recusa por natureza (I1/I2/I10), não por tipo |
 | Persistência / migrations | sim | coluna de natureza em conhecimentos e no histórico JSON; backfill dos existentes |
 | Application — captura/confirmação | sim | vínculo incidente→solução deixa de exigir `Aprendizado` para conclusões do agente (#259) |
 | Worker — MCP | sim | correção/atualização deixam de reescrever `Tipo`; saídas exibem natureza |
 | Telegram — fluxo natural | sim | textos de consolidação usam natureza/status em vez de `Tipo == Inferencia` (`AlteracoesDaConversa`) |
 | Busca | sim | filtro opcional por natureza; `tipo = Inferencia` continua retornando os itens legados |
 | Context Builder | sim | rótulo por status/natureza (I7) |
+| Worker — `OperacoesMcpDoBrain.ValidarOrigem` | sim | verifica o autor da mensagem respondida (I3); fonte do bot/agente não é origem literal (#264) |
+| Telegram/Application — captura natural (`TelegramBrain`, `CapturaDaConversa`) | sim | trecho respondido registra o autor da fonte; mensagem do bot gera conclusão do agente (I3, I9; #264) |
+| Application — `DocumentoFonte` | sim | autoria do documento registrada na importação; trecho de documento do agente gera conclusão do agente (I9; #264) |
+| Evidências do agente (#257) | sim | evidência registrada pelo agente nasce com autoria do agente; candidato gerado dela é `ConclusaoDoAgente` (P3, I9) |
 | Snapshot | não | validação de decisões já exige `Decisao` + `Confirmado` (I6) |
 | Relações | não | apenas consomem o novo caminho de promoção (#259) |
 
@@ -2021,9 +2063,14 @@ Adotar **B**.
 3. **Busca e Context Builder por natureza**: filtro e rótulo; I7. Depende de 1.
 4. **#259** (vínculo incidente→solução entre candidatos) passa a depender de 2.
 
+Independente desta ADR e implementável antes dela: **#264**, verificação do autor da mensagem
+respondida e da autoria de documentos (I3, I9 aplicadas ao modelo atual). A Issue 1 acima
+reaproveita a autoria registrada pela #264.
+
 ### Por quê
 
 Separar "o que é" de "quem afirmou" e de "quanto vale" mantém a regra de segurança central
-(conclusão do agente não vira fato sem o usuário) e para de destruir informação semântica
-útil para busca, relações e retomada de contexto. A opção C adia o problema para cada
+(conclusão do agente não vira fato sem o usuário, e a confirmação não reescreve quem
+afirmou) e para de destruir informação semântica útil para busca, relações e retomada de
+contexto. A opção C adia o problema para cada
 consumidor; a opção A mantém o bloqueio observado na #147.
