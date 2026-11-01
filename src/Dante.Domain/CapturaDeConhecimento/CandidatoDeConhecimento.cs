@@ -70,8 +70,11 @@ public sealed class CandidatoDeConhecimento : EntidadeBase
         GarantirPendente(revisaoEsperada, instante); ValidarEvidencia(responsavel, instante);
         if (IdIncidente is not null && Tipo != TipoDeConhecimento.Aprendizado)
             throw new InvalidOperationException("Consolidação exige aprendizado classificado pelo usuário.");
+        // A rev1 leva a proveniência e o instante do mesmo ato (captura, correção ou origem equivalente);
+        // só a confirmação usa o instante da promoção. CriadoEm passa a ser o instante dessa origem (#250).
+        var origem = historico[^1];
         var conhecimento = new Conhecimento(IdEspacoDeConhecimento, IdProjeto, Tipo, Conteudo, Titulo is null ? null : JsonSerializer.Serialize(new { titulo = Titulo }),
-            StatusDoConhecimento.Inferido, null, Sensibilidade, null, null, Tags, Proveniencia, instante);
+            StatusDoConhecimento.Inferido, null, Sensibilidade, null, null, Tags, origem.Proveniencia, origem.Instante);
         if (Tipo != TipoDeConhecimento.Inferencia) conhecimento.Confirmar(1, responsavel, instante);
         IdConhecimento = conhecimento.Id; Estado = EstadoDoCandidato.Promovido;
         Registrar("promovido", responsavel, instante);
