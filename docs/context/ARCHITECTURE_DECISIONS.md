@@ -1901,3 +1901,129 @@ Código: `Dante.Infrastructure/Contextos/RepositoryRegistry.cs`,
 `AgentContextResolverTests`, `ClaudeRunnerTests`, `CodexRunnerTests`, `ClaudeSessionDriverTests`,
 `CodexSessionDriverTests`, `SessionRegistryTests`, `LeitorDeCheckoutsGitTests`, `TelegramJobCommandTests` e
 `TelegramRepositoryCommandTests`.
+
+## AD-59 — Classificação semântica do conhecimento separada da autoria e do estado epistêmico
+
+Status: **proposta (#248), aguardando aprovação humana**. Nenhum código, schema ou dado muda
+por esta decisão; a implementação vem nas Issues derivadas listadas abaixo. Complementa a
+ADR do Brain (#134) e a AD-56.
+
+### Contexto
+
+Três perguntas distintas sobre um conhecimento estão hoje respondidas por dois campos:
+
+| Pergunta | Hoje |
+| --- | --- |
+| **O que é** (Fato, Decisão, Incidente, Solução, Aprendizado…) | `TipoDeConhecimento` |
+| **Quem afirmou** (usuário literal, agente, fonte selecionada) | `NaturezaDoConteudo`, **só no candidato** |
+| **Quanto vale** (inferido × confirmado) | `StatusDoConhecimento` |
+
+E o tipo é sobrescrito para carregar autoria:
+
+- `CandidatoDeConhecimento` (construtor): `ConclusaoDoAgente` força `Tipo = Inferencia`. O tipo
+  sugerido é descartado já na captura e não fica em nenhum ato do histórico;
+- `CandidatoDeConhecimento.Promover`: confirma somente se `Tipo != Inferencia`;
+- `Conhecimento.Confirmar`: recusa `Tipo == Inferencia`;
+- `OperacoesMcpDoBrain` (`brain_corrigir_candidato`, `brain_atualizar_conhecimento`) repete a
+  regra: conclusão do agente sempre vira `Inferencia`;
+- `Conhecimento` não persiste `Natureza`. Depois da promoção, `Tipo = Inferencia` é o único
+  sinal de que o conteúdo veio do agente;
+- a promoção com vínculo incidente→solução exige `Tipo = Aprendizado`
+  (`CapturaDeConhecimentoAppService.ConfirmarAsync`), o que é inalcançável para conclusões
+  do agente.
+
+Consequências observadas na validação E2E (#147): os candidatos de teste deixaram de ser
+Incidente/Solução; filtros por tipo não encontram um incidente diagnosticado pelo agente; o
+vínculo `ResolvidoPor` entre eles não é representável (#259); decisões e inferências ficam
+distinguíveis só por convenção de tipo.
+
+### Opções
+
+**A — manter o modelo atual.** Nenhum custo. O tipo semântico continua perdido para
+conclusões do agente; `Inferencia` continua sendo ao mesmo tempo tipo e autoria; #259
+permanece sem solução sem exceções ad hoc.
+
+**B — eixos ortogonais (recomendada).**
+
+- `Tipo` volta a ser **somente semântico**. Conclusão do agente conserva o tipo sugerido
+  (Incidente, Solução, Decisão…);
+- `Natureza` (`DitoPeloUsuario`, `ConclusaoDoAgente`, `FonteSelecionada`) passa a ser
+  persistida também no `Conhecimento`, por revisão (no histórico) e no item atual;
+- `Status` continua sendo o eixo epistêmico. Conclusão do agente entra e permanece
+  `Inferido`;
+- `Inferencia` deixa de ser gravado em itens novos e fica como valor legado, mantido no
+  enum para leitura e filtro dos registros existentes.
+
+Custo: migration (coluna de natureza em conhecimentos e no histórico JSON), ajuste de
+promoção, confirmação, correção, MCP, Telegram, busca e Context Builder.
+
+**C — intermediária.** Manter `Tipo = Inferencia` e guardar o tipo sugerido em
+`DadosEstruturados` (ex.: `tipoSugerido`). Sem migration de schema, mas o tipo real fica fora
+dos filtros e índices, `Inferencia` continua sobrecarregado e cada consumidor precisa conhecer
+o campo auxiliar. Resolve parcialmente #259.
+
+### Decisão proposta
+
+Adotar **B**.
+
+### Invariantes (verificáveis por teste em qualquer implementação)
+
+1. **I1:** conteúdo com `Natureza = ConclusaoDoAgente` nunca resulta em
+   `Status = Confirmado`, seja por promoção, confirmação, consolidação ou atualização. Confirmar
+   no Telegram consolida o candidato, mas não transforma a conclusão em fato.
+2. **I2:** item `ConclusaoDoAgente` só chega a `Confirmado` por uma **nova revisão** com
+   `Natureza = DitoPeloUsuario` (texto literal validado por `ValidarOrigem`) ou
+   `FonteSelecionada` (fonte citada), seguida de confirmação humana no Telegram.
+3. **I3:** `DitoPeloUsuario` continua exigindo origem literal na mensagem ou na resposta citada.
+4. **I4:** correção ou atualização feita pelo agente grava `Natureza = ConclusaoDoAgente` na
+   nova revisão e devolve o item a `Inferido`; nunca herda confirmação anterior (comportamento
+   atual da AD-56, agora sem reescrever o tipo).
+5. **I5:** a natureza de um candidato não muda por correção (regra atual), e a da revisão de um
+   conhecimento é imutável no histórico.
+6. **I6:** decisão referenciada pelo snapshot exige `Tipo = Decisao` e `Status = Confirmado`;
+   por I1, nunca é conclusão do agente.
+7. **I7:** o Context Builder rotula pelo `Status` e pela `Natureza`, não pelo tipo: todo item
+   `Inferido` ou `ConclusaoDoAgente` é apresentado como inferência.
+8. **I8:** a impressão de deduplicação do candidato continua incluindo a natureza.
+
+### Impacto por componente
+
+| Componente | Muda? | O quê |
+| --- | --- | --- |
+| Domain — `CandidatoDeConhecimento` | sim | não força `Inferencia`; `Promover` decide confirmação por natureza (I1) e repassa a natureza |
+| Domain — `Conhecimento` | sim | natureza por revisão; `Confirmar` recusa por natureza (I1/I2), não por tipo |
+| Persistência / migrations | sim | coluna de natureza em conhecimentos e no histórico JSON; backfill dos existentes |
+| Application — captura/confirmação | sim | vínculo incidente→solução deixa de exigir `Aprendizado` para conclusões do agente (#259) |
+| Worker — MCP | sim | correção/atualização deixam de reescrever `Tipo`; saídas exibem natureza |
+| Telegram — fluxo natural | sim | textos de consolidação usam natureza/status em vez de `Tipo == Inferencia` (`AlteracoesDaConversa`) |
+| Busca | sim | filtro opcional por natureza; `tipo = Inferencia` continua retornando os itens legados |
+| Context Builder | sim | rótulo por status/natureza (I7) |
+| Snapshot | não | validação de decisões já exige `Decisao` + `Confirmado` (I6) |
+| Relações | não | apenas consomem o novo caminho de promoção (#259) |
+
+### Dados existentes
+
+- Itens com `Tipo = Inferencia` recebem `Natureza = ConclusaoDoAgente` e **mantêm
+  `Tipo = Inferencia`**. O tipo sugerido original **não é recuperável**: ele foi descartado na
+  captura, e o histórico do candidato também registra `Inferencia`. Reclassificação só por
+  correção explícita (I4), nunca automática.
+- Demais itens: natureza obtida do candidato de origem quando existir (`IdConhecimento`);
+  sem candidato (criação direta, importação), natureza marcada como desconhecida, sem
+  inventar autoria.
+- Nenhuma revisão histórica é reescrita: o backfill preenche só a natureza do item atual,
+  e revisões antigas sem o campo são lidas como "natureza não registrada".
+
+### Issues de implementação derivadas (a criar após aprovação)
+
+1. **Natureza persistida no conhecimento**: Domain, migration e backfill; I1, I2, I5. Depende desta ADR.
+2. **Tipo semântico preservado para conclusões do agente**: captura, correção, atualização,
+   MCP e Telegram; I4, I8. Depende de 1.
+3. **Busca e Context Builder por natureza**: filtro e rótulo; I7. Depende de 1.
+4. **#259** (vínculo incidente→solução entre candidatos) passa a depender de 2.
+
+### Por quê
+
+Separar "o que é" de "quem afirmou" e de "quanto vale" mantém a regra de segurança central
+(conclusão do agente não vira fato sem o usuário) e para de destruir informação semântica
+útil para busca, relações e retomada de contexto. A opção C adia o problema para cada
+consumidor; a opção A mantém o bloqueio observado na #147.
