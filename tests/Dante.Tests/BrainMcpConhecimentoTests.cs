@@ -183,7 +183,9 @@ public sealed class BrainMcpConhecimentoTests
     public async Task ProvenienciaDaRelacaoQualificaASessaoComAInstancia()
     {
         await using var a = await Ambiente.CriarAsync();
-        var incidente = a.Novo("incidente observado"); var solucao = a.Novo("solução aplicada"); await a.GravarAsync(incidente, solucao);
+        // ResolvidoPor exige Incidente → Solução no Domain (RelacaoDeConhecimento); o cenário respeita essa regra.
+        var incidente = a.Novo("incidente observado", tipo: TipoDeConhecimento.Incidente);
+        var solucao = a.Novo("solução aplicada", tipo: TipoDeConhecimento.Solucao); await a.GravarAsync(incidente, solucao);
         await a.OperarAsync("brain_criar_relacao", new { origem = incidente.Id, destino = solucao.Id, revisao_origem = 1, revisao_destino = 1, tipo = "ResolvidoPor" });
         Assert.Contains("Relação", await a.ConfirmarAsync());
         await using (var db = a.Banco.Contexto())
@@ -229,8 +231,9 @@ public sealed class BrainMcpConhecimentoTests
                 app?.Dispose(); await banco.DisposeAsync(); throw;
             }
         }
-        public Conhecimento Novo(string texto, Sensibilidade classe = Sensibilidade.Pessoal, Guid? projeto = null, string? dados = null) =>
-            new(escopo.Acesso.IdEspacoDeConhecimento, projeto ?? escopo.Acesso.IdProjeto, TipoDeConhecimento.Fato, texto, dados,
+        public Conhecimento Novo(string texto, Sensibilidade classe = Sensibilidade.Pessoal, Guid? projeto = null, string? dados = null,
+            TipoDeConhecimento tipo = TipoDeConhecimento.Fato) =>
+            new(escopo.Acesso.IdEspacoDeConhecimento, projeto ?? escopo.Acesso.IdProjeto, tipo, texto, dados,
                 StatusDoConhecimento.Inferido, null, classe, null, null, [], Prova, DateTimeOffset.UtcNow);
         public async Task GravarAsync(params Conhecimento[] itens) { await using var db = banco.Contexto(); db.AddRange(itens); await db.SaveChangesAsync(); }
         public Task<object?> OperarAsync(string nome, object args) => app.GetRequiredService<OperacoesMcpDoBrain>().ExecutarAsync(escopo,
