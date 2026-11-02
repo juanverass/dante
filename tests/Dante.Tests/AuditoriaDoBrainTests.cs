@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using System.Text.Json;
 using Dante.Application;
 using Dante.Application.AuditoriaDoBrain;
@@ -23,7 +24,7 @@ public sealed class AuditoriaDoBrainTests
         await using var banco=await Banco.CriarAsync();var e=new EspacoDeConhecimento(Guid.NewGuid(),"Espaço");var projeto=new Projeto(e.Id,"Projeto");
         var a=Novo(e.Id,null,"procedimento",e.IdUsuario);var b=Novo(e.Id,null,"aprendizado",e.IdUsuario);var p=Novo(e.Id,projeto.Id,"decisão de projeto",e.IdUsuario);
         a.Confirmar(1,a.Proveniencia,DateTimeOffset.UtcNow);var inativo=Novo(e.Id,null,"inativo",e.IdUsuario);inativo.Invalidar(1,inativo.Proveniencia,DateTimeOffset.UtcNow);
-        var expirado=Novo(e.Id,null,"expirado",e.IdUsuario);expirado.Corrigir(1,expirado.Tipo,expirado.Conteudo,null,null,expirado.Sensibilidade,null,DateTimeOffset.UtcNow.AddDays(-1),["audit"],expirado.Proveniencia,DateTimeOffset.UtcNow);
+        var expirado=Novo(e.Id,null,"expirado",e.IdUsuario);expirado.Corrigir(1,expirado.Tipo,expirado.Conteudo,null,null,expirado.Sensibilidade,null,DateTimeOffset.UtcNow.AddDays(-1),["audit"],expirado.Proveniencia,DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         var relacao=new RelacaoDeConhecimento(a,b,TipoDeRelacao.RelacionadoA,a.Proveniencia,DateTimeOffset.UtcNow);
         var fonte=new DocumentoFonte(e.Id,null,"nota:prova","markdown","# Original",AutoriaDaFonte.Usuario,Sensibilidade.Pessoal,e.IdUsuario,DateTimeOffset.UtcNow);
         await using(var c=banco.Contexto()){c.AddRange(e,projeto,a,b,p,inativo,expirado,relacao,fonte);await c.SaveChangesAsync();}
@@ -48,7 +49,7 @@ public sealed class AuditoriaDoBrainTests
     {
         await using var banco=await Banco.CriarAsync();var e=new EspacoDeConhecimento(Guid.NewGuid(),"senha=nomeprotegido");
         var a=Novo(e.Id,null,"historicosuperrestrito",e.IdUsuario,Sensibilidade.Secreto);
-        a.Corrigir(1,a.Tipo,"atual permitido",null,null,Sensibilidade.Publico,null,null,[],a.Proveniencia,DateTimeOffset.UtcNow);
+        a.Corrigir(1,a.Tipo,"atual permitido",null,null,Sensibilidade.Publico,null,null,[],a.Proveniencia,DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         var secreto=Novo(e.Id,null,"segredoclassificado",e.IdUsuario,Sensibilidade.Secreto);
         var conf=Novo(e.Id,null,"confidencialclassificado",e.IdUsuario,Sensibilidade.Confidencial);
         var legado=Novo(e.Id,null,"token=legadoreal123",e.IdUsuario);
@@ -90,6 +91,6 @@ public sealed class AuditoriaDoBrainTests
         }
         finally{Directory.Delete(root,true);}
     }
-    private static Conhecimento Novo(Guid espaco,Guid? projeto,string texto,Guid user,Sensibilidade classe=Sensibilidade.Pessoal)=>new(espaco,projeto,TipoDeConhecimento.Nota,texto,null,StatusDoConhecimento.Inferido,0.7,classe,null,null,["audit"],new(user,"revisão manual","fonte:teste","1","evidência"),DateTimeOffset.UtcNow);
+    private static Conhecimento Novo(Guid espaco,Guid? projeto,string texto,Guid user,Sensibilidade classe=Sensibilidade.Pessoal)=>new(espaco,projeto,TipoDeConhecimento.Nota,texto,null,StatusDoConhecimento.Inferido,0.7,classe,null,null,["audit"],new(user,"revisão manual","fonte:teste","1","evidência"),DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
     private static ServiceProvider Provider(string connection)=>new ServiceCollection().AddApplication().AddInfrastructure(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["ConnectionStrings:Dante"]=connection}).Build()).BuildServiceProvider();
 }

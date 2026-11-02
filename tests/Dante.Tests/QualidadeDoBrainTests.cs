@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application;
 using Dante.Application.Conhecimentos;
 using Dante.Application.QualidadeDoBrain;
@@ -17,7 +18,7 @@ public sealed class QualidadeDoBrainTests
     public void ConsolidacaoPreservaCadaFonteSemReescreverConteudoConfirmado()
     {
         var e=Guid.NewGuid();var a=Novo(e,"conteúdo",fonte:"a"); var b=Novo(e,"conteúdo",fonte:"b");
-        b.Corrigir(1,b.Tipo,b.Conteudo,null,null,b.Sensibilidade,null,null,[],new(Guid.NewGuid(),"nova fonte","c",null,"evidência c"),DateTimeOffset.UtcNow);
+        b.Corrigir(1,b.Tipo,b.Conteudo,null,null,b.Sensibilidade,null,null,[],new(Guid.NewGuid(),"nova fonte","c",null,"evidência c"),DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         a.Confirmar(1,a.Proveniencia,DateTimeOffset.UtcNow); var p=new ProvenienciaDoConhecimento(Guid.NewGuid(),"decisão","manual",null,"mesmo fato");
         a.IncorporarFontesDe([b],2,p,DateTimeOffset.UtcNow);
         Assert.Equal("conteúdo",a.Conteudo); Assert.Equal(StatusDoConhecimento.Confirmado,a.Status);
@@ -121,7 +122,7 @@ public sealed class QualidadeDoBrainTests
         await using var verificar=banco.Contexto();Assert.Equal(StatusDoConhecimento.Inativo,(await verificar.Conhecimentos.SingleAsync(x=>x.Id==b.Id)).Status);
     }
     private static Conhecimento Novo(Guid e,string conteudo,Sensibilidade s=Sensibilidade.Trabalho,string? fonte="fonte",string? json=null,DateTimeOffset? ate=null)=>new(e,null,
-        TipoDeConhecimento.Fato,conteudo,json,StatusDoConhecimento.Inferido,null,s,null,ate,[],new(Guid.NewGuid(),"teste",fonte,null,fonte is null?null:"evidência"),DateTimeOffset.UtcNow);
+        TipoDeConhecimento.Fato,conteudo,json,StatusDoConhecimento.Inferido,null,s,null,ate,[],new(Guid.NewGuid(),"teste",fonte,null,fonte is null?null:"evidência"),DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
     private static ProvenienciaDto Decisao(Guid user)=>new(){IdResponsavel=user,Origem="decisão explícita",ReferenciaDaFonte="revisão manual",TrechoDaFonte="evidência escolhida pelo usuário"};
     private static ServiceProvider Provider(string connection)=>new ServiceCollection().AddApplication().AddInfrastructure(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["ConnectionStrings:Dante"]=connection}).Build()).BuildServiceProvider();
 }

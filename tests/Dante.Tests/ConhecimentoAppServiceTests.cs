@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application;
 using Dante.Application.Comum;
 using Dante.Application.Conhecimentos;
@@ -25,7 +26,7 @@ public sealed class ConhecimentoAppServiceTests : IDisposable
     private ConhecimentoAppService Servico => new(conhecimentos, espacos, projetos, uow,
         provider.GetRequiredService<IMapsterTypeAdapter>());
     private static ProvenienciaDto Origem => new() { IdResponsavel = Guid.NewGuid(), Origem = "registro humano", ReferenciaDaFonte = "nota:1" };
-    private ConhecimentoDto Entrada => new() { IdEspacoDeConhecimento = espaco.Id, Tipo = TipoDeConhecimento.Incidente, Conteudo = "falha", Proveniencia = Origem };
+    private ConhecimentoDto Entrada => new() { Natureza = NaturezaDoConteudo.DitoPeloUsuario, IdEspacoDeConhecimento = espaco.Id, Tipo = TipoDeConhecimento.Incidente, Conteudo = "falha", Proveniencia = Origem };
 
     [Fact]
     public async Task CriacaoIgnoraIdentidadeAutoriaHistoricoETimestampsForjados()
@@ -68,7 +69,7 @@ public sealed class ConhecimentoAppServiceTests : IDisposable
     [Fact]
     public async Task ConfirmacaoNaoAceitaInferenciaNemRevisaoObsoleta()
     {
-        var salvo = await Servico.AdicionarAsync(Entrada with { Tipo = TipoDeConhecimento.Inferencia, Confianca = 1 });
+        var salvo = await Servico.AdicionarAsync(Entrada with { Tipo = TipoDeConhecimento.Inferencia, Natureza = NaturezaDoConteudo.ConclusaoDoAgente, Confianca = 1 });
         await Assert.ThrowsAsync<InvalidOperationException>(() => Servico.ConfirmarAsync(salvo.Id, 1, Origem));
         await Assert.ThrowsAsync<InvalidOperationException>(() => Servico.InvalidarAsync(salvo.Id, 0, Origem));
         Assert.Equal(1, uow.Commits);
@@ -246,6 +247,34 @@ public sealed class ConhecimentoAppServiceTests : IDisposable
             scope.ServiceProvider.GetRequiredService<IConhecimentoAppService>());
         Assert.Contains(nameof(IConhecimentoRepository), erro.Message);
         Assert.Null(scope.ServiceProvider.GetService<IConhecimentoRepository>());
+    }
+
+    [Theory]
+    [MemberData(nameof(NaturezaDoConhecimentoTests.Matriz), MemberType = typeof(NaturezaDoConhecimentoTests))]
+    public async Task ConfirmarAsyncSempreAplicaNaturezaDoDominio(NaturezaDoConteudo origem, NaturezaDoConteudo revisao)
+    {
+        var item = NaturezaDoConhecimentoTests.Novo(origem == NaturezaDoConteudo.Desconhecida ? NaturezaDoConteudo.DitoPeloUsuario : origem, espaco.Id);
+        typeof(Conhecimento).GetProperty(nameof(Conhecimento.NaturezaDeOrigem))!.SetValue(item, origem);
+        typeof(Conhecimento).GetProperty(nameof(Conhecimento.Natureza))!.SetValue(item, revisao);
+        conhecimentos.Itens[item.Id] = item;
+        var permitido = origem is NaturezaDoConteudo.DitoPeloUsuario or NaturezaDoConteudo.FonteSelecionada &&
+            revisao is NaturezaDoConteudo.DitoPeloUsuario or NaturezaDoConteudo.FonteSelecionada;
+        if (permitido) { Assert.True(await Servico.ConfirmarAsync(item.Id, 1, Origem)); Assert.Equal(1, uow.Commits); }
+        else { await Assert.ThrowsAsync<InvalidOperationException>(() => Servico.ConfirmarAsync(item.Id, 1, Origem)); Assert.Equal(0, uow.Commits); }
+        Assert.Equal(origem, item.NaturezaDeOrigem);
+    }
+
+    [Fact]
+    public async Task CrudExigeNaturezaExplicitaEIgnoraOrigemForjadaNaCorrecao()
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => Servico.AdicionarAsync(Entrada with { Natureza = null }));
+        var salvo = await Servico.AdicionarAsync(Entrada with { Natureza = NaturezaDoConteudo.ConclusaoDoAgente });
+        var corrigido = (await Servico.CorrigirAsync(salvo.Id, salvo with { Conteudo = "declaração própria", Natureza = NaturezaDoConteudo.DitoPeloUsuario,
+            NaturezaDeOrigem = NaturezaDoConteudo.DitoPeloUsuario, Status = StatusDoConhecimento.Confirmado }))!;
+        Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, corrigido.NaturezaDeOrigem);
+        Assert.Equal(NaturezaDoConteudo.DitoPeloUsuario, corrigido.Natureza);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Servico.ConfirmarAsync(salvo.Id, corrigido.Revisao, Origem));
+        Assert.Equal(StatusDoConhecimento.Inferido, corrigido.Status);
     }
 
     public void Dispose() => provider.Dispose();

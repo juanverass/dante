@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application;
 using Dante.Application.ConversaDoBrain;
 using Dante.Application.SegurancaDoBrain;
@@ -85,7 +86,7 @@ public sealed class ConversaDoBrainTests
         await Dizer("já resolvemos algo parecido com deadlock?");Assert.Contains("confirmar",await Dizer("essa solução resolveu aquele incidente"));Assert.Contains("Relação registrada",await Dizer("confirmar"));
         await using(var c=banco.Contexto()){var r=await c.RelacoesDeConhecimento.SingleAsync();Assert.Equal(incidente.Id,r.IdOrigem);Assert.Equal(solucao.Id,r.IdDestino);Assert.Equal(TipoDeRelacao.ResolvidoPor,r.Tipo);}
         await Dizer("o que você sabe sobre deadlock?");await Dizer("invalide a primeira");
-        await using(var c=banco.Contexto()){var itens=await c.Conhecimentos.OrderBy(x=>x.Id).ToListAsync();foreach(var k in itens)k.Corrigir(k.Revisao,k.Tipo,k.Conteudo+" atualizado",null,null,k.Sensibilidade,null,null,[],k.Proveniencia,DateTimeOffset.UtcNow);await c.SaveChangesAsync();}
+        await using(var c=banco.Contexto()){var itens=await c.Conhecimentos.OrderBy(x=>x.Id).ToListAsync();foreach(var k in itens)k.Corrigir(k.Revisao,k.Tipo,k.Conteudo+" atualizado",null,null,k.Sensibilidade,null,null,[],k.Proveniencia,DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);await c.SaveChangesAsync();}
         await Assert.ThrowsAsync<InvalidOperationException>(()=>Dizer("confirmar"));
         await using(var c=banco.Contexto())Assert.All(await c.Conhecimentos.ToListAsync(),x=>Assert.Equal(StatusDoConhecimento.Inferido,x.Status));
     }
@@ -186,7 +187,29 @@ public sealed class ConversaDoBrainTests
         }
         finally{Directory.Delete(root,true);}
     }
-    private static Conhecimento Novo(EspacoDeConhecimento e,string texto,TipoDeConhecimento tipo=TipoDeConhecimento.Nota)=>new(e.Id,null,tipo,texto,null,StatusDoConhecimento.Inferido,null,Sensibilidade.Pessoal,null,null,[],new(e.IdUsuario,"manual","nota:teste",null,texto),DateTimeOffset.UtcNow);
+    [PostgreSqlFact]
+    public async Task CorrecaoNaturalDoUsuarioRegistraNovaNaturezaSemTornarConfirmavelAOrigemDoBot()
+    {
+        await using var banco = await Banco.CriarAsync(); using var app = BrainMcpTests.CriarApp(banco.ConnectionString);
+        var brain = app.GetRequiredService<TelegramBrain>(); await BrainMcpTests.SelecionarAsync(brain);
+        var mensagem = BrainMcpTests.Mensagem("registre no Brain", 700) with
+        { ReplyToMessage = BrainMcpTests.Mensagem("Diagnóstico exclusivo do bot", 699) with { From = new(999, true) } };
+        Assert.Contains("candidato", await brain.AtenderAsync(mensagem, mensagem.Text!));
+        Assert.Contains("inferido", await brain.AtenderAsync(BrainMcpTests.Mensagem("confirmar", 701), "confirmar"));
+        Assert.Contains("Diagnóstico", await brain.AtenderAsync(BrainMcpTests.Mensagem("o que você sabe sobre diagnóstico?", 702), "o que você sabe sobre diagnóstico?"));
+        const string correcao = "corrija a primeira para correção explícita feita pelo usuário";
+        Assert.Contains("confirmar", await brain.AtenderAsync(BrainMcpTests.Mensagem(correcao, 703), correcao));
+        Assert.Contains("inferido", await brain.AtenderAsync(BrainMcpTests.Mensagem("confirmar", 704), "confirmar"));
+        await using var db = banco.Contexto(); var item = await db.Conhecimentos.SingleAsync();
+        Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, item.NaturezaDeOrigem);
+        Assert.Equal(NaturezaDoConteudo.DitoPeloUsuario, item.Natureza);
+        Assert.Equal(StatusDoConhecimento.Inferido, item.Status);
+        Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, item.Historico[0].Natureza);
+        Assert.Equal(NaturezaDoConteudo.DitoPeloUsuario, item.Historico[^1].Natureza);
+        Assert.Throws<InvalidOperationException>(() => item.Confirmar(item.Revisao, item.Proveniencia, DateTimeOffset.UtcNow));
+    }
+
+    private static Conhecimento Novo(EspacoDeConhecimento e,string texto,TipoDeConhecimento tipo=TipoDeConhecimento.Nota)=>new(e.Id,null,tipo,texto,null,StatusDoConhecimento.Inferido,null,Sensibilidade.Pessoal,null,null,[],new(e.IdUsuario,"manual","nota:teste",null,texto),DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
     private static IConfiguration Config(string connection)=>new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["ConnectionStrings:Dante"]=connection,["Telegram:AllowedUserIds"]="123"}).Build();
     private static ServiceProvider Provider(string connection)=>new ServiceCollection().AddApplication().AddInfrastructure(Config(connection)).BuildServiceProvider();
 }

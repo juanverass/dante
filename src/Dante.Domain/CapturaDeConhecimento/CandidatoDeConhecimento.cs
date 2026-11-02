@@ -5,7 +5,7 @@ using Dante.Domain.Comum;
 using Dante.Domain.Conhecimentos;
 namespace Dante.Domain.CapturaDeConhecimento;
 
-public enum NaturezaDoConteudo { DitoPeloUsuario, ConclusaoDoAgente, FonteSelecionada }
+public enum NaturezaDoConteudo { DitoPeloUsuario = 0, ConclusaoDoAgente = 1, FonteSelecionada = 2, Desconhecida = 3 }
 public enum ModoDeCaptura { Explicita, SugestaoAutomatica }
 public enum EstadoDoCandidato { Pendente, Promovido, Rejeitado, Descartado }
 public sealed record AtoDoCandidato(int Revisao, string Acao, TipoDeConhecimento Tipo, string Conteudo,
@@ -20,7 +20,7 @@ public sealed class CandidatoDeConhecimento : EntidadeBase
         Sensibilidade sensibilidade, NaturezaDoConteudo natureza, ModoDeCaptura modo, string justificativa,
         ProvenienciaDoConhecimento proveniencia, DateTimeOffset instante, Guid? idIncidente = null, Guid? idSolucao = null, string? titulo = null, IReadOnlyList<string>? tags = null)
     {
-        if (idEspaco == Guid.Empty || idProjeto == Guid.Empty || !Enum.IsDefined(natureza) || !Enum.IsDefined(modo) || !Enum.IsDefined(tipo))
+        if (idEspaco == Guid.Empty || idProjeto == Guid.Empty || !Enum.IsDefined(natureza) || natureza == NaturezaDoConteudo.Desconhecida || !Enum.IsDefined(modo) || !Enum.IsDefined(tipo))
             throw new ArgumentException("Escopo ou origem da captura inválido.");
         if ((idIncidente is null) != (idSolucao is null) || idIncidente == Guid.Empty || idSolucao == Guid.Empty)
             throw new ArgumentException("Consolidação exige incidente e solução.");
@@ -74,8 +74,8 @@ public sealed class CandidatoDeConhecimento : EntidadeBase
         // só a confirmação usa o instante da promoção. CriadoEm passa a ser o instante dessa origem (#250).
         var origem = historico[^1];
         var conhecimento = new Conhecimento(IdEspacoDeConhecimento, IdProjeto, Tipo, Conteudo, Titulo is null ? null : JsonSerializer.Serialize(new { titulo = Titulo }),
-            StatusDoConhecimento.Inferido, null, Sensibilidade, null, null, Tags, origem.Proveniencia, origem.Instante);
-        if (Tipo != TipoDeConhecimento.Inferencia) conhecimento.Confirmar(1, responsavel, instante);
+            StatusDoConhecimento.Inferido, null, Sensibilidade, null, null, Tags, origem.Proveniencia, origem.Instante, Natureza);
+        if (conhecimento.PodeSerConfirmado) conhecimento.Confirmar(1, responsavel, instante);
         IdConhecimento = conhecimento.Id; Estado = EstadoDoCandidato.Promovido;
         Registrar("promovido", responsavel, instante);
         return conhecimento;

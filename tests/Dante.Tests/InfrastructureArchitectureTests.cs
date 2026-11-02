@@ -12,7 +12,7 @@ public sealed class InfrastructureArchitectureTests
     {
         var assembly = typeof(DanteDbContext).Assembly;
         var migrations = assembly.GetTypes().Where(t => !t.IsAbstract && typeof(Migration).IsAssignableFrom(t)).ToArray();
-        Assert.Equal(11, migrations.Length);
+        Assert.Equal(12, migrations.Length);
         var snapshot = Assert.Single(assembly.GetTypes(), t => !t.IsAbstract && typeof(ModelSnapshot).IsAssignableFrom(t));
         foreach (var tipo in migrations.Append(snapshot))
         {

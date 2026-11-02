@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Dante.Domain.Comum;
+using Dante.Domain.CapturaDeConhecimento;
 
 namespace Dante.Domain.Conhecimentos;
 
@@ -14,8 +15,9 @@ public sealed class Conhecimento : EntidadeBase
     public Conhecimento(Guid idEspacoDeConhecimento, Guid? idProjeto, TipoDeConhecimento tipo,
         string? conteudo, string? dadosEstruturados, StatusDoConhecimento status, double? confianca,
         Sensibilidade sensibilidade, DateTimeOffset? validoDesde, DateTimeOffset? validoAte,
-        IEnumerable<string>? tags, ProvenienciaDoConhecimento proveniencia, DateTimeOffset instante)
+        IEnumerable<string>? tags, ProvenienciaDoConhecimento proveniencia, DateTimeOffset instante, NaturezaDoConteudo natureza)
     {
+        ValidarNaturezaNova(natureza);
         if (idEspacoDeConhecimento == Guid.Empty || idProjeto == Guid.Empty)
             throw new ArgumentException("Escopo de conhecimento inválido.");
         if (status is not (StatusDoConhecimento.Inferido or StatusDoConhecimento.Temporario))
@@ -28,6 +30,7 @@ public sealed class Conhecimento : EntidadeBase
         IdAutor = proveniencia.IdResponsavel;
         CriadoEm = AtualizadoEm = instante;
         Status = status;
+        NaturezaDeOrigem = Natureza = natureza;
         AplicarDados(dados);
         Registrar(proveniencia, instante);
     }
@@ -35,6 +38,10 @@ public sealed class Conhecimento : EntidadeBase
     public Guid IdEspacoDeConhecimento { get; private set; }
     public Guid? IdProjeto { get; private set; }
     public Guid IdAutor { get; private set; }
+    public NaturezaDoConteudo NaturezaDeOrigem { get; private set; }
+    public NaturezaDoConteudo Natureza { get; private set; }
+    // Uma única decisão para confirmação direta e promoção. A evidência literal é validada pelo adapter autenticado.
+    public bool PodeSerConfirmado => DeAutoriaDoUsuario(NaturezaDeOrigem) && DeAutoriaDoUsuario(Natureza);
     public TipoDeConhecimento Tipo { get; private set; }
     public string? Conteudo { get; private set; }
     public string? DadosEstruturados { get; private set; }
@@ -59,8 +66,8 @@ public sealed class Conhecimento : EntidadeBase
     public void Confirmar(int revisaoEsperada, ProvenienciaDoConhecimento proveniencia, DateTimeOffset instante)
     {
         GarantirAlteravel(revisaoEsperada, proveniencia, instante);
-        if (Tipo == TipoDeConhecimento.Inferencia)
-            throw new InvalidOperationException("Inferência não pode ser confirmada; corrija a classificação com evidência antes.");
+        if (!PodeSerConfirmado)
+            throw new InvalidOperationException("Confirmação exige natureza de origem e da revisão atual de autoria do usuário.");
         if (Status == StatusDoConhecimento.Confirmado)
             throw new InvalidOperationException("Conhecimento já confirmado.");
         Status = StatusDoConhecimento.Confirmado;
@@ -69,13 +76,15 @@ public sealed class Conhecimento : EntidadeBase
 
     public void Corrigir(int revisaoEsperada, TipoDeConhecimento tipo, string? conteudo, string? dadosEstruturados,
         double? confianca, Sensibilidade sensibilidade, DateTimeOffset? validoDesde, DateTimeOffset? validoAte,
-        IEnumerable<string>? tags, ProvenienciaDoConhecimento proveniencia, DateTimeOffset instante)
+        IEnumerable<string>? tags, ProvenienciaDoConhecimento proveniencia, DateTimeOffset instante, NaturezaDoConteudo natureza)
     {
+        ValidarNaturezaNova(natureza);
         GarantirAlteravel(revisaoEsperada, proveniencia, instante);
         var dados = ValidarDados(tipo, conteudo, dadosEstruturados, confianca, sensibilidade, validoDesde, validoAte, tags);
         AplicarDados(dados);
-        // A confirmação de uma versão não confirma automaticamente seu novo conteúdo.
-        if (Status == StatusDoConhecimento.Confirmado) Status = StatusDoConhecimento.Inferido;
+        // A autoria original permanece; a nova revisão tem sua própria natureza e não herda confirmação.
+        Natureza = natureza;
+        if (Status == StatusDoConhecimento.Confirmado || natureza == NaturezaDoConteudo.ConclusaoDoAgente) Status = StatusDoConhecimento.Inferido;
         Registrar(proveniencia, instante);
     }
 
@@ -134,7 +143,16 @@ public sealed class Conhecimento : EntidadeBase
     {
         AtualizadoEm = instante;
         historico.Add(new RevisaoDoConhecimento(Revisao + 1, Tipo, Conteudo, DadosEstruturados, Status, Confianca,
-            Sensibilidade, ValidoDesde, ValidoAte, Tags, proveniencia, instante, IdConhecimentoSubstituto));
+            Sensibilidade, ValidoDesde, ValidoAte, Tags, proveniencia, instante, IdConhecimentoSubstituto, Natureza));
+    }
+
+    private static bool DeAutoriaDoUsuario(NaturezaDoConteudo natureza) =>
+        natureza is NaturezaDoConteudo.DitoPeloUsuario or NaturezaDoConteudo.FonteSelecionada;
+
+    private static void ValidarNaturezaNova(NaturezaDoConteudo natureza)
+    {
+        if (!Enum.IsDefined(natureza) || natureza == NaturezaDoConteudo.Desconhecida)
+            throw new ArgumentException("Natureza explícita é obrigatória; desconhecida é reservada ao legado.", nameof(natureza));
     }
 
     private static void ValidarInstante(DateTimeOffset instante)

@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application;
 using Dante.Application.BuscaDoBrain;
 using Dante.Application.Conhecimentos;
@@ -94,7 +95,7 @@ public sealed class BuscaDoBrainTests
         await using(var c=banco.Contexto())
         {
             var salvo=(await c.Conhecimentos.SingleAsync(x=>x.Id==a.Id)); Assert.Equal(1,salvo.Revisao);
-            salvo.Corrigir(1,salvo.Tipo,"fotografia",null,null,salvo.Sensibilidade,null,null,[],salvo.Proveniencia,DateTimeOffset.UtcNow); await c.SaveChangesAsync();
+            salvo.Corrigir(1,salvo.Tipo,"fotografia",null,null,salvo.Sensibilidade,null,null,[],salvo.Proveniencia,DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario); await c.SaveChangesAsync();
         }
         gerador.Indisponivel=false;
         using(var scope=EscoposBrainDeTeste.Criar(provider, e.IdUsuario, e.Id))
@@ -120,7 +121,7 @@ public sealed class BuscaDoBrainTests
         var modelo = new ModeloEmbedding("teste", "controlado", "1", 3);
         Assert.True(await indice.GravarAsync(publico.Id, publico.Revisao, modelo, [1, 0, 0]));
         publico.Corrigir(1, publico.Tipo, publico.Conteudo, null, null, Sensibilidade.Secreto,
-            null, null, [], publico.Proveniencia, DateTimeOffset.UtcNow);
+            null, null, [], publico.Proveniencia, DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         await c.SaveChangesAsync();
         Assert.Empty(await IdsLexicaisAsync(c));
         Assert.Empty(await c.Database.SqlQuery<Guid>($"SELECT id_conhecimento AS \"Value\" FROM brain_index.representacoes").ToListAsync());
@@ -132,7 +133,7 @@ public sealed class BuscaDoBrainTests
         Assert.Equal("conteudopermitido", publico.Conteudo);
         // Ao reclassificar de volta para permitido, apenas a revisão atual volta ao índice.
         publico.Corrigir(2, publico.Tipo, "revisaopermitida", null, null, Sensibilidade.Publico,
-            null, null, [], publico.Proveniencia, DateTimeOffset.UtcNow);
+            null, null, [], publico.Proveniencia, DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         await c.SaveChangesAsync();
         Assert.Equal(new[] { publico.Id }, await IdsLexicaisAsync(c));
         await indice.ReconstruirLexicalAsync();
@@ -151,7 +152,7 @@ public sealed class BuscaDoBrainTests
         var publico = Novo(espaco.Id, "permitido", Sensibilidade.Publico);
         // Esquema anterior ao tenant: seed compatível com a versão física, sem usar o modelo atual do espaço.
         await c.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO brain_data.espacos_de_conhecimento(id,id_usuario,nome,estado) VALUES({espaco.Id},{espaco.IdUsuario},{espaco.Nome},0)");
-        c.AddRange(secreto, publico); await c.SaveChangesAsync();
+        await ConhecimentoLegadoDeTeste.InserirAsync(c, secreto); await ConhecimentoLegadoDeTeste.InserirAsync(c, publico);
         Assert.Contains(secreto.Id, await IdsLexicaisAsync(c));
         await c.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO brain_index.representacoes(id_conhecimento,revisao,modelo,provedor,nome,versao,dimensao,gerado_em) VALUES({secreto.Id},1,'legado','teste','teste','1',3,now())");
         await migrator.MigrateAsync();
@@ -184,13 +185,13 @@ public sealed class BuscaDoBrainTests
             if (atual.Sensibilidade == Sensibilidade.Secreto)
             {
                 atual.Corrigir(atual.Revisao, atual.Tipo, atual.Conteudo, null, null, Sensibilidade.Publico,
-                    null, null, [], atual.Proveniencia, DateTimeOffset.UtcNow);
+                    null, null, [], atual.Proveniencia, DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
                 await classificacao.SaveChangesAsync();
             }
             var revisaoAnterior = atual.Revisao;
             await using var transacao = await classificacao.Database.BeginTransactionAsync();
             atual.Corrigir(revisaoAnterior, atual.Tipo, atual.Conteudo, null, null, Sensibilidade.Secreto,
-                null, null, [], atual.Proveniencia, DateTimeOffset.UtcNow);
+                null, null, [], atual.Proveniencia, DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
             await classificacao.SaveChangesAsync();
             await using var escrita = Banco.Contexto(connection);
             var indice = new IndiceDeBuscaPostgreSql(escrita);
@@ -253,7 +254,7 @@ public sealed class BuscaDoBrainTests
         { Textos.Add(texto); return Task.FromResult<float[]?>(Indisponivel?null:texto.Contains("relação")||texto.Contains("associação")?[1,0,0]:[0,1,0]); }
     }
     private static Conhecimento Novo(Guid e,string texto,Sensibilidade s=Sensibilidade.Trabalho,IReadOnlyList<string>? tags=null,DateTimeOffset? ate=null)=>new(e,null,
-        TipoDeConhecimento.Fato,texto,null,StatusDoConhecimento.Inferido,null,s,null,ate,tags??[],new(Guid.NewGuid(),"teste","fonte",null,"trecho"),DateTimeOffset.UtcNow);
+        TipoDeConhecimento.Fato,texto,null,StatusDoConhecimento.Inferido,null,s,null,ate,tags??[],new(Guid.NewGuid(),"teste","fonte",null,"trecho"),DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
     private static ServiceProvider Provider(string connection,IGeradorDeEmbedding gerador)
     {
         var services=new ServiceCollection().AddApplication().AddInfrastructure(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["ConnectionStrings:Dante"]=connection }).Build());

@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Dante.Application;
@@ -255,7 +256,7 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
     }
 
     private static Conhecimento Novo(EspacoDeConhecimento e,string texto,Sensibilidade classe=Sensibilidade.Pessoal)
-    {var k=new Conhecimento(e.Id,null,TipoDeConhecimento.Fato,texto,null,StatusDoConhecimento.Inferido,null,classe,null,null,[],new(e.IdUsuario,"manual","fonte:teste"),DateTimeOffset.UtcNow);k.Confirmar(1,k.Proveniencia,DateTimeOffset.UtcNow);return k;}
+    {var k=new Conhecimento(e.Id,null,TipoDeConhecimento.Fato,texto,null,StatusDoConhecimento.Inferido,null,classe,null,null,[],new(e.IdUsuario,"manual","fonte:teste"),DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);k.Confirmar(1,k.Proveniencia,DateTimeOffset.UtcNow);return k;}
 
     private ServiceProvider Provider(string connection,out IConfiguration config)
     {

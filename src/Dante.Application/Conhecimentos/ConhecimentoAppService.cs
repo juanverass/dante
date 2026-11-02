@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application.SegurancaDoBrain;
 using Dante.Application.RelacoesDeConhecimento;
 using Dante.Domain.RelacoesDeConhecimento;
@@ -98,7 +99,7 @@ public sealed class ConhecimentoAppService : CrudBasicoAppService<ConhecimentoDt
 
     protected override void AplicarAlteracoes(Conhecimento entidade, ConhecimentoDto dto) => entidade.Corrigir(dto.Revisao,
         dto.Tipo, dto.Conteudo, dto.DadosEstruturados, dto.Confianca, dto.Sensibilidade, dto.ValidoDesde, dto.ValidoAte,
-        dto.Tags, ParaProveniencia(dto.Proveniencia), DateTimeOffset.UtcNow);
+        dto.Tags, ParaProveniencia(dto.Proveniencia), DateTimeOffset.UtcNow, dto.Natureza.GetValueOrDefault(NaturezaDoConteudo.Desconhecida));
 
     protected override Task<IReadOnlyList<Conhecimento>> ConsultarAsync(ConhecimentoSearchDto filtro,
         CancellationToken cancellationToken)

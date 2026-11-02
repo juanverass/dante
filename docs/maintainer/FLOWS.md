@@ -907,3 +907,29 @@ chamadas programáticas informam a autoria efetiva. A migration
 registros. Ele continua consultável; gerar candidato exige reimportação explícita
 com autoria e revisão esperada. A confirmação não muda a natureza original.
 Detalhes e limites em [Brain MCP](../development/brain-mcp.md#autoria-de-mensagens-e-documentos-264).
+
+## Natureza de origem, revisão e confirmação (#265)
+
+```text
+captura com autoria verificada → candidato com natureza imutável
+  → confirmação Telegram → promoção repassa natureza ao Conhecimento
+  → Domain confirma somente se origem e revisão são de autoria humana
+
+correção/atualização explícita → nova revisão com sua natureza
+  → origem original preservada → confirmação anterior não é herdada
+  → origem ou revisão do agente/desconhecida impede confirmação
+
+nova afirmação própria do usuário → outro candidato → confirmação
+  → novo conhecimento humano → relação DerivadoDe explícita com o original
+```
+
+`Conhecimento.Confirmar` e promoção usam a mesma regra do Domain. AppService, MCP e
+Telegram não têm uma confirmação alternativa. Conclusão do agente continua inferida,
+mesmo após correção humana no mesmo item. Consolidação conserva as naturezas e o
+status do destino; duplicata do agente não ganha confirmação.
+
+A migration da #265 preenche origem somente por candidato registrado; revisão
+vigente do legado fica Desconhecida, e revisões antigas sem o campo são lidas como
+natureza não registrada. Nenhum status ou histórico existente é reescrito. Detalhes
+de persistência, compatibilidade e limites em
+[Brain MCP](../development/brain-mcp.md#natureza-do-conhecimento-e-confirmação-265-ad-59).

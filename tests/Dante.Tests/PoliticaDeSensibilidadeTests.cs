@@ -52,7 +52,7 @@ public sealed class PoliticaDeSensibilidadeTests
     {
         var item = Novo(Sensibilidade.Secreto);
         var p = item.Proveniencia;
-        item.Corrigir(1, item.Tipo, item.Conteudo, null, null, Sensibilidade.Trabalho, null, null, [], p, DateTimeOffset.UtcNow);
+        item.Corrigir(1, item.Tipo, item.Conteudo, null, null, Sensibilidade.Trabalho, null, null, [], p, DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         Assert.Equal(Sensibilidade.Secreto, item.Historico[0].Sensibilidade);
         Assert.Equal(Sensibilidade.Trabalho, item.Sensibilidade);
         Assert.False(ProtecaoDeSegredos.ContemSegredo("token=secret://host/API_TOKEN"));
@@ -78,5 +78,5 @@ public sealed class PoliticaDeSensibilidadeTests
     }
     private static Conhecimento Novo(Sensibilidade s, Guid? espaco = null) => new(espaco ?? Guid.NewGuid(), null, TipoDeConhecimento.Nota,
         "token=secret://host/API_TOKEN", null, StatusDoConhecimento.Inferido, null, s, null, null, [],
-        new(Guid.NewGuid(), "teste", "fonte", null, "trecho"), DateTimeOffset.UtcNow);
+        new(Guid.NewGuid(), "teste", "fonte", null, "trecho"), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
 }

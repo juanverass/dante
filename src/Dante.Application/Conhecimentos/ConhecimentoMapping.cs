@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application.Mapeamento;
 using Dante.Domain.Conhecimentos;
 
@@ -9,7 +10,8 @@ internal static class ConhecimentoMapping
     {
         configuracao.Registrar<ConhecimentoDto, Conhecimento>(dto => new Conhecimento(dto.IdEspacoDeConhecimento,
             dto.IdProjeto, dto.Tipo, dto.Conteudo, dto.DadosEstruturados, dto.Status, dto.Confianca, dto.Sensibilidade,
-            dto.ValidoDesde, dto.ValidoAte, dto.Tags, ConhecimentoAppService.ParaProveniencia(dto.Proveniencia), DateTimeOffset.UtcNow));
+            dto.ValidoDesde, dto.ValidoAte, dto.Tags, ConhecimentoAppService.ParaProveniencia(dto.Proveniencia), DateTimeOffset.UtcNow,
+            dto.Natureza.GetValueOrDefault(NaturezaDoConteudo.Desconhecida)));
         configuracao.Registrar<Conhecimento, ConhecimentoDto>(entidade => ParaConhecimentoDto(entidade));
     }
 
@@ -23,6 +25,7 @@ internal static class ConhecimentoMapping
     private static ConhecimentoDto ParaConhecimentoDto(Conhecimento entidade) => new()
     {
         Id = entidade.Id, IdEspacoDeConhecimento = entidade.IdEspacoDeConhecimento, IdProjeto = entidade.IdProjeto,
+        NaturezaDeOrigem = entidade.NaturezaDeOrigem, Natureza = entidade.Natureza,
         IdAutor = entidade.IdAutor, Tipo = entidade.Tipo, Conteudo = entidade.Conteudo, DadosEstruturados = entidade.DadosEstruturados,
         Status = entidade.Status, Confianca = entidade.Confianca, Sensibilidade = entidade.Sensibilidade,
         CriadoEm = entidade.CriadoEm, AtualizadoEm = entidade.AtualizadoEm, ValidoDesde = entidade.ValidoDesde,
@@ -30,7 +33,7 @@ internal static class ConhecimentoMapping
         Revisao = entidade.Revisao, IdConhecimentoSubstituto = entidade.IdConhecimentoSubstituto,
         Historico = entidade.Historico.Select(revisao => new RevisaoDoConhecimentoDto
         {
-            Numero = revisao.Numero, Tipo = revisao.Tipo, Conteudo = revisao.Conteudo, DadosEstruturados = revisao.DadosEstruturados,
+            Natureza = revisao.Natureza, Numero = revisao.Numero, Tipo = revisao.Tipo, Conteudo = revisao.Conteudo, DadosEstruturados = revisao.DadosEstruturados,
             Status = revisao.Status, Confianca = revisao.Confianca, Sensibilidade = revisao.Sensibilidade,
             ValidoDesde = revisao.ValidoDesde, ValidoAte = revisao.ValidoAte, Tags = revisao.Tags.ToArray(),
             Proveniencia = ParaProvenienciaDto(revisao.Proveniencia), RegistradaEm = revisao.RegistradaEm,

@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application.Comum;
 using Dante.Application.Conhecimentos;
 using Dante.Domain.Conhecimentos;
@@ -40,7 +41,7 @@ public sealed class BrainEfTests
             Assert.Equal(new[] { "teste" }, salvo.Tags);
             Assert.Single(await repo.ListarDoEspacoAsync(new() { IdEspacoDeConhecimento = espaco.Id, Tag = "TESTE", ValidoEm = DateTimeOffset.UtcNow }));
             Assert.Empty(await repo.ListarDoEspacoAsync(new() { IdEspacoDeConhecimento = espaco.Id, SomenteSemProjeto = true }));
-            salvo.Corrigir(2, TipoDeConhecimento.Fato, "corrigido", null, null, Sensibilidade.Pessoal, null, null, [], Origem(), DateTimeOffset.UtcNow);
+            salvo.Corrigir(2, TipoDeConhecimento.Fato, "corrigido", null, null, Sensibilidade.Pessoal, null, null, [], Origem(), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
             repo.Atualizar(salvo);
             await new UnitOfWork(c).SalvarAlteracoesAsync();
         }
@@ -170,7 +171,7 @@ public sealed class BrainEfTests
 
     internal static ProvenienciaDoConhecimento Origem() => new(Guid.NewGuid(), "usuário", "fonte", "v1", "evidência");
     internal static Conhecimento Novo(Guid espaco, Guid? projeto = null) => new(espaco, projeto, TipoDeConhecimento.Fato,
-        "conteúdo", null, StatusDoConhecimento.Inferido, null, Sensibilidade.Pessoal, null, null, ["teste"], Origem(), DateTimeOffset.UtcNow);
+        "conteúdo", null, StatusDoConhecimento.Inferido, null, Sensibilidade.Pessoal, null, null, ["teste"], Origem(), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
 }
 
 internal sealed class Banco : IAsyncDisposable

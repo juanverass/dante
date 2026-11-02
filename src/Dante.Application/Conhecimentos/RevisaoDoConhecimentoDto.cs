@@ -1,10 +1,12 @@
 using Dante.Domain.Conhecimentos;
+using Dante.Domain.CapturaDeConhecimento;
 
 namespace Dante.Application.Conhecimentos;
 
 public sealed record RevisaoDoConhecimentoDto
 {
     public int Numero { get; init; }
+    public NaturezaDoConteudo? Natureza { get; init; }
     public TipoDeConhecimento Tipo { get; init; }
     public string? Conteudo { get; init; }
     public string? DadosEstruturados { get; init; }

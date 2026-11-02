@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Domain.Conhecimentos;
 
 namespace Dante.Tests;
@@ -7,9 +8,9 @@ public sealed class ConhecimentoTests
     private static readonly DateTimeOffset Agora = new(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
     private static ProvenienciaDoConhecimento Origem(string origem = "registro humano") => new(Guid.NewGuid(), origem, "fonte:1", "v1", "trecho selecionado");
     private static Conhecimento Criar(TipoDeConhecimento tipo = TipoDeConhecimento.Fato,
-        StatusDoConhecimento status = StatusDoConhecimento.Inferido, Guid? espaco = null, Guid? projeto = null) =>
+        StatusDoConhecimento status = StatusDoConhecimento.Inferido, Guid? espaco = null, Guid? projeto = null, NaturezaDoConteudo natureza = NaturezaDoConteudo.DitoPeloUsuario) =>
         new(espaco ?? Guid.NewGuid(), projeto, tipo, " conteúdo ", null, status, .9, Sensibilidade.Pessoal,
-            null, null, [" csharp ", "CSharp", "brain"], Origem(), Agora);
+            null, null, [" csharp ", "CSharp", "brain"], Origem(), Agora, natureza);
 
     [Theory]
     [InlineData(TipoDeConhecimento.Fato)] [InlineData(TipoDeConhecimento.Decisao)]
@@ -38,9 +39,9 @@ public sealed class ConhecimentoTests
         Assert.Throws<ArgumentException>(() => Criar(status: status));
 
     [Fact]
-    public void ConfiancaAltaNaoConfirmaInferencia()
+    public void ConfiancaAltaNaoConfirmaConclusaoDoAgente()
     {
-        var item = Criar(TipoDeConhecimento.Inferencia);
+        var item = Criar(TipoDeConhecimento.Inferencia, natureza: NaturezaDoConteudo.ConclusaoDoAgente);
         Assert.Throws<InvalidOperationException>(() => item.Confirmar(1, Origem(), Agora));
         Assert.Equal(StatusDoConhecimento.Inferido, item.Status);
         Assert.Equal(1, item.Revisao);
@@ -55,7 +56,7 @@ public sealed class ConhecimentoTests
         item.Confirmar(1, confirmador, Agora.AddMinutes(1));
         Assert.Equal(StatusDoConhecimento.Confirmado, item.Status);
         item.Corrigir(2, TipoDeConhecimento.Decisao, "corrigido", "{\"versao\":2}", null,
-            Sensibilidade.Confidencial, null, null, ["novo"], Origem("correção"), Agora.AddMinutes(2));
+            Sensibilidade.Confidencial, null, null, ["novo"], Origem("correção"), Agora.AddMinutes(2), NaturezaDoConteudo.DitoPeloUsuario);
         Assert.Equal(StatusDoConhecimento.Inferido, item.Status);
         Assert.Equal(3, item.Revisao);
         Assert.Equal(origemInicial.IdResponsavel, item.IdAutor);
@@ -73,7 +74,7 @@ public sealed class ConhecimentoTests
     {
         var item = Criar(TipoDeConhecimento.Inferencia);
         item.Corrigir(1, TipoDeConhecimento.Fato, "comprovado", null, 1, Sensibilidade.Pessoal,
-            null, null, [], Origem("evidência"), Agora);
+            null, null, [], Origem("evidência"), Agora, NaturezaDoConteudo.DitoPeloUsuario);
         Assert.Equal(StatusDoConhecimento.Inferido, item.Status);
         item.Confirmar(2, Origem("verificação"), Agora);
         Assert.Equal(StatusDoConhecimento.Confirmado, item.Status);
@@ -85,7 +86,7 @@ public sealed class ConhecimentoTests
         var item = Criar();
         var antes = item.Historico[0];
         Assert.Throws<ArgumentException>(() => item.Corrigir(1, TipoDeConhecimento.Nota, "novo", "invalido", .1,
-            Sensibilidade.Publico, null, null, [], Origem(), Agora));
+            Sensibilidade.Publico, null, null, [], Origem(), Agora, NaturezaDoConteudo.DitoPeloUsuario));
         Assert.Throws<InvalidOperationException>(() => item.Invalidar(0, Origem(), Agora));
         Assert.Throws<ArgumentException>(() => item.Invalidar(1, Origem(), Agora.AddMinutes(-1)));
         Assert.Equal(antes, Assert.Single(item.Historico));
@@ -133,7 +134,7 @@ public sealed class ConhecimentoTests
     public void ValidadeTemLimitesIndependentesDoStatus()
     {
         var item = new Conhecimento(Guid.NewGuid(), null, TipoDeConhecimento.Nota, "temporária", null,
-            StatusDoConhecimento.Temporario, null, Sensibilidade.Trabalho, Agora, Agora.AddHours(1), [], Origem(), Agora);
+            StatusDoConhecimento.Temporario, null, Sensibilidade.Trabalho, Agora, Agora.AddHours(1), [], Origem(), Agora, NaturezaDoConteudo.DitoPeloUsuario);
         Assert.False(item.EstaValidoEm(Agora.AddTicks(-1)));
         Assert.True(item.EstaValidoEm(Agora));
         Assert.False(item.EstaValidoEm(Agora.AddHours(1)));
@@ -145,7 +146,7 @@ public sealed class ConhecimentoTests
     [InlineData(-.1)] [InlineData(1.1)] [InlineData(double.NaN)] [InlineData(double.PositiveInfinity)]
     public void ConfiancaInvalidaERecusada(double valor) => Assert.Throws<ArgumentOutOfRangeException>(() =>
         new Conhecimento(Guid.NewGuid(), null, TipoDeConhecimento.Nota, "texto", null, StatusDoConhecimento.Inferido,
-            valor, Sensibilidade.Pessoal, null, null, [], Origem(), Agora));
+            valor, Sensibilidade.Pessoal, null, null, [], Origem(), Agora, NaturezaDoConteudo.DitoPeloUsuario));
 
     [Fact]
     public void ValidaEscopoConteudoJsonTagsClassificacaoEIntervalo()
@@ -153,7 +154,7 @@ public sealed class ConhecimentoTests
         Conhecimento Novo(Guid espaco, TipoDeConhecimento tipo = TipoDeConhecimento.Nota, string? conteudo = "texto",
             string? json = null, Sensibilidade sensibilidade = Sensibilidade.Pessoal, DateTimeOffset? desde = null,
             DateTimeOffset? ate = null, string[]? tags = null) => new(espaco, null, tipo, conteudo, json,
-                StatusDoConhecimento.Inferido, null, sensibilidade, desde, ate, tags, Origem(), Agora);
+                StatusDoConhecimento.Inferido, null, sensibilidade, desde, ate, tags, Origem(), Agora, NaturezaDoConteudo.DitoPeloUsuario);
         Assert.Throws<ArgumentException>(() => Novo(Guid.Empty));
         Assert.Throws<ArgumentException>(() => Novo(Guid.NewGuid(), tipo: (TipoDeConhecimento)99));
         Assert.Throws<ArgumentException>(() => Novo(Guid.NewGuid(), sensibilidade: (Sensibilidade)99));
@@ -171,7 +172,7 @@ public sealed class ConhecimentoTests
     {
         var tags = new[] { "original" };
         var item = new Conhecimento(Guid.NewGuid(), null, TipoDeConhecimento.Nota, "texto", null,
-            StatusDoConhecimento.Inferido, null, Sensibilidade.Pessoal, null, null, tags, Origem(), Agora);
+            StatusDoConhecimento.Inferido, null, Sensibilidade.Pessoal, null, null, tags, Origem(), Agora, NaturezaDoConteudo.DitoPeloUsuario);
         tags[0] = "mutado";
         Assert.Equal("original", item.Tags[0]);
         Assert.Throws<NotSupportedException>(() => ((IList<string>)item.Tags)[0] = "mutado");

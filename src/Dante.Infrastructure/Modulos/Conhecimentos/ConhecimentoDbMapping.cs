@@ -19,6 +19,9 @@ public sealed class ConhecimentoDbMapping : EntidadeConfiguration<Conhecimento>
         b.Property(x => x.IdEspacoDeConhecimento).HasColumnName("id_espaco_de_conhecimento");
         b.Property(x => x.IdProjeto).HasColumnName("id_projeto");
         b.Property(x => x.IdAutor).HasColumnName("id_autor");
+        b.Property(x => x.NaturezaDeOrigem).HasColumnName("natureza_de_origem");
+        b.Property(x => x.Natureza).HasColumnName("natureza");
+        b.Ignore(x => x.PodeSerConfirmado);
         b.Property(x => x.Tipo).HasColumnName("tipo");
         b.Property(x => x.Conteudo).HasColumnName("conteudo").HasMaxLength(100000);
         b.Property(x => x.DadosEstruturados).HasColumnName("dados_estruturados").HasColumnType("jsonb");
