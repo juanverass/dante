@@ -838,6 +838,13 @@ Falha de gravação não confirma captura; falha de índice não perde conhecime
 Nenhum turno inteiro é consolidado automaticamente como fato. Uma inferência pode
 ser registrada como inferred, nunca silenciosamente confirmada pelo agente.
 
+Na promoção, a primeira revisão do conhecimento registra a proveniência **e o instante**
+do último ato do candidato (captura, correção ou origem equivalente); a confirmação, quando
+existe, é a segunda revisão, com o instante da promoção. `CriadoEm` é o instante dessa
+origem (filtros `CriadoDesde`/`CriadoAte` da busca usam essa data) e `AtualizadoEm` é o
+instante da última revisão: a confirmação para itens confirmados, a origem para
+inferências promovidas.
+
 ## Retomar em outra sessão ou agente
 
 ```text

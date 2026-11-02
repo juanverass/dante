@@ -42,6 +42,51 @@ public sealed class CapturaDeConhecimentoTests
     }
 
     [Fact]
+    public void PromocaoPreservaOInstanteDaCapturaEUsaODaConfirmacaoSoNaSegundaRevisao()
+    {
+        var capturadoEm = new DateTimeOffset(2026, 11, 1, 4, 30, 0, TimeSpan.Zero); var confirmadoEm = capturadoEm.AddMinutes(17);
+        var captura = BrainEfTests.Origem(); var candidato = NovoEm(capturadoEm, captura); var responsavel = BrainEfTests.Origem();
+        var conhecimento = candidato.Promover(1, responsavel, confirmadoEm);
+        Assert.Equal(StatusDoConhecimento.Confirmado, conhecimento.Status);
+        Assert.Equal([capturadoEm, confirmadoEm], conhecimento.Historico.Select(r => r.RegistradaEm));
+        Assert.Equal([captura, responsavel], conhecimento.Historico.Select(r => r.Proveniencia));
+        Assert.Equal(capturadoEm, conhecimento.CriadoEm); Assert.Equal(confirmadoEm, conhecimento.AtualizadoEm);
+        // O candidato registra a promoção no instante da confirmação, como antes.
+        Assert.Equal([capturadoEm, confirmadoEm], candidato.Historico.Select(a => a.Instante));
+    }
+
+    [Fact]
+    public void PromocaoAposCorrecaoOuOrigemEquivalenteUsaOInstanteDoUltimoAto()
+    {
+        var capturadoEm = new DateTimeOffset(2026, 11, 1, 5, 1, 0, TimeSpan.Zero); var corrigidoEm = capturadoEm.AddMinutes(6);
+        var equivalenteEm = corrigidoEm.AddMinutes(1); var confirmadoEm = equivalenteEm.AddMinutes(30);
+        var corrigido = NovoEm(capturadoEm); var correcao = BrainEfTests.Origem();
+        corrigido.Corrigir(1, TipoDeConhecimento.Fato, "conteúdo corrigido", Sensibilidade.Pessoal, "porque", correcao, corrigidoEm);
+        var promovido = corrigido.Promover(2, BrainEfTests.Origem(), confirmadoEm);
+        Assert.Equal([corrigidoEm, confirmadoEm], promovido.Historico.Select(r => r.RegistradaEm));
+        Assert.Equal(correcao, promovido.Historico[0].Proveniencia); Assert.Equal(corrigidoEm, promovido.CriadoEm);
+        var repetido = NovoEm(capturadoEm); var equivalente = BrainEfTests.Origem(); repetido.RegistrarOrigemEquivalente(equivalente, equivalenteEm);
+        var consolidado = repetido.Promover(2, BrainEfTests.Origem(), confirmadoEm);
+        Assert.Equal([equivalenteEm, confirmadoEm], consolidado.Historico.Select(r => r.RegistradaEm));
+        Assert.Equal(equivalente, consolidado.Historico[0].Proveniencia);
+    }
+
+    [Fact]
+    public void InferenciaPromovidaTemUmaRevisaoNoInstanteDaCapturaEInstantesSeguemMonotonicos()
+    {
+        var capturadoEm = new DateTimeOffset(2026, 11, 1, 5, 1, 0, TimeSpan.Zero); var promovidoEm = capturadoEm.AddMinutes(10);
+        var conhecimento = NovoEm(capturadoEm, natureza: NaturezaDoConteudo.ConclusaoDoAgente).Promover(1, BrainEfTests.Origem(), promovidoEm);
+        Assert.Equal(StatusDoConhecimento.Inferido, conhecimento.Status);
+        Assert.Equal(capturadoEm, Assert.Single(conhecimento.Historico).RegistradaEm);
+        Assert.Equal((capturadoEm, capturadoEm), (conhecimento.CriadoEm, conhecimento.AtualizadoEm));
+        // Revisões posteriores continuam exigindo instante não anterior à última revisão.
+        Assert.Throws<ArgumentException>(() => conhecimento.Corrigir(1, TipoDeConhecimento.Inferencia, "outra", null, null, Sensibilidade.Pessoal, null, null, [],
+            BrainEfTests.Origem(), capturadoEm.AddSeconds(-1)));
+        // A promoção não aceita instante anterior ao último ato do candidato.
+        Assert.Throws<ArgumentException>(() => NovoEm(capturadoEm).Promover(1, BrainEfTests.Origem(), capturadoEm.AddSeconds(-1)));
+    }
+
+    [Fact]
     public void CorrecaoRejeicaoDescarteEPromocaoExigemRevisaoEEvidencia()
     {
         var candidato = Novo(); var p = BrainEfTests.Origem();
@@ -166,6 +211,8 @@ public sealed class CapturaDeConhecimentoTests
 
     private static CandidatoDeConhecimento Novo(TipoDeConhecimento tipo = TipoDeConhecimento.Fato, string conteudo = "conteúdo", NaturezaDoConteudo natureza = NaturezaDoConteudo.DitoPeloUsuario) =>
         new(Guid.NewGuid(), null, tipo, conteudo, Sensibilidade.Pessoal, natureza, ModoDeCaptura.Explicita, "porque", BrainEfTests.Origem(), DateTimeOffset.UtcNow);
+    private static CandidatoDeConhecimento NovoEm(DateTimeOffset instante, ProvenienciaDoConhecimento? origem = null, NaturezaDoConteudo natureza = NaturezaDoConteudo.DitoPeloUsuario) =>
+        new(Guid.NewGuid(), null, TipoDeConhecimento.Fato, "conteúdo", Sensibilidade.Pessoal, natureza, ModoDeCaptura.Explicita, "porque", origem ?? BrainEfTests.Origem(), instante);
     internal static CapturaDeConhecimentoDto Captura(Guid espaco) => new() { IdEspacoDeConhecimento = espaco, Tipo = TipoDeConhecimento.Fato, Conteudo = "conteúdo",
         Natureza = NaturezaDoConteudo.DitoPeloUsuario, Modo = ModoDeCaptura.Explicita, Justificativa = "pedido de captura selecionada", Proveniencia = RelacoesDeConhecimentoTests.Proveniencia() };
     private static Conhecimento Item(Guid espaco, TipoDeConhecimento tipo) => new(espaco, null, tipo, "evidência", null, StatusDoConhecimento.Inferido, null, Sensibilidade.Pessoal, null, null, [], BrainEfTests.Origem(), DateTimeOffset.UtcNow);

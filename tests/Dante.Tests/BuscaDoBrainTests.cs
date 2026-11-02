@@ -47,6 +47,29 @@ public sealed class BuscaDoBrainTests
         await Assert.ThrowsAsync<ArgumentException>(()=>busca.BuscarAsync(acesso,new() { Texto="x",Limite=101 }));
     }
     [PostgreSqlFact]
+    public async Task ConhecimentoPromovidoPersisteInstantesDistintosEFiltraPelaDataDaCaptura()
+    {
+        await using var banco = await Banco.CriarAsync(); var e = new EspacoDeConhecimento(Guid.NewGuid(), "Trabalho");
+        var agora = DateTimeOffset.UtcNow; var capturadoEm = agora.AddDays(-2);
+        var candidato = new Dante.Domain.CapturaDeConhecimento.CandidatoDeConhecimento(e.Id, null, TipoDeConhecimento.Fato, "Brain integrado ao PostgreSQL",
+            Sensibilidade.Trabalho, Dante.Domain.CapturaDeConhecimento.NaturezaDoConteudo.DitoPeloUsuario, Dante.Domain.CapturaDeConhecimento.ModoDeCaptura.Explicita,
+            "pedido do usuário", BrainEfTests.Origem(), capturadoEm);
+        var promovido = candidato.Promover(1, BrainEfTests.Origem(), agora);
+        await using(var c = banco.Contexto()) { c.AddRange(e, candidato, promovido); await c.SaveChangesAsync(); }
+        await using(var c = banco.Contexto())
+        {
+            var lido = await c.Conhecimentos.SingleAsync(x => x.Id == promovido.Id);
+            Assert.Equal(2, lido.Historico.Count); Assert.True(lido.Historico[0].RegistradaEm < lido.Historico[1].RegistradaEm);
+            Assert.True(Math.Abs((lido.Historico[0].RegistradaEm - capturadoEm).TotalMilliseconds) < 1);
+            Assert.True(Math.Abs((lido.CriadoEm - capturadoEm).TotalMilliseconds) < 1); Assert.True(Math.Abs((lido.AtualizadoEm - agora).TotalMilliseconds) < 1);
+        }
+        using var provider = Provider(banco.ConnectionString,new Gerador()); using var scope = EscoposBrainDeTeste.Criar(provider, e.IdUsuario, e.Id);
+        var busca = scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>(); var acesso = new AcessoAoBrain(e.IdUsuario,e.Id,null);
+        // CriadoEm é a data da captura: filtros por criação não confundem com a data da confirmação.
+        Assert.Single((await busca.BuscarAsync(acesso,new() { Texto="PostgreSQL",CriadoAte=agora.AddDays(-1) })).Resultados);
+        Assert.Empty((await busca.BuscarAsync(acesso,new() { Texto="PostgreSQL",CriadoDesde=agora.AddHours(-1) })).Resultados);
+    }
+    [PostgreSqlFact]
     public async Task SemanticaReindexacaoMudancaDeModeloEFalhaPreservamCanonico()
     {
         await using var banco = await Banco.CriarAsync(); var e = new EspacoDeConhecimento(Guid.NewGuid(),"Trabalho");
