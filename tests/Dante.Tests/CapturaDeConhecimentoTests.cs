@@ -41,6 +41,18 @@ public sealed class CapturaDeConhecimentoTests
         Assert.Throws<InvalidOperationException>(() => conhecimento.Confirmar(1, BrainEfTests.Origem(), DateTimeOffset.UtcNow));
     }
 
+    [Theory]
+    [InlineData(NaturezaDoConteudo.DitoPeloUsuario, StatusDoConhecimento.Confirmado)]
+    [InlineData(NaturezaDoConteudo.FonteSelecionada, StatusDoConhecimento.Confirmado)]
+    [InlineData(NaturezaDoConteudo.ConclusaoDoAgente, StatusDoConhecimento.Inferido)]
+    public void ConfirmacaoNaoAlteraNaturezaOriginal(NaturezaDoConteudo natureza, StatusDoConhecimento status)
+    {
+        var candidato = Novo(natureza: natureza);
+        var conhecimento = candidato.Promover(1, BrainEfTests.Origem(), DateTimeOffset.UtcNow);
+        Assert.Equal(natureza, candidato.Natureza);
+        Assert.Equal(status, conhecimento.Status);
+    }
+
     [Fact]
     public void PromocaoPreservaOInstanteDaCapturaEUsaODaConfirmacaoSoNaSegundaRevisao()
     {

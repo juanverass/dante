@@ -13,7 +13,7 @@ public sealed class CasosDeConversaTests
     [Fact]
     public async Task CapturaSelecionadaPreservaCitacaoEPreparaConfirmacaoUnica()
     {
-        var contexto = Criar(new("chat", "documente isso", "mensagem:2", "evidência selecionada", "mensagem:1"));
+        var contexto = Criar(new("chat", "documente isso", "mensagem:2", "evidência selecionada", "mensagem:1", AutoriaDoTrecho: AutoriaDaFonte.Usuario));
         var captura = new CapturaSimulada();
         var caso = new CapturaDaConversa(captura);
         var resposta = await caso.CapturarAsync(contexto, contexto.Pedido.TrechoSelecionado!, TipoDeConhecimento.Nota, default);
@@ -24,6 +24,30 @@ public sealed class CasosDeConversaTests
         Assert.Equal("captura", contexto.Estado.Pendente!.Acao);
         Assert.True(contexto.ConsumirPendente());
         Assert.False(contexto.ConsumirPendente());
+    }
+
+    [Theory]
+    [InlineData(AutoriaDaFonte.Usuario, NaturezaDoConteudo.FonteSelecionada)]
+    [InlineData(AutoriaDaFonte.Agente, NaturezaDoConteudo.ConclusaoDoAgente)]
+    public async Task PrefixoDeTipoNaoApagaAutoriaDaMensagemCitada(AutoriaDaFonte autoria, NaturezaDoConteudo natureza)
+    {
+        var contexto = Criar(new("chat", "documente isso", "mensagem:2", "Fato: texto selecionado", "mensagem:1", AutoriaDoTrecho: autoria));
+        var captura = new CapturaSimulada();
+        await new CapturaDaConversa(captura).CapturarAsync(contexto, contexto.Pedido.TrechoSelecionado!, TipoDeConhecimento.Nota, default);
+        Assert.Equal(natureza, captura.Recebida!.Natureza);
+        Assert.Equal("texto selecionado", captura.Recebida.Conteudo);
+        Assert.Equal("mensagem:1", captura.Recebida.Proveniencia.ReferenciaDaFonte);
+        Assert.Contains("autoria-da-fonte:" + autoria, captura.Recebida.Proveniencia.Origem);
+    }
+
+    [Fact]
+    public async Task TrechoSemAutoriaNaoGeraCandidatoMesmoComPrefixoDeTipo()
+    {
+        var contexto = Criar(new("chat", "documente isso", "mensagem:2", "Fato: texto sem autor", "mensagem:1"));
+        var captura = new CapturaSimulada();
+        Assert.Contains("Só registro", await new CapturaDaConversa(captura).CapturarAsync(contexto, contexto.Pedido.TrechoSelecionado!, TipoDeConhecimento.Nota, default));
+        Assert.Null(captura.Recebida);
+        Assert.Null(contexto.Estado.Pendente);
     }
 
     [Fact]

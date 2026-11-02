@@ -749,3 +749,13 @@ vinculado sai da resolução por ele. O estado local de cada checkout (branch, a
 enviados) aparece no fim dos jobs e em `/status`. O contrato multirrepositório orienta o agente a entregar
 branch e PR por repositório alterado, com referência cruzada, sem PR em repositório sem alteração e sem merge.
 General Mode e execuções sem vínculo não mudam.
+
+## Autoria da fonte na captura Brain (#264)
+
+O Worker valida o autor da mensagem respondida antes de aceitar origem literal no
+MCP e conserva essa identidade ao transportar o contexto entre turnos. A captura
+natural de mensagem do bot gera conclusão do agente, inferida mesmo após confirmação;
+mensagem própria mantém fonte selecionada. Outro autor ou ausência de autor não
+é tratado como usuário. DocumentoFonte persiste autoria explícita, usada na geração
+de candidatos. A migration 20261102150504 acrescenta autoria Desconhecida ao legado,
+sem reclassificar registros: gerar candidato exige reimportação com autoria conhecida.

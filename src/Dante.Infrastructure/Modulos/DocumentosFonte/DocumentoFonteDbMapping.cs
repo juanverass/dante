@@ -18,6 +18,7 @@ public sealed class DocumentoFonteDbMapping : EntidadeConfiguration<DocumentoFon
         b.Property(x => x.Sensibilidade).HasColumnName("sensibilidade"); b.Property(x => x.Revisao).HasColumnName("revisao");
         b.Property(x => x.IdResponsavel).HasColumnName("id_responsavel"); b.Property(x => x.AtualizadoEm).HasColumnName("atualizado_em");
         b.Property(x => x.Removido).HasColumnName("removido");
+        b.Property(x => x.Autoria).HasColumnName("autoria");
         b.HasIndex(x => new { x.IdEspacoDeConhecimento, x.IdProjeto, x.Origem }).IsUnique().AreNullsDistinct(false);
         b.HasOne<EspacoDeConhecimento>().WithMany().HasForeignKey(x => x.IdEspacoDeConhecimento).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<Projeto>().WithMany().HasForeignKey(x => new { x.IdProjeto, x.IdEspacoDeConhecimento }).HasPrincipalKey(x => new { x.Id, x.IdEspacoDeConhecimento }).OnDelete(DeleteBehavior.Restrict);

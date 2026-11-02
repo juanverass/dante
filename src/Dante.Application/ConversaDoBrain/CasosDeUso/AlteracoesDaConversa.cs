@@ -44,7 +44,8 @@ public sealed class AlteracoesDaConversa(IConhecimentoAppService conhecimentos, 
             if(alteracao.Acao=="fonte_remocao")
             {await documentos.RemoverAsync(conversa.Acesso,documento.Id,documento.Revisao,cancellationToken);return "Fonte removida; texto e índices apagados, conhecimentos consolidados preservados.";}
             var revisaoAnterior=documento.Revisao;
-            var fonteAtualizada=await documentos.ImportarAsync(conversa.Acesso,documento.Origem,documento.Formato,alteracao.Conteudo!,documento.Sensibilidade,documento.Revisao,cancellationToken);
+            // O novo conteúdo veio do texto da própria mensagem do usuário ("importe ..."), não de mensagem citada.
+            var fonteAtualizada=await documentos.ImportarAsync(conversa.Acesso,documento.Origem,documento.Formato,alteracao.Conteudo!,AutoriaDaFonte.Usuario,documento.Sensibilidade,documento.Revisao,cancellationToken);
             return fonteAtualizada.Revisao==revisaoAnterior?"Fonte já corresponde ao conteúdo; revisão mantida.":"Fonte atualizada com nova revisão; conhecimentos consolidados permanecem com a prova histórica.";
         }
         var atual=await consulta.CarregarAsync(conversa, alteracao.Alvo!, cancellationToken);

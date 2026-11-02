@@ -889,3 +889,21 @@ DTO de Application → resposta do host. Endpoint não consulta repository/DbCon
 diretamente; Domain não conhece provider/mapper/transporte. Este fluxo é convenção,
 não um caso de uso implementado nesta fundação. CRUD/EF/Mapster e endpoints ficam
 nas respectivas issues, com vocabulário PT-BR e identidade Guid Id (AD-36).
+
+## Autoria de mensagens e documentos (#264)
+
+Na captura/correção/atualização MCP, mensagem citada só prova `DitoPeloUsuario` ou
+`FonteSelecionada` se foi escrita pelo usuário autenticado, no mesmo chat/tópico.
+Na conversa natural, mensagem própria gera `FonteSelecionada`; mensagem do bot gera
+`ConclusaoDoAgente`/`Inferencia`, que permanece `Inferido` após confirmar. Outro
+usuário ou ausência de autor não prova autoria do usuário. A proveniência registra
+a autoria da seleção independentemente do responsável pela operação.
+
+`DocumentoFonte.Autoria` persiste a autoria declarada na importação (opção A).
+Trecho de documento do usuário gera `FonteSelecionada`; do agente gera
+`ConclusaoDoAgente`. Importação pelo fluxo explícito do usuário informa `Usuario`;
+chamadas programáticas informam a autoria efetiva. A migration
+`20261102150504_AutoriaDasFontes` deixa o legado `Desconhecida`, sem reclassificar
+registros. Ele continua consultável; gerar candidato exige reimportação explícita
+com autoria e revisão esperada. A confirmação não muda a natureza original.
+Detalhes e limites em [Brain MCP](../development/brain-mcp.md#autoria-de-mensagens-e-documentos-264).

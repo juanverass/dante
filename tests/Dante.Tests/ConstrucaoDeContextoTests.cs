@@ -77,12 +77,12 @@ public sealed class ConstrucaoDeContextoTests
         using var provider=Provider(banco.ConnectionString);using var scope=EscoposBrainDeTeste.Criar(provider,e.IdUsuario,e.Id);
         var acesso=new AcessoAoBrain(e.IdUsuario,e.Id,null,true,true);var fontes=scope.ServiceProvider.GetRequiredService<Dante.Application.DocumentosFonte.DocumentoFonteAppService>();
         var texto="Guid "+new string('a',1450)+" Guid "+new string('b',1400);
-        var f=await fontes.ImportarAsync(acesso,"nota:contexto","markdown",texto);
+        var f=await fontes.ImportarAsync(acesso,"nota:contexto","markdown",texto,AutoriaDaFonte.Usuario);
         var builder=scope.ServiceProvider.GetRequiredService<ConstrutorDeContextoAppService>();
         var pacote=await builder.ConstruirAsync(acesso,new(){Mensagem="Guid",OrcamentoDeTokens=4000,IncluirSnapshot=false});
         var item=Assert.Single(pacote.Itens);Assert.Equal("fonte_bruta",item.Origem);Assert.Null(item.Status);Assert.Null(item.Tipo);Assert.Contains(f.Hash,item.Referencia!);
         Assert.Contains(pacote.Registros,x=>x.Motivo.Contains("sobreposto"));
-        await fontes.ImportarAsync(acesso,"nota:contexto","markdown",texto,Sensibilidade.Secreto,1);
+        await fontes.ImportarAsync(acesso,"nota:contexto","markdown",texto,AutoriaDaFonte.Usuario,Sensibilidade.Secreto,1);
         var vazio=await builder.ConstruirAsync(acesso,new(){Mensagem="Guid",IncluirSnapshot=false});Assert.Empty(vazio.Itens);Assert.Equal("",vazio.TextoParaInjecao);Assert.Equal(0,vazio.Custo.TokensEstimados);
     }
     private static Conhecimento Novo(EspacoDeConhecimento e,string texto,TipoDeConhecimento tipo=TipoDeConhecimento.Fato,bool confirmado=false,Sensibilidade classe=Sensibilidade.Pessoal)

@@ -50,7 +50,7 @@ public sealed class GrantsDoRuntimeTests
         {
             // INSERT em brain_data.documentos_fonte dispara brain_index.atualizar_partes_fonte().
             var fonte = await scope.ServiceProvider.GetRequiredService<DocumentoFonteAppService>()
-                .ImportarAsync(acesso, "nota:runtime", "texto", "fonte runtime indexada");
+                .ImportarAsync(acesso, "nota:runtime", "texto", "fonte runtime indexada", AutoriaDaFonte.Usuario);
             var busca = scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>();
             // Embeddings: INSERT/UPDATE em representacoes e UPDATE em partes_fontes.
             Assert.Equal(2, await busca.ReindexarAsync(acesso));

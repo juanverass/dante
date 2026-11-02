@@ -50,12 +50,12 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 var conhecimento = await ConhecimentoAsync(Id(args, "id"));
                 return new { conhecimento.Proveniencia, conhecimento.Historico };
             case "brain_capturar_conhecimento":
-                var dto = Captura(args, acesso, prova);
+                var dto = Captura(args, acesso, ProvaDaFonte(prova, mensagem, args));
                 ValidarOrigem(dto, mensagem);
                 var salvo = await captura.CapturarAsync(dto, ct);
                 return new { candidato = Resumir(salvo), possivelDuplicidade = salvo.Revisao > 1 || salvo.Estado != EstadoDoCandidato.Pendente, confirmado = false };
             case "brain_corrigir_candidato":
-                var anterior = await CandidatoAsync(); var correcao = Captura(args, acesso, prova) with
+                var anterior = await CandidatoAsync(); var correcao = Captura(args, acesso, ProvaDaFonte(prova, mensagem, args)) with
                 {
                     Titulo = args.TryGetProperty("titulo", out _) ? Texto(args, "titulo", 300) : anterior.Titulo,
                     Tags = args.TryGetProperty("tags", out _) ? Lista(args, "tags") : anterior.Tags ?? [],
@@ -86,7 +86,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             case "brain_atualizar_conhecimento":
                 var existente = await ConhecimentoAsync(Id(args, "id"));
                 if (existente.Revisao != Inteiro(args, "revisao")) throw new InvalidOperationException("Revisão mudou.");
-                var novaVersao = Captura(args, acesso, prova);
+                var novaVersao = Captura(args, acesso, ProvaDaFonte(prova, mensagem, args));
                 ValidarOrigem(novaVersao, mensagem);
                 var sensibilidadeNova = OpcionalEnum<Sensibilidade>(args, "sensibilidade") ?? existente.Sensibilidade;
                 if (sensibilidadeNova < existente.Sensibilidade) throw new UnauthorizedAccessException("Atualização não reduz sensibilidade.");
@@ -233,7 +233,10 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
         if (dto.Natureza == NaturezaDoConteudo.ConclusaoDoAgente) return;
         if (mensagem.Text?.Contains(dto.Conteudo, StringComparison.Ordinal) == true ||
             mensagem.Caption?.Contains(dto.Conteudo, StringComparison.Ordinal) == true ||
+            // Mensagem citada só é origem literal se o próprio usuário a escreveu: bot, agente, outro usuário ou autor
+            // ausente nunca contam como declaração dele (AD-59 I3/D1, #264).
             mensagem.ReplyToMessage is { } fonte && fonte.Chat.Id == mensagem.Chat.Id && fonte.MessageThreadId == mensagem.MessageThreadId &&
+            mensagem.From is { } usuario && fonte.From?.Id == usuario.Id &&
             fonte.Text?.Contains(dto.Conteudo, StringComparison.Ordinal) == true) return;
         throw new ArgumentException("Conteúdo não consta da mensagem de origem; classifique como conclusão do agente.");
     }
@@ -247,6 +250,17 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
         // Seleção factual de evidência, nunca transcript integral.
         TrechoDaFonte = m.Text is "confirmar" or "confirme" ? m.Text : "Operação solicitada nesta mensagem; conteúdo selecionado registrado no candidato."
     };
+    private static ProvenienciaDto ProvaDaFonte(ProvenienciaDto prova, TelegramMessage mensagem, JsonElement args)
+    {
+        var conteudo = Texto(args, "conteudo", 10_000);
+        if (mensagem.Text?.Contains(conteudo, StringComparison.Ordinal) == true ||
+            mensagem.Caption?.Contains(conteudo, StringComparison.Ordinal) == true) return prova;
+        if (mensagem.ReplyToMessage is not { } fonte || fonte.Chat.Id != mensagem.Chat.Id ||
+            fonte.MessageThreadId != mensagem.MessageThreadId || fonte.Text?.Contains(conteudo, StringComparison.Ordinal) != true) return prova;
+        var autoria = fonte.From?.Id == mensagem.From?.Id && fonte.From is not null ? AutoriaDaFonte.Usuario :
+            fonte.From?.IsBot == true ? AutoriaDaFonte.Agente : AutoriaDaFonte.Desconhecida;
+        return prova with { Origem = $"{prova.Origem};autoria-da-fonte:{autoria}" };
+    }
     private static CapturaDeConhecimentoDto Captura(JsonElement a, AcessoAoBrain acesso, ProvenienciaDto prova)
     {
         var conteudo = Texto(a, "conteudo", 10_000);

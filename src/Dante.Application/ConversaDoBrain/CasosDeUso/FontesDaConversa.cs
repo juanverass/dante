@@ -1,6 +1,7 @@
 using Dante.Application.DocumentosFonte;
 using Dante.Application.SegurancaDoBrain;
 using Dante.Domain.CapturaDeConhecimento;
+using Dante.Domain.Conhecimentos;
 using static Dante.Application.ConversaDoBrain.ApresentacaoDaConversa;
 
 namespace Dante.Application.ConversaDoBrain;
@@ -13,7 +14,8 @@ public sealed class FontesDaConversa(DocumentoFonteAppService documentos, IDocum
         var existente=await fontes.ObterPelaOrigemAsync(conversa.Acesso,origemFonte,cancellationToken);
         if(existente is null)
         {
-            await documentos.ImportarAsync(conversa.Acesso,origemFonte,intencao.Formato!,intencao.Texto,cancellationToken:cancellationToken);
+            // "importe nota|markdown Nome: texto": o texto está na própria mensagem do usuário (AD-59 P2).
+            await documentos.ImportarAsync(conversa.Acesso,origemFonte,intencao.Formato!,intencao.Texto,AutoriaDaFonte.Usuario,cancellationToken:cancellationToken);
             return "Fonte bruta adicionada. Importar não confirma conteúdo; consulte pelo assunto e selecione um trecho para preparar candidato.";
         }
         if(existente.Formato!=intencao.Formato)throw new ArgumentException("Formato da fonte mudou.");
