@@ -120,11 +120,100 @@ public sealed class BrainMcpConhecimentoTests
         }
     }
 
+    // #249: cada ferramenta de escrita grava a sessão qualificada pela instância do Worker.
+    [PostgreSqlFact]
+    public async Task ProvenienciaDaCorrecaoDeCandidatoQualificaASessaoComAInstancia()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        await a.OperarAsync("brain_capturar_conhecimento", new { conteudo = "conclusão inicial", natureza = "ConclusaoDoAgente", justificativa = "análise" });
+        Guid id; await using (var db = a.Banco.Contexto()) id = (await db.CandidatosDeConhecimento.SingleAsync()).Id;
+        await a.OperarAsync("brain_corrigir_candidato", new { id, revisao = 1, conteudo = "conclusão corrigida", natureza = "ConclusaoDoAgente", justificativa = "revisão" });
+        await using (var db = a.Banco.Contexto())
+        {
+            var candidato = await db.CandidatosDeConhecimento.SingleAsync();
+            Assert.Equal(["capturado", "corrigido"], candidato.Historico.Select(x => x.Acao));
+            Assert.All(candidato.Historico, x => Assert.Equal(a.OrigemMcp, x.Proveniencia.Origem));
+        }
+    }
+
+    [PostgreSqlFact]
+    public async Task ProvenienciaDoDescarteDeCandidatoQualificaASessaoComAInstancia()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        await a.OperarAsync("brain_capturar_conhecimento", new { conteudo = "conclusão descartável", natureza = "ConclusaoDoAgente", justificativa = "análise" });
+        Guid id; await using (var db = a.Banco.Contexto()) id = (await db.CandidatosDeConhecimento.SingleAsync()).Id;
+        await a.OperarAsync("brain_cancelar_candidato", new { id, revisao = 1 });
+        Assert.Contains("descartado", await a.ConfirmarAsync());
+        await using (var db = a.Banco.Contexto())
+        {
+            var descarte = (await db.CandidatosDeConhecimento.SingleAsync()).Historico[^1];
+            Assert.Equal("descartado", descarte.Acao); Assert.Equal(a.OrigemMcp, descarte.Proveniencia.Origem);
+            Assert.EndsWith(":124", descarte.Proveniencia.ReferenciaDaFonte);
+        }
+    }
+
+    [PostgreSqlFact]
+    public async Task ProvenienciaDaAtualizacaoDeConhecimentoQualificaASessaoEMantemAConfirmacao()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        var alvo = a.Novo("conteúdo anterior"); await a.GravarAsync(alvo);
+        await a.OperarAsync("brain_atualizar_conhecimento", new { id = alvo.Id, revisao = 1, conteudo = "conteúdo revisado", natureza = "ConclusaoDoAgente", justificativa = "análise" });
+        Assert.Contains("mesmo ID", await a.ConfirmarAsync());
+        await using (var db = a.Banco.Contexto())
+            Assert.Equal($"{a.OrigemMcp};confirmacao:124", (await db.Conhecimentos.SingleAsync()).Historico[^1].Proveniencia.Origem);
+    }
+
+    [PostgreSqlFact]
+    public async Task ProvenienciaDaConsolidacaoQualificaASessaoComAInstancia()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        var destino = a.Novo("referência canônica"); var duplicata = a.Novo("referência duplicada"); await a.GravarAsync(destino, duplicata);
+        await a.OperarAsync("brain_consolidar_duplicatas", new { id = destino.Id, revisao = 1, duplicatas = new[] { new { id = duplicata.Id, revisao = 1 } } });
+        Assert.Contains("consolidadas", await a.ConfirmarAsync());
+        await using (var db = a.Banco.Contexto())
+        {
+            var alvo = await db.Conhecimentos.SingleAsync(x => x.Id == destino.Id);
+            // Fontes incorporadas mantêm a origem delas; o ato de consolidação leva a sessão MCP.
+            Assert.Equal(a.OrigemMcp, alvo.Historico[^1].Proveniencia.Origem);
+            Assert.Contains(alvo.Historico, x => x.Proveniencia.Origem == duplicata.Proveniencia.Origem);
+        }
+    }
+
+    [PostgreSqlFact]
+    public async Task ProvenienciaDaRelacaoQualificaASessaoComAInstancia()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        // ResolvidoPor exige Incidente → Solução no Domain (RelacaoDeConhecimento); o cenário respeita essa regra.
+        var incidente = a.Novo("incidente observado", tipo: TipoDeConhecimento.Incidente);
+        var solucao = a.Novo("solução aplicada", tipo: TipoDeConhecimento.Solucao); await a.GravarAsync(incidente, solucao);
+        await a.OperarAsync("brain_criar_relacao", new { origem = incidente.Id, destino = solucao.Id, revisao_origem = 1, revisao_destino = 1, tipo = "ResolvidoPor" });
+        Assert.Contains("Relação", await a.ConfirmarAsync());
+        await using (var db = a.Banco.Contexto())
+        {
+            var relacao = await db.RelacoesDeConhecimento.SingleAsync();
+            Assert.Equal(Dante.Domain.RelacoesDeConhecimento.TipoDeRelacao.ResolvidoPor, relacao.Tipo);
+            Assert.Equal(a.OrigemMcp, relacao.Proveniencia.Origem);
+        }
+    }
+
+    [PostgreSqlFact]
+    public async Task SnapshotUsaOFormatoNovoEOmiteAOrigemDaVersaoAnterior()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        object Estado(int revisao, string progresso) => new { revisao, objetivo = "validar #249", tarefa = "proveniência", progresso, ultimo_resultado = "ok" };
+        await a.OperarAsync("brain_atualizar_contexto_de_trabalho", Estado(0, "primeira versão"));
+        await a.OperarAsync("brain_atualizar_contexto_de_trabalho", Estado(1, "segunda versão"));
+        var atual = (Dante.Application.ContextosDeTrabalho.ContextoDeTrabalhoDto)(await a.OperarAsync("brain_obter_contexto_de_trabalho", new { }))!;
+        Assert.Equal(2, atual.Revisao); Assert.StartsWith(a.OrigemMcp + ";", atual.Origem);
+        Assert.NotNull(atual.AuditoriaAnterior); Assert.Equal("[origem anterior omitida]", atual.AuditoriaAnterior!.Origem);
+    }
+
     private sealed class Ambiente(Banco banco, ServiceProvider app, TelegramBrain brain, TelegramBrain.EscopoBrainDaSessao escopo) : IAsyncDisposable
     {
         public Banco Banco => banco;
         public TelegramBrain Brain => brain;
         public TelegramBrain.EscopoBrainDaSessao Escopo => escopo;
+        public string OrigemMcp => OperacoesMcpDoBrain.Origem("codex", brain.Instancia, "S1");
         public ProvenienciaDoConhecimento Prova => new(escopo.Acesso.IdUsuario, "fonte verificável", "fonte:" + Guid.NewGuid(), trechoDaFonte: "evidência");
         public static async Task<Ambiente> CriarAsync()
         {
@@ -142,8 +231,9 @@ public sealed class BrainMcpConhecimentoTests
                 app?.Dispose(); await banco.DisposeAsync(); throw;
             }
         }
-        public Conhecimento Novo(string texto, Sensibilidade classe = Sensibilidade.Pessoal, Guid? projeto = null, string? dados = null) =>
-            new(escopo.Acesso.IdEspacoDeConhecimento, projeto ?? escopo.Acesso.IdProjeto, TipoDeConhecimento.Fato, texto, dados,
+        public Conhecimento Novo(string texto, Sensibilidade classe = Sensibilidade.Pessoal, Guid? projeto = null, string? dados = null,
+            TipoDeConhecimento tipo = TipoDeConhecimento.Fato) =>
+            new(escopo.Acesso.IdEspacoDeConhecimento, projeto ?? escopo.Acesso.IdProjeto, tipo, texto, dados,
                 StatusDoConhecimento.Inferido, null, classe, null, null, [], Prova, DateTimeOffset.UtcNow);
         public async Task GravarAsync(params Conhecimento[] itens) { await using var db = banco.Contexto(); db.AddRange(itens); await db.SaveChangesAsync(); }
         public Task<object?> OperarAsync(string nome, object args) => app.GetRequiredService<OperacoesMcpDoBrain>().ExecutarAsync(escopo,
