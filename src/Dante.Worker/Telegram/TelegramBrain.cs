@@ -110,8 +110,13 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
                 selecoes[chave]=estado with{Projeto=candidatos[0].Id,NomeProjeto=candidatos[0].Nome};Limpar();return $"Projeto {ProtecaoDeSegredos.Redigir(candidatos[0].Nome)} {(criar?"criado e ":"")}selecionado.";
             }
             var selecionado=mensagem.ReplyToMessage is {Text:not null} reply&&reply.Chat.Id==mensagem.Chat.Id && reply.MessageThreadId==mensagem.MessageThreadId?reply:null;
+            // Autor do trecho citado (AD-59 I3/I9): só a própria mensagem do usuário conta como dele; mensagem do bot é do agente;
+            // outro autor ou autor ausente fica desconhecido e nunca é tratado como declaração do usuário (D1).
+            var autoriaDoTrecho=selecionado is null?Dante.Domain.Conhecimentos.AutoriaDaFonte.Desconhecida:
+                selecionado.From?.Id==mensagem.From.Id?Dante.Domain.Conhecimentos.AutoriaDaFonte.Usuario:
+                selecionado.From?.IsBot==true?Dante.Domain.Conhecimentos.AutoriaDaFonte.Agente:Dante.Domain.Conhecimentos.AutoriaDaFonte.Desconhecida;
             var pedido=new PedidoDeConversaDto(conversa,texto,$"conversa:{conversa}:{mensagem.MessageId}",selecionado?.Text,
-                selecionado is null?null:$"conversa:{conversa}:{selecionado.MessageId}",idSessao is null?null:$"{instancia}:{idSessao}");
+                selecionado is null?null:$"conversa:{conversa}:{selecionado.MessageId}",idSessao is null?null:$"{instancia}:{idSessao}",autoriaDoTrecho);
             var resposta=await operacao.ServiceProvider.GetRequiredService<ConversaDoBrainAppService>().AtenderAsync(acesso,pedido,cancellationToken);
             return resposta??(explicito?"Não entendi a intenção Brain. Diga /brain ajuda para ver exemplos.":null);
             void Limpar()

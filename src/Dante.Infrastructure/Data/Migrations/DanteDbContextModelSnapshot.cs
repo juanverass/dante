@@ -286,6 +286,10 @@ namespace Dante.Infrastructure.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("atualizado_em");
 
+                    b.Property<int>("Autoria")
+                        .HasColumnType("integer")
+                        .HasColumnName("autoria");
+
                     b.Property<string>("Conteudo")
                         .IsRequired()
                         .HasColumnType("text")

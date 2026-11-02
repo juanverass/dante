@@ -67,11 +67,13 @@ Uma nova mensagem/proposta ou fim de sessão invalida a anterior. Confirmação 
 escopo e revisão; conflitos não reaplicam a operação automaticamente.
 
 Captura é explícita e individual. Conteúdo classificado como dito pelo usuário precisa
-estar literalmente na mensagem de origem; fonte selecionada pode estar na mensagem
-citada. Conclusão do agente é classificada como Inferencia pelo Domain e permanece
+estar literalmente na mensagem de origem; mensagem citada só serve como origem
+literal quando foi escrita pelo próprio usuário autenticado, no mesmo chat/tópico.
+Conclusão do agente é classificada como Inferencia pelo Domain e permanece
 inferida após consolidação. Título e tags opcionais vivem no histórico JSON existente
 do candidato; promoção conserva o título em `DadosEstruturados.titulo` e as tags no
-Conhecimento. Não há migration nova nem alteração do conteúdo para embutir metadados.
+Conhecimento. Na #226 não houve migration nem alteração do conteúdo para embutir esses metadados;
+a autoria de documentos persistida na #264 está descrita adiante.
 
 A captura conserva a deduplicação atual por conteúdo/classificação/escopo. Repetição
 retorna o candidato existente e sinaliza possível duplicidade; origem equivalente
@@ -134,3 +136,33 @@ confirma pelo Telegram e recupera conteúdo e proveniência em nova sessão. É 
 local, sem acesso ao repositório real do usuário. Testes MCP/PostgreSQL verificam
 atualização sem duplicata, confirmação/cancelamento, revisão concorrente, escopo,
 sensibilidade, conflitos e preservação de proveniências na consolidação.
+
+## Autoria de mensagens e documentos (#264)
+
+Pedir um registro ou confirmá-lo não transfere a autoria da fonte ao solicitante.
+Na captura, correção de candidato e atualização pelo MCP, `DitoPeloUsuario` e
+`FonteSelecionada` exigem conteúdo literal na mensagem autenticada (texto/legenda)
+ou em mensagem respondida do próprio usuário, no mesmo chat e tópico. Mensagem
+respondida do bot, de outro usuário ou sem autor não é prova de declaração do usuário.
+O agente deve usar `ConclusaoDoAgente` para suas conclusões; essa classificação
+permanece inferida mesmo após a confirmação humana.
+
+Na captura natural, responder à própria mensagem produz `FonteSelecionada`;
+responder a mensagem identificada como bot produz `ConclusaoDoAgente`/`Inferencia`.
+Autor ausente ou outro usuário é recusado como fonte. A proveniência da seleção
+registra `autoria-da-fonte:Usuario|Agente|Desconhecida`, separadamente do responsável
+pela operação. O transporte da sessão conserva ID e indicador de bot do autor citado.
+
+Opção A: `DocumentoFonte.Autoria` persiste `Usuario` ou `Agente` na importação e
+na nova revisão. Os fluxos explícitos de importação do usuário (conversa e arquivo
+local indicado na CLI) informam `Usuario`; chamadas programáticas devem informar a
+autoria efetiva, inclusive `Agente` para documentos produzidos pelo agente. Importar
+não confirma o conteúdo. A geração de candidato respeita a autoria persistida:
+`Usuario` produz `FonteSelecionada`; `Agente` produz `ConclusaoDoAgente`.
+
+A migration `20261102150504_AutoriaDasFontes` acrescenta apenas a coluna `autoria`,
+com `Desconhecida` para documentos antigos. Não reclassifica candidatos/conhecimentos
+nem modifica textos, hashes ou revisões existentes. Documentos antigos continuam
+consultáveis, mas não geram candidatos até reimportação explícita com autoria e
+revisão esperada. Escritas novas não aceitam `Desconhecida`. Uma mudança apenas de
+autoria também gera nova revisão, preservando a concorrência otimista.

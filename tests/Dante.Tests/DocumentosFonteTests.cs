@@ -24,7 +24,7 @@ public sealed class DocumentosFonteTests
         var acesso=new AcessoAoBrain(e.IdUsuario,e.Id,null);var fontes=scope.ServiceProvider.GetRequiredService<DocumentoFonteAppService>();
         var busca=scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>();
         var md="# Procedimento\n\nResolvido deadlock usando ordem consistente de locks. 🧠\n";
-        var fonte=await fontes.ImportarAsync(acesso,"nota:locks","markdown",md);
+        var fonte=await fontes.ImportarAsync(acesso,"nota:locks","markdown",md,AutoriaDaFonte.Usuario);
         var resultado=Assert.Single((await busca.BuscarAsync(acesso,new(){Texto="deadlock"})).Resultados);
         Assert.Equal(OrigemDoResultado.FonteBruta,resultado.Origem);Assert.Equal(md,resultado.Fonte!.Conteudo);
         Assert.Contains(fonte.Hash,resultado.Fonte.Referencia);Assert.Equal(fonte.Id,resultado.Fonte.IdDocumento);
@@ -33,10 +33,10 @@ public sealed class DocumentosFonteTests
         var captura=scope.ServiceProvider.GetRequiredService<ICapturaDeConhecimentoAppService>();
         var p=new ProvenienciaDto{IdResponsavel=e.IdUsuario,Origem="confirmação explícita",ReferenciaDaFonte=resultado.Fonte.Referencia,RevisaoDaFonte=fonte.Hash,TrechoDaFonte=md};
         var id=await captura.ConfirmarAsync(e.Id,null,candidato.Id,candidato.Revisao,p);
-        Assert.Equal(1,(await fontes.ImportarAsync(acesso,"nota:locks","markdown",md,revisaoEsperada:1)).Revisao);
-        var atual=await fontes.ImportarAsync(acesso,"nota:locks","markdown","# Novo\nTratamento atualizado de deadlock.",revisaoEsperada:1);
+        Assert.Equal(1,(await fontes.ImportarAsync(acesso,"nota:locks","markdown",md,AutoriaDaFonte.Usuario,revisaoEsperada:1)).Revisao);
+        var atual=await fontes.ImportarAsync(acesso,"nota:locks","markdown","# Novo\nTratamento atualizado de deadlock.",AutoriaDaFonte.Usuario,revisaoEsperada:1);
         Assert.Equal(2,atual.Revisao);Assert.NotEqual(fonte.Hash,atual.Hash);
-        await Assert.ThrowsAsync<InvalidOperationException>(()=>fontes.ImportarAsync(acesso,"nota:locks","markdown","alterado",revisaoEsperada:1));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>fontes.ImportarAsync(acesso,"nota:locks","markdown","alterado",AutoriaDaFonte.Usuario,revisaoEsperada:1));
         await Assert.ThrowsAsync<ArgumentException>(()=>fontes.GerarCandidatoAsync(acesso,fonte.Id,1,0));
         await fontes.RemoverAsync(acesso,fonte.Id,2);
         Assert.Empty(await fontes.ListarAsync(acesso));
@@ -55,16 +55,16 @@ public sealed class DocumentosFonteTests
         var fontes=scope.ServiceProvider.GetRequiredService<DocumentoFonteAppService>();var indice=scope.ServiceProvider.GetRequiredService<IIndiceDeFontes>();
         var acesso=new AcessoAoBrain(e.IdUsuario,e.Id,null,true,true);
         var texto=new string('a',1439)+"🧠 deadlock "+new string('b',1700);
-        var f=await fontes.ImportarAsync(acesso,"nota:unicode","markdown",texto);
+        var f=await fontes.ImportarAsync(acesso,"nota:unicode","markdown",texto,AutoriaDaFonte.Usuario);
         var parte=await indice.ObterTrechoAsync(acesso,f.Id,1,1);Assert.NotNull(parte);Assert.Equal(1440,parte.Inicio);
         Assert.Equal(string.Concat(texto.EnumerateRunes().Skip(parte.Inicio).Take(1600).Select(x=>x.ToString())),parte.Conteudo);
-        await fontes.ImportarAsync(acesso,"nota:secret","texto","segredoreservado",Sensibilidade.Secreto);
-        await fontes.ImportarAsync(acesso,"nota:conf","texto","confidencialreservado",Sensibilidade.Confidencial);
+        await fontes.ImportarAsync(acesso,"nota:secret","texto","segredoreservado",AutoriaDaFonte.Usuario,Sensibilidade.Secreto);
+        await fontes.ImportarAsync(acesso,"nota:conf","texto","confidencialreservado",AutoriaDaFonte.Usuario,Sensibilidade.Confidencial);
         var busca=scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>();
         Assert.Empty((await busca.BuscarAsync(acesso,new(){Texto="segredoreservado"})).Resultados);
         Assert.Empty((await busca.BuscarAsync(acesso with{PermitirConfidencial=false},new(){Texto="confidencialreservado"})).Resultados);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>fontes.ListarAsync(acesso with{IdEspacoDeConhecimento=outro.Id}));
-        await Assert.ThrowsAsync<ArgumentException>(()=>fontes.ImportarAsync(acesso,"nota:senha","texto","senha=segredoteste"));
+        await Assert.ThrowsAsync<ArgumentException>(()=>fontes.ImportarAsync(acesso,"nota:senha","texto","senha=segredoteste",AutoriaDaFonte.Usuario));
         await using(var c=banco.Contexto()){await c.Database.ExecuteSqlRawAsync("TRUNCATE brain_index.partes_fontes");}
         await fontes.ReconstruirAsync(acesso);
         Assert.Equal(parte,await indice.ObterTrechoAsync(acesso,f.Id,1,1));
@@ -95,15 +95,15 @@ public sealed class DocumentosFonteTests
         await using(var c=banco.Contexto()){c.Add(e);await c.SaveChangesAsync();await new Dante.Infrastructure.BuscaDoBrain.IndiceDeBuscaPostgreSql(c).PrepararVetoresAsync();}
         var gerador=new Gerador();using var provider=Provider(banco.ConnectionString,gerador);using var scope=EscoposBrainDeTeste.Criar(provider,e.IdUsuario,e.Id);
         var acesso=new AcessoAoBrain(e.IdUsuario,e.Id,null,true,true);var fontes=scope.ServiceProvider.GetRequiredService<DocumentoFonteAppService>();
-        var fonte=await fontes.ImportarAsync(acesso,"nota:principal","texto","conhecimento da fonte");
-        await fontes.ImportarAsync(acesso,"nota:conf","texto","confidencial da fonte",Sensibilidade.Confidencial);
-        await fontes.ImportarAsync(acesso,"nota:secret","texto","secret://host/CHAVE",Sensibilidade.Secreto);
+        var fonte=await fontes.ImportarAsync(acesso,"nota:principal","texto","conhecimento da fonte",AutoriaDaFonte.Usuario);
+        await fontes.ImportarAsync(acesso,"nota:conf","texto","confidencial da fonte",AutoriaDaFonte.Usuario,Sensibilidade.Confidencial);
+        await fontes.ImportarAsync(acesso,"nota:secret","texto","secret://host/CHAVE",AutoriaDaFonte.Usuario,Sensibilidade.Secreto);
         var busca=scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>();Assert.Equal(1,await busca.ReindexarAsync(acesso));
         Assert.DoesNotContain(gerador.Textos,t=>t.Contains("confidencial")||t.Contains("secret://"));
         var resultado=Assert.Single((await busca.BuscarAsync(acesso,new(){Texto="semelhanca"})).Resultados);
         Assert.Equal(fonte.Id,resultado.Fonte!.IdDocumento);Assert.Equal(0,resultado.ScoreLexical);Assert.True(resultado.ScoreSemantico>0.99);
         gerador.Versao="2";Assert.Empty((await busca.BuscarAsync(acesso,new(){Texto="semelhanca"})).Resultados);Assert.Equal(1,await busca.ReindexarAsync(acesso));
-        await fontes.ImportarAsync(acesso,"nota:principal","texto","nova revisão",revisaoEsperada:1);
+        await fontes.ImportarAsync(acesso,"nota:principal","texto","nova revisão",AutoriaDaFonte.Usuario,revisaoEsperada:1);
         Assert.Empty((await busca.BuscarAsync(acesso,new(){Texto="semelhanca"})).Resultados);Assert.Equal(1,await busca.ReindexarAsync(acesso));
         Assert.Equal(2,Assert.Single((await busca.BuscarAsync(acesso,new(){Texto="semelhanca"})).Resultados).Fonte!.Revisao);
     }
@@ -114,9 +114,9 @@ public sealed class DocumentosFonteTests
         await using(var c=banco.Contexto()){c.Add(e);await c.SaveChangesAsync();}
         using var provider=Provider(banco.ConnectionString);using var sa=EscoposBrainDeTeste.Criar(provider,e.IdUsuario,e.Id);using var sb=EscoposBrainDeTeste.Criar(provider,e.IdUsuario,e.Id);
         var acesso=new AcessoAoBrain(e.IdUsuario,e.Id,null);var a=sa.ServiceProvider.GetRequiredService<DocumentoFonteAppService>();var b=sb.ServiceProvider.GetRequiredService<DocumentoFonteAppService>();
-        await a.ImportarAsync(acesso,"nota:concorrente","texto","original");await b.ListarAsync(acesso);
-        await a.ImportarAsync(acesso,"nota:concorrente","texto","vencedor",revisaoEsperada:1);
-        await Assert.ThrowsAsync<Dante.Application.Comum.ConflitoDeConcorrenciaException>(()=>b.ImportarAsync(acesso,"nota:concorrente","texto","perdido",revisaoEsperada:1));
+        await a.ImportarAsync(acesso,"nota:concorrente","texto","original",AutoriaDaFonte.Usuario);await b.ListarAsync(acesso);
+        await a.ImportarAsync(acesso,"nota:concorrente","texto","vencedor",AutoriaDaFonte.Usuario,revisaoEsperada:1);
+        await Assert.ThrowsAsync<Dante.Application.Comum.ConflitoDeConcorrenciaException>(()=>b.ImportarAsync(acesso,"nota:concorrente","texto","perdido",AutoriaDaFonte.Usuario,revisaoEsperada:1));
         using var verificar=EscoposBrainDeTeste.Criar(provider,e.IdUsuario,e.Id);
         Assert.Single((await verificar.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>().BuscarAsync(acesso,new(){Texto="vencedor"})).Resultados);
         Assert.Empty((await verificar.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>().BuscarAsync(acesso,new(){Texto="perdido"})).Resultados);

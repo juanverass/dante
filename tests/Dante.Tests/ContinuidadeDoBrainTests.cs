@@ -155,7 +155,7 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
         await using var banco=await Banco.CriarAsync();using var provider=Provider(banco.ConnectionString,out var config);
         var brain=new TelegramBrain(provider.GetRequiredService<IServiceScopeFactory>(),config);await IniciarAsync(brain);
         await Dizer("criar espaço Pessoal");
-        var resposta=new TelegramMessage(new(123),"Use ordem consistente de locks para evitar deadlock.",null,MessageId:900);
+        var resposta=new TelegramMessage(new(123),"Use ordem consistente de locks para evitar deadlock.",new(999, IsBot:true),MessageId:900);
         api.Enqueue(new TelegramMessage(new(123),"documente isso",new(123),MessageId:901,ReplyToMessage:resposta));
         Assert.Contains("candidato",await api.NextMessageAsync());
         await using(var c=banco.Contexto())

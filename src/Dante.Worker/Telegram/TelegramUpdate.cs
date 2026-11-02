@@ -47,7 +47,8 @@ public sealed record TelegramChat(
     [property: JsonPropertyName("id")] long Id);
 
 public sealed record TelegramUser(
-    [property: JsonPropertyName("id")] long Id);
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("is_bot")] bool IsBot = false);
 
 public sealed record TelegramCallbackQuery(
     [property: JsonPropertyName("id")] string Id,

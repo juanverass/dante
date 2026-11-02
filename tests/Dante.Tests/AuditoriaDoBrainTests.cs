@@ -25,7 +25,7 @@ public sealed class AuditoriaDoBrainTests
         a.Confirmar(1,a.Proveniencia,DateTimeOffset.UtcNow);var inativo=Novo(e.Id,null,"inativo",e.IdUsuario);inativo.Invalidar(1,inativo.Proveniencia,DateTimeOffset.UtcNow);
         var expirado=Novo(e.Id,null,"expirado",e.IdUsuario);expirado.Corrigir(1,expirado.Tipo,expirado.Conteudo,null,null,expirado.Sensibilidade,null,DateTimeOffset.UtcNow.AddDays(-1),["audit"],expirado.Proveniencia,DateTimeOffset.UtcNow);
         var relacao=new RelacaoDeConhecimento(a,b,TipoDeRelacao.RelacionadoA,a.Proveniencia,DateTimeOffset.UtcNow);
-        var fonte=new DocumentoFonte(e.Id,null,"nota:prova","markdown","# Original",Sensibilidade.Pessoal,e.IdUsuario,DateTimeOffset.UtcNow);
+        var fonte=new DocumentoFonte(e.Id,null,"nota:prova","markdown","# Original",AutoriaDaFonte.Usuario,Sensibilidade.Pessoal,e.IdUsuario,DateTimeOffset.UtcNow);
         await using(var c=banco.Contexto()){c.AddRange(e,projeto,a,b,p,inativo,expirado,relacao,fonte);await c.SaveChangesAsync();}
         using var provider=Provider(banco.ConnectionString);using var scope=EscoposBrainDeTeste.Criar(provider,e.IdUsuario,e.Id);
         var s=scope.ServiceProvider.GetRequiredService<InspecaoDoBrainAppService>();var acesso=new AcessoAoBrain(e.IdUsuario,e.Id,null);
@@ -52,7 +52,7 @@ public sealed class AuditoriaDoBrainTests
         var secreto=Novo(e.Id,null,"segredoclassificado",e.IdUsuario,Sensibilidade.Secreto);
         var conf=Novo(e.Id,null,"confidencialclassificado",e.IdUsuario,Sensibilidade.Confidencial);
         var legado=Novo(e.Id,null,"token=legadoreal123",e.IdUsuario);
-        var fonte=new DocumentoFonte(e.Id,null,"nota:legada","texto","password=legadoreal456",Sensibilidade.Pessoal,e.IdUsuario,DateTimeOffset.UtcNow);
+        var fonte=new DocumentoFonte(e.Id,null,"nota:legada","texto","password=legadoreal456",AutoriaDaFonte.Usuario,Sensibilidade.Pessoal,e.IdUsuario,DateTimeOffset.UtcNow);
         await using(var c=banco.Contexto()){c.AddRange(e,a,secreto,conf,legado,fonte);await c.SaveChangesAsync();}
         using var provider=Provider(banco.ConnectionString);using var scope=EscoposBrainDeTeste.Criar(provider,e.IdUsuario,e.Id);
         var s=scope.ServiceProvider.GetRequiredService<InspecaoDoBrainAppService>();var acesso=new AcessoAoBrain(e.IdUsuario,e.Id,null);
