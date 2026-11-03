@@ -696,6 +696,15 @@ tags exigidas; tags removidas por correção não recuperam o candidato. Busca d
 conhecimentos e pacote de contexto continuam sem candidatos.
 [Guia](../development/brain-mcp.md), AD-56.
 
+A diferença lexical entre busca MCP e contexto automático é explícita no contrato
+e no schema (#254): o MCP preserva a consulta (AND implícito, `or` e frases);
+o Telegram extrai até 16 termos com sua lista local de palavras vazias e combina por
+OR. A normalização não é compartilhada e não há parâmetro modo. Ambos usam o dicionário
+português do PostgreSQL. Caso #147 e operadores estão cobertos por regressões; ranking,
+busca híbrida, limites e comportamento de execução foram preservados. Hífen é aceito
+pelo parser, mas a seleção por pontuação atual não garante exclusão do termo negado;
+a ressalva está documentada e testada, sem alteração dos índices.
+
 O MCP usa a mensagem autenticada do turno ativo, preservada junto à entrada na fila.
 Mensagens recebidas/enfileiradas não substituem essa evidência; entradas sem contexto
 autenticado revogam o acesso. Captura e correção factual exigem conteúdo na origem.
