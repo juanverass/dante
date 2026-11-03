@@ -10,6 +10,7 @@ public interface ICapturaDeConhecimentoAppService
         ProvenienciaDto responsavel, CancellationToken cancellationToken = default);
     Task RejeitarAsync(Guid idEspaco, Guid? idProjeto, Guid idCandidato, int revisaoEsperada, ProvenienciaDto responsavel, CancellationToken cancellationToken = default);
     Task DescartarAsync(Guid idEspaco, Guid? idProjeto, Guid idCandidato, int revisaoEsperada, ProvenienciaDto responsavel, CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<CandidatoDeConhecimentoDto>> ListarPendentesAsync(Guid idEspaco, Guid? idProjeto, int limite = 50, CancellationToken cancellationToken = default, int deslocamento = 0);
+    Task<IReadOnlyList<CandidatoDeConhecimentoDto>> ListarPendentesAsync(Guid idEspaco, Guid? idProjeto, int limite = 50, CancellationToken cancellationToken = default, int deslocamento = 0,
+        IReadOnlyList<string>? tags = null, string? texto = null);
     Task<CandidatoDeConhecimentoDto> ObterCandidatoAsync(Guid idEspaco, Guid? idProjeto, Guid id, CancellationToken cancellationToken = default);
 }

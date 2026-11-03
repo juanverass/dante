@@ -687,7 +687,14 @@ Ferramentas cobrem busca, proveniência, captura/correção/listagem de candidat
 propostas de consolidação/descarte/relação e snapshot operacional. Aprovação da CLI
 não confirma negócio: o usuário confirma propostas no Telegram, com expiração e
 revisão esperada. Captura preserva título/tags opcionais no histórico JSON e promoção;
-sem migration ou endpoints WebApi. [Guia](../development/brain-mcp.md), AD-56.
+sem migration ou endpoints WebApi. A listagem de pendentes aceita tags (todas exigidas,
+sem distinguir maiúsculas, somente da revisão atual) e texto (substring literal em
+título ou conteúdo atual, sem distinguir maiúsculas), combinados por AND (#253).
+Filtros SQL parametrizados antecedem a paginação e mantêm autorização global,
+ordenação por ID e limites existentes. Tags ausentes/nulas no legado não satisfazem
+tags exigidas; tags removidas por correção não recuperam o candidato. Busca de
+conhecimentos e pacote de contexto continuam sem candidatos.
+[Guia](../development/brain-mcp.md), AD-56.
 
 O MCP usa a mensagem autenticada do turno ativo, preservada junto à entrada na fila.
 Mensagens recebidas/enfileiradas não substituem essa evidência; entradas sem contexto

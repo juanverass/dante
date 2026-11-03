@@ -47,7 +47,7 @@ recusa o canal anterior. Reinício do Worker não restaura capacidades.
 | brain_buscar_conhecimento | Busca lexical/híbrida com texto, tipo, tags e paginação |
 | brain_mostrar_origem | Proveniência e histórico autorizado de candidato/conhecimento |
 | brain_capturar_conhecimento | Um candidato por chamada; título, conteúdo, tags, tipo, natureza, sensibilidade e justificativa |
-| brain_listar_candidatos | Pendentes com IDs e revisões para o agente, sem pedir GUID ao usuário |
+| brain_listar_candidatos | Pendentes com IDs e revisões, filtros opcionais por tags e texto, sem pedir GUID ao usuário |
 | brain_atualizar_conhecimento | Prepara correção auditada no mesmo ID, revisão esperada e confirmação Telegram |
 | brain_consolidar_duplicatas | Prepara consolidação de 1–20 duplicatas explícitas em um destino, com revisões de todos |
 | brain_corrigir_candidato | Correção com revisão esperada, sem alterar natureza ou escopo |
@@ -88,6 +88,26 @@ Não registra transcript completo ou raciocínio privado.
 
 Confidential/Secret não recebem grants adicionais. Falta de autorização falha fechado;
 conteúdo/histórico passam pelas policies de sensibilidade e proteção de segredos atuais.
+
+## Filtros de candidatos pendentes (#253)
+
+`brain_listar_candidatos` aceita `tags` e `texto` opcionais. Todas as tags informadas
+devem existir na **revisão atual** do candidato, com igualdade sem distinguir
+maiúsculas. Tags ausentes ou nulas no histórico legado equivalem a nenhuma tag.
+Tags removidas por correção deixam de recuperar o candidato.
+
+`texto` é uma substring literal, sem distinguir maiúsculas, no título **ou** conteúdo
+atual. Não interpreta operadores, curingas (`%`, `_`) nem busca semântica. Com ambos
+os filtros, exige tags **e** texto. Exemplo: `{"tags":["teste-147"],"texto":"IPv6"}`.
+Texto, quando informado, tem de 1 a 2000 caracteres e não pode ser só espaços;
+tags aceitam até 50 valores de 1 a 100 caracteres, não vazios nem só espaços.
+
+Os filtros são parametrizados no PostgreSQL, antes da ordenação por ID e da paginação.
+Continuam valendo os filtros globais de usuário/tenant, espaço, projeto exato (inclusive
+projeto nulo) e sensibilidade, além de `Permitida` no MCP. Sem texto e com tags ausentes
+ou `tags: []`, a listagem mantém o comportamento anterior. Só retorna candidatos pendentes, com estado,
+natureza e revisão; promovidos, rejeitados e descartados são excluídos. Não inclui
+candidatos em `brain_buscar_conhecimento` nem no pacote de contexto.
 
 ## Limites e validação
 

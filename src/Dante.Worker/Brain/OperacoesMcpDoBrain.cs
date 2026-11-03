@@ -42,7 +42,8 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 return await servicos.GetRequiredService<BuscaDoBrainAppService>().BuscarAsync(acesso, new()
                 { Texto = Texto(args, "texto", 2000), Limite = Limite(args), Deslocamento = Deslocamento(args), Tipo = OpcionalEnum<TipoDeConhecimento>(args, "tipo"), NaturezaDeOrigem = OpcionalEnum<NaturezaDoConteudo>(args, "natureza"), Tags = Lista(args, "tags") }, ct);
             case "brain_listar_candidatos":
-                var candidatos = await captura.ListarPendentesAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, Limite(args), ct, Deslocamento(args));
+                var candidatos = await captura.ListarPendentesAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, Limite(args), ct, Deslocamento(args),
+                    Lista(args, "tags"), args.TryGetProperty("texto", out _) ? Texto(args, "texto", 2000) : null);
                 var pagina = candidatos.Where(x => Permitida(x.Sensibilidade)).Select(Resumir).ToArray();
                 return new { candidatos = pagina, limite = Limite(args), deslocamento = Deslocamento(args) };
             case "brain_mostrar_origem":
