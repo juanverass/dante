@@ -101,13 +101,15 @@ public static class ServidorMcpDoBrain
     public static async Task ExecutarAsync(TextReader entrada, TextWriter saida,
         Func<string, JsonElement, CancellationToken, Task<JsonObject>> chamar, CancellationToken ct = default)
     {
-        while (await LerLinhaAsync(entrada, MaximoEntrada, ct) is { } linha)
+        while (await LerOuDescartarLinhaAsync(entrada, MaximoEntrada, ct) is { } lida)
         {
             JsonObject resposta;
             JsonNode? id = null;
             try
             {
-                using var documento = JsonDocument.Parse(linha); var pedido = documento.RootElement;
+                // Linha acima do limite já foi descartada sem acumular; responde e segue lendo (id desconhecido).
+                if (lida.Excedida) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheEntradaGrande);
+                using var documento = JsonDocument.Parse(lida.Texto!); var pedido = documento.RootElement;
                 if (!pedido.TryGetProperty("id", out var identificador)) continue;
                 id = JsonNode.Parse(identificador.GetRawText());
                 var metodo = pedido.GetProperty("method").GetString();
@@ -133,6 +135,23 @@ public static class ServidorMcpDoBrain
                 ["result"] = ErrosDoBrainMcp.Resultado(CategoriaDeErroMcp.EntradaInvalida, ErrosDoBrainMcp.DetalheRespostaGrande) }.ToJsonString();
             await saida.WriteLineAsync(json.AsMemory(), ct); await saida.FlushAsync(ct);
         }
+    }
+    public readonly record struct LinhaLida(string? Texto, bool Excedida);
+    // Como LerLinhaAsync, mas a linha acima do limite é consumida até o fim e descartada sem acumular:
+    // memória limitada a `maximo` e o canal continua alinhado na próxima linha (#251). Null no fim da entrada.
+    public static async Task<LinhaLida?> LerOuDescartarLinhaAsync(TextReader leitor, int maximo, CancellationToken ct)
+    {
+        var buffer = new char[1]; var linha = new StringBuilder(); var excedida = false; var leuAlgo = false;
+        while (await leitor.ReadAsync(buffer.AsMemory(), ct) != 0)
+        {
+            leuAlgo = true;
+            if (buffer[0] == '\n') return excedida ? new(null, true) : new(linha.ToString(), false);
+            if (excedida) continue;
+            if (linha.Length == maximo) { excedida = true; linha.Clear(); continue; }
+            if (buffer[0] != '\r') linha.Append(buffer[0]);
+        }
+        if (excedida) return new(null, true);
+        return !leuAlgo || linha.Length == 0 ? null : new(linha.ToString(), false);
     }
     // Não deixa ReadLineAsync alocar uma linha ilimitada enviada pelo cliente local/modelo.
     public static async Task<string?> LerLinhaAsync(TextReader leitor, int maximo, CancellationToken ct)

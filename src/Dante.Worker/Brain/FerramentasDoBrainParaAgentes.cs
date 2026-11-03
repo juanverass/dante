@@ -66,7 +66,7 @@ public sealed class FerramentasDoBrainParaAgentes(TelegramBrain brain, Operacoes
             using var leitor = new StreamReader(canal.Pipe, Encoding.UTF8, false, 4096, true);
             using var escritor = new StreamWriter(canal.Pipe, new UTF8Encoding(false), 4096, true) { AutoFlush = true };
             var chamadas = 0;
-            while (await ServidorMcpDoBrain.LerLinhaAsync(leitor, ServidorMcpDoBrain.MaximoEntrada, ct) is { } linha)
+            while (await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, ServidorMcpDoBrain.MaximoEntrada, ct) is { } lida)
             {
                 JsonObject resposta; var encerrar = false;
                 try
@@ -77,7 +77,9 @@ public sealed class FerramentasDoBrainParaAgentes(TelegramBrain brain, Operacoes
                     var atual = await brain.ResolverEscopoMcpAsync(inicial, prazo.Token);
                     if (atual != escopo || !registro.ConversaPermitida(sessao, inicial) || registro.VersaoConversa(inicial) != geracao)
                         throw ErroDoBrainMcp.EscopoMudou();
-                    using var documento = JsonDocument.Parse(linha); var pedido = documento.RootElement;
+                    // Pedido acima do limite: descartado sem acumular, conta no limite de chamadas e não derruba o canal (#251).
+                    if (lida.Excedida) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheEntradaGrande);
+                    using var documento = JsonDocument.Parse(lida.Texto!); var pedido = documento.RootElement;
                     var nome = pedido.GetProperty("nome").GetString()!; var argumentos = pedido.GetProperty("argumentos");
                     TelegramMessage mensagemAtual;
                     try { mensagemAtual = registro.Atual(sessao); } catch (UnauthorizedAccessException) { throw ErroDoBrainMcp.EscopoMudou(); }

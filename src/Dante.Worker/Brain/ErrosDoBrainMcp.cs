@@ -32,6 +32,7 @@ public static class ErrosDoBrainMcp
     public const string DetalheIdDeCandidato = "O ID é de um candidato; esta ferramenta aceita somente conhecimento ativo. Para candidatos use brain_corrigir_candidato ou brain_mostrar_origem com origem candidato.";
     public const string DetalheIdDeConhecimento = "O ID é de um conhecimento; esta ferramenta aceita somente candidato. Use brain_mostrar_origem com origem conhecimento.";
     public const string DetalheTiposDaRelacao = "Os tipos dos itens não correspondem à relação: ResolvidoPor exige Incidente → Solucao; ProduziuAprendizado exige Solucao → Aprendizado.";
+    public const string DetalheEntradaGrande = "Pedido excede o limite de 32 mil caracteres; reduza os argumentos.";
     public const string DetalheRespostaGrande = "Resposta excede o limite; reduza a página ou use consulta mais específica.";
     public const string DetalheLimiteDeChamadas = "Limite de chamadas da sessão atingido; inicie nova sessão.";
 

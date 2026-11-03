@@ -151,6 +151,72 @@ public sealed class BrainMcpErrosTests
         Assert.Equal(["entrada_invalida", "entrada_invalida", "indisponivel", "entrada_invalida", "escopo_mudou", "entrada_invalida", "entrada_invalida"], codigos);
     }
 
+    [Fact]
+    public async Task StdioRespondeEntradaAcimaDoLimiteEContinuaAtendendo()
+    {
+        var grande = new string('x', ServidorMcpDoBrain.MaximoEntrada + 5_000);
+        var pedidoGrande = "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"brain_buscar_conhecimento\",\"arguments\":{\"texto\":\"" + grande + "\"}}}";
+        var entrada = string.Join('\n', grande, pedidoGrande,
+            """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_obter_escopo","arguments":{}}}""",
+            grande); // última linha acima do limite e sem quebra final
+        using var saida = new StringWriter(); var chamadas = new List<string>();
+        await ServidorMcpDoBrain.ExecutarAsync(new StringReader(entrada), saida, (nome, _, _) =>
+        { chamadas.Add(nome); return Task.FromResult(ServidorMcpDoBrain.Resultado(new { espaco = "Desenvolvimento" })); });
+        var respostas = saida.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(x => JsonNode.Parse(x)!).ToArray();
+        Assert.Equal(4, respostas.Length);
+        foreach (var i in new[] { 0, 1, 3 })
+        {
+            // Sem leitura da linha excedente, o id é desconhecido; nada do conteúdo enviado volta na resposta.
+            Assert.Null(respostas[i]["id"]);
+            var corpo = Corpo(respostas[i]["result"]!.AsObject());
+            Assert.Equal("entrada_invalida", corpo["erro"]!.GetValue<string>());
+            Assert.Equal(ErrosDoBrainMcp.DetalheEntradaGrande, corpo["detalhe"]!.GetValue<string>());
+            Assert.DoesNotContain("xxxx", respostas[i].ToJsonString());
+        }
+        Assert.Equal(3, respostas[2]["id"]!.GetValue<int>()); Assert.False(respostas[2]["result"]!["isError"]!.GetValue<bool>());
+        Assert.Equal(["brain_obter_escopo"], chamadas); // excedentes nunca chegam ao Worker
+    }
+
+    [Fact]
+    public async Task LeituraDescartaExcedenteSemAcumularEPermaneceAlinhada()
+    {
+        var leitor = new StringReader(new string('y', 100) + "\r\nabc\r\n" + new string('z', 11) + "\n\nfim");
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida(null, true), await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, 10, default));
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida("abc", false), await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, 10, default));
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida(null, true), await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, 10, default));
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida("", false), await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, 10, default));
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida("fim", false), await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, 10, default));
+        Assert.Null(await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, 10, default));
+        // Exatamente no limite continua aceito, como em LerLinhaAsync.
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida(new string('w', 10), false), await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(new StringReader(new string('w', 10) + "\n"), 10, default));
+    }
+
+    [PostgreSqlFact]
+    public async Task CanalDoWorkerRespondeEntradaAcimaDoLimiteSemEncerrarEEscopoContinuaPrevalecendo()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        using var ferramentas = BrainMcpTests.Provedor(a.App);
+        var servidor = Assert.Single(await ferramentas.ForSessionAsync("GRANDE", new(42, AgentKind.Codex, JobExecutionContext.General(AppContext.BaseDirectory),
+            BrainConversation: BrainMcpTests.Mensagem("pedido").ParaFerramentas())));
+        var cliente = await BrainMcpTests.Cliente.ConectarAsync(servidor);
+        var grande = new { texto = new string('x', ServidorMcpDoBrain.MaximoEntrada + 5_000) };
+        for (var i = 0; i < 2; i++)
+        {
+            var resposta = await cliente.ChamarAsync("brain_buscar_conhecimento", grande);
+            Assert.True(resposta["isError"]!.GetValue<bool>());
+            Assert.Equal("entrada_invalida", Corpo(resposta)["erro"]!.GetValue<string>());
+            Assert.Equal(ErrosDoBrainMcp.DetalheEntradaGrande, Corpo(resposta)["detalhe"]!.GetValue<string>());
+            Assert.DoesNotContain("xxxx", resposta.ToJsonString());
+        }
+        // Antes da correção o Worker encerrava o canal em silêncio; agora ele segue utilizável.
+        Assert.False((await cliente.ChamarAsync("brain_obter_escopo", new { }))["isError"]!.GetValue<bool>());
+        // Mudança de escopo é verificada antes do tamanho: escopo_mudou e o canal é encerrado.
+        await a.Brain.AtenderAsync(BrainMcpTests.Mensagem("criar projeto Outro"), "criar projeto Outro");
+        Assert.Equal("escopo_mudou", Corpo(await cliente.ChamarAsync("brain_buscar_conhecimento", grande))["erro"]!.GetValue<string>());
+        await Assert.ThrowsAnyAsync<Exception>(() => cliente.ChamarAsync("brain_obter_escopo", new { }));
+        try { await cliente.DisposeAsync(); } catch (IOException) { } // pipe já encerrado pelo Worker
+    }
+
     [PostgreSqlFact]
     public async Task NaoOraculoInexistenteOutroEscopoSensibilidadeEProtegidoSaoByteAByteIdenticos()
     {
