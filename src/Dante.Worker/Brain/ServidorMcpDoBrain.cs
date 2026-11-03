@@ -14,6 +14,9 @@ public static class ServidorMcpDoBrain
     public const string Nome = "dante_brain";
     public const string Argumento = "--mcp-brain";
     public const int MaximoEntrada = 32_000;
+    // Excedente descartado: até 1 Mi caracteres e 30 s a partir do primeiro caractere além do limite (#251).
+    public const int MaximoDescarte = 1_048_576;
+    public static readonly TimeSpan JanelaDeDescarte = TimeSpan.FromSeconds(30);
     public const int MaximoResposta = 60_000;
     // Paginação: os mesmos limites são validados em runtime por OperacoesMcpDoBrain.
     public const int LimiteMaximo = 25;
@@ -108,7 +111,8 @@ public static class ServidorMcpDoBrain
             try
             {
                 // Linha acima do limite já foi descartada sem acumular; responde e segue lendo (id desconhecido).
-                if (lida.Excedida) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheEntradaGrande);
+                // Excedente sem quebra dentro dos limites de descarte: responde e encerra o servidor de forma controlada.
+                if (lida.Excedida) throw ErroDoBrainMcp.Entrada(lida.Abortada ? ErrosDoBrainMcp.DetalheEntradaAbortada : ErrosDoBrainMcp.DetalheEntradaGrande);
                 using var documento = JsonDocument.Parse(lida.Texto!); var pedido = documento.RootElement;
                 if (!pedido.TryGetProperty("id", out var identificador)) continue;
                 id = JsonNode.Parse(identificador.GetRawText());
@@ -134,24 +138,42 @@ public static class ServidorMcpDoBrain
             if (json.Length > MaximoResposta) json = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id?.DeepClone(),
                 ["result"] = ErrosDoBrainMcp.Resultado(CategoriaDeErroMcp.EntradaInvalida, ErrosDoBrainMcp.DetalheRespostaGrande) }.ToJsonString();
             await saida.WriteLineAsync(json.AsMemory(), ct); await saida.FlushAsync(ct);
+            if (lida.Abortada) return;
         }
     }
-    public readonly record struct LinhaLida(string? Texto, bool Excedida);
+    // Abortada: o excedente não terminou dentro de `maximoDescarte` caracteres nem da janela; o chamador encerra o canal.
+    public readonly record struct LinhaLida(string? Texto, bool Excedida, bool Abortada = false);
     // Como LerLinhaAsync, mas a linha acima do limite é consumida até o fim e descartada sem acumular:
-    // memória limitada a `maximo` e o canal continua alinhado na próxima linha (#251). Null no fim da entrada.
-    public static async Task<LinhaLida?> LerOuDescartarLinhaAsync(TextReader leitor, int maximo, CancellationToken ct)
+    // memória limitada a `maximo` e o canal continua alinhado na próxima linha (#251). O descarte é limitado
+    // em quantidade e em tempo, para que um cliente sem quebra de linha não prenda a sessão. Null no fim da entrada.
+    public static async Task<LinhaLida?> LerOuDescartarLinhaAsync(TextReader leitor, int maximo, CancellationToken ct,
+        int maximoDescarte = MaximoDescarte, TimeSpan? janela = null)
     {
-        var buffer = new char[1]; var linha = new StringBuilder(); var excedida = false; var leuAlgo = false;
+        var buffer = new char[1]; var linha = new StringBuilder(); var leuAlgo = false;
         while (await leitor.ReadAsync(buffer.AsMemory(), ct) != 0)
         {
             leuAlgo = true;
-            if (buffer[0] == '\n') return excedida ? new(null, true) : new(linha.ToString(), false);
-            if (excedida) continue;
-            if (linha.Length == maximo) { excedida = true; linha.Clear(); continue; }
+            if (buffer[0] == '\n') return new(linha.ToString(), false);
+            if (linha.Length == maximo) return await DescartarAsync(leitor, maximoDescarte, janela ?? JanelaDeDescarte, ct);
             if (buffer[0] != '\r') linha.Append(buffer[0]);
         }
-        if (excedida) return new(null, true);
         return !leuAlgo || linha.Length == 0 ? null : new(linha.ToString(), false);
+    }
+    private static async Task<LinhaLida> DescartarAsync(TextReader leitor, int maximoDescarte, TimeSpan janela, CancellationToken ct)
+    {
+        // O caractere que estourou o limite já foi consumido: é o primeiro excedente. A quebra final não conta.
+        using var prazo = CancellationTokenSource.CreateLinkedTokenSource(ct); prazo.CancelAfter(janela);
+        var buffer = new char[1]; var excedentes = 1;
+        try
+        {
+            while (await leitor.ReadAsync(buffer.AsMemory(), prazo.Token) != 0)
+            {
+                if (buffer[0] == '\n') return new(null, true);
+                if (++excedentes > maximoDescarte) return new(null, true, true);
+            }
+            return new(null, true); // fim da entrada: responde e o laço termina na próxima leitura
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return new(null, true, true); }
     }
     // Não deixa ReadLineAsync alocar uma linha ilimitada enviada pelo cliente local/modelo.
     public static async Task<string?> LerLinhaAsync(TextReader leitor, int maximo, CancellationToken ct)

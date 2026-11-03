@@ -217,6 +217,95 @@ public sealed class BrainMcpErrosTests
         try { await cliente.DisposeAsync(); } catch (IOException) { } // pipe já encerrado pelo Worker
     }
 
+    [Fact]
+    public async Task ExcedenteSemQuebraEAbortadoComConsumoLimitado()
+    {
+        // Fluxo contínuo sem quebra de linha: aborta ao passar do descarte máximo, sem ler indefinidamente.
+        var infinito = new LeitorSemQuebra("", 'y');
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida(null, true, true),
+            await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(infinito, 10, default, maximoDescarte: 50, janela: TimeSpan.FromMinutes(1)));
+        Assert.Equal(10 + 51, infinito.Consumidos); // limite + descarte máximo + o excedente que estourou
+        // Gotejamento que para sem quebra: aborta pela janela, não pela quantidade.
+        var parado = new LeitorSemQuebra(new string('y', 15), null);
+        var cronometro = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida(null, true, true),
+            await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(parado, 10, default, maximoDescarte: 1_000, janela: TimeSpan.FromMilliseconds(200)));
+        Assert.InRange(cronometro.Elapsed, TimeSpan.FromMilliseconds(150), TimeSpan.FromSeconds(10));
+        // Cancelamento da sessão continua sendo cancelamento, não abortamento por descarte.
+        using var sessao = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ServidorMcpDoBrain.LerOuDescartarLinhaAsync(
+            new LeitorSemQuebra(new string('y', 15), null), 10, sessao.Token, maximoDescarte: 1_000, janela: TimeSpan.FromMinutes(1)));
+    }
+
+    [Fact]
+    public async Task ExcedenteQueTerminaDentroDoDescarteRecuperaALinhaSeguinte()
+    {
+        // Exatamente no descarte máximo (5 excedentes) e com quebra: responde como excedida e o canal segue alinhado.
+        var leitor = new StringReader(new string('a', 10) + new string('b', 5) + "\nok\n" + new string('a', 10) + new string('b', 6) + "\nperdido\n");
+        Task<ServidorMcpDoBrain.LinhaLida?> Ler() => ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, 10, default, maximoDescarte: 5, janela: TimeSpan.FromMinutes(1));
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida(null, true), await Ler());
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida("ok", false), await Ler());
+        // Um excedente além do descarte máximo: abortada mesmo que a quebra viesse depois.
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida(null, true, true), await Ler());
+    }
+
+    [Fact]
+    public async Task StdioEncerraDeFormaControladaQuandoExcedenteNaoTermina()
+    {
+        var excedenteValido = new string('x', ServidorMcpDoBrain.MaximoEntrada + 5_000);
+        var prefixo = excedenteValido + "\n" + """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_obter_escopo","arguments":{}}}""" + "\n";
+        var entrada = new LeitorSemQuebra(prefixo, 'x'); // depois da chamada válida, fluxo infinito sem quebra
+        using var saida = new StringWriter(); var chamadas = 0;
+        await ServidorMcpDoBrain.ExecutarAsync(entrada, saida, (_, _, _) =>
+        { chamadas++; return Task.FromResult(ServidorMcpDoBrain.Resultado(new { espaco = "Desenvolvimento" })); })
+            .WaitAsync(TimeSpan.FromSeconds(60)); // termina por conta própria, sem depender do cliente
+        var respostas = saida.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(x => JsonNode.Parse(x)!).ToArray();
+        Assert.Equal(3, respostas.Length); Assert.Equal(1, chamadas);
+        Assert.Equal(ErrosDoBrainMcp.DetalheEntradaGrande, Corpo(respostas[0]["result"]!.AsObject())["detalhe"]!.GetValue<string>());
+        Assert.False(respostas[1]["result"]!["isError"]!.GetValue<bool>()); // recuperação normal após excedente válido
+        var abortada = Corpo(respostas[2]["result"]!.AsObject());
+        Assert.Equal("entrada_invalida", abortada["erro"]!.GetValue<string>());
+        Assert.Equal(ErrosDoBrainMcp.DetalheEntradaAbortada, abortada["detalhe"]!.GetValue<string>());
+        Assert.InRange(entrada.Consumidos, prefixo.Length, prefixo.Length + ServidorMcpDoBrain.MaximoEntrada + ServidorMcpDoBrain.MaximoDescarte + 1);
+    }
+
+    [PostgreSqlFact]
+    public async Task CanalDoWorkerEncerraQuandoExcedenteNaoTerminaERecuperaQuandoTermina()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        using var ferramentas = BrainMcpTests.Provedor(a.App);
+        var servidor = Assert.Single(await ferramentas.ForSessionAsync("SEMQUEBRA", new(42, AgentKind.Codex, JobExecutionContext.General(AppContext.BaseDirectory),
+            BrainConversation: BrainMcpTests.Mensagem("pedido").ParaFerramentas())));
+        await using var pipe = new System.IO.Pipes.NamedPipeClientStream(".", servidor.Arguments[^1], System.IO.Pipes.PipeDirection.InOut,
+            System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.CurrentUserOnly);
+        await pipe.ConnectAsync(5000);
+        using var leitor = new StreamReader(pipe, System.Text.Encoding.UTF8, false, 4096, true);
+        using var escritor = new StreamWriter(pipe, new System.Text.UTF8Encoding(false), 65536, true) { AutoFlush = false };
+        async Task<JsonObject> Resposta() => JsonNode.Parse((await leitor.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(30)))!)!.AsObject();
+        // Excedente que termina: entrada_invalida e o canal continua.
+        await escritor.WriteLineAsync(new string('x', ServidorMcpDoBrain.MaximoEntrada + 5_000)); await escritor.FlushAsync();
+        Assert.Equal(ErrosDoBrainMcp.DetalheEntradaGrande, Corpo(await Resposta())["detalhe"]!.GetValue<string>());
+        await escritor.WriteLineAsync(JsonSerializer.Serialize(new { nome = "brain_obter_escopo", argumentos = new { } })); await escritor.FlushAsync();
+        Assert.False((await Resposta())["isError"]!.GetValue<bool>());
+        // Excedente que não termina: o Worker para de ler ao passar do descarte máximo, responde e encerra o canal.
+        var envio = Task.Run(async () =>
+        {
+            try
+            {
+                var bloco = new string('x', 64 * 1024);
+                for (var enviados = 0; enviados <= ServidorMcpDoBrain.MaximoEntrada + ServidorMcpDoBrain.MaximoDescarte + bloco.Length; enviados += bloco.Length)
+                { await escritor.WriteAsync(bloco); await escritor.FlushAsync(); }
+            }
+            catch (IOException) { } // o Worker encerrou o pipe no meio do envio
+        });
+        var resposta = await Resposta();
+        Assert.Equal("entrada_invalida", Corpo(resposta)["erro"]!.GetValue<string>());
+        Assert.Equal(ErrosDoBrainMcp.DetalheEntradaAbortada, Corpo(resposta)["detalhe"]!.GetValue<string>());
+        // Canal encerrado pelo Worker: fim da leitura ou reset (o Worker fecha com bytes do cliente ainda não lidos).
+        try { Assert.Null(await leitor.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(30))); } catch (IOException) { }
+        await envio.WaitAsync(TimeSpan.FromSeconds(30));
+    }
+
     [PostgreSqlFact]
     public async Task NaoOraculoInexistenteOutroEscopoSensibilidadeEProtegidoSaoByteAByteIdenticos()
     {
@@ -403,6 +492,21 @@ public sealed class BrainMcpErrosTests
         .Descartar(99, new ProvenienciaDoConhecimento(Guid.NewGuid(), "teste", "fonte:2", trechoDaFonte: "x"), DateTimeOffset.UtcNow));
     private static Exception Lancada(Action acao) { try { acao(); } catch (Exception ex) { return ex; } throw new InvalidOperationException("Ação não lançou."); }
     private static JsonNode Corpo(JsonObject resultado) => JsonNode.Parse(resultado["content"]![0]!["text"]!.GetValue<string>())!;
+    // Entrega o prefixo e depois repete `repetir` para sempre; sem `repetir`, fica parado (sem quebra) até o cancelamento.
+    private sealed class LeitorSemQuebra(string prefixo, char? repetir) : TextReader
+    {
+        private int posicao;
+        public long Consumidos { get; private set; }
+        public override async ValueTask<int> ReadAsync(Memory<char> destino, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (destino.Length == 0) return 0;
+            if (posicao < prefixo.Length) destino.Span[0] = prefixo[posicao++];
+            else if (repetir is { } c) destino.Span[0] = c;
+            else { await Task.Delay(Timeout.Infinite, cancellationToken); return 0; }
+            Consumidos++; return 1;
+        }
+    }
     private sealed class FalhaSimulada { public Func<Exception>? Proxima { get; set; } }
     private sealed class UnidadeComFalha(IUnitOfWork real, FalhaSimulada falha) : IUnitOfWork
     {

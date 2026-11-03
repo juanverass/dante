@@ -68,7 +68,8 @@ public sealed class FerramentasDoBrainParaAgentes(TelegramBrain brain, Operacoes
             var chamadas = 0;
             while (await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, ServidorMcpDoBrain.MaximoEntrada, ct) is { } lida)
             {
-                JsonObject resposta; var encerrar = false;
+                // Descarte abortado encerra o canal qualquer que seja a resposta: a entrada perdeu o alinhamento de linhas.
+                JsonObject resposta; var encerrar = lida.Abortada;
                 try
                 {
                     if (++chamadas > 1000) throw new ErroDoBrainMcp(CategoriaDeErroMcp.Indisponivel, ErrosDoBrainMcp.DetalheLimiteDeChamadas);
@@ -78,7 +79,8 @@ public sealed class FerramentasDoBrainParaAgentes(TelegramBrain brain, Operacoes
                     if (atual != escopo || !registro.ConversaPermitida(sessao, inicial) || registro.VersaoConversa(inicial) != geracao)
                         throw ErroDoBrainMcp.EscopoMudou();
                     // Pedido acima do limite: descartado sem acumular, conta no limite de chamadas e não derruba o canal (#251).
-                    if (lida.Excedida) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheEntradaGrande);
+                    // Se o excedente não terminou dentro do descarte máximo/janela, responde e encerra o canal.
+                    if (lida.Excedida) throw ErroDoBrainMcp.Entrada(lida.Abortada ? ErrosDoBrainMcp.DetalheEntradaAbortada : ErrosDoBrainMcp.DetalheEntradaGrande);
                     using var documento = JsonDocument.Parse(lida.Texto!); var pedido = documento.RootElement;
                     var nome = pedido.GetProperty("nome").GetString()!; var argumentos = pedido.GetProperty("argumentos");
                     TelegramMessage mensagemAtual;
@@ -92,7 +94,7 @@ public sealed class FerramentasDoBrainParaAgentes(TelegramBrain brain, Operacoes
                 {
                     // Código estável por categoria, sem mensagem da exceção (#251). escopo_mudou continua encerrando o canal.
                     resposta = ErrosDoBrainMcp.Resultado(ex);
-                    encerrar = ErrosDoBrainMcp.Classificar(ex) == CategoriaDeErroMcp.EscopoMudou;
+                    encerrar |= ErrosDoBrainMcp.Classificar(ex) == CategoriaDeErroMcp.EscopoMudou;
                     if (!encerrar && ErrosDoBrainMcp.Classificar(ex) == CategoriaDeErroMcp.Indisponivel)
                         logger.LogWarning("Operação Brain MCP indisponível ({ErrorType}).", ex.GetType().Name);
                 }
