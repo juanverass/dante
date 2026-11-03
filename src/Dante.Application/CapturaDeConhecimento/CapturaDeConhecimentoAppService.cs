@@ -88,12 +88,14 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
         else candidato.Rejeitar(revisao, ConhecimentoAppService.ParaProveniencia(p), DateTimeOffset.UtcNow);
         candidatos.Atualizar(candidato); await unitOfWork.SalvarAlteracoesAsync(ct);
     }
-    public async Task<IReadOnlyList<CandidatoDeConhecimentoDto>> ListarPendentesAsync(Guid idEspaco, Guid? idProjeto, int limite = 50, CancellationToken cancellationToken = default, int deslocamento = 0)
+    public async Task<IReadOnlyList<CandidatoDeConhecimentoDto>> ListarPendentesAsync(Guid idEspaco, Guid? idProjeto, int limite = 50, CancellationToken cancellationToken = default, int deslocamento = 0,
+        IReadOnlyList<string>? tags = null, string? texto = null)
     {
         ValidacaoDeEntrada.ExigirFaixa(limite, 1, 100, nameof(limite));
         ValidacaoDeEntrada.ExigirFaixa(deslocamento, 0, 10000, nameof(deslocamento));
+        CandidatoDeConhecimentoValidator.ValidarFiltros(tags, texto);
         await GarantirEscopoAsync(idEspaco, idProjeto, false, cancellationToken);
-        return (await candidatos.ListarPendentesAsync(idEspaco, idProjeto, limite, cancellationToken, deslocamento)).Select(ParaDto).ToArray();
+        return (await candidatos.ListarPendentesAsync(idEspaco, idProjeto, limite, cancellationToken, deslocamento, tags, texto)).Select(ParaDto).ToArray();
     }
     public async Task<CandidatoDeConhecimentoDto> ObterCandidatoAsync(Guid idEspaco, Guid? idProjeto, Guid id, CancellationToken cancellationToken = default) =>
         ParaDto(await ObterAsync(idEspaco, idProjeto, id, false, cancellationToken));

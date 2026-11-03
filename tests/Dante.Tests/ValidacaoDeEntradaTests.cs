@@ -120,7 +120,8 @@ public sealed class ValidacaoDeEntradaTests
     {
         var validators = typeof(ValidacaoDeEntrada).Assembly.GetTypes()
             .Where(t => t.Name.EndsWith("Validator", StringComparison.Ordinal) || t == typeof(ValidacaoDeEntrada)).ToArray();
-        Assert.Equal(10, validators.Length);
+        Assert.Equal(11, validators.Length);
+        Assert.Contains(typeof(Dante.Application.CapturaDeConhecimento.CandidatoDeConhecimentoValidator), validators);
         Assert.All(validators, t =>
         {
             Assert.True(t.IsAbstract && t.IsSealed && !t.IsPublic, $"{t.Name} deve ser internal static.");
