@@ -89,6 +89,47 @@ Não registra transcript completo ou raciocínio privado.
 Confidential/Secret não recebem grants adicionais. Falta de autorização falha fechado;
 conteúdo/histórico passam pelas policies de sensibilidade e proteção de segredos atuais.
 
+## Referências tipadas no snapshot (#255)
+
+O campo textual `referencias` aceita `conhecimento:<guid>@<revisao>`,
+`candidato:<guid>@<revisao>` e `fonte:<guid>@<revisao>`. Use IDs e revisões obtidos
+nas consultas autorizadas; não peça GUID ao usuário. A revisão precisa ser um inteiro
+positivo. Texto livre, prefixos desconhecidos e referências malformadas continuam
+armazenados e apresentados como texto operacional, sem erro nem resolução heurística.
+Não há campo novo, migration ou mudança no modelo de candidatos.
+
+O Context Builder resolve referências completas em itens separados e remove suas
+strings do texto operacional. Para cada item, verifica revisão, escopo exato,
+sensibilidade e filtros; aplica redação de segredos antes da projeção. Referências
+inexistentes, encerradas, removidas, obsoletas, conflitantes ou sem autorização são
+descartadas com registro, sem revelar conteúdo protegido. `Secreto` nunca entra no
+contexto automático, mesmo com permissão de leitura canônica. `Confidencial` exige
+autorização explícita no acesso usado para construir o pacote.
+
+| Referência | Apresentação no pacote |
+| --- | --- |
+| conhecimento | Mantém tipo, status, natureza e rótulos existentes; passa também pelos filtros de qualidade e validade. |
+| candidato | Somente estado Pendente; origem `candidato`, rótulo **Pendente, não confirmado**, natureza preservada e Tipo/Status de conhecimento nulos. Não é fato confirmado. |
+| fonte | Documento inteiro da revisão indicada, origem `fonte_bruta`, autoria preservada e Tipo/Status nulos. Só entra se couber integralmente no orçamento. |
+
+Revisão divergente não é substituída pela revisão atual. A restrição vale também
+quando busca/relações encontram o mesmo conhecimento, ou a busca encontra trechos
+da fonte. Fontes tipadas substituem seus trechos recuperados para evitar duplicação.
+Duas revisões diferentes para o mesmo tipo/ID são conflito: ambas são descartadas.
+Duplicatas idênticas são resolvidas uma vez.
+
+Prioridade de seleção: instruções confirmadas, decisões confirmadas, demais
+conhecimentos confirmados, demais referências tipadas, texto do snapshot,
+conhecimentos restantes e fontes recuperadas. Dentro da faixa mantêm-se relevância
+e chave estável. A busca não mudou de ranking. O indicador `Referenciado` no DTO
+serve à seleção; todos os conteúdos usam o estimador, o `OrcamentoDeTokens` e o
+`LimiteDeItens` comuns. Não há truncamento silencioso de uma fonte para fazê-la caber.
+
+Chaves `conhecimento:<id>`, `candidato:<id>` e `fonte:<id>`, acompanhadas da revisão
+em `JaInjetados`, impedem reinjeção da mesma versão. Uma revisão nova só entra com
+a referência correspondente atualizada. `IdsDecisoesConfirmadas` continua sujeito
+à confirmação exigida pela #256, mesmo quando o mesmo ID também for uma referência tipada.
+
 ## Decisões confirmadas no snapshot (#256)
 
 `brain_atualizar_contexto_de_trabalho` aceita o campo opcional
@@ -104,7 +145,7 @@ revisão esperada continuam iguais. A lista tem semântica de substituição com
 São aceitas até 20 entradas, antes de deduplicar. Duplicatas dentro desse limite
 são removidas ao salvar, mantendo a primeira ocorrência. `null`, IDs vazios,
 malformados ou listas acima do limite são recusados. Isso não altera a lista
-textual `referencias` nem implementa resolução de texto livre (#255).
+textual `referencias`; a resolução dos formatos estritos da #255 está descrita acima.
 
 Cada ID precisa ser de `Tipo = Decisao`, `Status = Confirmado`, válido no instante
 da atualização, no mesmo espaço e projeto exatos (inclusive projeto nulo), permitido

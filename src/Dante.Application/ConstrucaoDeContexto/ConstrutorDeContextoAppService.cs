@@ -1,4 +1,5 @@
 using Dante.Application.BuscaDoBrain;
+using Dante.Application.CapturaDeConhecimento;
 using Dante.Application.Conhecimentos;
 using Dante.Application.ContextosDeTrabalho;
 using Dante.Application.DocumentosFonte;
@@ -12,7 +13,8 @@ namespace Dante.Application.ConstrucaoDeContexto;
 
 public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca, LeituraDoBrainAppService leitura,
     IRelacaoDeConhecimentoRepository relacoes, IConsultaDeQualidade qualidade,
-    PoliticaDeSensibilidade politica, ContextoDeTrabalhoAppService snapshots, IIndiceDeFontes fontes)
+    PoliticaDeSensibilidade politica, ContextoDeTrabalhoAppService snapshots, IIndiceDeFontes fontes,
+    ICandidatoDeConhecimentoRepository pendentes, IDocumentoFonteRepository documentos)
 {
     public static int EstimarTokens(string texto) => SelecaoDeContexto.EstimarTokens(texto);
     public async Task<PacoteDeContextoDto> ConstruirAsync(AcessoAoBrain acesso,PedidoDeContextoDto pedido,CancellationToken cancellationToken=default)
@@ -26,7 +28,20 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
         foreach(var r in resultado.Resultados)
             if(r.Origem==OrigemDoResultado.Conhecimento) motivos.TryAdd(r.Item.Id,(r.Score,r.Explicacao));else brutas.Add(r);
         var snapshot=pedido.IncluirSnapshot?await snapshots.RetomarAsync(automatico,cancellationToken):null;
+        var referencias=snapshot?.Dados.Referencias.Select(ReferenciaTipadaDeContexto.Ler).OfType<ReferenciaTipadaDeContexto>().Distinct().ToArray()??[];
+        var conhecimentosReferenciados=referencias.Where(r=>r.Tipo=="conhecimento").GroupBy(r=>r.Id).ToDictionary(g=>g.Key,g=>g.ToArray());
+        var fontesReferenciadas=referencias.Where(r=>r.Tipo=="fonte").Select(r=>r.Id).ToHashSet();
+        var registros=new List<RegistroDeContextoDto>();
         if(snapshot is not null)foreach(var id in snapshot.Dados.IdsDecisoesConfirmadas)motivos.TryAdd(id,(0.01,"Decisão referenciada pelo snapshot operacional."));
+        foreach(var grupo in conhecimentosReferenciados)
+        {
+            if(grupo.Value.Length>1)
+            {
+                motivos.Remove(grupo.Key);
+                foreach(var r in grupo.Value)registros.Add(ResolucaoDeReferenciasDeContexto.Descartar(r,ResolucaoDeReferenciasDeContexto.Conflitante));
+            }
+            else motivos[grupo.Key]=(0.02,"Referência tipada do snapshot: conhecimento.");
+        }
         var limitou=resultado.TemMais;var fronteira=motivos.Keys.ToArray();var visitados=fronteira.ToHashSet();
         for(var nivel=1;nivel<=pedido.ProfundidadeDeRelacoes && fronteira.Length>0;nivel++)
         {
@@ -47,31 +62,45 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
         }
         var elegiveis=await qualidade.FiltrarElegiveisParaContextoAsync(automatico,motivos.Keys.ToArray(),DateTimeOffset.UtcNow,cancellationToken);
         var camposDoSnapshot=new List<string>();
-        var candidatos=new List<ItemDeContextoDto>();var registros=new List<RegistroDeContextoDto>();
+        var candidatos=new List<ItemDeContextoDto>();
         var presentes=pedido.FragmentosJaPresentes.Append(pedido.Mensagem).Select(Normalizar).ToArray();
-        foreach(var id in motivos.Keys.Except(elegiveis.Select(x=>x.Id))) registros.Add(new($"conhecimento:{id:D}",id,"conhecimento","descartado","Obsoleto, conflitante, fora dos filtros/escopo ou sem autorização.",0));
+        foreach(var id in motivos.Keys.Except(elegiveis.Select(x=>x.Id)))
+        {
+            if(conhecimentosReferenciados.TryGetValue(id,out var refs))
+            { if(refs.Length==1)registros.Add(ResolucaoDeReferenciasDeContexto.Descartar(refs[0],ResolucaoDeReferenciasDeContexto.Indisponivel)); }
+            else registros.Add(new($"conhecimento:{id:D}",id,"conhecimento","descartado","Obsoleto, conflitante, fora dos filtros/escopo ou sem autorização.",0));
+        }
         foreach(var k in elegiveis)
         {
+            conhecimentosReferenciados.TryGetValue(k.Id,out var refs);
+            if(refs is { Length: > 1 })continue;
+            var referencia=refs?.Single();
+            if(referencia is not null && k.Revisao!=referencia.Revisao)
+            {registros.Add(ResolucaoDeReferenciasDeContexto.Descartar(referencia,ResolucaoDeReferenciasDeContexto.Divergente));continue;}
             if(!ElegibilidadeDeContexto.AtendeFiltros(k, pedido.Filtros))
             {registros.Add(new($"conhecimento:{k.Id:D}",k.Id,"conhecimento","descartado","Fora dos filtros da solicitação.",0));continue;}
-            if(motivos[k.Id].Motivo.StartsWith("Decisão referenciada",StringComparison.Ordinal) &&
+            if(snapshot?.Dados.IdsDecisoesConfirmadas.Contains(k.Id)==true &&
                 (k.Tipo!=TipoDeConhecimento.Decisao || k.Status!=StatusDoConhecimento.Confirmado))
             {registros.Add(new($"conhecimento:{k.Id:D}",k.Id,"conhecimento","descartado","Decisão do snapshot perdeu confirmação.",0));continue;}
             var dto=politica.Projetar(k,automatico,FinalidadeDeLeitura.ContextoAutomatico);
-            if(dto.ConteudoProtegido)continue;
-            var conteudo=string.Join("\n",new[]{dto.Conteudo,dto.DadosEstruturados}.Where(x=>!string.IsNullOrWhiteSpace(x)));
-            var m=motivos[k.Id];candidatos.Add(new($"conhecimento:{k.Id:D}",k.Id,k.Revisao,"conhecimento",k.Tipo,k.Status,k.Sensibilidade,conteudo,dto.ReferenciaDaFonte,m.Motivo,m.Score,0,NaturezaDeOrigem:k.NaturezaDeOrigem,Natureza:k.Natureza));
+            if(dto.ConteudoProtegido || referencia is not null && (ProtecaoDeSegredos.ContemSegredo(k.Conteudo)||ProtecaoDeSegredos.ContemSegredo(k.DadosEstruturados)))
+            {if(referencia is not null)registros.Add(ResolucaoDeReferenciasDeContexto.Descartar(referencia,ResolucaoDeReferenciasDeContexto.Indisponivel));continue;}
+            var conteudo=ProtecaoDeSegredos.Redigir(string.Join("\n",new[]{dto.Conteudo,dto.DadosEstruturados}.Where(x=>!string.IsNullOrWhiteSpace(x))))!;
+            var m=motivos[k.Id];candidatos.Add(new($"conhecimento:{k.Id:D}",k.Id,k.Revisao,"conhecimento",k.Tipo,k.Status,k.Sensibilidade,conteudo,referencia?.Chave??dto.ReferenciaDaFonte,m.Motivo,m.Score,0,NaturezaDeOrigem:k.NaturezaDeOrigem,Natureza:k.Natureza,Referenciado:referencia is not null));
         }
         foreach(var r in brutas)
         {
+            // A referência fixa a revisão do documento inteiro; não usar trechos atuais como fallback.
+            if(fontesReferenciadas.Contains(r.Item.Id))continue;
             var f=r.Fonte!;var atual=await fontes.ObterTrechoAsync(automatico,f.IdDocumento,f.Revisao,f.Numero,cancellationToken);
             if(atual is null){registros.Add(new(f.Referencia,f.IdDocumento,"fonte_bruta","descartado","Fonte mudou ou foi removida.",0));continue;}
             candidatos.Add(new(f.Referencia,f.IdDocumento,f.Revisao,"fonte_bruta",null,null,r.Item.Sensibilidade,ProtecaoDeSegredos.Redigir(atual.Conteudo)!,f.Referencia,"Trecho relevante de fonte bruta; exige consolidação para ser fato.",r.Score,0,f.Inicio,AutoriaDaFonte:atual.Autoria));
         }
+        await ResolucaoDeReferenciasDeContexto.ResolverAsync(referencias,automatico,pedido.Filtros,pendentes,documentos,candidatos,registros,cancellationToken);
         if(snapshot is not null)
         {
             var d=snapshot.Dados;
-            var campos=new[]{d.Objetivo,d.Tarefa,d.Progresso,d.UltimoResultado}.Concat(d.Referencias).Concat(d.Pendencias).Concat(d.ProximosPassos)
+            var campos=new[]{d.Objetivo,d.Tarefa,d.Progresso,d.UltimoResultado}.Concat(d.Referencias.Where(r=>ReferenciaTipadaDeContexto.Ler(r) is null)).Concat(d.Pendencias).Concat(d.ProximosPassos)
                 .Where(x=>!string.IsNullOrWhiteSpace(x)).Select(x=>ProtecaoDeSegredos.Redigir(x)!).Where(x=>!Coberto(x,presentes)).Distinct(StringComparer.Ordinal);
             camposDoSnapshot=campos.ToList();
             var texto=string.Join("\n",camposDoSnapshot);

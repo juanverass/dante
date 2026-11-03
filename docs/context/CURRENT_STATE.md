@@ -713,8 +713,18 @@ e a Application reutiliza as validações existentes. Snapshot novo permanece Pe
 não há elevação automática de sensibilidade. Fluxo documentado: declaração literal,
 candidato Decisao/DitoPeloUsuario, confirmação Telegram, consulta do conhecimento
 Confirmado e referência por ID. A conversa natural preserva a lista, sem nova gramática.
-Context Builder mantém revalidação na recuperação; referências textuais da #255
-continuam fora do escopo. Sem migration ou mudança em autoria, confirmação e promoção.
+Context Builder mantém revalidação na recuperação. Sem migration ou mudança em
+autoria, confirmação e promoção.
+
+`DadosDoContexto.Referencias` aceita formatos tipados por ID/revisão (#255):
+conhecimento, candidato e fonte. O Context Builder resolve apenas a revisão indicada,
+registra descartes por divergência/indisponibilidade e mantém texto livre/malformado
+como contexto operacional. Candidatos entram como pendentes, não confirmados, sem
+Tipo/Status de conhecimento; fontes entram como fonte_bruta, com autoria. Escopo,
+sensibilidade, redação, orçamento/limite e JaInjetados são preservados; Secreto nunca
+entra no contexto automático. Referências têm prioridade após conhecimentos confirmados
+e antes do snapshot textual. Fonte tipada representa o documento inteiro, sem fallback
+para trechos atuais. Não há registro de evidências da #257 nem mudança na busca da #258.
 
 O MCP usa a mensagem autenticada do turno ativo, preservada junto à entrada na fila.
 Mensagens recebidas/enfileiradas não substituem essa evidência; entradas sem contexto
