@@ -2104,3 +2104,27 @@ Separar "o que é" de "quem afirmou" e de "quanto vale" mantém a regra de segur
 destruir informação semântica útil para busca, relações e retomada de contexto. Concentrar a
 regra de confirmação no Domain impede que um adapter ou API nova a contorne. A opção C adia o
 problema para cada consumidor; a opção A mantém o bloqueio observado na #147.
+
+## AD-60 — Evidências do agente como DocumentoFonte com metadados de registro (#257)
+
+Status: vigente.
+
+Agentes registram evidências de testes e validações pelo MCP (`brain_registrar_evidencia`)
+como `DocumentoFonte` Markdown, nunca como candidato ou conhecimento. A autoria é sempre
+`Agente` (AD-59 P2/P3/I9) e não é argumento da ferramenta; o escopo é o do acesso da sessão.
+Cada registro recebe origem `evidencia:<guid>` gerada pelo servidor, de modo que o índice
+único (espaço, projeto, origem) e a reimportação por origem dos fluxos Telegram/CLI
+permanecem inalterados. Título, tags, justificativa e proveniência de quem registrou
+são colunas opcionais de `documentos_fonte`, fora do conteúdo e do hash; fontes
+anteriores ficam com valores neutros, sem metadados ou autoria inventados.
+
+Conteúdo repetido não é deduplicado: cada chamada cria uma fonte própria, preservando
+proveniência e metadados de todas as ocorrências. A duplicidade é apenas informativa
+(mesmo hash, somente fontes visíveis ao agente), apoiada por índice não único
+(espaço, projeto, hash). O filtro de tags passa a valer para fontes; tipo, status e
+natureza continuam exclusivos de conhecimento.
+
+Por quê: o snapshot resumido e substituível perdia resultados detalhados (#147), e
+metadados embutidos na origem ou no Markdown misturariam registro com evidência e
+alterariam o hash. Edição/remoção pelo MCP e extração automática de candidatos ficam
+fora. Guia: [Brain MCP](../development/brain-mcp.md#evidências-de-teste-como-fonte-bruta-257) e [fontes](../development/fontes.md).

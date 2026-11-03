@@ -5,6 +5,7 @@ using Dante.Application.CapturaDeConhecimento;
 using Dante.Application.ConversaDoBrain;
 using Dante.Application.Conhecimentos;
 using Dante.Application.ContextosDeTrabalho;
+using Dante.Application.DocumentosFonte;
 using Dante.Application.RelacoesDeConhecimento;
 using Dante.Application.QualidadeDoBrain;
 using Dante.Application.SegurancaDoBrain;
@@ -209,6 +210,14 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                     if (!janela.LimiteAtingido) return new VizinhancaDto(visiveis, false);
                     deslocamento = checked(deslocamento + janela.Relacoes.Count);
                 }
+            case "brain_registrar_evidencia":
+                var evidencia = Evidencia(args, $"{prova.Origem};{prova.ReferenciaDaFonte}");
+                var registrada = await servicos.GetRequiredService<DocumentoFonteAppService>().RegistrarEvidenciaAsync(acesso, evidencia, ct);
+                var fonteRegistrada = registrada.Fonte;
+                return new { fonte = new { fonteRegistrada.Id, fonteRegistrada.Revisao, fonteRegistrada.Titulo, fonteRegistrada.Tags,
+                        sensibilidade = fonteRegistrada.Sensibilidade.ToString(), autoria = fonteRegistrada.Autoria.ToString(), fonteRegistrada.Rotulo },
+                    referencia = registrada.Referencia, possivelDuplicidade = registrada.PossivelDuplicidade, duplicidades = registrada.PossiveisDuplicidades,
+                    confirmado = false, instrucao = "Evidência registrada como fonte bruta, não confirmada. Use a referência em referencias do snapshot; não é conhecimento." };
             case "brain_obter_contexto_de_trabalho": return await servicos.GetRequiredService<ContextoDeTrabalhoAppService>().RetomarAsync(acesso, ct);
             case "brain_atualizar_contexto_de_trabalho":
                 var contextos = servicos.GetRequiredService<ContextoDeTrabalhoAppService>();
@@ -350,6 +359,19 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             Titulo = a.TryGetProperty("titulo", out _) ? Texto(a, "titulo", 300) : null, Conteudo = conteudo, Tags = Lista(a, "tags"),
             Tipo = OpcionalEnum<TipoDeConhecimento>(a, "tipo") ?? TipoDeConhecimento.Nota, Natureza = ObrigatorioEnum<NaturezaDoConteudo>(a, "natureza"),
             Modo = ModoDeCaptura.Explicita, Sensibilidade = sensibilidade, Justificativa = Texto(a, "justificativa", 2000), Proveniencia = prova with { TrechoDaFonte = conteudo } };
+    }
+    private static RegistroDeEvidenciaDto Evidencia(JsonElement a, string proveniencia)
+    {
+        var titulo = Texto(a, "titulo", Dante.Domain.DocumentosFonte.DocumentoFonte.TamanhoMaximoDoTitulo);
+        var conteudo = Texto(a, "conteudo", DocumentoFonteAppService.TamanhoMaximoDaEvidencia);
+        var justificativa = a.TryGetProperty("justificativa", out _) ? Texto(a, "justificativa", Dante.Domain.DocumentosFonte.DocumentoFonte.TamanhoMaximoDaJustificativa) : null;
+        var tags = Lista(a, "tags");
+        var sensibilidade = OpcionalEnum<Sensibilidade>(a, "sensibilidade") ?? Sensibilidade.Pessoal;
+        if (!Permitida(sensibilidade)) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheSensibilidade);
+        GarantirSemCredencial([titulo, conteudo, justificativa, .. tags]);
+        if (new[] { titulo, conteudo, justificativa }.Concat(tags).Any(ProtecaoDeConteudoOperacional.ContemRaciocinioPrivado))
+            throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheConteudoOperacional);
+        return new(titulo, conteudo, tags, sensibilidade, justificativa, proveniencia);
     }
     // Mesma detecção da Application, antecipada para devolver detalhe útil sem expor a mensagem interna.
     private static void GarantirSemCredencial(params string?[] textos)

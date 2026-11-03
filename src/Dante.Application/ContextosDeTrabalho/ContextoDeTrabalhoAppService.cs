@@ -17,9 +17,7 @@ public sealed class ContextoDeTrabalhoAppService(IContextoDeTrabalhoRepository c
         ProtecaoDeSegredos.GarantirSeguro([origem, dados.Objetivo, dados.Tarefa, dados.Progresso, dados.UltimoResultado,
             .. dados.Referencias, .. dados.Pendencias, .. dados.ProximosPassos]);
         var campos = new[] { dados.Objetivo, dados.Tarefa, dados.Progresso, dados.UltimoResultado }.Concat(dados.Referencias).Concat(dados.Pendencias).Concat(dados.ProximosPassos);
-        if (campos.Any(x => x.Contains("chain-of-thought", StringComparison.OrdinalIgnoreCase) ||
-            x.Contains("<thinking>", StringComparison.OrdinalIgnoreCase) || x.Contains("raciocínio privado", StringComparison.OrdinalIgnoreCase)))
-            throw new ArgumentException("Snapshot aceita somente resultados operacionais selecionados.");
+        ProtecaoDeConteudoOperacional.Garantir(campos, "Snapshot aceita somente resultados operacionais selecionados.");
         var agora = DateTimeOffset.UtcNow;
         foreach (var id in dados.IdsDecisoesConfirmadas)
         {

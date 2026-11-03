@@ -29,33 +29,35 @@ public sealed class IndiceDeFontesPostgreSql(DanteDbContext contexto, LeituraDoB
     public async Task<IReadOnlyList<ResultadoDaBuscaDto>> BuscarAsync(AcessoAoBrain acesso, BuscaDoBrainSearchDto filtro,
         ModeloEmbedding? modelo, float[]? vetor, CancellationToken cancellationToken = default)
     {
-        if (filtro.NaturezaDeOrigem is not null || filtro.IdConhecimento is not null || filtro.Tipo is not null || filtro.Tipos.Count>0 || filtro.Status is not null || filtro.Tags.Count > 0) return [];
+        // Filtros próprios de conhecimento não promovem fontes; tags valem para fontes com metadados (#257).
+        if (filtro.NaturezaDeOrigem is not null || filtro.IdConhecimento is not null || filtro.Tipo is not null || filtro.Tipos.Count>0 || filtro.Status is not null) return [];
         var sem = vetor is not null && modelo is not null && await Vetores(acesso,cancellationToken);
         var score = sem ? "CASE WHEN p.modelo=@modelo AND p.dimensao=@dimensao AND p.vetor IS NOT NULL THEN 1-(p.vetor <=> CAST(@vetor AS vector)) END" : "NULL::double precision";
         await using var c = await Comando($"""
             WITH candidatos AS (
-              SELECT d.id,d.revisao,p.numero,p.inicio,p.conteudo,d.origem,d.hash,d.sensibilidade,d.autoria,
+              SELECT d.id,d.revisao,p.numero,p.inicio,p.conteudo,d.origem,d.hash,d.sensibilidade,d.autoria,d.tags,
                 ts_rank_cd(p.documento,websearch_to_tsquery('portuguese',@texto))::double precision lexical,{score} semantico
               FROM brain_data.documentos_fonte d JOIN brain_index.partes_fontes p ON p.id_documento=d.id AND p.revisao=d.revisao
               WHERE {Escopo} AND (@sens IS NULL OR d.sensibilidade=@sens)
                 AND (@desde IS NULL OR d.atualizado_em>=@desde) AND (@ate IS NULL OR d.atualizado_em<@ate)
+                AND NOT EXISTS(SELECT 1 FROM unnest(@tags::text[]) tag WHERE NOT EXISTS(SELECT 1 FROM unnest(d.tags) existente WHERE lower(existente)=lower(tag)))
             ), ranks AS (
               SELECT *,CASE WHEN lexical>0 THEN rank() OVER(ORDER BY lexical DESC,id,numero) END rl,
                 CASE WHEN semantico>0 THEN rank() OVER(ORDER BY semantico DESC NULLS LAST,id,numero) END rs FROM candidatos
             ) SELECT id,revisao,numero,inicio,conteudo,origem,hash,sensibilidade,lexical,semantico,
-              COALESCE(1.0/(60+rl),0)+COALESCE(1.0/(60+rs),0) score,autoria FROM ranks
+              COALESCE(1.0/(60+rl),0)+COALESCE(1.0/(60+rs),0) score,autoria,tags FROM ranks
               WHERE lexical>0 OR semantico>=0.6 ORDER BY score DESC,id,numero LIMIT @limite OFFSET @offset
             """,acesso,cancellationToken);
         Param(c,"texto",NpgsqlDbType.Text,filtro.Texto); Param(c,"sens",NpgsqlDbType.Integer,filtro.Sensibilidade is { } s ? (int)s : null);
         Param(c,"desde",NpgsqlDbType.TimestampTz,filtro.CriadoDesde);Param(c,"ate",NpgsqlDbType.TimestampTz,filtro.CriadoAte);
-        Param(c,"limite",NpgsqlDbType.Integer,filtro.Limite);Param(c,"offset",NpgsqlDbType.Integer,filtro.Deslocamento);
+        Param(c,"tags",NpgsqlDbType.Array | NpgsqlDbType.Text,filtro.Tags.ToArray());Param(c,"limite",NpgsqlDbType.Integer,filtro.Limite);Param(c,"offset",NpgsqlDbType.Integer,filtro.Deslocamento);
         if(sem) { Param(c,"modelo",NpgsqlDbType.Text,modelo!.Chave);Param(c,"dimensao",NpgsqlDbType.Integer,modelo.Dimensao);Param(c,"vetor",NpgsqlDbType.Text,"["+string.Join(',',vetor!.Select(x=>x.ToString("R",CultureInfo.InvariantCulture)))+"]"); }
         var resultado = new List<ResultadoDaBuscaDto>(); await using var r = await c.ExecuteReaderAsync(cancellationToken);
         while (await r.ReadAsync(cancellationToken))
         {
             var trecho = new TrechoDaFonteDto(r.GetGuid(0),r.GetInt32(1),r.GetInt32(2),r.GetInt32(3),ProtecaoDeSegredos.Redigir(r.GetString(4))!,ProtecaoDeSegredos.Redigir(r.GetString(5))!,r.GetString(6),(AutoriaDaFonte)r.GetInt32(11));
             var item = new LeituraProtegidaDto(trecho.IdDocumento,acesso.IdEspacoDeConhecimento,acesso.IdProjeto,TipoDeConhecimento.Referencia,
-                StatusDoConhecimento.Inferido,(Sensibilidade)r.GetInt32(7),trecho.Revisao,trecho.Conteudo,null,[],trecho.Origem,trecho.Referencia,false,AutoriaDaFonte: trecho.Autoria);
+                StatusDoConhecimento.Inferido,(Sensibilidade)r.GetInt32(7),trecho.Revisao,trecho.Conteudo,null,Array.AsReadOnly(r.GetFieldValue<string[]>(12)),trecho.Origem,trecho.Referencia,false,AutoriaDaFonte: trecho.Autoria);
             resultado.Add(new(item,OrigemDoResultado.FonteBruta,r.GetDouble(10),r.GetDouble(8),r.IsDBNull(9)?null:r.GetDouble(9),"Trecho de fonte bruta; não constitui conhecimento confirmado.",trecho));
         }
         return resultado;

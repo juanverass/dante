@@ -12,9 +12,11 @@ internal static class ElegibilidadeDeContexto
         f.Tipos.Count > 0 && !f.Tipos.Contains(c.Tipo) || f.Sensibilidade is { } s && c.Sensibilidade != s ||
         f.Tags.Any(tag => !c.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase)) ||
         f.CriadoDesde is { } desde && c.CriadoEm < desde || f.CriadoAte is { } ate && c.CriadoEm >= ate);
-    // Mesma separação de fontes brutas adotada pelo índice de fontes: filtros de conhecimento não as promovem.
+    // Mesma separação de fontes brutas adotada pelo índice de fontes: filtros de conhecimento não as promovem;
+    // tags valem também para fontes (#257).
     internal static bool AtendeFiltros(DocumentoFonte d, BuscaDoBrainSearchDto f) => !(
-        f.Status is not null || f.Tipo is not null || f.Tipos.Count > 0 || f.NaturezaDeOrigem is not null || f.Tags.Count > 0 ||
+        f.Status is not null || f.Tipo is not null || f.Tipos.Count > 0 || f.NaturezaDeOrigem is not null ||
+        f.Tags.Any(tag => !d.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase)) ||
         f.Sensibilidade is { } s && d.Sensibilidade != s ||
         f.CriadoDesde is { } desde && d.AtualizadoEm < desde || f.CriadoAte is { } ate && d.AtualizadoEm >= ate);
     internal static bool AtendeFiltros(Conhecimento k, BuscaDoBrainSearchDto filtros) => !(

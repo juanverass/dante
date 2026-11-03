@@ -55,6 +55,7 @@ recusa o canal anterior. Reinício do Worker não restaura capacidades.
 | brain_cancelar_candidato | Prepara descarte auditado, sem aplicá-lo |
 | brain_criar_relacao | Prepara relação tipada entre alvos autorizados com revisões |
 | brain_listar_relacoes | Vizinhança autorizada de um conhecimento |
+| brain_registrar_evidencia | Uma evidência Markdown de teste/validação como fonte bruta de autoria do agente; retorna `fonte:<id>@<rev>` |
 | brain_obter_contexto_de_trabalho | Snapshot operacional ativo |
 | brain_atualizar_contexto_de_trabalho | Snapshot com revisão esperada, sem criar Conhecimento |
 
@@ -246,10 +247,36 @@ ou `tags: []`, a listagem mantém o comportamento anterior. Só retorna candidat
 natureza e revisão; promovidos, rejeitados e descartados são excluídos. Não inclui
 candidatos em `brain_buscar_conhecimento` nem no pacote de contexto.
 
+## Evidências de teste como fonte bruta (#257)
+
+`brain_registrar_evidencia` preserva resultados detalhados de testes e validações que
+não cabem no snapshot. Argumentos: `titulo` (obrigatório, até 200), `conteudo` Markdown
+(obrigatório, até 20.000), `tags` (até 50 de 100), `sensibilidade` (Publico, Pessoal
+padrão, ou Trabalho) e `justificativa` opcional (até 2000). Não há argumento de autoria,
+origem, formato ou escopo: o schema recusa extras. A fonte nasce com autoria `Agente`,
+mesmo quando o usuário pediu o registro ou a mensagem contém o texto (AD-59 P2), no
+espaço/projeto da sessão, com origem `evidencia:<guid>` gerada pelo servidor e
+proveniência de sessão única (#249) acrescida da mensagem autenticada.
+
+Credenciais em qualquer campo são recusadas com o detalhe de credencial; marcadores de
+transcript/raciocínio privado (os mesmos do snapshot), com detalhe próprio.
+Confidencial/Secreto são recusados. Uma evidência por chamada; nada é editado ou removido
+pelo MCP. Registrar não cria candidato nem conhecimento e não confirma nada.
+O teto de 32 mil caracteres vale para o JSON bruto da chamada: escapes (quebras de linha,
+acentos codificados como `\uXXXX`) contam, e uma evidência perto de 20 mil caracteres pode
+ser recusada como entrada grande. Divida evidências extensas em registros separados.
+
+A resposta traz `referencia` (`fonte:<id>@<rev>`), para usar em `referencias` do snapshot,
+que o Context Builder entrega como `fonte_bruta` na revisão indicada (#255). Repetir o mesmo
+conteúdo cria outro registro, preservando a proveniência e os metadados de cada ocorrência;
+`possivelDuplicidade` e `duplicidades` apenas apontam as fontes visíveis com o mesmo hash.
+Na busca, a evidência aparece como `FonteBruta`, rotulada como autoria do agente, e o
+filtro `tags` também alcança fontes com todas as tags pedidas.
+
 ## Limites e validação
 
-Uma captura/relação por chamada; conteúdo até 10 mil caracteres, título até 300,
-até 50 tags de 100 caracteres. Listagens até 25 itens/página, deslocamento até 10 mil.
+Uma captura/relação/evidência por chamada; conteúdo até 10 mil caracteres (evidência:
+20 mil), título até 300 (evidência: 200), até 50 tags de 100 caracteres. Listagens até 25 itens/página, deslocamento até 10 mil.
 Entrada até 32 mil caracteres, resposta MCP até 60 mil, mil chamadas por sessão e
 30 segundos por operação. Resposta excessiva retorna orientação para reduzir a consulta.
 Operações com erro/resultado incerto não são repetidas automaticamente.
