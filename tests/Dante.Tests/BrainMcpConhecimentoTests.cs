@@ -340,6 +340,46 @@ public sealed class BrainMcpConhecimentoTests
         Assert.Null(Assert.Single(antigo.Historico).Natureza);
     }
 
+    [Fact]
+    public void SchemaDaBuscaAceitaNaturezaDeOrigemIncluindoDesconhecidaSemRemoverTipo()
+    {
+        var ferramenta = ServidorMcpDoBrain.Ferramentas.Single(x => x.Nome == "brain_buscar_conhecimento");
+        Assert.True(ferramenta.Propriedades.ContainsKey("tipo"));
+        Assert.DoesNotContain("natureza", ferramenta.Obrigatorios);
+        foreach (var natureza in Enum.GetNames<NaturezaDoConteudo>())
+            ServidorMcpDoBrain.Validar(ferramenta.Nome, JsonSerializer.SerializeToElement(new { texto = "filtro", natureza, tipo = "Inferencia" }));
+        var valores = ferramenta.Propriedades["natureza"]!["enum"]!.AsArray().Select(x => x!.GetValue<string>()).ToArray();
+        Assert.Equal(Enum.GetNames<NaturezaDoConteudo>(), valores);
+    }
+
+    [PostgreSqlFact]
+    public async Task BuscaMcpEConsultaNaturalExibemRotuloSemConfundirFatoComConfirmacao()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        var agente = a.Novo("naturezamcp267 hipótese como fato", natureza: NaturezaDoConteudo.ConclusaoDoAgente);
+        var humano = a.Novo("naturezamcp267 declaração própria"); humano.Confirmar(1, a.Prova, DateTimeOffset.UtcNow);
+        await a.GravarAsync(agente, humano);
+        await Assert.ThrowsAsync<ArgumentException>(() => a.OperarAsync("brain_buscar_conhecimento", new { texto = "naturezamcp267", natureza = "Inventada" }));
+        var legado = a.Novo("naturezamcp267 legado", tipo: TipoDeConhecimento.Inferencia);
+        await using (var db = a.Banco.Contexto()) await ConhecimentoLegadoDeTeste.InserirAsync(db, legado);
+        var resultado = JsonSerializer.SerializeToElement(await a.OperarAsync("brain_buscar_conhecimento", new { texto = "naturezamcp267", natureza = "ConclusaoDoAgente", tipo = "Fato" }));
+        var item = Assert.Single(resultado.GetProperty("Resultados").EnumerateArray()).GetProperty("Item");
+        Assert.Equal(agente.Id, item.GetProperty("Id").GetGuid());
+        Assert.Equal((int)NaturezaDoConteudo.ConclusaoDoAgente, item.GetProperty("NaturezaDeOrigem").GetInt32());
+        Assert.Equal((int)NaturezaDoConteudo.ConclusaoDoAgente, item.GetProperty("Natureza").GetInt32());
+        Assert.Equal((int)StatusDoConhecimento.Inferido, item.GetProperty("Status").GetInt32());
+        Assert.Contains("Conclusão do agente, não confirmada", item.GetProperty("Rotulo").GetString());
+        var origem = JsonSerializer.SerializeToElement(await a.OperarAsync("brain_mostrar_origem", new { id = agente.Id, origem = "conhecimento" }));
+        Assert.Equal(item.GetProperty("Rotulo").GetString(), origem.GetProperty("Rotulo").GetString());
+        var antigos = JsonSerializer.SerializeToElement(await a.OperarAsync("brain_buscar_conhecimento", new { texto = "naturezamcp267", natureza = "Desconhecida", tipo = "Inferencia" }));
+        Assert.Equal(legado.Id, Assert.Single(antigos.GetProperty("Resultados").EnumerateArray()).GetProperty("Item").GetProperty("Id").GetGuid());
+        var consulta = "o que você sabe sobre hipótese como fato?";
+        var resposta = await a.Brain.AtenderAsync(BrainMcpTests.Mensagem(consulta), consulta);
+        Assert.Contains("Conclusão do agente, não confirmada", resposta);
+        var prova = "de onde veio essa informação?";
+        Assert.Contains("Conclusão do agente, não confirmada", await a.Brain.AtenderAsync(BrainMcpTests.Mensagem(prova), prova));
+    }
+
     private sealed class Ambiente(Banco banco, ServiceProvider app, TelegramBrain brain, TelegramBrain.EscopoBrainDaSessao escopo) : IAsyncDisposable
     {
         public Banco Banco => banco;

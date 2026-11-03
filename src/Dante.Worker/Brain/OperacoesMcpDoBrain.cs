@@ -38,7 +38,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             case "brain_obter_escopo": return new { espaco = escopo.Espaco, projeto = escopo.Projeto, sessao };
             case "brain_buscar_conhecimento":
                 return await servicos.GetRequiredService<BuscaDoBrainAppService>().BuscarAsync(acesso, new()
-                { Texto = Texto(args, "texto", 2000), Limite = Limite(args), Deslocamento = Deslocamento(args), Tipo = OpcionalEnum<TipoDeConhecimento>(args, "tipo"), Tags = Lista(args, "tags") }, ct);
+                { Texto = Texto(args, "texto", 2000), Limite = Limite(args), Deslocamento = Deslocamento(args), Tipo = OpcionalEnum<TipoDeConhecimento>(args, "tipo"), NaturezaDeOrigem = OpcionalEnum<NaturezaDoConteudo>(args, "natureza"), Tags = Lista(args, "tags") }, ct);
             case "brain_listar_candidatos":
                 var candidatos = await captura.ListarPendentesAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, Limite(args), ct, Deslocamento(args));
                 var pagina = candidatos.Where(x => Permitida(x.Sensibilidade)).Select(Resumir).ToArray();
@@ -48,7 +48,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 if (origemDaConsulta is not ("candidato" or "conhecimento")) throw new ArgumentException("Origem inválida.");
                 if (origemDaConsulta == "candidato") return (await CandidatoAsync()).Historico;
                 var conhecimento = await ConhecimentoAsync(Id(args, "id"));
-                return new { conhecimento.Proveniencia, conhecimento.Historico };
+                return new { conhecimento.Id, conhecimento.Tipo, conhecimento.NaturezaDeOrigem, conhecimento.Natureza, conhecimento.Status, conhecimento.Rotulo, conhecimento.Proveniencia, conhecimento.Historico };
             case "brain_capturar_conhecimento":
                 var dto = Captura(args, acesso, ProvaDaFonte(prova, mensagem, args));
                 ValidarOrigem(dto, mensagem);

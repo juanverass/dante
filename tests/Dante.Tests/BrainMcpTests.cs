@@ -92,7 +92,7 @@ public sealed class BrainMcpTests
     [Fact]
     public void EscritasMcpNaoOferecemNaturezaReservadaAoLegado()
     {
-        var escritas = ServidorMcpDoBrain.Ferramentas.Where(f => f.Propriedades.ContainsKey("natureza")).ToArray();
+        var escritas = ServidorMcpDoBrain.Ferramentas.Where(f => !f.Leitura && f.Propriedades.ContainsKey("natureza")).ToArray();
         Assert.Equal(3, escritas.Length);
         foreach (var ferramenta in escritas)
         {

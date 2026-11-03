@@ -1,10 +1,12 @@
 using Dante.Domain.Conhecimentos;
+using Dante.Domain.CapturaDeConhecimento;
 namespace Dante.Application.BuscaDoBrain;
 
 public sealed record BuscaDoBrainSearchDto
 {
     public string Texto { get; init; } = "";
     public Guid? IdConhecimento { get; init; }
+    public NaturezaDoConteudo? NaturezaDeOrigem { get; init; }
     public TipoDeConhecimento? Tipo { get; init; }
     public IReadOnlyList<TipoDeConhecimento> Tipos { get; init; } = [];
     public StatusDoConhecimento? Status { get; init; }

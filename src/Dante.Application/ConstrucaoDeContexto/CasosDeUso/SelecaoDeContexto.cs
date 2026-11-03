@@ -44,5 +44,5 @@ internal static class SelecaoDeContexto
     {var texto=Normalizar(conteudo);return presentes.Any(x=>x==texto || texto.Length>=24 && x.Contains(texto,StringComparison.Ordinal));}
     // Texto em português chega legível ao agente: \uXXXX dobraria bytes/tokens estimados de cada acento (#145).
     private static readonly JsonSerializerOptions Json=new(){Encoder=System.Text.Encodings.Web.JavaScriptEncoder.Create(System.Text.Unicode.UnicodeRanges.All)};
-    private static string Formatar(ItemDeContextoDto x)=>JsonSerializer.Serialize(new{x.Id,x.Revisao,x.Origem,Tipo=x.Tipo?.ToString(),Status=x.Status?.ToString(),Sensibilidade=x.Sensibilidade.ToString(),x.Referencia,x.InicioDaFonte,x.Conteudo},Json)+"\n";
+    private static string Formatar(ItemDeContextoDto x)=>JsonSerializer.Serialize(new{x.Id,x.Revisao,x.Origem,Tipo=x.Tipo?.ToString(),Status=x.Status?.ToString(),NaturezaDeOrigem=x.NaturezaDeOrigem?.ToString(),Natureza=x.Natureza?.ToString(),AutoriaDaFonte=x.AutoriaDaFonte?.ToString(),x.Rotulo,Sensibilidade=x.Sensibilidade.ToString(),x.Referencia,x.InicioDaFonte,x.Conteudo},Json)+"\n";
 }

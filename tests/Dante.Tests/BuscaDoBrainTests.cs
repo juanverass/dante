@@ -86,6 +86,8 @@ public sealed class BuscaDoBrainTests
             var semantico=await busca.BuscarAsync(acesso,new() { Texto="associação ausente" });
             var item=Assert.Single(semantico.Resultados); Assert.Equal(a.Id,item.Item.Id); Assert.Equal(0,item.ScoreLexical); Assert.True(item.ScoreSemantico>0.99);
             Assert.Equal("hibrido",semantico.Modo);
+            Assert.Single((await busca.BuscarAsync(acesso,new() { Texto="associação ausente", NaturezaDeOrigem=NaturezaDoConteudo.DitoPeloUsuario })).Resultados);
+            Assert.Empty((await busca.BuscarAsync(acesso,new() { Texto="associação ausente", NaturezaDeOrigem=NaturezaDoConteudo.ConclusaoDoAgente })).Resultados);
             var misto=Assert.Single((await busca.BuscarAsync(acesso,new() { Texto="relação opcional" })).Resultados);
             Assert.True(misto.ScoreLexical>0); Assert.True(misto.ScoreSemantico>0);
             gerador.Versao="2"; Assert.Empty((await busca.BuscarAsync(acesso,new() { Texto="associação ausente" })).Resultados);

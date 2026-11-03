@@ -29,12 +29,12 @@ public sealed class IndiceDeFontesPostgreSql(DanteDbContext contexto, LeituraDoB
     public async Task<IReadOnlyList<ResultadoDaBuscaDto>> BuscarAsync(AcessoAoBrain acesso, BuscaDoBrainSearchDto filtro,
         ModeloEmbedding? modelo, float[]? vetor, CancellationToken cancellationToken = default)
     {
-        if (filtro.IdConhecimento is not null || filtro.Tipo is not null || filtro.Tipos.Count>0 || filtro.Status is not null || filtro.Tags.Count > 0) return [];
+        if (filtro.NaturezaDeOrigem is not null || filtro.IdConhecimento is not null || filtro.Tipo is not null || filtro.Tipos.Count>0 || filtro.Status is not null || filtro.Tags.Count > 0) return [];
         var sem = vetor is not null && modelo is not null && await Vetores(acesso,cancellationToken);
         var score = sem ? "CASE WHEN p.modelo=@modelo AND p.dimensao=@dimensao AND p.vetor IS NOT NULL THEN 1-(p.vetor <=> CAST(@vetor AS vector)) END" : "NULL::double precision";
         await using var c = await Comando($"""
             WITH candidatos AS (
-              SELECT d.id,d.revisao,p.numero,p.inicio,p.conteudo,d.origem,d.hash,d.sensibilidade,
+              SELECT d.id,d.revisao,p.numero,p.inicio,p.conteudo,d.origem,d.hash,d.sensibilidade,d.autoria,
                 ts_rank_cd(p.documento,websearch_to_tsquery('portuguese',@texto))::double precision lexical,{score} semantico
               FROM brain_data.documentos_fonte d JOIN brain_index.partes_fontes p ON p.id_documento=d.id AND p.revisao=d.revisao
               WHERE {Escopo} AND (@sens IS NULL OR d.sensibilidade=@sens)
@@ -43,7 +43,7 @@ public sealed class IndiceDeFontesPostgreSql(DanteDbContext contexto, LeituraDoB
               SELECT *,CASE WHEN lexical>0 THEN rank() OVER(ORDER BY lexical DESC,id,numero) END rl,
                 CASE WHEN semantico>0 THEN rank() OVER(ORDER BY semantico DESC NULLS LAST,id,numero) END rs FROM candidatos
             ) SELECT id,revisao,numero,inicio,conteudo,origem,hash,sensibilidade,lexical,semantico,
-              COALESCE(1.0/(60+rl),0)+COALESCE(1.0/(60+rs),0) score FROM ranks
+              COALESCE(1.0/(60+rl),0)+COALESCE(1.0/(60+rs),0) score,autoria FROM ranks
               WHERE lexical>0 OR semantico>=0.6 ORDER BY score DESC,id,numero LIMIT @limite OFFSET @offset
             """,acesso,cancellationToken);
         Param(c,"texto",NpgsqlDbType.Text,filtro.Texto); Param(c,"sens",NpgsqlDbType.Integer,filtro.Sensibilidade is { } s ? (int)s : null);
@@ -53,19 +53,19 @@ public sealed class IndiceDeFontesPostgreSql(DanteDbContext contexto, LeituraDoB
         var resultado = new List<ResultadoDaBuscaDto>(); await using var r = await c.ExecuteReaderAsync(cancellationToken);
         while (await r.ReadAsync(cancellationToken))
         {
-            var trecho = new TrechoDaFonteDto(r.GetGuid(0),r.GetInt32(1),r.GetInt32(2),r.GetInt32(3),ProtecaoDeSegredos.Redigir(r.GetString(4))!,ProtecaoDeSegredos.Redigir(r.GetString(5))!,r.GetString(6));
+            var trecho = new TrechoDaFonteDto(r.GetGuid(0),r.GetInt32(1),r.GetInt32(2),r.GetInt32(3),ProtecaoDeSegredos.Redigir(r.GetString(4))!,ProtecaoDeSegredos.Redigir(r.GetString(5))!,r.GetString(6),(AutoriaDaFonte)r.GetInt32(11));
             var item = new LeituraProtegidaDto(trecho.IdDocumento,acesso.IdEspacoDeConhecimento,acesso.IdProjeto,TipoDeConhecimento.Referencia,
-                StatusDoConhecimento.Inferido,(Sensibilidade)r.GetInt32(7),trecho.Revisao,trecho.Conteudo,null,[],trecho.Origem,trecho.Referencia,false);
+                StatusDoConhecimento.Inferido,(Sensibilidade)r.GetInt32(7),trecho.Revisao,trecho.Conteudo,null,[],trecho.Origem,trecho.Referencia,false,AutoriaDaFonte: trecho.Autoria);
             resultado.Add(new(item,OrigemDoResultado.FonteBruta,r.GetDouble(10),r.GetDouble(8),r.IsDBNull(9)?null:r.GetDouble(9),"Trecho de fonte bruta; não constitui conhecimento confirmado.",trecho));
         }
         return resultado;
     }
     public async Task<TrechoDaFonteDto?> ObterTrechoAsync(AcessoAoBrain acesso, Guid id, int revisao, int numero, CancellationToken cancellationToken = default)
     {
-        await using var c = await Comando($"SELECT d.id,d.revisao,p.numero,p.inicio,p.conteudo,d.origem,d.hash FROM brain_data.documentos_fonte d JOIN brain_index.partes_fontes p ON p.id_documento=d.id AND p.revisao=d.revisao WHERE {Escopo} AND d.id=@id AND d.revisao=@rev AND p.numero=@numero",acesso,cancellationToken);
+        await using var c = await Comando($"SELECT d.id,d.revisao,p.numero,p.inicio,p.conteudo,d.origem,d.hash,d.autoria FROM brain_data.documentos_fonte d JOIN brain_index.partes_fontes p ON p.id_documento=d.id AND p.revisao=d.revisao WHERE {Escopo} AND d.id=@id AND d.revisao=@rev AND p.numero=@numero",acesso,cancellationToken);
         Param(c,"id",NpgsqlDbType.Uuid,id);Param(c,"rev",NpgsqlDbType.Integer,revisao);Param(c,"numero",NpgsqlDbType.Integer,numero);
         await using var r = await c.ExecuteReaderAsync(cancellationToken);
-        return await r.ReadAsync(cancellationToken) ? new(r.GetGuid(0),r.GetInt32(1),r.GetInt32(2),r.GetInt32(3),r.GetString(4),r.GetString(5),r.GetString(6)) : null;
+        return await r.ReadAsync(cancellationToken) ? new(r.GetGuid(0),r.GetInt32(1),r.GetInt32(2),r.GetInt32(3),r.GetString(4),r.GetString(5),r.GetString(6),(AutoriaDaFonte)r.GetInt32(7)) : null;
     }
     public async Task ReconstruirAsync(AcessoAoBrain acesso, CancellationToken cancellationToken = default)
     {

@@ -5,6 +5,8 @@ namespace Dante.Application.Conhecimentos;
 
 public sealed record RevisaoDoConhecimentoDto
 {
+    // Somente saída, calculado com origem do item e natureza desta revisão; nunca persistido.
+    public string Rotulo { get; init; } = "Natureza da revisão não registrada; autoria não comprovada";
     public int Numero { get; init; }
     public NaturezaDoConteudo? Natureza { get; init; }
     public TipoDeConhecimento Tipo { get; init; }

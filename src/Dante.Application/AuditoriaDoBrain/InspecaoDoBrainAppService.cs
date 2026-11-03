@@ -35,12 +35,13 @@ public sealed class InspecaoDoBrainAppService(IConsultaDeAuditoria consulta, IMa
         foreach(var k in dto.Conhecimentos)
         {
             md.AppendLine($"## {k.Tipo} — {k.Id:D}");md.AppendLine($"Status: {k.Status}; sensibilidade: {k.Sensibilidade}; revisão: {k.Revisao}; confiança: {k.Confianca?.ToString(System.Globalization.CultureInfo.InvariantCulture)??"não informada"}.");
+            md.AppendLine($"Natureza de origem: {k.NaturezaDeOrigem}; natureza vigente: {k.Natureza}; identificação: {k.Rotulo}.");
             md.AppendLine($"Projeto: {k.IdProjeto?.ToString("D")??"sem projeto"}; validade: {k.ValidoDesde:O} / {k.ValidoAte:O}.");
             Bloco(md,k.Conteudo);Bloco(md,k.DadosEstruturados);Bloco(md,string.Join(", ",k.Tags));
             Bloco(md,$"Origem: {k.Proveniencia.Origem}\nReferência: {k.Proveniencia.ReferenciaDaFonte}\nRevisão: {k.Proveniencia.RevisaoDaFonte}\nTrecho: {k.Proveniencia.TrechoDaFonte}");
         }
         foreach(var r in dto.Relacoes) md.AppendLine($"Relação {r.Id:D}: {r.IdOrigem:D} → {r.Tipo} → {r.IdDestino:D}.");
-        foreach(var f in dto.Fontes){md.AppendLine($"## Fonte bruta — {f.Documento.Id:D}");Bloco(md,$"{f.Documento.Origem}\n{f.Documento.Hash}\nRevisão {f.Documento.Revisao}");Bloco(md,f.Conteudo);}
+        foreach(var f in dto.Fontes){md.AppendLine($"## Fonte bruta — {f.Documento.Id:D}");Bloco(md,$"{f.Documento.Rotulo}\n{f.Documento.Origem}\n{f.Documento.Hash}\nRevisão {f.Documento.Revisao}");Bloco(md,f.Conteudo);}
         return new(md.ToString(),json);
     }
     private AuditoriaDoBrainDto Projetar(DadosDeAuditoria dados,AcessoAoBrain acesso,bool exportacao)

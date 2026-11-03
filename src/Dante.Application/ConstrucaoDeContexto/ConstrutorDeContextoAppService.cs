@@ -60,13 +60,13 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
             var dto=politica.Projetar(k,automatico,FinalidadeDeLeitura.ContextoAutomatico);
             if(dto.ConteudoProtegido)continue;
             var conteudo=string.Join("\n",new[]{dto.Conteudo,dto.DadosEstruturados}.Where(x=>!string.IsNullOrWhiteSpace(x)));
-            var m=motivos[k.Id];candidatos.Add(new($"conhecimento:{k.Id:D}",k.Id,k.Revisao,"conhecimento",k.Tipo,k.Status,k.Sensibilidade,conteudo,dto.ReferenciaDaFonte,m.Motivo,m.Score,0));
+            var m=motivos[k.Id];candidatos.Add(new($"conhecimento:{k.Id:D}",k.Id,k.Revisao,"conhecimento",k.Tipo,k.Status,k.Sensibilidade,conteudo,dto.ReferenciaDaFonte,m.Motivo,m.Score,0,NaturezaDeOrigem:k.NaturezaDeOrigem,Natureza:k.Natureza));
         }
         foreach(var r in brutas)
         {
             var f=r.Fonte!;var atual=await fontes.ObterTrechoAsync(automatico,f.IdDocumento,f.Revisao,f.Numero,cancellationToken);
             if(atual is null){registros.Add(new(f.Referencia,f.IdDocumento,"fonte_bruta","descartado","Fonte mudou ou foi removida.",0));continue;}
-            candidatos.Add(new(f.Referencia,f.IdDocumento,f.Revisao,"fonte_bruta",null,null,r.Item.Sensibilidade,ProtecaoDeSegredos.Redigir(atual.Conteudo)!,f.Referencia,"Trecho relevante de fonte bruta; exige consolidação para ser fato.",r.Score,0,f.Inicio));
+            candidatos.Add(new(f.Referencia,f.IdDocumento,f.Revisao,"fonte_bruta",null,null,r.Item.Sensibilidade,ProtecaoDeSegredos.Redigir(atual.Conteudo)!,f.Referencia,"Trecho relevante de fonte bruta; exige consolidação para ser fato.",r.Score,0,f.Inicio,AutoriaDaFonte:atual.Autoria));
         }
         if(snapshot is not null)
         {
