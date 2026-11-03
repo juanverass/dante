@@ -97,8 +97,36 @@ Entrada até 32 mil caracteres, resposta MCP até 60 mil, mil chamadas por sess�
 30 segundos por operação. Resposta excessiva retorna orientação para reduzir a consulta.
 Operações com erro/resultado incerto não são repetidas automaticamente.
 
+## Erros classificados (#251)
+
+Toda recusa do canal MCP retorna `isError: true` e, no texto, um objeto JSON com
+`erro` (código estável), `mensagem` (fixa por código) e, quando útil, `detalhe`
+(texto fixo do adapter). Nenhum erro contém mensagem de exceção, stack trace, nome de
+tabela, GUID ou conteúdo de outro escopo. Conjunto fechado:
+
+| Código | Quando | O agente deve |
+| --- | --- | --- |
+| `entrada_invalida` | argumento fora do schema, tipo JSON errado, enum/limite inválido, conteúdo factual ausente da mensagem de origem, credencial no conteúdo, sensibilidade acima de Trabalho, redução de sensibilidade, mudança de natureza, relação com tipos incompatíveis, ID do tipo errado **visível** ao agente, resposta grande demais | corrigir os argumentos; repetir igual não muda o resultado |
+| `revisao_desatualizada` | revisão esperada diferente da atual, candidato já encerrado, conflito de concorrência/UNIQUE ou estado que não permite a operação (`InvalidOperationException` lançada pelo Domain/Application) | consultar de novo e usar a revisão atual |
+| `nao_encontrado_ou_nao_autorizado` | **unificado de propósito**: inexistente, de outro espaço/projeto/usuário, sensibilidade não permitida, conteúdo protegido ou item inativo/substituído | não insistir; a resposta é idêntica byte a byte em todos esses casos e nunca leva `detalhe` |
+| `escopo_mudou` | sessão revogada, troca de conversa/espaço/projeto, espaço/projeto arquivado | iniciar nova sessão; o Worker encerra o canal após responder |
+| `indisponivel` | banco/driver, timeout de 30 s, pipe com o Worker fechado, limite de chamadas ou erro inesperado (inclusive `InvalidOperationException` de EF/Npgsql/LINQ e violação de integridade que não seja UNIQUE, por exemplo FK de item removido em concorrência) | não repetir automaticamente operação de resultado incerto |
+
+Sem oráculo de enumeração: a resolução de ID devolve a mesma exceção para todos os
+motivos de não acesso. Um ID de candidato enviado a uma ferramenta de conhecimento
+(ou o contrário) só vira `entrada_invalida`, com detalhe indicando a ferramenta certa,
+quando o outro item já é visível ao agente no mesmo escopo (sensibilidade permitida);
+caso contrário a resposta é `nao_encontrado_ou_nao_autorizado`. `brain_criar_relacao`
+aplica a regra de tipos do domínio (`ResolvidoPor`: Incidente → Solucao;
+`ProduziuAprendizado`: Solucao → Aprendizado) já na preparação, com os tipos que o
+agente já leu.
+
+A confirmação de proposta no Telegram usa as mesmas categorias para explicar a recusa
+ao usuário ("o item mudou", "tipos incompatíveis com a relação", "não encontrado ou não
+autorizado", "escopo mudou", "Brain indisponível") em vez da mensagem única anterior.
+
 ```bash
-dotnet test Dante.sln --filter 'FullyQualifiedName~BrainMcpTests|FullyQualifiedName~SessionDriverTests'
+dotnet test Dante.sln --filter 'FullyQualifiedName~BrainMcpTests|FullyQualifiedName~BrainMcpErrosTests|FullyQualifiedName~SessionDriverTests'
 ```
 
 `BrainMcpTests` usa `DANTE_TEST_POSTGRES` em instância de teste com CREATE DATABASE;

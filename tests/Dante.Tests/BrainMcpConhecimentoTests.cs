@@ -38,8 +38,8 @@ public sealed class BrainMcpConhecimentoTests
             Assert.Equal("arquitetura antiga", atual.Historico[0].Conteudo);
             Assert.Contains("confirmacao:", atual.Proveniencia.Origem);
         }
-        await Assert.ThrowsAsync<InvalidOperationException>(() => a.OperarAsync("brain_atualizar_conhecimento", pedido));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => a.OperarAsync("brain_atualizar_conhecimento", new { id = alvo.Id, revisao = 3,
+        await BrainMcpTests.RecusaAsync(CategoriaDeErroMcp.RevisaoDesatualizada, () => a.OperarAsync("brain_atualizar_conhecimento", pedido));
+        await BrainMcpTests.RecusaAsync(CategoriaDeErroMcp.EntradaInvalida, () => a.OperarAsync("brain_atualizar_conhecimento", new { id = alvo.Id, revisao = 3,
             conteudo = "nova", natureza = "ConclusaoDoAgente", justificativa = "análise", sensibilidade = "Publico" }));
     }
 
@@ -75,11 +75,11 @@ public sealed class BrainMcpConhecimentoTests
         await using (var db = a.Banco.Contexto()) { db.Add(projeto); db.AddRange(destino, duplicata, secreto, fora); await db.SaveChangesAsync(); }
         foreach (var alvo in new[] { secreto, fora })
         {
-            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => a.OperarAsync("brain_atualizar_conhecimento", new { id = alvo.Id, revisao = 1, conteudo = "x", natureza = "ConclusaoDoAgente", justificativa = "análise" }));
-            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => a.OperarAsync("brain_consolidar_duplicatas", new { id = destino.Id, revisao = 1, duplicatas = new[] { new { id = alvo.Id, revisao = 1 } } }));
+            await BrainMcpTests.RecusaAsync(CategoriaDeErroMcp.NaoEncontradoOuNaoAutorizado, () => a.OperarAsync("brain_atualizar_conhecimento", new { id = alvo.Id, revisao = 1, conteudo = "x", natureza = "ConclusaoDoAgente", justificativa = "análise" }));
+            await BrainMcpTests.RecusaAsync(CategoriaDeErroMcp.NaoEncontradoOuNaoAutorizado, () => a.OperarAsync("brain_consolidar_duplicatas", new { id = destino.Id, revisao = 1, duplicatas = new[] { new { id = alvo.Id, revisao = 1 } } }));
         }
-        await Assert.ThrowsAsync<ArgumentException>(() => a.OperarAsync("brain_atualizar_conhecimento", new { id = destino.Id, revisao = 1, conteudo = "não dito", natureza = "DitoPeloUsuario", justificativa = "x" }));
-        await Assert.ThrowsAsync<ArgumentException>(() => a.OperarAsync("brain_consolidar_duplicatas", new { id = destino.Id, revisao = 1, duplicatas = new[] { new { id = destino.Id, revisao = 1 } } }));
+        await BrainMcpTests.RecusaAsync(CategoriaDeErroMcp.EntradaInvalida, () => a.OperarAsync("brain_atualizar_conhecimento", new { id = destino.Id, revisao = 1, conteudo = "não dito", natureza = "DitoPeloUsuario", justificativa = "x" }));
+        await BrainMcpTests.RecusaAsync(CategoriaDeErroMcp.EntradaInvalida, () => a.OperarAsync("brain_consolidar_duplicatas", new { id = destino.Id, revisao = 1, duplicatas = new[] { new { id = destino.Id, revisao = 1 } } }));
         await a.OperarAsync("brain_consolidar_duplicatas", new { id = destino.Id, revisao = 1, duplicatas = new[] { new { id = duplicata.Id, revisao = 1 } } });
         await using (var db = a.Banco.Contexto())
         {
@@ -359,7 +359,7 @@ public sealed class BrainMcpConhecimentoTests
         var agente = a.Novo("naturezamcp267 hipótese como fato", natureza: NaturezaDoConteudo.ConclusaoDoAgente);
         var humano = a.Novo("naturezamcp267 declaração própria"); humano.Confirmar(1, a.Prova, DateTimeOffset.UtcNow);
         await a.GravarAsync(agente, humano);
-        await Assert.ThrowsAsync<ArgumentException>(() => a.OperarAsync("brain_buscar_conhecimento", new { texto = "naturezamcp267", natureza = "Inventada" }));
+        await BrainMcpTests.RecusaAsync(CategoriaDeErroMcp.EntradaInvalida, () => a.OperarAsync("brain_buscar_conhecimento", new { texto = "naturezamcp267", natureza = "Inventada" }));
         var legado = a.Novo("naturezamcp267 legado", tipo: TipoDeConhecimento.Inferencia);
         await using (var db = a.Banco.Contexto()) await ConhecimentoLegadoDeTeste.InserirAsync(db, legado);
         var resultado = JsonSerializer.SerializeToElement(await a.OperarAsync("brain_buscar_conhecimento", new { texto = "naturezamcp267", natureza = "ConclusaoDoAgente", tipo = "Fato" }));
@@ -380,19 +380,20 @@ public sealed class BrainMcpConhecimentoTests
         Assert.Contains("Conclusão do agente, não confirmada", await a.Brain.AtenderAsync(BrainMcpTests.Mensagem(prova), prova));
     }
 
-    private sealed class Ambiente(Banco banco, ServiceProvider app, TelegramBrain brain, TelegramBrain.EscopoBrainDaSessao escopo) : IAsyncDisposable
+    internal sealed class Ambiente(Banco banco, ServiceProvider app, TelegramBrain brain, TelegramBrain.EscopoBrainDaSessao escopo) : IAsyncDisposable
     {
         public Banco Banco => banco;
+        public ServiceProvider App => app;
         public TelegramBrain Brain => brain;
         public TelegramBrain.EscopoBrainDaSessao Escopo => escopo;
         public string OrigemMcp => OperacoesMcpDoBrain.Origem("codex", brain.Instancia, "S1");
         public ProvenienciaDoConhecimento Prova => new(escopo.Acesso.IdUsuario, "fonte verificável", "fonte:" + Guid.NewGuid(), trechoDaFonte: "evidência");
-        public static async Task<Ambiente> CriarAsync()
+        public static async Task<Ambiente> CriarAsync(Action<IServiceCollection>? ajustar = null)
         {
             var banco = await Dante.Tests.Banco.CriarAsync(); ServiceProvider? app = null;
             try
             {
-                app = BrainMcpTests.CriarApp(banco.ConnectionString); var brain = app.GetRequiredService<TelegramBrain>();
+                app = BrainMcpTests.CriarApp(banco.ConnectionString, ajustar); var brain = app.GetRequiredService<TelegramBrain>();
                 await BrainMcpTests.SelecionarAsync(brain); var escopo = (await brain.ResolverEscopoMcpAsync(BrainMcpTests.Mensagem("pedido")))!;
                 app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S1", BrainMcpTests.Mensagem("pedido"));
                 return new(banco, app, brain, escopo);

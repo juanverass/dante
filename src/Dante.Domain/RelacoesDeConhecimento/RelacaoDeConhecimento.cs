@@ -15,8 +15,7 @@ public sealed class RelacaoDeConhecimento : EntidadeBase
         if (!Enum.IsDefined(tipo) || instante == default) throw new ArgumentException("Relação inválida.");
         if (origem.Id == destino.Id || origem.IdEspacoDeConhecimento != destino.IdEspacoDeConhecimento || origem.IdProjeto != destino.IdProjeto)
             throw new ArgumentException("Relação exige itens distintos no mesmo escopo.");
-        if (tipo == TipoDeRelacao.ResolvidoPor && (origem.Tipo != TipoDeConhecimento.Incidente || destino.Tipo != TipoDeConhecimento.Solucao) ||
-            tipo == TipoDeRelacao.ProduziuAprendizado && (origem.Tipo != TipoDeConhecimento.Solucao || destino.Tipo != TipoDeConhecimento.Aprendizado))
+        if (!TiposCompativeis(tipo, origem.Tipo, destino.Tipo))
             throw new ArgumentException("Tipos dos itens não correspondem à semântica da relação.");
         if (tipo == TipoDeRelacao.Substitui && (destino.IdConhecimentoSubstituto != origem.Id || destino.Status != StatusDoConhecimento.Substituido))
             throw new ArgumentException("Relação de substituição exige ato canônico de substituição.");
@@ -29,6 +28,13 @@ public sealed class RelacaoDeConhecimento : EntidadeBase
             (IdOrigem, IdDestino) = (IdDestino, IdOrigem);
         Proveniencia = proveniencia; CriadaEm = instante;
     }
+    // Regra única de tipos por relação; adapters a consultam para recusar antes de preparar a proposta (#251).
+    public static bool TiposCompativeis(TipoDeRelacao tipo, TipoDeConhecimento origem, TipoDeConhecimento destino) => tipo switch
+    {
+        TipoDeRelacao.ResolvidoPor => origem == TipoDeConhecimento.Incidente && destino == TipoDeConhecimento.Solucao,
+        TipoDeRelacao.ProduziuAprendizado => origem == TipoDeConhecimento.Solucao && destino == TipoDeConhecimento.Aprendizado,
+        _ => true
+    };
     public Guid? IdConhecimentoEscolhido { get; private set; }
     public DateTimeOffset? ResolvidaEm { get; private set; }
     public ProvenienciaDoConhecimento? ProvenienciaDaResolucao { get; private set; }

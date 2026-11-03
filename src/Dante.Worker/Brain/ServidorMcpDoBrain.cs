@@ -125,11 +125,12 @@ public static class ServidorMcpDoBrain
                 else throw new ArgumentException("Método desconhecido.");
                 resposta = new() { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = resultado };
             }
+            // Schema/JSON inválido é entrada_invalida; Worker inacessível pelo pipe é indisponivel (#251).
             catch (Exception ex) when (ex is not OperationCanceledException)
-            { resposta = new() { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = Resultado("Brain indisponível ou entrada/escopo/revisão inválidos. Refaça a consulta.", true) }; }
+            { resposta = new() { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = ErrosDoBrainMcp.Resultado(ex) }; }
             var json = resposta.ToJsonString();
             if (json.Length > MaximoResposta) json = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id?.DeepClone(),
-                ["result"] = Resultado("Resposta excede o limite; reduza a consulta.", true) }.ToJsonString();
+                ["result"] = ErrosDoBrainMcp.Resultado(CategoriaDeErroMcp.EntradaInvalida, ErrosDoBrainMcp.DetalheRespostaGrande) }.ToJsonString();
             await saida.WriteLineAsync(json.AsMemory(), ct); await saida.FlushAsync(ct);
         }
     }

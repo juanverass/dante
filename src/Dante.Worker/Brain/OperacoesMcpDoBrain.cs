@@ -22,11 +22,13 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
     public async Task<object?> ExecutarAsync(TelegramBrain.EscopoBrainDaSessao escopo, TelegramMessage mensagem,
         string sessao, string agente, string nome, JsonElement args, CancellationToken ct = default)
     {
-        if (!registro.ConversaPermitida(sessao, mensagem)) throw new UnauthorizedAccessException("Sessão revogada.");
+        if (!registro.ConversaPermitida(sessao, mensagem)) throw ErroDoBrainMcp.EscopoMudou();
         ServidorMcpDoBrain.Validar(nome, args);
         await using var scope = scopes.CreateAsyncScope(); var servicos = scope.ServiceProvider; var acesso = escopo.Acesso;
         servicos.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(escopo.Identidade, acesso);
-        var leitura = servicos.GetRequiredService<LeituraDoBrainAppService>(); await leitura.ValidarAcessoAsync(acesso, ct);
+        var leitura = servicos.GetRequiredService<LeituraDoBrainAppService>();
+        // O acesso vem do escopo da sessão, não de argumentos: espaço/projeto arquivado ou removido é mudança de escopo.
+        try { await leitura.ValidarAcessoAsync(acesso, ct); } catch (UnauthorizedAccessException) { throw ErroDoBrainMcp.EscopoMudou(); }
         var captura = servicos.GetRequiredService<ICapturaDeConhecimentoAppService>();
         var prova = Prova(mensagem, acesso.IdUsuario, escopo.Conversa, sessao, agente);
         var geracao = registro.VersaoConversa(mensagem);
@@ -45,7 +47,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 return new { candidatos = pagina, limite = Limite(args), deslocamento = Deslocamento(args) };
             case "brain_mostrar_origem":
                 var origemDaConsulta = Texto(args, "origem", 20);
-                if (origemDaConsulta is not ("candidato" or "conhecimento")) throw new ArgumentException("Origem inválida.");
+                if (origemDaConsulta is not ("candidato" or "conhecimento")) throw ErroDoBrainMcp.Entrada();
                 if (origemDaConsulta == "candidato") return (await CandidatoAsync()).Historico;
                 var conhecimento = await ConhecimentoAsync(Id(args, "id"));
                 return new { conhecimento.Id, conhecimento.Tipo, conhecimento.NaturezaDeOrigem, conhecimento.Natureza, conhecimento.Status, conhecimento.Rotulo, conhecimento.Proveniencia, conhecimento.Historico };
@@ -55,7 +57,9 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 var salvo = await captura.CapturarAsync(dto, ct);
                 return new { candidato = Resumir(salvo), possivelDuplicidade = salvo.Revisao > 1 || salvo.Estado != EstadoDoCandidato.Pendente, confirmado = false };
             case "brain_corrigir_candidato":
-                var anterior = await CandidatoAsync(); var correcao = Captura(args, acesso, ProvaDaFonte(prova, mensagem, args)) with
+                var anterior = await CandidatoAsync();
+                if (anterior.Estado != EstadoDoCandidato.Pendente || anterior.Revisao != Inteiro(args, "revisao")) throw ErroDoBrainMcp.Revisao();
+                var correcao = Captura(args, acesso, ProvaDaFonte(prova, mensagem, args)) with
                 {
                     Titulo = args.TryGetProperty("titulo", out _) ? Texto(args, "titulo", 300) : anterior.Titulo,
                     Tags = args.TryGetProperty("tags", out _) ? Lista(args, "tags") : anterior.Tags ?? [],
@@ -63,20 +67,25 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                     Sensibilidade = OpcionalEnum<Sensibilidade>(args, "sensibilidade") ?? anterior.Sensibilidade
                 };
                 ValidarOrigem(correcao, mensagem);
-                if (correcao.Natureza != anterior.Natureza) throw new ArgumentException("Natureza não pode mudar.");
+                if (correcao.Natureza != anterior.Natureza) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheNatureza);
                 return Resumir(await captura.CorrigirAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, anterior.Id, Inteiro(args, "revisao"), correcao, ct));
             case "brain_confirmar_candidato":
             case "brain_cancelar_candidato":
                 var alvo = await CandidatoAsync();
-                if (alvo.Estado != EstadoDoCandidato.Pendente || alvo.Revisao != Inteiro(args, "revisao")) throw new InvalidOperationException("Revisão mudou.");
+                if (alvo.Estado != EstadoDoCandidato.Pendente || alvo.Revisao != Inteiro(args, "revisao")) throw ErroDoBrainMcp.Revisao();
                 // A closure só roda após mensagem autenticada pelo adapter, em novo scope/UoW.
-                registro.Propor(mensagem, sessao, async (confirmacao, cancelamento) =>
+                Propor(async (confirmacao, cancelamento) =>
                 {
-                    if (registro.VersaoConversa(confirmacao) != geracao || await brain.ResolverEscopoMcpAsync(confirmacao, cancelamento) != escopo) throw new UnauthorizedAccessException("Escopo mudou.");
+                    await RevalidarEscopoAsync(confirmacao, cancelamento);
                     await using var confirmScope = scopes.CreateAsyncScope(); var services = confirmScope.ServiceProvider;
                     services.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(escopo.Identidade, acesso);
-                    await services.GetRequiredService<LeituraDoBrainAppService>().ValidarAcessoAsync(acesso, cancelamento);
+                    await ValidarAcessoDaConfirmacaoAsync(services.GetRequiredService<LeituraDoBrainAppService>(), cancelamento);
                     var app = services.GetRequiredService<ICapturaDeConhecimentoAppService>();
+                    CandidatoDeConhecimentoDto atual;
+                    try { atual = await app.ObterCandidatoAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, alvo.Id, cancelamento); }
+                    catch (ArgumentException) { throw ErroDoBrainMcp.NaoEncontrado(); }
+                    if (!Permitida(atual.Sensibilidade)) throw ErroDoBrainMcp.NaoEncontrado();
+                    if (atual.Estado != EstadoDoCandidato.Pendente || atual.Revisao != alvo.Revisao) throw ErroDoBrainMcp.Revisao();
                     var responsavel = Prova(confirmacao, acesso.IdUsuario, escopo.Conversa, sessao, agente);
                     if (nome == "brain_cancelar_candidato")
                     {
@@ -97,11 +106,12 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 return new { candidato = Resumir(alvo), aguardandoConfirmacao = true, instrucao = "Mostre a proposta ao usuário. Ele deve enviar confirmar no Telegram (ou cancelar). Nenhuma consolidação/descarte foi aplicada." };
             case "brain_atualizar_conhecimento":
                 var existente = await ConhecimentoAsync(Id(args, "id"));
-                if (existente.Revisao != Inteiro(args, "revisao")) throw new InvalidOperationException("Revisão mudou.");
+                if (existente.Revisao != Inteiro(args, "revisao")) throw ErroDoBrainMcp.Revisao();
                 var novaVersao = Captura(args, acesso, ProvaDaFonte(prova, mensagem, args));
                 ValidarOrigem(novaVersao, mensagem);
                 var sensibilidadeNova = OpcionalEnum<Sensibilidade>(args, "sensibilidade") ?? existente.Sensibilidade;
-                if (sensibilidadeNova < existente.Sensibilidade) throw new UnauthorizedAccessException("Atualização não reduz sensibilidade.");
+                // O item já é visível ao agente; recusar a redução não revela nada além do que ele leu.
+                if (sensibilidadeNova < existente.Sensibilidade) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheReducaoDeSensibilidade);
                 var atualizado = existente with
                 {
                     Conteudo = novaVersao.Conteudo,
@@ -117,7 +127,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                     var resultado = await services.GetRequiredService<IConhecimentoAppService>().CorrigirAsync(existente.Id,
                         atualizado with { Proveniencia = atualizado.Proveniencia with
                         { Origem = $"{atualizado.Proveniencia.Origem};confirmacao:{confirmacao.MessageId}" } }, cancelamento);
-                    if (resultado is null) throw new InvalidOperationException("Conhecimento ausente.");
+                    if (resultado is null) throw ErroDoBrainMcp.NaoEncontrado();
                     return "Conhecimento atualizado no mesmo ID com histórico e proveniência; a correção não herda a confirmação anterior.";
                 });
                 return new { existente.Id, existente.Revisao, anterior = existente.Conteudo, proposto = new { atualizado.Conteudo, atualizado.DadosEstruturados, atualizado.Tags,
@@ -125,16 +135,18 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                     aguardandoConfirmacao = true, instrucao = "Mostre a correção e peça confirmar no Telegram; nenhuma atualização foi aplicada." };
             case "brain_consolidar_duplicatas":
                 var destinoDaConsolidacao = await ConhecimentoAsync(Id(args, "id"));
-                if (destinoDaConsolidacao.Revisao != Inteiro(args, "revisao")) throw new InvalidOperationException("Revisão mudou.");
+                if (destinoDaConsolidacao.Revisao != Inteiro(args, "revisao")) throw ErroDoBrainMcp.Revisao();
                 var listaDuplicatas = args.GetProperty("duplicatas");
-                if (listaDuplicatas.ValueKind != JsonValueKind.Array || listaDuplicatas.GetArrayLength() is < 1 or > 20) throw new ArgumentException("Informe de 1 a 20 duplicatas.");
+                if (listaDuplicatas.ValueKind != JsonValueKind.Array || listaDuplicatas.GetArrayLength() is < 1 or > 20) throw ErroDoBrainMcp.Entrada();
                 var duplicatas = new List<ConhecimentoDto>();
                 foreach (var item in listaDuplicatas.EnumerateArray())
                 {
-                    if (item.ValueKind != JsonValueKind.Object || item.EnumerateObject().Any(p => p.Name is not ("id" or "revisao"))) throw new ArgumentException("Duplicata inválida.");
-                    var duplicata = await ConhecimentoAsync(Id(item, "id"));
-                    if (duplicata.Id == destinoDaConsolidacao.Id || duplicatas.Any(d => d.Id == duplicata.Id)) throw new ArgumentException("Alvos devem ser distintos.");
-                    if (duplicata.Revisao != Inteiro(item, "revisao")) throw new InvalidOperationException("Revisão mudou.");
+                    if (item.ValueKind != JsonValueKind.Object || item.EnumerateObject().Any(p => p.Name is not ("id" or "revisao"))) throw ErroDoBrainMcp.Entrada();
+                    // Compara IDs antes de resolver: repetir o destino é erro de entrada sem depender do alvo.
+                    var idDuplicata = Id(item, "id");
+                    if (idDuplicata == destinoDaConsolidacao.Id || duplicatas.Any(d => d.Id == idDuplicata)) throw ErroDoBrainMcp.Entrada();
+                    var duplicata = await ConhecimentoAsync(idDuplicata);
+                    if (duplicata.Revisao != Inteiro(item, "revisao")) throw ErroDoBrainMcp.Revisao();
                     duplicatas.Add(duplicata);
                 }
                 ProporAlteracao([destinoDaConsolidacao, .. duplicatas], async (services, confirmacao, cancelamento) =>
@@ -148,19 +160,24 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                     duplicatas = duplicatas.Select(d => new { d.Id, d.Conteudo, d.Revisao }), aguardandoConfirmacao = true,
                     instrucao = "Mostre o destino e todas as duplicatas, peça confirmar no Telegram; nenhuma consolidação foi aplicada." };
             case "brain_criar_relacao":
-                var origem = await ConhecimentoAsync(Id(args, "origem")); var destino = await ConhecimentoAsync(Id(args, "destino"));
-                if (origem.Revisao != Inteiro(args, "revisao_origem") || destino.Revisao != Inteiro(args, "revisao_destino")) throw new InvalidOperationException("Revisão mudou.");
                 var tipo = ObrigatorioEnum<TipoDeRelacao>(args, "tipo");
-                registro.Propor(mensagem, sessao, async (confirmacao, cancelamento) =>
+                var idOrigem = Id(args, "origem"); var idDestino = Id(args, "destino");
+                if (idOrigem == idDestino) throw ErroDoBrainMcp.Entrada();
+                var origem = await ConhecimentoAsync(idOrigem); var destino = await ConhecimentoAsync(idDestino);
+                if (origem.Revisao != Inteiro(args, "revisao_origem") || destino.Revisao != Inteiro(args, "revisao_destino")) throw ErroDoBrainMcp.Revisao();
+                // Os dois tipos já são visíveis ao agente; a regra do domínio é aplicada antes de preparar a proposta (#249/#251).
+                if (!RelacaoDeConhecimento.TiposCompativeis(tipo, origem.Tipo, destino.Tipo)) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheTiposDaRelacao);
+                Propor(async (confirmacao, cancelamento) =>
                 {
-                    if (registro.VersaoConversa(confirmacao) != geracao || await brain.ResolverEscopoMcpAsync(confirmacao, cancelamento) != escopo) throw new UnauthorizedAccessException("Escopo mudou.");
+                    await RevalidarEscopoAsync(confirmacao, cancelamento);
                     await using var confirmScope = scopes.CreateAsyncScope(); var services = confirmScope.ServiceProvider;
                     services.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(escopo.Identidade, acesso);
-                    var l = services.GetRequiredService<LeituraDoBrainAppService>(); await l.ValidarAcessoAsync(acesso, cancelamento);
+                    var l = services.GetRequiredService<LeituraDoBrainAppService>(); await ValidarAcessoDaConfirmacaoAsync(l, cancelamento);
                     foreach (var item in new[] { origem, destino })
                     {
                         var atual = await l.LerAsync(item.Id, acesso, FinalidadeDeLeitura.Busca, cancelamento);
-                        if (atual is null || atual.ConteudoProtegido || atual.Revisao != item.Revisao) throw new InvalidOperationException("Alvo mudou.");
+                        if (atual is null || atual.ConteudoProtegido) throw ErroDoBrainMcp.NaoEncontrado();
+                        if (atual.Revisao != item.Revisao) throw ErroDoBrainMcp.Revisao();
                     }
                     await services.GetRequiredService<IRelacaoDeConhecimentoAppService>().RelacionarAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, origem.Id, destino.Id, tipo,
                         Prova(confirmacao, acesso.IdUsuario, escopo.Conversa, sessao, agente), cancelamento);
@@ -195,43 +212,82 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             case "brain_atualizar_contexto_de_trabalho":
                 var contextos = servicos.GetRequiredService<ContextoDeTrabalhoAppService>();
                 var snapshot = await contextos.RetomarAsync(acesso, ct);
+                if (snapshot is not null && snapshot.Revisao != Inteiro(args, "revisao")) throw ErroDoBrainMcp.Revisao();
+                GarantirSemCredencial([Texto(args, "objetivo", 2000), Texto(args, "tarefa", 2000), Texto(args, "progresso", 2000), Texto(args, "ultimo_resultado", 2000),
+                    .. Lista(args, "referencias"), .. Lista(args, "pendencias"), .. Lista(args, "proximos_passos")]);
                 var dados = new DadosDoContexto(Texto(args, "objetivo", 2000), Texto(args, "tarefa", 2000), Texto(args, "progresso", 2000), snapshot?.Dados.IdsDecisoesConfirmadas ?? [],
                     args.TryGetProperty("referencias", out _) ? Lista(args, "referencias") : snapshot?.Dados.Referencias ?? [],
                     args.TryGetProperty("pendencias", out _) ? Lista(args, "pendencias") : snapshot?.Dados.Pendencias ?? [],
                     args.TryGetProperty("proximos_passos", out _) ? Lista(args, "proximos_passos") : snapshot?.Dados.ProximosPassos ?? [], Texto(args, "ultimo_resultado", 2000));
                 return await contextos.SubstituirAsync(acesso, Inteiro(args, "revisao"), dados, snapshot?.Sensibilidade ?? Sensibilidade.Pessoal,
                     $"{prova.Origem};{prova.ReferenciaDaFonte}", snapshot?.ExpiraEm, ct);
-            default: throw new ArgumentException("Ferramenta desconhecida.");
+            default: throw ErroDoBrainMcp.Entrada();
+        }
+        void Propor(Func<TelegramMessage, CancellationToken, Task<string>> executar)
+        {
+            try { registro.Propor(mensagem, sessao, executar); }
+            catch (UnauthorizedAccessException) { throw ErroDoBrainMcp.EscopoMudou(); }
+        }
+        async Task RevalidarEscopoAsync(TelegramMessage confirmacao, CancellationToken cancelamento)
+        {
+            if (registro.VersaoConversa(confirmacao) != geracao || await brain.ResolverEscopoMcpAsync(confirmacao, cancelamento) != escopo) throw ErroDoBrainMcp.EscopoMudou();
+        }
+        async Task ValidarAcessoDaConfirmacaoAsync(LeituraDoBrainAppService l, CancellationToken cancelamento)
+        {
+            try { await l.ValidarAcessoAsync(acesso, cancelamento); } catch (UnauthorizedAccessException) { throw ErroDoBrainMcp.EscopoMudou(); }
         }
         void ProporAlteracao(IReadOnlyList<ConhecimentoDto> alvos,
             Func<IServiceProvider, TelegramMessage, CancellationToken, Task<string>> aplicar)
         {
-            registro.Propor(mensagem, sessao, async (confirmacao, cancelamento) =>
+            Propor(async (confirmacao, cancelamento) =>
             {
-                if (registro.VersaoConversa(confirmacao) != geracao || await brain.ResolverEscopoMcpAsync(confirmacao, cancelamento) != escopo) throw new UnauthorizedAccessException("Escopo mudou.");
+                await RevalidarEscopoAsync(confirmacao, cancelamento);
                 await using var confirmScope = scopes.CreateAsyncScope(); var services = confirmScope.ServiceProvider;
                 services.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(escopo.Identidade, acesso);
                 var l = services.GetRequiredService<LeituraDoBrainAppService>();
-                await l.ValidarAcessoAsync(acesso, cancelamento);
+                await ValidarAcessoDaConfirmacaoAsync(l, cancelamento);
                 foreach (var alvo in alvos)
                 {
                     var atual = await l.LerAsync(alvo.Id, acesso, FinalidadeDeLeitura.Busca, cancelamento);
-                    if (atual is null || atual.ConteudoProtegido || atual.Revisao != alvo.Revisao ||
-                        atual.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido) throw new InvalidOperationException("Alvo mudou.");
+                    if (atual is null || atual.ConteudoProtegido) throw ErroDoBrainMcp.NaoEncontrado();
+                    if (atual.Revisao != alvo.Revisao || atual.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido) throw ErroDoBrainMcp.Revisao();
                 }
                 return await aplicar(services, confirmacao, cancelamento);
             });
         }
+        // Resolução de IDs enviados pelo agente. Inexistente, outro espaço/projeto/usuário, sensibilidade não permitida,
+        // conteúdo protegido e item inativo produzem a MESMA exceção, sem detalhe (#251: sem oráculo de enumeração).
+        // ID do tipo errado só vira entrada_invalida quando o outro item é visível ao agente neste escopo.
         async Task<CandidatoDeConhecimentoDto> CandidatoAsync()
         {
-            var candidato = await captura.ObterCandidatoAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, Id(args, "id"), ct);
-            return Permitida(candidato.Sensibilidade) ? candidato : throw new UnauthorizedAccessException("Candidato não permitido.");
+            var id = Id(args, "id");
+            CandidatoDeConhecimentoDto candidato;
+            try { candidato = await captura.ObterCandidatoAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, id, ct); }
+            catch (ArgumentException)
+            {
+                if (await ConhecimentoVisivelAsync(id) is not null) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheIdDeConhecimento);
+                throw ErroDoBrainMcp.NaoEncontrado();
+            }
+            return Permitida(candidato.Sensibilidade) ? candidato : throw ErroDoBrainMcp.NaoEncontrado();
         }
         async Task<ConhecimentoDto> ConhecimentoAsync(Guid id)
         {
+            if (await ConhecimentoVisivelAsync(id) is null)
+            {
+                if (await CandidatoVisivelAsync(id)) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheIdDeCandidato);
+                throw ErroDoBrainMcp.NaoEncontrado();
+            }
+            return await servicos.GetRequiredService<IConhecimentoAppService>().ObterPorIdAsync(id, ct) ?? throw ErroDoBrainMcp.NaoEncontrado();
+        }
+        async Task<LeituraProtegidaDto?> ConhecimentoVisivelAsync(Guid id)
+        {
             var permitido = await leitura.LerAsync(id, acesso, FinalidadeDeLeitura.Busca, ct);
-            if (permitido is null || permitido.ConteudoProtegido || permitido.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido) throw new UnauthorizedAccessException("Conhecimento não permitido.");
-            return await servicos.GetRequiredService<IConhecimentoAppService>().ObterPorIdAsync(id, ct) ?? throw new ArgumentException("Conhecimento não encontrado.");
+            return permitido is null || permitido.ConteudoProtegido || permitido.Status is StatusDoConhecimento.Inativo or StatusDoConhecimento.Substituido ? null : permitido;
+        }
+        async Task<bool> CandidatoVisivelAsync(Guid id)
+        {
+            try { return Permitida((await captura.ObterCandidatoAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, id, ct)).Sensibilidade); }
+            catch (ArgumentException) { return false; }
         }
     }
     private static string AtualizarTitulo(string? dados, string titulo)
@@ -251,7 +307,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             mensagem.ReplyToMessage is { } fonte && fonte.Chat.Id == mensagem.Chat.Id && fonte.MessageThreadId == mensagem.MessageThreadId &&
             mensagem.From is { } usuario && fonte.From?.Id == usuario.Id &&
             fonte.Text?.Contains(dto.Conteudo, StringComparison.Ordinal) == true) return;
-        throw new ArgumentException("Conteúdo não consta da mensagem de origem; classifique como conclusão do agente.");
+        throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheOrigemLiteral);
     }
     private static bool Permitida(Sensibilidade s) => s is Sensibilidade.Publico or Sensibilidade.Pessoal or Sensibilidade.Trabalho;
     private static object Resumir(CandidatoDeConhecimentoDto c) => new { c.Id, c.Titulo, c.Conteudo, c.Tags, tipo = c.Tipo.ToString(), natureza = c.Natureza.ToString(), estado = c.Estado.ToString(), c.Revisao, c.IdConhecimento };
@@ -278,25 +334,33 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
     {
         var conteudo = Texto(a, "conteudo", 10_000);
         var sensibilidade = OpcionalEnum<Sensibilidade>(a, "sensibilidade") ?? Sensibilidade.Pessoal;
-        if (!Permitida(sensibilidade)) throw new UnauthorizedAccessException("Sensibilidade não permitida para agente.");
+        // Pedido de classificação acima do teto do agente: recusa de entrada, sem consultar nenhum item.
+        if (!Permitida(sensibilidade)) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheSensibilidade);
+        GarantirSemCredencial([conteudo, Texto(a, "justificativa", 2000), a.TryGetProperty("titulo", out _) ? Texto(a, "titulo", 300) : null, .. Lista(a, "tags")]);
         return new() { IdEspacoDeConhecimento = acesso.IdEspacoDeConhecimento, IdProjeto = acesso.IdProjeto,
             Titulo = a.TryGetProperty("titulo", out _) ? Texto(a, "titulo", 300) : null, Conteudo = conteudo, Tags = Lista(a, "tags"),
             Tipo = OpcionalEnum<TipoDeConhecimento>(a, "tipo") ?? TipoDeConhecimento.Nota, Natureza = ObrigatorioEnum<NaturezaDoConteudo>(a, "natureza"),
             Modo = ModoDeCaptura.Explicita, Sensibilidade = sensibilidade, Justificativa = Texto(a, "justificativa", 2000), Proveniencia = prova with { TrechoDaFonte = conteudo } };
     }
-    private static Guid Id(JsonElement a, string campo) => Guid.TryParse(Texto(a, campo, 40), out var id) && id != Guid.Empty ? id : throw new ArgumentException("Identificador inválido.");
-    private static int Inteiro(JsonElement a, string campo) => a.GetProperty(campo).TryGetInt32(out var n) && n >= 0 ? n : throw new ArgumentException("Número inválido.");
-    private static int Limite(JsonElement a) => a.TryGetProperty("limite", out _) ? Inteiro(a, "limite") is > 0 and <= ServidorMcpDoBrain.LimiteMaximo ? Inteiro(a, "limite") : throw new ArgumentException("Limite entre 1 e 25.") : ServidorMcpDoBrain.LimitePadrao;
-    private static int Deslocamento(JsonElement a) => a.TryGetProperty("deslocamento", out _) ? Inteiro(a, "deslocamento") is <= ServidorMcpDoBrain.DeslocamentoMaximo ? Inteiro(a, "deslocamento") : throw new ArgumentException("Deslocamento máximo 10000.") : 0;
+    // Mesma detecção da Application, antecipada para devolver detalhe útil sem expor a mensagem interna.
+    private static void GarantirSemCredencial(params string?[] textos)
+    { if (textos.Any(ProtecaoDeSegredos.ContemSegredo)) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheCredencial); }
+    // Parsing de argumentos: tipo JSON errado é entrada_invalida, nunca InvalidOperationException do JsonElement.
+    private static JsonElement Campo(JsonElement a, string campo, JsonValueKind tipo) =>
+        a.TryGetProperty(campo, out var valor) && valor.ValueKind == tipo ? valor : throw ErroDoBrainMcp.Entrada();
+    private static Guid Id(JsonElement a, string campo) => Guid.TryParse(Texto(a, campo, 40), out var id) && id != Guid.Empty ? id : throw ErroDoBrainMcp.Entrada();
+    private static int Inteiro(JsonElement a, string campo) => Campo(a, campo, JsonValueKind.Number).TryGetInt32(out var n) && n >= 0 ? n : throw ErroDoBrainMcp.Entrada();
+    private static int Limite(JsonElement a) => a.TryGetProperty("limite", out _) ? Inteiro(a, "limite") is > 0 and <= ServidorMcpDoBrain.LimiteMaximo ? Inteiro(a, "limite") : throw ErroDoBrainMcp.Entrada() : ServidorMcpDoBrain.LimitePadrao;
+    private static int Deslocamento(JsonElement a) => a.TryGetProperty("deslocamento", out _) ? Inteiro(a, "deslocamento") is <= ServidorMcpDoBrain.DeslocamentoMaximo ? Inteiro(a, "deslocamento") : throw ErroDoBrainMcp.Entrada() : 0;
     private static string Texto(JsonElement a, string campo, int maximo)
-    { var texto = a.GetProperty(campo).GetString(); return !string.IsNullOrWhiteSpace(texto) && texto.Length <= maximo ? texto : throw new ArgumentException("Texto inválido."); }
+    { var texto = Campo(a, campo, JsonValueKind.String).GetString(); return !string.IsNullOrWhiteSpace(texto) && texto.Length <= maximo ? texto : throw ErroDoBrainMcp.Entrada(); }
     private static string[] Lista(JsonElement a, string campo)
     {
         if (!a.TryGetProperty(campo, out var lista)) return [];
-        if (lista.ValueKind != JsonValueKind.Array || lista.GetArrayLength() > 50) throw new ArgumentException("Lista inválida.");
-        return lista.EnumerateArray().Select(x => x.GetString() is { Length: > 0 and <= 100 } s ? s : throw new ArgumentException("Item inválido.")).ToArray();
+        if (lista.ValueKind != JsonValueKind.Array || lista.GetArrayLength() > 50) throw ErroDoBrainMcp.Entrada();
+        return lista.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String && x.GetString() is { Length: > 0 and <= 100 } s ? s : throw ErroDoBrainMcp.Entrada()).ToArray();
     }
     private static T ObrigatorioEnum<T>(JsonElement a, string campo) where T : struct, Enum =>
-        Enum.TryParse<T>(Texto(a, campo, 80), true, out var valor) && Enum.IsDefined(valor) ? valor : throw new ArgumentException("Classificação inválida.");
+        Enum.TryParse<T>(Texto(a, campo, 80), true, out var valor) && Enum.IsDefined(valor) ? valor : throw ErroDoBrainMcp.Entrada();
     private static T? OpcionalEnum<T>(JsonElement a, string campo) where T : struct, Enum => a.TryGetProperty(campo, out _) ? ObrigatorioEnum<T>(a, campo) : null;
 }
