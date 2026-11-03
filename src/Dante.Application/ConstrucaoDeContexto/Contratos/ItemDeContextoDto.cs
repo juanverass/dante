@@ -6,11 +6,13 @@ namespace Dante.Application.ConstrucaoDeContexto;
 public sealed record ItemDeContextoDto(string Chave, Guid Id, int Revisao, string Origem, TipoDeConhecimento? Tipo,
     StatusDoConhecimento? Status, Sensibilidade Sensibilidade, string Conteudo, string? Referencia,
     string Motivo, double Relevancia, int TokensEstimados, int? InicioDaFonte = null,
-    NaturezaDoConteudo? NaturezaDeOrigem = null, NaturezaDoConteudo? Natureza = null, AutoriaDaFonte? AutoriaDaFonte = null)
+    NaturezaDoConteudo? NaturezaDeOrigem = null, NaturezaDoConteudo? Natureza = null, AutoriaDaFonte? AutoriaDaFonte = null,
+    bool Referenciado = false)
 {
     public string Rotulo => Origem switch
     {
         "snapshot" => "Contexto operacional, não é conhecimento confirmado",
+        "candidato" => "Pendente, não confirmado",
         "fonte_bruta" => RotulagemDoConhecimento.RotularFonte(AutoriaDaFonte ?? Dante.Domain.Conhecimentos.AutoriaDaFonte.Desconhecida),
         _ => RotulagemDoConhecimento.Rotular(NaturezaDeOrigem, Natureza, Status)
     };

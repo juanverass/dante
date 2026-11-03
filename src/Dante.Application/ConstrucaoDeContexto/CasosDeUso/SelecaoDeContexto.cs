@@ -38,7 +38,8 @@ internal static class SelecaoDeContexto
         return new(Guid.NewGuid(),textoParaInjecao,selecionados.ToArray(),registros.ToArray(),new(EstimarTokens(textoParaInjecao),selecionados.Count,textoParaInjecao.Length,Encoding.UTF8.GetByteCount(textoParaInjecao),pedido.OrcamentoDeTokens),limitou);
     }
     private static int Prioridade(ItemDeContextoDto x)=>x.Status==StatusDoConhecimento.Confirmado && x.Tipo==TipoDeConhecimento.Instrucao?0:
-        x.Status==StatusDoConhecimento.Confirmado && x.Tipo==TipoDeConhecimento.Decisao?1:x.Status==StatusDoConhecimento.Confirmado?2:x.Origem=="snapshot"?3:x.Origem=="conhecimento"?4:5;
+        x.Status==StatusDoConhecimento.Confirmado && x.Tipo==TipoDeConhecimento.Decisao?1:x.Status==StatusDoConhecimento.Confirmado?2:
+        x.Referenciado?3:x.Origem=="snapshot"?4:x.Origem=="conhecimento"?5:6;
     internal static string Normalizar(string texto)=>string.Join(' ',texto.Normalize(NormalizationForm.FormC).Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries));
     internal static bool Coberto(string conteudo,IReadOnlyList<string> presentes)
     {var texto=Normalizar(conteudo);return presentes.Any(x=>x==texto || texto.Length>=24 && x.Contains(texto,StringComparison.Ordinal));}
