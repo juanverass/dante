@@ -149,12 +149,13 @@ public static class ServidorMcpDoBrain
     public static async Task<LinhaLida?> LerOuDescartarLinhaAsync(TextReader leitor, int maximo, CancellationToken ct,
         int maximoDescarte = MaximoDescarte, TimeSpan? janela = null)
     {
-        var buffer = new char[1]; var linha = new StringBuilder(); var leuAlgo = false;
+        var buffer = new char[1]; var linha = new StringBuilder(); var leuAlgo = false; var recebidos = 0;
         while (await leitor.ReadAsync(buffer.AsMemory(), ct) != 0)
         {
             leuAlgo = true;
             if (buffer[0] == '\n') return new(linha.ToString(), false);
-            if (linha.Length == maximo) return await DescartarAsync(leitor, maximoDescarte, janela ?? JanelaDeDescarte, ct);
+            // Conta também CR antes da normalização, para limitar o fluxo recebido.
+            if (recebidos++ == maximo) return await DescartarAsync(leitor, maximoDescarte, janela ?? JanelaDeDescarte, ct);
             if (buffer[0] != '\r') linha.Append(buffer[0]);
         }
         return !leuAlgo || linha.Length == 0 ? null : new(linha.ToString(), false);

@@ -191,6 +191,25 @@ public sealed class BrainMcpErrosTests
         Assert.Equal(new ServidorMcpDoBrain.LinhaLida(new string('w', 10), false), await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(new StringReader(new string('w', 10) + "\n"), 10, default));
     }
 
+    [Fact]
+    public async Task EntradaComCrContaAntesDaNormalizacaoEPreservaCrLf()
+    {
+        var maximo = ServidorMcpDoBrain.MaximoEntrada;
+        using var leitor = new StringReader(new string('\r', maximo + 1) + "\nabc\r\n\r\n");
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida(null, true),
+            await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, maximo, default));
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida("abc", false),
+            await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, maximo, default));
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida("", false),
+            await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, maximo, default));
+        using var noLimite = new StringReader("abc\r\n");
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida("abc", false),
+            await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(noLimite, 4, default));
+        using var misturada = new StringReader("a\rb\rc\rd\n");
+        Assert.Equal(new ServidorMcpDoBrain.LinhaLida(null, true),
+            await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(misturada, 4, default));
+    }
+
     [PostgreSqlFact]
     public async Task CanalDoWorkerRespondeEntradaAcimaDoLimiteSemEncerrarEEscopoContinuaPrevalecendo()
     {
@@ -217,16 +236,18 @@ public sealed class BrainMcpErrosTests
         try { await cliente.DisposeAsync(); } catch (IOException) { } // pipe já encerrado pelo Worker
     }
 
-    [Fact]
-    public async Task ExcedenteSemQuebraEAbortadoComConsumoLimitado()
+    [Theory]
+    [InlineData('y')]
+    [InlineData('\r')]
+    public async Task ExcedenteSemQuebraEAbortadoComConsumoLimitado(char caractere)
     {
         // Fluxo contínuo sem quebra de linha: aborta ao passar do descarte máximo, sem ler indefinidamente.
-        var infinito = new LeitorSemQuebra("", 'y');
+        var infinito = new LeitorSemQuebra("", caractere);
         Assert.Equal(new ServidorMcpDoBrain.LinhaLida(null, true, true),
             await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(infinito, 10, default, maximoDescarte: 50, janela: TimeSpan.FromMinutes(1)));
         Assert.Equal(10 + 51, infinito.Consumidos); // limite + descarte máximo + o excedente que estourou
         // Gotejamento que para sem quebra: aborta pela janela, não pela quantidade.
-        var parado = new LeitorSemQuebra(new string('y', 15), null);
+        var parado = new LeitorSemQuebra(new string(caractere, 15), null);
         var cronometro = System.Diagnostics.Stopwatch.StartNew();
         Assert.Equal(new ServidorMcpDoBrain.LinhaLida(null, true, true),
             await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(parado, 10, default, maximoDescarte: 1_000, janela: TimeSpan.FromMilliseconds(200)));
@@ -234,14 +255,16 @@ public sealed class BrainMcpErrosTests
         // Cancelamento da sessão continua sendo cancelamento, não abortamento por descarte.
         using var sessao = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ServidorMcpDoBrain.LerOuDescartarLinhaAsync(
-            new LeitorSemQuebra(new string('y', 15), null), 10, sessao.Token, maximoDescarte: 1_000, janela: TimeSpan.FromMinutes(1)));
+            new LeitorSemQuebra(new string(caractere, 15), null), 10, sessao.Token, maximoDescarte: 1_000, janela: TimeSpan.FromMinutes(1)));
     }
 
-    [Fact]
-    public async Task ExcedenteQueTerminaDentroDoDescarteRecuperaALinhaSeguinte()
+    [Theory]
+    [InlineData('b')]
+    [InlineData('\r')]
+    public async Task ExcedenteQueTerminaDentroDoDescarteRecuperaALinhaSeguinte(char caractere)
     {
         // Exatamente no descarte máximo (5 excedentes) e com quebra: responde como excedida e o canal segue alinhado.
-        var leitor = new StringReader(new string('a', 10) + new string('b', 5) + "\nok\n" + new string('a', 10) + new string('b', 6) + "\nperdido\n");
+        var leitor = new StringReader(new string('a', 10) + new string(caractere, 5) + "\nok\n" + new string('a', 10) + new string(caractere, 6) + "\nperdido\n");
         Task<ServidorMcpDoBrain.LinhaLida?> Ler() => ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, 10, default, maximoDescarte: 5, janela: TimeSpan.FromMinutes(1));
         Assert.Equal(new ServidorMcpDoBrain.LinhaLida(null, true), await Ler());
         Assert.Equal(new ServidorMcpDoBrain.LinhaLida("ok", false), await Ler());
