@@ -89,6 +89,53 @@ Não registra transcript completo ou raciocínio privado.
 Confidential/Secret não recebem grants adicionais. Falta de autorização falha fechado;
 conteúdo/histórico passam pelas policies de sensibilidade e proteção de segredos atuais.
 
+## Semântica AND/OR da busca (#254)
+
+Decisão: manter explicitamente a diferença entre consulta do agente e recuperação
+automática de contexto (alternativa **c** da Issue). O agente pode escrever uma
+consulta precisa; o contexto automático precisa recuperar itens a partir de uma
+mensagem inteira, que também contém instruções e palavras sem relação com o conhecimento.
+
+| Caminho | Preparo e combinação lexical |
+| --- | --- |
+| `brain_buscar_conhecimento` | Preserva o texto, até 2000 caracteres. Termos adjacentes usam AND implícito; `or` indica alternativas; aspas delimitam frase; `-` é aceito, com a ressalva de exclusão descrita abaixo. Usa `websearch_to_tsquery('portuguese', texto)` com parâmetro SQL. |
+| Contexto automático do Telegram | `TelegramBrain.Termos` extrai tokens de letras/números (3 a 64 caracteres, admitindo `_`, `.` e `-` internos), normaliza caixa, remove palavras vazias da lista local, deduplica e seleciona até 16, unidos por `or`. Depois aplica a mesma função lexical do PostgreSQL. |
+
+Não foi adicionado parâmetro `modo`: OR já é expressável na consulta. Aplicar o
+extrator automático ao MCP transformaria frases e operadores e limitaria
+consultas existentes a 16 termos. Por isso não há normalizador compartilhado nem
+mudança em runtime, ranking ou busca híbrida. O schema descreve a consulta preservada.
+
+O dicionário português do PostgreSQL aplica suas próprias stopwords e stemming nos
+dois caminhos. A lista local adicional e o limite de 16 são exclusivos do preparo
+automático. Se o extrator não produzir termos, o Context Builder usa a mensagem
+original limitada a 2000 caracteres como fallback, preservando o comportamento atual.
+A ausência de correspondência lexical não prova ausência de conhecimento;
+sinônimos e paráfrases sem lexemas comuns não são garantidos. Em modo híbrido,
+resultados semânticos podem complementar os lexicais, sem alteração nesta entrega.
+
+Caso da #147, conhecimento `704dbde5` sobre integração do Brain ao PostgreSQL, com
+tags `brain` e `postgres` (testado com conteúdo equivalente em banco temporário):
+
+| Consulta | Resultado lexical esperado |
+| --- | --- |
+| MCP: `quando o Brain passou a usar Postgres?` | Não encontra: exige também termos ausentes como `passou` e `usar`. |
+| MCP: `Brain Postgres` | Encontra: ambos os termos existem no conteúdo/tags. |
+| MCP: `Brain or passou or usar or Postgres` | Encontra por termos alternativos. |
+| Contexto automático: `quando o Brain passou a usar Postgres?` | Encontra após preparo `brain or passou or usar or postgres`. |
+
+Aspas, hífen e `or` são sintaxe **da consulta lexical**, não interpolação SQL ou
+expressões de `to_tsquery` fornecidas diretamente. Entrada com aspas incompletas ou
+pontuação continua sendo tratada por `websearch_to_tsquery`, sem montar SQL a partir
+do texto. Filtros de escopo, sensibilidade e natureza continuam obrigatórios.
+**Ressalva do hífen:** o parser reconhece negação, mas a seleção atual dos índices
+é baseada em `ts_rank_cd(...) > 0`, sem impor correspondência por `@@`. Por isso
+`Brain -Postgres` pode retornar tanto `Brain SQLite` quanto `Brain Postgres`. Não
+use o hífen como garantia de exclusão. Esta Issue registra e testa a limitação, sem
+alterar ranking ou SQL de recuperação.
+
+A listagem de candidatos da #253 mantém substring literal; não usa essa sintaxe.
+
 ## Filtros de candidatos pendentes (#253)
 
 `brain_listar_candidatos` aceita `tags` e `texto` opcionais. Todas as tags informadas

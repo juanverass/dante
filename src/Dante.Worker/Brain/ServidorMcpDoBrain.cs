@@ -32,6 +32,12 @@ public static class ServidorMcpDoBrain
     private static JsonObject Deslocamento() => new() { ["type"] = "integer", ["minimum"] = 0, ["maximum"] = DeslocamentoMaximo,
         ["description"] = $"Quantidade de itens a pular para paginar (0 a {DeslocamentoMaximo}; padrão 0)." };
     private static JsonObject Texto(int maximo) => new() { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = maximo };
+    private static JsonObject TextoDaBusca()
+    {
+        var campo = Texto(2000);
+        campo["description"] = "Consulta preservada, até 2000 caracteres. Na busca lexical em português: AND implícito entre termos, or para alternativas, aspas para frase; hífen é aceito, mas não garante exclusão na seleção atual por pontuação. Stopwords são do PostgreSQL; não há corte em 16 termos. Diferente do contexto automático do Telegram, que extrai até 16 termos e combina por OR.";
+        return campo;
+    }
     private static JsonObject Tags() => new() { ["type"] = "array", ["maxItems"] = 50, ["items"] = Texto(100) };
     private static JsonObject Captura(bool correcao = false)
     {
@@ -45,8 +51,8 @@ public static class ServidorMcpDoBrain
     public static readonly IReadOnlyList<Ferramenta> Ferramentas =
     [
         new("brain_obter_escopo", "Espaço/projeto autorizado da sessão. Não altera escopo.", true, false, new(), []),
-        new("brain_buscar_conhecimento", "Busca permitida em conhecimentos e fontes do escopo; candidatos pendentes não entram (use brain_listar_candidatos). Sem modelo de embedding a busca é lexical e exige todos os termos; use \"or\" entre termos alternativos. Natureza filtra a autoria de origem do conhecimento e exclui fontes brutas. A resposta inclui natureza de origem, natureza vigente, status e rótulo. Tags filtram, mas não substituem o texto. Consulte equivalentes antes de capturar e reporte possíveis duplicidades.", true, false,
-            new() { ["texto"] = Texto(2000), ["natureza"] = EnumCampo<Dante.Domain.CapturaDeConhecimento.NaturezaDoConteudo>(), ["tipo"] = EnumCampo<Dante.Domain.Conhecimentos.TipoDeConhecimento>(), ["tags"] = Tags(), ["limite"] = Limite(), ["deslocamento"] = Deslocamento() }, ["texto"]),
+        new("brain_buscar_conhecimento", "Busca permitida em conhecimentos e fontes do escopo; candidatos pendentes não entram (use brain_listar_candidatos). Sem modelo de embedding a busca é lexical e exige todos os termos não descartados pelo dicionário português (AND implícito); use \"or\" entre termos alternativos, aspas para frase. Hífen é aceito, mas não garante exclusão na seleção atual por pontuação. O texto é preservado, diferente do contexto automático do Telegram (extração de até 16 termos com OR). Natureza filtra a autoria de origem do conhecimento e exclui fontes brutas. A resposta inclui natureza de origem, natureza vigente, status e rótulo. Tags filtram, mas não substituem o texto. Consulte equivalentes antes de capturar e reporte possíveis duplicidades.", true, false,
+            new() { ["texto"] = TextoDaBusca(), ["natureza"] = EnumCampo<Dante.Domain.CapturaDeConhecimento.NaturezaDoConteudo>(), ["tipo"] = EnumCampo<Dante.Domain.Conhecimentos.TipoDeConhecimento>(), ["tags"] = Tags(), ["limite"] = Limite(), ["deslocamento"] = Deslocamento() }, ["texto"]),
         new("brain_mostrar_origem", "Proveniência de candidato ou conhecimento permitido.", true, false, new() { ["id"] = Id(), ["origem"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("candidato", "conhecimento") } }, ["id", "origem"]),
         new("brain_capturar_conhecimento", "Cria um único candidato pendente. Preserve título/conteúdo/tags e o tipo semântico informado. Use natureza ConclusaoDoAgente para conclusões do agente: permanecem inferidas, nunca ditas pelo usuário.", false, false, Captura(), ["conteudo", "natureza", "justificativa"]),
         new("brain_atualizar_conhecimento", "PREPARA correção do conhecimento existente, sem criar outro ativo. Exige revisão e confirmação Telegram; tipo opcional: preserve o atual quando omitido; a correção não herda a confirmação anterior.", false, true, Captura(true), ["id", "revisao", "conteudo", "natureza", "justificativa"]),
