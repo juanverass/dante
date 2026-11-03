@@ -705,6 +705,17 @@ busca híbrida, limites e comportamento de execução foram preservados. Hífen 
 pelo parser, mas a seleção por pontuação atual não garante exclusão do termo negado;
 a ressalva está documentada e testada, sem alteração dos índices.
 
+O snapshot aceita `ids_decisoes_confirmadas` opcional pelo MCP (#256): lista completa
+substitui, `[]` limpa e omissão preserva. Até 20 entradas, deduplicadas pelo domínio;
+IDs devem apontar para decisões confirmadas, válidas, no mesmo escopo e compatíveis
+com a sessão e a classificação do snapshot. A resolução mantém recusas sem oráculo,
+e a Application reutiliza as validações existentes. Snapshot novo permanece Pessoal;
+não há elevação automática de sensibilidade. Fluxo documentado: declaração literal,
+candidato Decisao/DitoPeloUsuario, confirmação Telegram, consulta do conhecimento
+Confirmado e referência por ID. A conversa natural preserva a lista, sem nova gramática.
+Context Builder mantém revalidação na recuperação; referências textuais da #255
+continuam fora do escopo. Sem migration ou mudança em autoria, confirmação e promoção.
+
 O MCP usa a mensagem autenticada do turno ativo, preservada junto à entrada na fila.
 Mensagens recebidas/enfileiradas não substituem essa evidência; entradas sem contexto
 autenticado revogam o acesso. Captura e correção factual exigem conteúdo na origem.

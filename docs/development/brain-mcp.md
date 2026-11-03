@@ -89,6 +89,55 @@ Não registra transcript completo ou raciocínio privado.
 Confidential/Secret não recebem grants adicionais. Falta de autorização falha fechado;
 conteúdo/histórico passam pelas policies de sensibilidade e proteção de segredos atuais.
 
+## Decisões confirmadas no snapshot (#256)
+
+`brain_atualizar_contexto_de_trabalho` aceita o campo opcional
+`ids_decisoes_confirmadas`, uma lista de IDs de **conhecimentos** obtidos pela busca.
+Não use ID de candidato nem peça GUID ao usuário. Os demais campos obrigatórios e a
+revisão esperada continuam iguais. A lista tem semântica de substituição completa:
+
+- Campo omitido: conserva a lista atual (ou vazia no primeiro snapshot).
+- Lista informada: substitui as referências anteriores; para remover somente uma,
+  envie os IDs que devem permanecer.
+- `[]`: remove todas as referências.
+
+São aceitas até 20 entradas, antes de deduplicar. Duplicatas dentro desse limite
+são removidas ao salvar, mantendo a primeira ocorrência. `null`, IDs vazios,
+malformados ou listas acima do limite são recusados. Isso não altera a lista
+textual `referencias` nem implementa resolução de texto livre (#255).
+
+Cada ID precisa ser de `Tipo = Decisao`, `Status = Confirmado`, válido no instante
+da atualização, no mesmo espaço e projeto exatos (inclusive projeto nulo), permitido
+pela sessão e compatível com a sensibilidade do snapshot. A Application reutiliza
+`ContextoDeTrabalhoAppService.SubstituirAsync`; o adapter conserva a resolução
+autorizada e os erros classificados da #251. Inexistente, outro escopo e conteúdo
+protegido não revelam a causa do não acesso. Erro não grava snapshot parcial.
+
+Não há elevação automática de sensibilidade: snapshot MCP novo continua `Pessoal`;
+um conhecimento `Trabalho` exige snapshot já classificado como `Trabalho` e acesso
+compatível. Omitir o campo preserva IDs, mas não dispensa sua revalidação pela
+Application. Se uma referência ficar inválida, envie a lista sem ela para removê-la.
+
+Fluxo completo:
+
+1. O usuário declara literalmente a decisão.
+2. O agente captura um candidato `Decisao` / `DitoPeloUsuario`, com origem literal
+   validada, e apresenta a proposta de consolidação.
+3. O usuário envia `confirmar` no Telegram. Aprovação da CLI não confirma negócio.
+4. O agente consulta `brain_buscar_conhecimento` e verifica tipo `Decisao` e status
+   `Confirmado`; o ID do conhecimento consolidado é diferente do ID do candidato.
+5. O agente consulta a revisão do snapshot e atualiza seus campos operacionais,
+   enviando o ID em `ids_decisoes_confirmadas`.
+6. `brain_obter_contexto_de_trabalho` retorna a lista persistida. Em nova sessão,
+   o Context Builder recupera a decisão mesmo sem correspondência lexical e revalida
+   seu estado antes de injetar. Se perder a confirmação, a referência sozinha não a
+   transforma em fato confirmado nem a injeta como decisão confirmada.
+
+Decisões do usuário devem ser referenciadas por ID, em vez de afirmadas pelo agente
+em texto livre do snapshot. Não há heurística para bloquear texto livre, nem nova
+regra de autoria/confirmação. A inclusão/remoção foi exposta somente pelo MCP; o
+fluxo natural de atualização do contexto mantém sua gramática e preserva a lista.
+
 ## Semântica AND/OR da busca (#254)
 
 Decisão: manter explicitamente a diferença entre consulta do agente e recuperação
