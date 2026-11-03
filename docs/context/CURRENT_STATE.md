@@ -703,6 +703,15 @@ ou esgotar a vizinhança; o indicador de limite conta apenas relações autoriza
 O prazo por operação continua limitando o percurso, sem retornar lista parcial
 como se a vizinhança tivesse sido esgotada.
 
+Erros MCP retornam código estável em conjunto fechado (`entrada_invalida`,
+`revisao_desatualizada`, `nao_encontrado_ou_nao_autorizado`, `escopo_mudou`,
+`indisponivel`) com mensagem fixa e detalhe opcional escrito pelo adapter, sem texto
+de exceção (#251). Inexistente, outro escopo, sensibilidade não permitida, conteúdo
+protegido e item inativo produzem resposta idêntica; ID do tipo errado só é apontado
+quando o outro item é visível ao agente. Relação com tipos incompatíveis é recusada
+na preparação, e a confirmação no Telegram informa a causa classificada.
+`escopo_mudou` continua encerrando o canal.
+
 ## Reconhecimento do Brain no harness (#228)
 
 Claude e Codex recebem contrato explícito do Brain como capacidade interna, com estado

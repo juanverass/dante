@@ -60,7 +60,7 @@ public sealed class AutoriaDasFontesTests
             if (ferramenta != "brain_capturar_conhecimento") { args["id"] = id; args["revisao"] = 1; }
             Task<object?> Operar() => ops.ExecutarAsync(escopo, mensagem, "M" + numero, "codex", ferramenta, JsonSerializer.SerializeToElement(args));
             var permitido = autor?.Id == 42 || natureza == NaturezaDoConteudo.ConclusaoDoAgente;
-            if (!permitido) await Assert.ThrowsAsync<ArgumentException>(Operar);
+            if (!permitido) Assert.Equal(ErrosDoBrainMcp.DetalheOrigemLiteral, BrainMcpTests.DetalheDe(await BrainMcpTests.RecusaAsync(CategoriaDeErroMcp.EntradaInvalida, Operar)));
             else
             {
                 await Operar();

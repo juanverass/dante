@@ -66,32 +66,42 @@ public sealed class FerramentasDoBrainParaAgentes(TelegramBrain brain, Operacoes
             using var leitor = new StreamReader(canal.Pipe, Encoding.UTF8, false, 4096, true);
             using var escritor = new StreamWriter(canal.Pipe, new UTF8Encoding(false), 4096, true) { AutoFlush = true };
             var chamadas = 0;
-            while (await ServidorMcpDoBrain.LerLinhaAsync(leitor, ServidorMcpDoBrain.MaximoEntrada, ct) is { } linha)
+            while (await ServidorMcpDoBrain.LerOuDescartarLinhaAsync(leitor, ServidorMcpDoBrain.MaximoEntrada, ct) is { } lida)
             {
-                JsonObject resposta;
+                // Descarte abortado encerra o canal qualquer que seja a resposta: a entrada perdeu o alinhamento de linhas.
+                JsonObject resposta; var encerrar = lida.Abortada;
                 try
                 {
-                    if (++chamadas > 1000) throw new InvalidOperationException("Limite de chamadas da sessão atingido.");
+                    if (++chamadas > 1000) throw new ErroDoBrainMcp(CategoriaDeErroMcp.Indisponivel, ErrosDoBrainMcp.DetalheLimiteDeChamadas);
                     using var prazo = CancellationTokenSource.CreateLinkedTokenSource(ct); prazo.CancelAfter(TimeSpan.FromSeconds(30));
                     // Resolver de novo em cada operação: troca de espaço/projeto revoga a capacidade antiga.
                     var atual = await brain.ResolverEscopoMcpAsync(inicial, prazo.Token);
                     if (atual != escopo || !registro.ConversaPermitida(sessao, inicial) || registro.VersaoConversa(inicial) != geracao)
-                    {
-                        await escritor.WriteLineAsync(ServidorMcpDoBrain.Resultado("Escopo/conversa mudou; inicie nova sessão.", true).ToJsonString().AsMemory(), ct);
-                        return;
-                    }
-                    using var documento = JsonDocument.Parse(linha); var pedido = documento.RootElement;
+                        throw ErroDoBrainMcp.EscopoMudou();
+                    // Pedido acima do limite: descartado sem acumular, conta no limite de chamadas e não derruba o canal (#251).
+                    // Se o excedente não terminou dentro do descarte máximo/janela, responde e encerra o canal.
+                    if (lida.Excedida) throw ErroDoBrainMcp.Entrada(lida.Abortada ? ErrosDoBrainMcp.DetalheEntradaAbortada : ErrosDoBrainMcp.DetalheEntradaGrande);
+                    using var documento = JsonDocument.Parse(lida.Texto!); var pedido = documento.RootElement;
                     var nome = pedido.GetProperty("nome").GetString()!; var argumentos = pedido.GetProperty("argumentos");
-                    var resultado = await operacoes.ExecutarAsync(escopo, registro.Atual(sessao), sessao, agente, nome, argumentos, prazo.Token);
+                    TelegramMessage mensagemAtual;
+                    try { mensagemAtual = registro.Atual(sessao); } catch (UnauthorizedAccessException) { throw ErroDoBrainMcp.EscopoMudou(); }
+                    var resultado = await operacoes.ExecutarAsync(escopo, mensagemAtual, sessao, agente, nome, argumentos, prazo.Token);
                     var texto = JsonSerializer.Serialize(resultado);
-                    if (texto.Length > 45_000) resposta = ServidorMcpDoBrain.Resultado("Resposta excede o limite; reduza a página ou use consulta mais específica.", true);
+                    if (texto.Length > 45_000) resposta = ErrosDoBrainMcp.Resultado(CategoriaDeErroMcp.EntradaInvalida, ErrosDoBrainMcp.DetalheRespostaGrande);
                     else resposta = ServidorMcpDoBrain.Resultado(resultado);
                 }
-                catch (Exception) when (!ct.IsCancellationRequested)
-                { resposta = ServidorMcpDoBrain.Resultado("Brain indisponível ou entrada/escopo/revisão inválidos. Refaça a consulta. Mudança de escopo exige nova sessão.", true); }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    // Código estável por categoria, sem mensagem da exceção (#251). escopo_mudou continua encerrando o canal.
+                    resposta = ErrosDoBrainMcp.Resultado(ex);
+                    encerrar |= ErrosDoBrainMcp.Classificar(ex) == CategoriaDeErroMcp.EscopoMudou;
+                    if (!encerrar && ErrosDoBrainMcp.Classificar(ex) == CategoriaDeErroMcp.Indisponivel)
+                        logger.LogWarning("Operação Brain MCP indisponível ({ErrorType}).", ex.GetType().Name);
+                }
                 var json = resposta.ToJsonString();
-                if (json.Length > ServidorMcpDoBrain.MaximoResposta - 1000) json = ServidorMcpDoBrain.Resultado("Resposta excede o limite; reduza a consulta.", true).ToJsonString();
+                if (json.Length > ServidorMcpDoBrain.MaximoResposta - 1000) json = ErrosDoBrainMcp.Resultado(CategoriaDeErroMcp.EntradaInvalida, ErrosDoBrainMcp.DetalheRespostaGrande).ToJsonString();
                 await escritor.WriteLineAsync(json.AsMemory(), ct);
+                if (encerrar) return;
             }
         }
         catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException or ArgumentException) { }

@@ -64,7 +64,8 @@ public sealed class RegistroDeOperacoesBrain
         if (normal is "cancelar" or "cancele") return "Proposta MCP cancelada; nenhuma alteração foi aplicada.";
         if (proposta.ExpiraEm <= DateTimeOffset.UtcNow) return "A confirmação MCP expirou. Prepare novamente a operação.";
         try { return await proposta.Executar(mensagem, ct); }
+        // A causa classificada chega ao usuário (#251): tipos incompatíveis não aparecem mais como escopo/revisão/disponibilidade.
         catch (Exception ex) when (ex is not OperationCanceledException)
-        { return "A operação MCP não foi confirmada: escopo, revisão ou disponibilidade mudou. Refaça a consulta."; }
+        { return ErrosDoBrainMcp.MensagemDeConfirmacao(ex); }
     }
 }
