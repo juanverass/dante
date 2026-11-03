@@ -21,7 +21,7 @@ public static class ServidorMcpDoBrain
     public const int DeslocamentoMaximo = 10_000;
     public sealed record Ferramenta(string Nome, string Descricao, bool Leitura, bool Destrutiva, JsonObject Propriedades, string[] Obrigatorios);
     private static JsonObject Campo(string tipo, string? descricao = null) => new() { ["type"] = tipo, ["description"] = descricao ?? "" };
-    private static JsonObject EnumCampo<T>() where T : struct, Enum => new() { ["type"] = "string", ["enum"] = new JsonArray(Enum.GetNames<T>().Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()) };
+    private static JsonObject EnumCampo<T>(T? excluir = null) where T : struct, Enum => new() { ["type"] = "string", ["enum"] = new JsonArray(Enum.GetNames<T>().Where(x => x != excluir?.ToString()).Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()) };
     private static JsonObject Id() => Campo("string", "Identificador retornado por outra ferramenta; nunca solicite GUID ao usuário.");
     private static JsonObject Revisao() => Campo("integer", "Revisão esperada retornada na consulta.");
     private static JsonObject Limite() => new() { ["type"] = "integer", ["minimum"] = 1, ["maximum"] = LimiteMaximo,
@@ -34,7 +34,7 @@ public static class ServidorMcpDoBrain
     {
         var p = new JsonObject { ["titulo"] = Texto(300), ["conteudo"] = Texto(10_000), ["tags"] = Tags(),
             ["tipo"] = EnumCampo<Dante.Domain.Conhecimentos.TipoDeConhecimento>(),
-            ["natureza"] = EnumCampo<Dante.Domain.CapturaDeConhecimento.NaturezaDoConteudo>(),
+            ["natureza"] = EnumCampo<Dante.Domain.CapturaDeConhecimento.NaturezaDoConteudo>(Dante.Domain.CapturaDeConhecimento.NaturezaDoConteudo.Desconhecida),
             ["sensibilidade"] = EnumCampo<Dante.Domain.Conhecimentos.Sensibilidade>(), ["justificativa"] = Texto(2000) };
         if (correcao) { p["id"] = Id(); p["revisao"] = Revisao(); }
         return p;

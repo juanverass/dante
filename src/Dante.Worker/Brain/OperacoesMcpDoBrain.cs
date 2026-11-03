@@ -93,6 +93,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 var atualizado = existente with
                 {
                     Conteudo = novaVersao.Conteudo,
+                    Natureza = novaVersao.Natureza,
                     Tipo = novaVersao.Natureza == NaturezaDoConteudo.ConclusaoDoAgente ? TipoDeConhecimento.Inferencia : existente.Tipo,
                     Sensibilidade = sensibilidadeNova,
                     Tags = args.TryGetProperty("tags", out _) ? novaVersao.Tags : existente.Tags,

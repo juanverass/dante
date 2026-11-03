@@ -1,4 +1,5 @@
 using Dante.Domain.Conhecimentos;
+using Dante.Domain.CapturaDeConhecimento;
 
 namespace Dante.Application.Conhecimentos;
 
@@ -8,7 +9,10 @@ public sealed record ConhecimentoDto
     public Guid Id { get; init; }
     public Guid IdEspacoDeConhecimento { get; init; }
     public Guid? IdProjeto { get; init; }
+    // Somente saída; criação usa Natureza, correção nunca copia a origem enviada.
+    public NaturezaDoConteudo NaturezaDeOrigem { get; init; } = NaturezaDoConteudo.Desconhecida;
     public Guid IdAutor { get; init; }
+    public NaturezaDoConteudo? Natureza { get; init; }
     public TipoDeConhecimento Tipo { get; init; }
     public string? Conteudo { get; init; }
     public string? DadosEstruturados { get; init; }

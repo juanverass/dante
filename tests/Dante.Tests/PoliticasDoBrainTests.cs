@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application.BuscaDoBrain;
 using Dante.Application.ConstrucaoDeContexto;
 using Dante.Application.MetricasDoBrain;
@@ -53,7 +54,7 @@ public sealed class PoliticasDoBrainTests
         var a = Conhecimento("confirmado"); a.Confirmar(1, a.Proveniencia, Agora);
         var expira = Conhecimento("expirado");
         expira.Corrigir(1, expira.Tipo, expira.Conteudo, null, null, expira.Sensibilidade,
-            null, Agora.AddMinutes(1), [], expira.Proveniencia, Agora);
+            null, Agora.AddMinutes(1), [], expira.Proveniencia, Agora, NaturezaDoConteudo.DitoPeloUsuario);
         var relatorio = AnaliseDeQualidade.Analisar([a, expira], [], Agora.AddHours(1), Agora.AddMinutes(1), true);
         Assert.True(relatorio.LimiteAtingido);
         Assert.Contains(relatorio.Achados, x => x.Problema == ProblemaDeQualidade.ForaDaValidade && x.IdConhecimento == expira.Id);
@@ -164,7 +165,7 @@ public sealed class PoliticasDoBrainTests
 
     private static Conhecimento Conhecimento(string conteudo, string? json = null) => new(Espaco, null,
         TipoDeConhecimento.Fato, conteudo, json, StatusDoConhecimento.Inferido, null, Sensibilidade.Pessoal,
-        null, null, [], new(Usuario, "manual", "fonte:teste"), Agora);
+        null, null, [], new(Usuario, "manual", "fonte:teste"), Agora, NaturezaDoConteudo.DitoPeloUsuario);
     private static ItemDeContextoDto Item(string chave, string conteudo, string origem = "conhecimento", double relevancia = 1,
         TipoDeConhecimento? tipo = TipoDeConhecimento.Fato, StatusDoConhecimento? status = StatusDoConhecimento.Inferido) =>
         new(chave, Guid.NewGuid(), 1, origem, tipo, status, Sensibilidade.Pessoal, conteudo, null, "teste", relevancia, 0);

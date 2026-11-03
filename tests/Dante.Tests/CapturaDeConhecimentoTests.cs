@@ -93,7 +93,7 @@ public sealed class CapturaDeConhecimentoTests
         Assert.Equal((capturadoEm, capturadoEm), (conhecimento.CriadoEm, conhecimento.AtualizadoEm));
         // Revisões posteriores continuam exigindo instante não anterior à última revisão.
         Assert.Throws<ArgumentException>(() => conhecimento.Corrigir(1, TipoDeConhecimento.Inferencia, "outra", null, null, Sensibilidade.Pessoal, null, null, [],
-            BrainEfTests.Origem(), capturadoEm.AddSeconds(-1)));
+            BrainEfTests.Origem(), capturadoEm.AddSeconds(-1), NaturezaDoConteudo.DitoPeloUsuario));
         // A promoção não aceita instante anterior ao último ato do candidato.
         Assert.Throws<ArgumentException>(() => NovoEm(capturadoEm).Promover(1, BrainEfTests.Origem(), capturadoEm.AddSeconds(-1)));
     }
@@ -227,5 +227,5 @@ public sealed class CapturaDeConhecimentoTests
         new(Guid.NewGuid(), null, TipoDeConhecimento.Fato, "conteúdo", Sensibilidade.Pessoal, natureza, ModoDeCaptura.Explicita, "porque", origem ?? BrainEfTests.Origem(), instante);
     internal static CapturaDeConhecimentoDto Captura(Guid espaco) => new() { IdEspacoDeConhecimento = espaco, Tipo = TipoDeConhecimento.Fato, Conteudo = "conteúdo",
         Natureza = NaturezaDoConteudo.DitoPeloUsuario, Modo = ModoDeCaptura.Explicita, Justificativa = "pedido de captura selecionada", Proveniencia = RelacoesDeConhecimentoTests.Proveniencia() };
-    private static Conhecimento Item(Guid espaco, TipoDeConhecimento tipo) => new(espaco, null, tipo, "evidência", null, StatusDoConhecimento.Inferido, null, Sensibilidade.Pessoal, null, null, [], BrainEfTests.Origem(), DateTimeOffset.UtcNow);
+    private static Conhecimento Item(Guid espaco, TipoDeConhecimento tipo) => new(espaco, null, tipo, "evidência", null, StatusDoConhecimento.Inferido, null, Sensibilidade.Pessoal, null, null, [], BrainEfTests.Origem(), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
 }

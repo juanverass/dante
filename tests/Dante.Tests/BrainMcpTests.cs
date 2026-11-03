@@ -76,6 +76,18 @@ public sealed class BrainMcpTests
             tools.Single(t => t["name"]!.GetValue<string>() == "brain_confirmar_candidato")["inputSchema"]!["properties"]!["revisao"]!["description"]!.GetValue<string>());
     }
     [Fact]
+    public void EscritasMcpNaoOferecemNaturezaReservadaAoLegado()
+    {
+        var escritas = ServidorMcpDoBrain.Ferramentas.Where(f => f.Propriedades.ContainsKey("natureza")).ToArray();
+        Assert.Equal(3, escritas.Length);
+        foreach (var ferramenta in escritas)
+        {
+            var valores = ferramenta.Propriedades["natureza"]!["enum"]!.AsArray().Select(x => x!.GetValue<string>()).ToArray();
+            Assert.Equal(["DitoPeloUsuario", "ConclusaoDoAgente", "FonteSelecionada"], valores);
+        }
+    }
+
+    [Fact]
     public async Task ConfirmacaoSoVemDaConversaCorretaERevogacaoImpedeReuso()
     {
         var registro = new RegistroDeOperacoesBrain(); var m = Mensagem("pedido"); var chamadas = 0;
@@ -198,7 +210,7 @@ public sealed class BrainMcpTests
         var instante = DateTimeOffset.UtcNow.AddMinutes(-10);
         var prova = new ProvenienciaDoConhecimento(escopo.Acesso.IdUsuario, "evidência restrita", "fonte da relação", trechoDaFonte: "prova não exibida");
         Conhecimento Novo(string texto, Sensibilidade classe) => new(escopo.Acesso.IdEspacoDeConhecimento, escopo.Acesso.IdProjeto, TipoDeConhecimento.Nota,
-            texto, null, StatusDoConhecimento.Inferido, null, classe, null, null, [], prova, instante);
+            texto, null, StatusDoConhecimento.Inferido, null, classe, null, null, [], prova, instante, NaturezaDoConteudo.DitoPeloUsuario);
         var raiz = Novo("raiz permitida", Sensibilidade.Pessoal);
         var restritos = Enumerable.Range(0, 101).Select(i => Novo($"restrito {i}", i % 2 == 0 ? Sensibilidade.Secreto : Sensibilidade.Confidencial)).ToArray();
         var permitidos = new[] { Novo("permitido A", Sensibilidade.Pessoal), Novo("permitido B", Sensibilidade.Trabalho) };
@@ -300,7 +312,7 @@ public sealed class BrainMcpTests
         app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S1", m);
         var prova = new ProvenienciaDoConhecimento(escopo.Acesso.IdUsuario, "fonte de teste", "mensagem:1", trechoDaFonte: "evidência");
         Conhecimento Novo(string texto, Sensibilidade classe, Guid? projeto = null) => new(escopo.Acesso.IdEspacoDeConhecimento, projeto ?? escopo.Acesso.IdProjeto,
-            TipoDeConhecimento.Fato, texto, null, StatusDoConhecimento.Inferido, null, classe, null, null, [], prova, DateTimeOffset.UtcNow);
+            TipoDeConhecimento.Fato, texto, null, StatusDoConhecimento.Inferido, null, classe, null, null, [], prova, DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         var a = Novo("camadas hexagonais", Sensibilidade.Pessoal); var b = Novo("interfaces de aplicação", Sensibilidade.Pessoal);
         var secreto = Novo("segredo canônico", Sensibilidade.Secreto); var confidencial = Novo("dado confidencial", Sensibilidade.Confidencial);
         var projetoB = new Projeto(escopo.Acesso.IdEspacoDeConhecimento, "Projeto B"); var fora = Novo("projeto B", Sensibilidade.Pessoal, projetoB.Id);
@@ -409,7 +421,7 @@ public sealed class BrainMcpTests
         await SelecionarAsync(brain); var mensagem = Mensagem("origem antiga", 121); var escopo = (await brain.ResolverEscopoMcpAsync(mensagem))!;
         var antigo = new Conhecimento(escopo.Acesso.IdEspacoDeConhecimento, escopo.Acesso.IdProjeto, TipoDeConhecimento.Fato, "registro anterior à #249", null,
             StatusDoConhecimento.Inferido, null, Sensibilidade.Trabalho, null, null, [],
-            new(escopo.Acesso.IdUsuario, "MCP/agente:claude;sessao:S000002", "conversa:42:0:9244", trechoDaFonte: "registro anterior à #249"), DateTimeOffset.UtcNow);
+            new(escopo.Acesso.IdUsuario, "MCP/agente:claude;sessao:S000002", "conversa:42:0:9244", trechoDaFonte: "registro anterior à #249"), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         await using (var db = banco.Contexto()) { db.Add(antigo); await db.SaveChangesAsync(); }
         app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao("S000001", mensagem);
         var origem = JsonSerializer.Serialize(await app.GetRequiredService<OperacoesMcpDoBrain>().ExecutarAsync(escopo, mensagem, "S000001", "claude",

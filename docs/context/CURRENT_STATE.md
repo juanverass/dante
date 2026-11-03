@@ -759,3 +759,19 @@ mensagem própria mantém fonte selecionada. Outro autor ou ausência de autor n
 é tratado como usuário. DocumentoFonte persiste autoria explícita, usada na geração
 de candidatos. A migration 20261102150504 acrescenta autoria Desconhecida ao legado,
 sem reclassificar registros: gerar candidato exige reimportação com autoria conhecida.
+
+## Natureza persistida e confirmação única (#265, AD-59)
+
+Conhecimento conserva natureza de origem imutável e natureza vigente, também
+registrada em cada nova revisão JSON. Criação/correção exigem natureza explícita;
+Desconhecida só é admitida para leitura de legado. Domain centraliza confirmação:
+origem e revisão precisam ser DitoPeloUsuario ou FonteSelecionada de autoria humana.
+Promoção repassa natureza; AppService/MCP/Telegram obedecem à mesma regra. Correção
+humana sobre origem do agente não a torna confirmável; nova declaração humana pode
+ser consolidada separadamente e ligada por DerivadoDe, sem alterar o original.
+
+A migration 20261102220449 acrescenta natureza e natureza_de_origem; preenche apenas
+origem comprovada por candidato registrado, deixando revisão vigente desconhecida
+no legado. Não altera status/textos/timestamps nem reescreve histórico antigo;
+revisões sem o campo são lidas como natureza não registrada. Os tipos ainda são
+reescritos pelos caminhos legados do agente (#266); busca/rótulos aguardam #267.

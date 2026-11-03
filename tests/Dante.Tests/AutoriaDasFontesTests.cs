@@ -39,7 +39,7 @@ public sealed class AutoriaDasFontesTests
         var escopo = (await brain.ResolverEscopoMcpAsync(BrainMcpTests.Mensagem("pedido")))!;
         var numero = 0;
         foreach (var autor in new TelegramUser?[] { new(42), new(999, true), new(7), null })
-        foreach (var natureza in Enum.GetValues<NaturezaDoConteudo>())
+        foreach (var natureza in Enum.GetValues<NaturezaDoConteudo>().Where(x => x != NaturezaDoConteudo.Desconhecida))
         foreach (var ferramenta in new[] { "brain_capturar_conhecimento", "brain_corrigir_candidato", "brain_atualizar_conhecimento" })
         {
             numero++; var texto = $"Trecho exclusivo da matriz {numero}";
@@ -53,7 +53,7 @@ public sealed class AutoriaDasFontesTests
                 "teste", prova, DateTimeOffset.UtcNow);
             var conhecimento = new Conhecimento(escopo.Acesso.IdEspacoDeConhecimento, escopo.Acesso.IdProjeto,
                 TipoDeConhecimento.Nota, $"original conhecimento {numero}", null, StatusDoConhecimento.Inferido, null,
-                Sensibilidade.Pessoal, null, null, [], prova, DateTimeOffset.UtcNow);
+                Sensibilidade.Pessoal, null, null, [], prova, DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
             await using (var db = banco.Contexto()) { db.AddRange(candidato, conhecimento); await db.SaveChangesAsync(); }
             var id = ferramenta == "brain_atualizar_conhecimento" ? conhecimento.Id : candidato.Id;
             var args = new Dictionary<string, object> { ["conteudo"] = texto, ["natureza"] = natureza.ToString(), ["justificativa"] = "teste de autoria" };
@@ -110,6 +110,7 @@ public sealed class AutoriaDasFontesTests
             var item = await verificar.Conhecimentos.SingleAsync(x => x.Conteudo == texto);
             Assert.Equal(autor.IsBot ? NaturezaDoConteudo.ConclusaoDoAgente : NaturezaDoConteudo.FonteSelecionada, candidato.Natureza);
             Assert.Equal(autor.IsBot ? StatusDoConhecimento.Inferido : StatusDoConhecimento.Confirmado, item.Status);
+            Assert.Equal(candidato.Natureza, item.NaturezaDeOrigem); Assert.Equal(candidato.Natureza, item.Natureza);
             if (autor.IsBot) Assert.Equal(TipoDeConhecimento.Inferencia, item.Tipo);
             Assert.Contains("autoria-da-fonte:" + (autor.IsBot ? "Agente" : "Usuario"), candidato.Historico[0].Proveniencia.Origem);
             Assert.Equal(EstadoDoCandidato.Promovido, candidato.Estado);
@@ -151,7 +152,7 @@ public sealed class AutoriaDasFontesTests
         await using (var db = banco.Contexto())
         {
             db.AddRange(espaco, fonte); await db.SaveChangesAsync();
-            var migrator = db.GetService<IMigrator>(); var anterior = db.Database.GetMigrations().Reverse().Skip(1).First();
+            var migrator = db.GetService<IMigrator>(); var anterior = db.Database.GetMigrations().Last(x => string.CompareOrdinal(x, "20261102150504_AutoriaDasFontes") < 0);
             await migrator.MigrateAsync(anterior); await migrator.MigrateAsync();
         }
         await using (var verificar = banco.Contexto())

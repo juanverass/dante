@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application;
 using Dante.Application.BuscaDoBrain;
 using Dante.Application.DocumentosFonte;
@@ -35,7 +36,7 @@ public sealed class GrantsDoRuntimeTests
         var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "Runtime");
         var conhecimento = new Conhecimento(espaco.Id, null, TipoDeConhecimento.Fato, "relação runtime indexada", null,
             StatusDoConhecimento.Inferido, null, Sensibilidade.Trabalho, null, null, ["runtime"],
-            new(Guid.NewGuid(), "teste", "fonte", null, "trecho"), DateTimeOffset.UtcNow);
+            new(Guid.NewGuid(), "teste", "fonte", null, "trecho"), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         await using (var runtime = Banco.Contexto(runtimeCs))
         {
             Assert.True(await new AdministracaoDoBanco(runtime).VerificarSaudeAsync());
@@ -71,7 +72,7 @@ public sealed class GrantsDoRuntimeTests
             // Reclassificar como Secreto faz o trigger remover os derivados (DELETE em brain_index).
             var salvo = await runtime.Conhecimentos.SingleAsync(x => x.Id == conhecimento.Id);
             salvo.Corrigir(1, salvo.Tipo, salvo.Conteudo, null, null, Sensibilidade.Secreto, null, null, [],
-                salvo.Proveniencia, DateTimeOffset.UtcNow);
+                salvo.Proveniencia, DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
             await runtime.SaveChangesAsync();
             Assert.Empty(await IdsAsync(runtime, "brain_index.trabalhos"));
             Assert.Empty(await IdsAsync(runtime, "brain_index.representacoes"));

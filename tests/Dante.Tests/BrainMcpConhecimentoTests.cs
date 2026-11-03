@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using System.Text.Json;
 using Dante.Domain.Conhecimentos;
 using Dante.Domain.Projetos;
@@ -33,6 +34,7 @@ public sealed class BrainMcpConhecimentoTests
             Assert.Equal("Arquitetura atual", JsonDocument.Parse(atual.DadosEstruturados!).RootElement.GetProperty("titulo").GetString());
             Assert.Equal(3, atual.Revisao); Assert.Equal(Sensibilidade.Trabalho, atual.Sensibilidade);
             Assert.Equal(TipoDeConhecimento.Inferencia, atual.Tipo); Assert.Equal(StatusDoConhecimento.Inferido, atual.Status);
+            Assert.Equal(NaturezaDoConteudo.DitoPeloUsuario, atual.NaturezaDeOrigem); Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, atual.Natureza);
             Assert.Equal("arquitetura antiga", atual.Historico[0].Conteudo);
             Assert.Contains("confirmacao:", atual.Proveniencia.Origem);
         }
@@ -82,7 +84,7 @@ public sealed class BrainMcpConhecimentoTests
         await using (var db = a.Banco.Contexto())
         {
             var atual = await db.Conhecimentos.SingleAsync(x => x.Id == duplicata.Id);
-            atual.Corrigir(1, atual.Tipo, "edição concorrente", null, null, atual.Sensibilidade, null, null, [], a.Prova, DateTimeOffset.UtcNow); await db.SaveChangesAsync();
+            atual.Corrigir(1, atual.Tipo, "edição concorrente", null, null, atual.Sensibilidade, null, null, [], a.Prova, DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario); await db.SaveChangesAsync();
         }
         Assert.Contains("não foi confirmada", await a.ConfirmarAsync());
         await a.OperarAsync("brain_atualizar_conhecimento", new { id = destino.Id, revisao = 1, conteudo = "nova", natureza = "ConclusaoDoAgente", justificativa = "análise" });
@@ -208,6 +210,72 @@ public sealed class BrainMcpConhecimentoTests
         Assert.NotNull(atual.AuditoriaAnterior); Assert.Equal("[origem anterior omitida]", atual.AuditoriaAnterior!.Origem);
     }
 
+    [PostgreSqlFact]
+    public async Task PromocaoECorrecaoMcpPreservamOrigemDoAgenteENovaDeclaracaoDerivadaEConfirmavel()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        await a.OperarAsync("brain_capturar_conhecimento", new { conteudo = "hipótese original", natureza = "ConclusaoDoAgente", justificativa = "análise" });
+        Guid candidato;
+        await using (var db = a.Banco.Contexto()) candidato = (await db.CandidatosDeConhecimento.SingleAsync()).Id;
+        await a.OperarAsync("brain_confirmar_candidato", new { id = candidato, revisao = 1 });
+        await a.ConfirmarAsync();
+        Guid original;
+        await using (var db = a.Banco.Contexto())
+        {
+            var item = await db.Conhecimentos.SingleAsync(); original = item.Id;
+            Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, item.NaturezaDeOrigem);
+            Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, item.Natureza);
+            Assert.Equal(StatusDoConhecimento.Inferido, item.Status);
+        }
+        await a.OperarAsync("brain_atualizar_conhecimento", new { id = original, revisao = 1, conteudo = "pedido", natureza = "DitoPeloUsuario", justificativa = "texto literal na mensagem atual" });
+        await a.ConfirmarAsync();
+        string antes;
+        await using (var db = a.Banco.Contexto())
+        {
+            var item = await db.Conhecimentos.SingleAsync();
+            Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, item.NaturezaDeOrigem);
+            Assert.Equal(NaturezaDoConteudo.DitoPeloUsuario, item.Natureza);
+            Assert.Throws<InvalidOperationException>(() => item.Confirmar(item.Revisao, a.Prova, DateTimeOffset.UtcNow));
+            antes = JsonSerializer.Serialize(item);
+        }
+        await a.OperarAsync("brain_capturar_conhecimento", new { conteudo = "pedido", natureza = "DitoPeloUsuario", justificativa = "afirmação explícita do usuário" });
+        await using (var db = a.Banco.Contexto()) candidato = (await db.CandidatosDeConhecimento.SingleAsync(x => x.Natureza == NaturezaDoConteudo.DitoPeloUsuario)).Id;
+        await a.OperarAsync("brain_confirmar_candidato", new { id = candidato, revisao = 1 }); await a.ConfirmarAsync();
+        Guid novo;
+        await using (var db = a.Banco.Contexto())
+        {
+            var item = await db.Conhecimentos.SingleAsync(x => x.Id != original); novo = item.Id;
+            Assert.Equal(StatusDoConhecimento.Confirmado, item.Status); Assert.Equal(NaturezaDoConteudo.DitoPeloUsuario, item.NaturezaDeOrigem);
+        }
+        await a.OperarAsync("brain_criar_relacao", new { origem = novo, destino = original, revisao_origem = 2, revisao_destino = 2, tipo = "DerivadoDe" });
+        await a.ConfirmarAsync();
+        await using (var db = a.Banco.Contexto())
+        {
+            Assert.Equal(antes, JsonSerializer.Serialize(await db.Conhecimentos.SingleAsync(x => x.Id == original)));
+            Assert.Equal(Dante.Domain.RelacoesDeConhecimento.TipoDeRelacao.DerivadoDe, (await db.RelacoesDeConhecimento.SingleAsync()).Tipo);
+        }
+    }
+
+    [PostgreSqlFact]
+    public async Task ConsolidacaoMcpDeAgenteEmDestinoConfirmadoPreservaNaturezaEEstadoDoDestino()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        var destino = a.Novo("declaração confirmada"); destino.Confirmar(1, a.Prova, DateTimeOffset.UtcNow);
+        var duplicata = a.Novo("conclusão equivalente do agente", natureza: NaturezaDoConteudo.ConclusaoDoAgente);
+        await a.GravarAsync(destino, duplicata);
+        await a.OperarAsync("brain_consolidar_duplicatas", new { id = destino.Id, revisao = 2, duplicatas = new[] { new { id = duplicata.Id, revisao = 1 } } });
+        await a.ConfirmarAsync();
+        await using var db = a.Banco.Contexto();
+        var alvo = await db.Conhecimentos.SingleAsync(x => x.Id == destino.Id);
+        var fonte = await db.Conhecimentos.SingleAsync(x => x.Id == duplicata.Id);
+        Assert.Equal(StatusDoConhecimento.Confirmado, alvo.Status);
+        Assert.Equal(NaturezaDoConteudo.DitoPeloUsuario, alvo.NaturezaDeOrigem); Assert.Equal(NaturezaDoConteudo.DitoPeloUsuario, alvo.Natureza);
+        Assert.Equal(JsonSerializer.Serialize(destino.Historico), JsonSerializer.Serialize(alvo.Historico.Take(2)));
+        Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, fonte.NaturezaDeOrigem); Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, fonte.Natureza);
+        Assert.Equal(StatusDoConhecimento.Substituido, fonte.Status);
+        Assert.DoesNotContain(fonte.Historico, h => h.Status == StatusDoConhecimento.Confirmado);
+    }
+
     private sealed class Ambiente(Banco banco, ServiceProvider app, TelegramBrain brain, TelegramBrain.EscopoBrainDaSessao escopo) : IAsyncDisposable
     {
         public Banco Banco => banco;
@@ -232,9 +300,9 @@ public sealed class BrainMcpConhecimentoTests
             }
         }
         public Conhecimento Novo(string texto, Sensibilidade classe = Sensibilidade.Pessoal, Guid? projeto = null, string? dados = null,
-            TipoDeConhecimento tipo = TipoDeConhecimento.Fato) =>
+            TipoDeConhecimento tipo = TipoDeConhecimento.Fato, NaturezaDoConteudo natureza = NaturezaDoConteudo.DitoPeloUsuario) =>
             new(escopo.Acesso.IdEspacoDeConhecimento, projeto ?? escopo.Acesso.IdProjeto, tipo, texto, dados,
-                StatusDoConhecimento.Inferido, null, classe, null, null, [], Prova, DateTimeOffset.UtcNow);
+                StatusDoConhecimento.Inferido, null, classe, null, null, [], Prova, DateTimeOffset.UtcNow, natureza);
         public async Task GravarAsync(params Conhecimento[] itens) { await using var db = banco.Contexto(); db.AddRange(itens); await db.SaveChangesAsync(); }
         public Task<object?> OperarAsync(string nome, object args) => app.GetRequiredService<OperacoesMcpDoBrain>().ExecutarAsync(escopo,
             BrainMcpTests.Mensagem("pedido"), "S1", "codex", nome, JsonSerializer.SerializeToElement(args));

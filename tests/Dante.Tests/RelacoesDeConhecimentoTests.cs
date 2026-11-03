@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application;
 using Dante.Application.Conhecimentos;
 using Dante.Application.RelacoesDeConhecimento;
@@ -95,5 +96,5 @@ public sealed class RelacoesDeConhecimentoTests
         .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
     internal static ProvenienciaDto Proveniencia() => new() { IdResponsavel = Guid.NewGuid(), Origem = "usuário", ReferenciaDaFonte = "conversa:1", TrechoDaFonte = "evidência" };
     private static RelacaoDeConhecimento R(Conhecimento a, Conhecimento b, TipoDeRelacao tipo = TipoDeRelacao.Referencia) => new(a,b,tipo,BrainEfTests.Origem(),DateTimeOffset.UtcNow);
-    private static Conhecimento Item(Guid espaco, TipoDeConhecimento tipo) => new(espaco,null,tipo,"conteúdo",null,StatusDoConhecimento.Inferido,null,Sensibilidade.Pessoal,null,null,[],BrainEfTests.Origem(),DateTimeOffset.UtcNow);
+    private static Conhecimento Item(Guid espaco, TipoDeConhecimento tipo) => new(espaco,null,tipo,"conteúdo",null,StatusDoConhecimento.Inferido,null,Sensibilidade.Pessoal,null,null,[],BrainEfTests.Origem(),DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
 }

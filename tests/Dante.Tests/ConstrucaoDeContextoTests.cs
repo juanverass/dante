@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application;
 using Dante.Application.BuscaDoBrain;
 using Dante.Application.ConstrucaoDeContexto;
@@ -39,7 +40,7 @@ public sealed class ConstrucaoDeContextoTests
         await using var banco=await Banco.CriarAsync();var e=new EspacoDeConhecimento(Guid.NewGuid(),"Contexto");
         var raiz=Novo(e,"deadlock no armazenamento",TipoDeConhecimento.Incidente);var solucao=Novo(e,"ordem consistente de locks",TipoDeConhecimento.Solucao,true);
         var aprendizado=Novo(e,"sempre adquirir locks na mesma ordem",TipoDeConhecimento.Aprendizado,true);
-        var expirado=Novo(e,"deadlock expirado");expirado.Corrigir(1,expirado.Tipo,expirado.Conteudo,null,null,expirado.Sensibilidade,null,DateTimeOffset.UtcNow.AddMinutes(-1),[],expirado.Proveniencia,DateTimeOffset.UtcNow);
+        var expirado=Novo(e,"deadlock expirado");expirado.Corrigir(1,expirado.Tipo,expirado.Conteudo,null,null,expirado.Sensibilidade,null,DateTimeOffset.UtcNow.AddMinutes(-1),[],expirado.Proveniencia,DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         var secreto=Novo(e,"deadlock reservado",classe:Sensibilidade.Secreto);var conflitado=Novo(e,"deadlock conflitante",confirmado:true);
         var relacoes=new[]{new RelacaoDeConhecimento(raiz,solucao,TipoDeRelacao.ResolvidoPor,raiz.Proveniencia,DateTimeOffset.UtcNow),new RelacaoDeConhecimento(solucao,aprendizado,TipoDeRelacao.ProduziuAprendizado,raiz.Proveniencia,DateTimeOffset.UtcNow),new RelacaoDeConhecimento(aprendizado,raiz,TipoDeRelacao.RelacionadoA,raiz.Proveniencia,DateTimeOffset.UtcNow),new RelacaoDeConhecimento(conflitado,secreto,TipoDeRelacao.Contradiz,raiz.Proveniencia,DateTimeOffset.UtcNow)};
         await using(var c=banco.Contexto()){c.AddRange(e,raiz,solucao,aprendizado,expirado,secreto,conflitado);c.AddRange(relacoes);await c.SaveChangesAsync();}
@@ -86,6 +87,6 @@ public sealed class ConstrucaoDeContextoTests
         var vazio=await builder.ConstruirAsync(acesso,new(){Mensagem="Guid",IncluirSnapshot=false});Assert.Empty(vazio.Itens);Assert.Equal("",vazio.TextoParaInjecao);Assert.Equal(0,vazio.Custo.TokensEstimados);
     }
     private static Conhecimento Novo(EspacoDeConhecimento e,string texto,TipoDeConhecimento tipo=TipoDeConhecimento.Fato,bool confirmado=false,Sensibilidade classe=Sensibilidade.Pessoal)
-    {var k=new Conhecimento(e.Id,null,tipo,texto,null,StatusDoConhecimento.Inferido,null,classe,null,null,[],new(e.IdUsuario,"manual","fonte:teste"),DateTimeOffset.UtcNow);if(confirmado)k.Confirmar(1,k.Proveniencia,DateTimeOffset.UtcNow);return k;}
+    {var k=new Conhecimento(e.Id,null,tipo,texto,null,StatusDoConhecimento.Inferido,null,classe,null,null,[],new(e.IdUsuario,"manual","fonte:teste"),DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);if(confirmado)k.Confirmar(1,k.Proveniencia,DateTimeOffset.UtcNow);return k;}
     private static ServiceProvider Provider(string connection)=>new ServiceCollection().AddApplication().AddInfrastructure(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["ConnectionStrings:Dante"]=connection}).Build()).BuildServiceProvider();
 }

@@ -166,3 +166,51 @@ nem modifica textos, hashes ou revisões existentes. Documentos antigos continua
 consultáveis, mas não geram candidatos até reimportação explícita com autoria e
 revisão esperada. Escritas novas não aceitam `Desconhecida`. Uma mudança apenas de
 autoria também gera nova revisão, preservando a concorrência otimista.
+
+## Natureza do conhecimento e confirmação (#265, AD-59)
+
+`Conhecimento` conserva `NaturezaDeOrigem` imutável e `Natureza` da revisão vigente.
+Cada nova `RevisaoDoConhecimento` registra sua própria natureza; revisões anteriores
+não são alteradas por confirmação, correção, invalidação ou consolidação. Os DTOs de
+leitura expõem esses campos. Em revisões antigas, `Natureza = null` significa
+**natureza não registrada**, diferente de uma declaração do usuário.
+
+Criação e correção exigem natureza explícita. `Desconhecida` é reservada ao legado;
+não pode ser enviada para criar conhecimento/candidato ou conteúdo de nova revisão.
+A natureza de origem recebida em DTO de correção é ignorada. MCP propaga a natureza
+validada da atualização; a correção natural usa a declaração literal do usuário.
+As verificações de autoria da #264 continuam valendo para texto e mensagem citada.
+
+A regra única está no Domain: `Conhecimento.PodeSerConfirmado` exige natureza de
+origem **e** natureza vigente `DitoPeloUsuario` ou `FonteSelecionada` de autoria do
+usuário. `Conhecimento.Confirmar`, promoção de candidato e
+`ConhecimentoAppService.ConfirmarAsync` obedecem a essa mesma regra, independentemente
+do tipo semântico. Nenhum construtor aceita `Status = Confirmado`. A promoção
+repassa a natureza do candidato; conclusão do agente permanece `Inferido`.
+
+Uma correção/atualização do agente registra `ConclusaoDoAgente` na nova revisão e
+fica `Inferido`, inclusive sobre conteúdo antes confirmado ou temporário. Correção
+humana de item de origem do agente registra natureza humana na nova revisão, mas
+não torna o item confirmável: a origem permanece do agente. Para afirmar o conteúdo
+como próprio, o usuário precisa de um **novo** candidato/conhecimento de autoria
+humana, com confirmação explícita; `DerivadoDe` pode ligá-lo ao original sem alterar
+a natureza, o status ou o histórico do original. Esse vínculo usa o fluxo de relações
+existente e também exige confirmação Telegram. Não há criação ou relação implícita.
+
+Consolidar uma duplicata do agente em um destino confirmado incorpora a proveniência,
+conserva conteúdo/status/naturezas do destino e substitui a duplicata. Não promove a
+duplicata nem reescreve as naturezas de revisões existentes.
+
+A migration `20261102220449_NaturezaDosConhecimentos` acrescenta duas colunas com
+`Desconhecida` (valor 3, preservando os valores anteriores do enum). Preenche somente
+`natureza_de_origem`, exclusivamente pela natureza do candidato que referencia o
+conhecimento em `IdConhecimento`, no mesmo espaço/projeto. Sem candidato, ou com
+candidatos de naturezas conflitantes, a origem permanece desconhecida. Não se deduz
+autoria de tipo, conteúdo ou texto de proveniência. A natureza da revisão atual
+permanece desconhecida no legado, pois o candidato não prova quem escreveu revisões
+posteriores. Nenhum status, texto, timestamp ou JSON histórico é reescrito: itens
+antigos confirmados continuam assim, mas novas confirmações exigem a regra atual.
+A migration é aplicada apenas por administração explícita; startup não migra.
+
+A reescrita automática de tipo ainda existente na captura/correção do agente fica
+para #266; filtros e rótulos de busca/Context Builder por natureza ficam para #267.

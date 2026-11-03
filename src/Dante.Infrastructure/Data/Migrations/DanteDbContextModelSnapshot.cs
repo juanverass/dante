@@ -162,6 +162,14 @@ namespace Dante.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id_projeto");
 
+                    b.Property<int>("Natureza")
+                        .HasColumnType("integer")
+                        .HasColumnName("natureza");
+
+                    b.Property<int>("NaturezaDeOrigem")
+                        .HasColumnType("integer")
+                        .HasColumnName("natureza_de_origem");
+
                     b.Property<int>("Sensibilidade")
                         .HasColumnType("integer")
                         .HasColumnName("sensibilidade");

@@ -4,6 +4,7 @@ using Dante.Application.RelacoesDeConhecimento;
 using Dante.Application.DocumentosFonte;
 using Dante.Application.SegurancaDoBrain;
 using Dante.Domain.Conhecimentos;
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Domain.RelacoesDeConhecimento;
 using static Dante.Application.ConversaDoBrain.ApresentacaoDaConversa;
 
@@ -33,8 +34,14 @@ public sealed class AlteracoesDaConversa(IConhecimentoAppService conhecimentos, 
         if(alteracao.Acao=="captura")
         {
             if(!conversa.Permitida(alteracao.Alvo!.Sensibilidade))throw new UnauthorizedAccessException("Candidato protegido.");
-            await captura.ConfirmarAsync(conversa.Acesso.IdEspacoDeConhecimento,conversa.Acesso.IdProjeto,alteracao.Alvo!.Id,alteracao.Alvo.Revisao,prova,cancellationToken);
-            return alteracao.Alvo.Tipo==TipoDeConhecimento.Inferencia?"Candidato consolidado como inferido; uma inferência não vira fato confirmado automaticamente.":"Candidato consolidado com sua confirmação e proveniência preservada.";
+            var id = await captura.ConfirmarAsync(conversa.Acesso.IdEspacoDeConhecimento,conversa.Acesso.IdProjeto,alteracao.Alvo!.Id,alteracao.Alvo.Revisao,prova,cancellationToken);
+            var consolidado = await conhecimentos.ObterPorIdAsync(id, cancellationToken);
+            return consolidado?.Status switch
+            {
+                StatusDoConhecimento.Confirmado => "Candidato consolidado com sua confirmação e proveniência preservada.",
+                StatusDoConhecimento.Inferido => "Candidato consolidado como inferido; uma inferência não vira fato confirmado automaticamente.",
+                _ => "Candidato consolidado. Consulte o Brain para verificar o estado atual."
+            };
         }
         if(alteracao.Acao is "fonte" or "fonte_remocao")
         {
@@ -53,7 +60,7 @@ public sealed class AlteracoesDaConversa(IConhecimentoAppService conhecimentos, 
         {await conhecimentos.InvalidarAsync(atual.Id,atual.Revisao,prova,cancellationToken);return "Informação invalidada. Histórico preservado; não será reinjetada na busca/contexto.";}
         if(alteracao.Acao=="correcao")
         {
-            await conhecimentos.CorrigirAsync(atual.Id,atual with{Conteudo=alteracao.Conteudo,Proveniencia=prova},cancellationToken);
+            await conhecimentos.CorrigirAsync(atual.Id,atual with{Conteudo=alteracao.Conteudo,Proveniencia=prova,Natureza=NaturezaDoConteudo.DitoPeloUsuario},cancellationToken);
             return "Correção registrada com histórico e proveniência; status inferido até nova confirmação.";
         }
         var segundo=await consulta.CarregarAsync(conversa, alteracao.SegundoAlvo!, cancellationToken);

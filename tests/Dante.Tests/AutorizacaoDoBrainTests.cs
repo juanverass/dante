@@ -1,3 +1,4 @@
+using Dante.Domain.CapturaDeConhecimento;
 using Dante.Application.SegurancaDoBrain;
 using Dante.Domain.EspacosDeConhecimento;
 using Dante.Domain.Conhecimentos;
@@ -45,7 +46,7 @@ public sealed class AutorizacaoDoBrainTests
         var outroTenant = new EspacoDeConhecimento(usuario, "Outro tenant", idTenant: Guid.NewGuid());
         Conhecimento Novo(EspacoDeConhecimento e, Sensibilidade classe = Sensibilidade.Pessoal) => new(e.Id, null,
             TipoDeConhecimento.Fato, "evidência", null, StatusDoConhecimento.Inferido, null, classe,
-            null, null, [], new(usuario, "teste"), DateTimeOffset.UtcNow);
+            null, null, [], new(usuario, "teste"), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         var meu = Novo(espaco); var alheio = Novo(outro); var secreto = Novo(espaco, Sensibilidade.Secreto);
         await using (var admin = banco.Contexto()) { admin.AddRange(espaco, outro, outroTenant, meu, alheio, secreto); await admin.SaveChangesAsync(); }
         var options = new DbContextOptionsBuilder<DanteDbContext>().UseNpgsql(banco.ConnectionString).Options;
@@ -71,8 +72,8 @@ public sealed class AutorizacaoDoBrainTests
         await using var banco = await Banco.CriarAsync(); var usuario = Guid.NewGuid();
         var espaco = new EspacoDeConhecimento(usuario, "Trabalho");
         var item = new Conhecimento(espaco.Id, null, TipoDeConhecimento.Fato, "reservado", null,
-            StatusDoConhecimento.Inferido, null, Sensibilidade.Secreto, null, null, [], new(usuario, "manual"), DateTimeOffset.UtcNow);
-        item.Corrigir(1, item.Tipo, "público", null, null, Sensibilidade.Publico, null, null, [], item.Proveniencia, DateTimeOffset.UtcNow);
+            StatusDoConhecimento.Inferido, null, Sensibilidade.Secreto, null, null, [], new(usuario, "manual"), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
+        item.Corrigir(1, item.Tipo, "público", null, null, Sensibilidade.Publico, null, null, [], item.Proveniencia, DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         await using (var c = banco.Contexto()) { c.AddRange(espaco, item); await c.SaveChangesAsync(); }
         using var provider = new ServiceCollection().AddApplication().AddInfrastructure(new ConfigurationBuilder().AddInMemoryCollection(
             new Dictionary<string,string?> { ["ConnectionStrings:Dante"] = banco.ConnectionString }).Build()).BuildServiceProvider();
@@ -138,7 +139,7 @@ public sealed class AutorizacaoDoBrainTests
         var outroProjeto = new Dante.Domain.Projetos.Projeto(espaco.Id, "outro projeto");
         Conhecimento Novo(Guid idEspaco, Guid? idProjeto, Sensibilidade classe) => new(idEspaco, idProjeto,
             TipoDeConhecimento.Fato, "evidência", null, StatusDoConhecimento.Inferido, null, classe,
-            null, null, [], new(usuario, "teste"), DateTimeOffset.UtcNow);
+            null, null, [], new(usuario, "teste"), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
         var pessoal = Novo(espaco.Id, projeto.Id, Sensibilidade.Pessoal);
         var confidencial = Novo(espaco.Id, projeto.Id, Sensibilidade.Confidencial);
         var secreto = Novo(espaco.Id, projeto.Id, Sensibilidade.Secreto);
