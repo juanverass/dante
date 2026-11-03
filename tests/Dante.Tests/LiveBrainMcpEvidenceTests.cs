@@ -88,7 +88,7 @@ public sealed class LiveBrainMcpEvidenceTests(ITestOutputHelper output)
             await File.WriteAllTextAsync(Path.Combine(root, "README.md"), "# Cognexa (fixture de teste)\n\n" + fato, timeout.Token);
             var pedido = "Analise o README.md deste repositório e registre no Brain um conhecimento chamado Arquitetura do Cognexa " +
                 "sobre a arquitetura descrita. Inclua literalmente o fato e seu identificador verificável do README no conteúdo, " +
-                "registre como conclusão da sua análise com referência a README.md. Não confirme ainda.";
+                "registre com tipo Nota e natureza ConclusaoDoAgente, com referência a README.md. Não confirme ainda.";
             var mensagem = BrainMcpTests.Mensagem(pedido);
             var servidores = await ferramentas.ForSessionAsync("REPO1", new(42, agente,
                 Dante.Application.Contextos.JobExecutionContext.Repository("cognexa-fixture", root), BrainConversation: mensagem.ParaFerramentas()), timeout.Token);
@@ -106,7 +106,7 @@ public sealed class LiveBrainMcpEvidenceTests(ITestOutputHelper output)
                 var candidato = await db.CandidatosDeConhecimento.SingleAsync();
                 Assert.Equal("Arquitetura do Cognexa", candidato.Titulo); Assert.Contains(fato, candidato.Conteudo);
                 Assert.Equal(Dante.Domain.CapturaDeConhecimento.NaturezaDoConteudo.ConclusaoDoAgente, candidato.Natureza);
-                Assert.Equal(Dante.Domain.Conhecimentos.TipoDeConhecimento.Inferencia, candidato.Tipo);
+                Assert.Equal(Dante.Domain.Conhecimentos.TipoDeConhecimento.Nota, candidato.Tipo);
                 Assert.Contains("README", candidato.Justificativa, StringComparison.OrdinalIgnoreCase);
             }
             Assert.Contains("Candidatos pendentes", await brain.AtenderAsync(BrainMcpTests.Mensagem("listar candidatos", 124), "listar candidatos"));

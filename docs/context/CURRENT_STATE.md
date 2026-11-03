@@ -773,5 +773,16 @@ ser consolidada separadamente e ligada por DerivadoDe, sem alterar o original.
 A migration 20261102220449 acrescenta natureza e natureza_de_origem; preenche apenas
 origem comprovada por candidato registrado, deixando revisão vigente desconhecida
 no legado. Não altera status/textos/timestamps nem reescreve histórico antigo;
-revisões sem o campo são lidas como natureza não registrada. Os tipos ainda são
-reescritos pelos caminhos legados do agente (#266); busca/rótulos aguardam #267.
+revisões sem o campo são lidas como natureza não registrada. Os tipos são preservados
+independentemente da autoria (#266); busca/rótulos por natureza aguardam #267.
+
+## Tipo semântico e autoria (#266)
+
+Captura e correções pelo MCP preservam o tipo semântico informado. O tipo opcional
+nas correções mantém o valor atual quando omitido; reclassificações explícitas ficam
+no histórico. Natureza de origem, natureza por revisão e estado epistêmico continuam
+regendo confirmação conforme AD-59. Conclusões do agente permanecem inferidas.
+O Telegram informa registro de conclusão, sem tratá-lo como confirmação de negócio.
+`Inferencia` e os filtros existentes continuam compatíveis com registros legados;
+não há migration ou reclassificação retroativa. Deduplicação considera natureza e tipo.
+A #267 permanece uma entrega separada, sem alterações de filtros por natureza aqui.

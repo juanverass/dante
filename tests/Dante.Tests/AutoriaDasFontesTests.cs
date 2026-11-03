@@ -104,14 +104,16 @@ public sealed class AutoriaDasFontesTests
                 continue;
             }
             Assert.Contains("candidato", resposta);
-            await brain.AtenderAsync(BrainMcpTests.Mensagem("confirmar", 600 + numero), "confirmar");
+            if (autor.IsBot) Assert.Contains("não confirmado", resposta);
+            var consolidacao = await brain.AtenderAsync(BrainMcpTests.Mensagem("confirmar", 600 + numero), "confirmar");
+            if (autor.IsBot) Assert.Contains("conclusão do agente, não confirmado", consolidacao);
             await using var verificar = banco.Contexto();
             var candidato = await verificar.CandidatosDeConhecimento.SingleAsync(x => x.Conteudo == texto);
             var item = await verificar.Conhecimentos.SingleAsync(x => x.Conteudo == texto);
             Assert.Equal(autor.IsBot ? NaturezaDoConteudo.ConclusaoDoAgente : NaturezaDoConteudo.FonteSelecionada, candidato.Natureza);
             Assert.Equal(autor.IsBot ? StatusDoConhecimento.Inferido : StatusDoConhecimento.Confirmado, item.Status);
             Assert.Equal(candidato.Natureza, item.NaturezaDeOrigem); Assert.Equal(candidato.Natureza, item.Natureza);
-            if (autor.IsBot) Assert.Equal(TipoDeConhecimento.Inferencia, item.Tipo);
+            Assert.Equal(TipoDeConhecimento.Nota, item.Tipo);
             Assert.Contains("autoria-da-fonte:" + (autor.IsBot ? "Agente" : "Usuario"), candidato.Historico[0].Proveniencia.Origem);
             Assert.Equal(EstadoDoCandidato.Promovido, candidato.Estado);
         }

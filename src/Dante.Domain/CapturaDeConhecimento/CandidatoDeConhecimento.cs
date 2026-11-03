@@ -26,8 +26,6 @@ public sealed class CandidatoDeConhecimento : EntidadeBase
             throw new ArgumentException("Consolidação exige incidente e solução.");
         IdEspacoDeConhecimento = idEspaco; IdProjeto = idProjeto; Natureza = natureza; Modo = modo;
         IdIncidente = idIncidente; IdSolucao = idSolucao;
-        // Conclusão do agente não ganha autoridade de fato pela classificação/confiança sugerida.
-        if (natureza == NaturezaDoConteudo.ConclusaoDoAgente) tipo = TipoDeConhecimento.Inferencia;
         Aplicar(tipo, conteudo, sensibilidade, justificativa, proveniencia, instante);
         ValidarMetadados(titulo, tags);
         Registrar("capturado", proveniencia, instante, titulo, tags);

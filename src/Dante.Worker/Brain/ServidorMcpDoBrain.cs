@@ -39,20 +39,14 @@ public static class ServidorMcpDoBrain
         if (correcao) { p["id"] = Id(); p["revisao"] = Revisao(); }
         return p;
     }
-    private static JsonObject Atualizacao()
-    {
-        var propriedades = Captura(true);
-        propriedades.Remove("tipo"); // O agente não promove uma inferência a fato pela correção.
-        return propriedades;
-    }
     public static readonly IReadOnlyList<Ferramenta> Ferramentas =
     [
         new("brain_obter_escopo", "Espaço/projeto autorizado da sessão. Não altera escopo.", true, false, new(), []),
         new("brain_buscar_conhecimento", "Busca permitida em conhecimentos e fontes do escopo; candidatos pendentes não entram (use brain_listar_candidatos). Sem modelo de embedding a busca é lexical e exige todos os termos; use \"or\" entre termos alternativos. Tags filtram, mas não substituem o texto. Consulte equivalentes antes de capturar e reporte possíveis duplicidades.", true, false,
             new() { ["texto"] = Texto(2000), ["tipo"] = EnumCampo<Dante.Domain.Conhecimentos.TipoDeConhecimento>(), ["tags"] = Tags(), ["limite"] = Limite(), ["deslocamento"] = Deslocamento() }, ["texto"]),
         new("brain_mostrar_origem", "Proveniência de candidato ou conhecimento permitido.", true, false, new() { ["id"] = Id(), ["origem"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("candidato", "conhecimento") } }, ["id", "origem"]),
-        new("brain_capturar_conhecimento", "Cria um único candidato pendente. Preserve título/conteúdo/tags. Conclusão do agente continua inferência; nunca declare conteúdo do agente como dito pelo usuário.", false, false, Captura(), ["conteudo", "natureza", "justificativa"]),
-        new("brain_atualizar_conhecimento", "PREPARA correção do conhecimento existente, sem criar outro ativo. Exige revisão e confirmação Telegram; a correção não herda a confirmação anterior.", false, true, Atualizacao(), ["id", "revisao", "conteudo", "natureza", "justificativa"]),
+        new("brain_capturar_conhecimento", "Cria um único candidato pendente. Preserve título/conteúdo/tags e o tipo semântico informado. Use natureza ConclusaoDoAgente para conclusões do agente: permanecem inferidas, nunca ditas pelo usuário.", false, false, Captura(), ["conteudo", "natureza", "justificativa"]),
+        new("brain_atualizar_conhecimento", "PREPARA correção do conhecimento existente, sem criar outro ativo. Exige revisão e confirmação Telegram; tipo opcional: preserve o atual quando omitido; a correção não herda a confirmação anterior.", false, true, Captura(true), ["id", "revisao", "conteudo", "natureza", "justificativa"]),
         new("brain_consolidar_duplicatas", "PREPARA consolidação explícita: conserva o destino, incorpora proveniências e substitui duplicatas. Exige confirmar no Telegram e revisões de todos os alvos.", false, true,
             new() { ["id"] = Id(), ["revisao"] = Revisao(), ["duplicatas"] = new JsonObject { ["type"] = "array", ["minItems"] = 1, ["maxItems"] = 20,
                 ["items"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject { ["id"] = Id(), ["revisao"] = Revisao() }, ["required"] = new JsonArray("id", "revisao"), ["additionalProperties"] = false } } }, ["id", "revisao", "duplicatas"]),

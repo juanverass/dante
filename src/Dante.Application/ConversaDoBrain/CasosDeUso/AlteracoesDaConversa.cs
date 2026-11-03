@@ -39,7 +39,9 @@ public sealed class AlteracoesDaConversa(IConhecimentoAppService conhecimentos, 
             return consolidado?.Status switch
             {
                 StatusDoConhecimento.Confirmado => "Candidato consolidado com sua confirmação e proveniência preservada.",
-                StatusDoConhecimento.Inferido => "Candidato consolidado como inferido; uma inferência não vira fato confirmado automaticamente.",
+                StatusDoConhecimento.Inferido when consolidado.NaturezaDeOrigem == NaturezaDoConteudo.ConclusaoDoAgente || consolidado.Natureza == NaturezaDoConteudo.ConclusaoDoAgente
+                    => "Candidato consolidado. Conteúdo registrado como conclusão do agente, não confirmado. Sua confirmação autoriza o registro; ele permanece inferido.",
+                StatusDoConhecimento.Inferido => "Candidato consolidado. Conteúdo registrado como inferido, não confirmado.",
                 _ => "Candidato consolidado. Consulte o Brain para verificar o estado atual."
             };
         }

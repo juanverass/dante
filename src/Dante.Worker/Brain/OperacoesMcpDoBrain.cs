@@ -59,7 +59,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 {
                     Titulo = args.TryGetProperty("titulo", out _) ? Texto(args, "titulo", 300) : anterior.Titulo,
                     Tags = args.TryGetProperty("tags", out _) ? Lista(args, "tags") : anterior.Tags ?? [],
-                    Tipo = anterior.Natureza == NaturezaDoConteudo.ConclusaoDoAgente ? TipoDeConhecimento.Inferencia : OpcionalEnum<TipoDeConhecimento>(args, "tipo") ?? anterior.Tipo,
+                    Tipo = OpcionalEnum<TipoDeConhecimento>(args, "tipo") ?? anterior.Tipo,
                     Sensibilidade = OpcionalEnum<Sensibilidade>(args, "sensibilidade") ?? anterior.Sensibilidade
                 };
                 ValidarOrigem(correcao, mensagem);
@@ -78,9 +78,21 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                     await services.GetRequiredService<LeituraDoBrainAppService>().ValidarAcessoAsync(acesso, cancelamento);
                     var app = services.GetRequiredService<ICapturaDeConhecimentoAppService>();
                     var responsavel = Prova(confirmacao, acesso.IdUsuario, escopo.Conversa, sessao, agente);
-                    if (nome == "brain_cancelar_candidato") await app.DescartarAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, alvo.Id, alvo.Revisao, responsavel, cancelamento);
-                    else await app.ConfirmarAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, alvo.Id, alvo.Revisao, responsavel, cancelamento);
-                    return nome == "brain_cancelar_candidato" ? "Candidato descartado com auditoria." : "Candidato consolidado com proveniência; inferências permanecem inferidas.";
+                    if (nome == "brain_cancelar_candidato")
+                    {
+                        await app.DescartarAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, alvo.Id, alvo.Revisao, responsavel, cancelamento);
+                        return "Candidato descartado com auditoria.";
+                    }
+                    var id = await app.ConfirmarAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, alvo.Id, alvo.Revisao, responsavel, cancelamento);
+                    var consolidado = await services.GetRequiredService<IConhecimentoAppService>().ObterPorIdAsync(id, cancelamento);
+                    return consolidado?.Status switch
+                    {
+                        StatusDoConhecimento.Confirmado => "Candidato consolidado com sua confirmação e proveniência preservada.",
+                        StatusDoConhecimento.Inferido when consolidado.NaturezaDeOrigem == NaturezaDoConteudo.ConclusaoDoAgente || consolidado.Natureza == NaturezaDoConteudo.ConclusaoDoAgente
+                            => "Candidato consolidado. Conteúdo registrado como conclusão do agente, não confirmado. Sua confirmação autoriza o registro; ele permanece inferido.",
+                        StatusDoConhecimento.Inferido => "Candidato consolidado. Conteúdo registrado como inferido, não confirmado.",
+                        _ => "Candidato consolidado. Consulte o Brain para verificar o estado atual."
+                    };
                 });
                 return new { candidato = Resumir(alvo), aguardandoConfirmacao = true, instrucao = "Mostre a proposta ao usuário. Ele deve enviar confirmar no Telegram (ou cancelar). Nenhuma consolidação/descarte foi aplicada." };
             case "brain_atualizar_conhecimento":
@@ -94,7 +106,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 {
                     Conteudo = novaVersao.Conteudo,
                     Natureza = novaVersao.Natureza,
-                    Tipo = novaVersao.Natureza == NaturezaDoConteudo.ConclusaoDoAgente ? TipoDeConhecimento.Inferencia : existente.Tipo,
+                    Tipo = OpcionalEnum<TipoDeConhecimento>(args, "tipo") ?? existente.Tipo,
                     Sensibilidade = sensibilidadeNova,
                     Tags = args.TryGetProperty("tags", out _) ? novaVersao.Tags : existente.Tags,
                     DadosEstruturados = args.TryGetProperty("titulo", out _) ? AtualizarTitulo(existente.DadosEstruturados, novaVersao.Titulo!) : existente.DadosEstruturados,

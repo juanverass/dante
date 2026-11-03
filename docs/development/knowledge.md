@@ -33,8 +33,9 @@ implementa policy de leitura, captura, injeção ou exportação (#155).
 Criação admite Inferido ou Temporario, nunca Confirmado/Substituido/Inativo. Não
 há confirmação por valor alto de confiança (opcional, finito entre 0 e 1).
 Confirmar exige revisão esperada, responsável/origem e registra nova revisão.
-Tipo Inferencia não pode ser confirmado: reclassifique com evidência por Corrigir
-e faça uma confirmação separada. Status e tipo continuam explícitos no DTO.
+Confirmação exige natureza de origem e natureza atual humanas (AD-59). Tipo semântico
+não determina autoria nem confirmação; `Inferencia` permanece para registros legados.
+Status e tipo continuam explícitos no DTO.
 
 Corrigir/Atualizar do CRUD validam tudo antes de mudar o item, preservam identidade,
 escopo, autoria original e snapshots anteriores. Correção de Confirmado retorna a

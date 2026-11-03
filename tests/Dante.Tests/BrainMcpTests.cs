@@ -23,6 +23,20 @@ namespace Dante.Tests;
 public sealed class BrainMcpTests
 {
     [Fact]
+    public void ContratoPermiteTipoOpcionalNaCorrecaoSemUsarTipoComoAutoria()
+    {
+        foreach (var nome in new[] { "brain_corrigir_candidato", "brain_atualizar_conhecimento" })
+        {
+            var ferramenta = ServidorMcpDoBrain.Ferramentas.Single(f => f.Nome == nome);
+            Assert.True(ferramenta.Propriedades.ContainsKey("tipo"));
+            Assert.DoesNotContain("tipo", ferramenta.Obrigatorios);
+            ServidorMcpDoBrain.Validar(nome, JsonSerializer.SerializeToElement(new { id = Guid.NewGuid(), revisao = 1, conteudo = "evidência", natureza = "ConclusaoDoAgente", justificativa = "análise", tipo = "Incidente" }));
+        }
+        Assert.Contains("Preserve o tipo semântico informado", ContratoDoBrainParaAgentes.Instrucoes);
+        Assert.DoesNotContain("conclusões do agente são Inferencia", ContratoDoBrainParaAgentes.Instrucoes);
+    }
+
+    [Fact]
     public async Task StdioAnunciaFerramentasEClassificaMutacoesERecusaIdentidadeLivre()
     {
         var chamadas = 0;
@@ -120,7 +134,7 @@ public sealed class BrainMcpTests
         var c = new CandidatoDeConhecimento(Guid.NewGuid(), null, TipoDeConhecimento.Nota, "conteúdo", Sensibilidade.Pessoal,
             NaturezaDoConteudo.ConclusaoDoAgente, ModoDeCaptura.Explicita, "sugestão", prova, DateTimeOffset.UtcNow, titulo: "Título original", tags: ["brain"]);
         var item = c.Promover(c.Revisao, prova, DateTimeOffset.UtcNow);
-        Assert.Equal(StatusDoConhecimento.Inferido, item.Status); Assert.Equal(TipoDeConhecimento.Inferencia, item.Tipo);
+        Assert.Equal(StatusDoConhecimento.Inferido, item.Status); Assert.Equal(TipoDeConhecimento.Nota, item.Tipo);
         Assert.Equal("Título original", JsonNode.Parse(item.DadosEstruturados!)!["titulo"]!.GetValue<string>()); Assert.Equal(["brain"], item.Tags);
         Assert.Equal("Título original", c.Historico[^1].Titulo);
     }

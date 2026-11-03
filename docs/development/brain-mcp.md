@@ -69,8 +69,8 @@ escopo e revisão; conflitos não reaplicam a operação automaticamente.
 Captura é explícita e individual. Conteúdo classificado como dito pelo usuário precisa
 estar literalmente na mensagem de origem; mensagem citada só serve como origem
 literal quando foi escrita pelo próprio usuário autenticado, no mesmo chat/tópico.
-Conclusão do agente é classificada como Inferencia pelo Domain e permanece
-inferida após consolidação. Título e tags opcionais vivem no histórico JSON existente
+Conclusão do agente conserva o tipo semântico informado e a natureza `ConclusaoDoAgente`;
+permanece `Inferido` após consolidação. Título e tags opcionais vivem no histórico JSON existente
 do candidato; promoção conserva o título em `DadosEstruturados.titulo` e as tags no
 Conhecimento. Na #226 não houve migration nem alteração do conteúdo para embutir esses metadados;
 a autoria de documentos persistida na #264 está descrita adiante.
@@ -131,7 +131,7 @@ como se a vizinhança tivesse sido esgotada.
 
 A regressão #228 usa pedidos naturais nas duas CLIs reais, sem nomear ferramentas.
 `AgenteInvestigaRepositorioECapturaInferenciaQueOutraSessaoRecupera` cria repositório
-Git descartável com README e marcador único, pede análise e captura como inferência,
+Git descartável com README e marcador único, pede análise e captura como `Nota` de natureza `ConclusaoDoAgente`,
 confirma pelo Telegram e recupera conteúdo e proveniência em nova sessão. É fixture
 local, sem acesso ao repositório real do usuário. Testes MCP/PostgreSQL verificam
 atualização sem duplicata, confirmação/cancelamento, revisão concorrente, escopo,
@@ -148,7 +148,7 @@ O agente deve usar `ConclusaoDoAgente` para suas conclusões; essa classificaç�
 permanece inferida mesmo após a confirmação humana.
 
 Na captura natural, responder à própria mensagem produz `FonteSelecionada`;
-responder a mensagem identificada como bot produz `ConclusaoDoAgente`/`Inferencia`.
+responder a mensagem identificada como bot produz `ConclusaoDoAgente`.
 Autor ausente ou outro usuário é recusado como fonte. A proveniência da seleção
 registra `autoria-da-fonte:Usuario|Agente|Desconhecida`, separadamente do responsável
 pela operação. O transporte da sessão conserva ID e indicador de bot do autor citado.
@@ -212,5 +212,19 @@ posteriores. Nenhum status, texto, timestamp ou JSON histórico é reescrito: it
 antigos confirmados continuam assim, mas novas confirmações exigem a regra atual.
 A migration é aplicada apenas por administração explícita; startup não migra.
 
-A reescrita automática de tipo ainda existente na captura/correção do agente fica
-para #266; filtros e rótulos de busca/Context Builder por natureza ficam para #267.
+A preservação do tipo semântico na captura/correção do agente está descrita abaixo
+(#266); filtros e rótulos de busca/Context Builder por natureza ficam para #267.
+
+### Tipo semântico independente da autoria (#266)
+
+Captura, correção, atualização e promoção preservam o tipo informado, independentemente
+da natureza e do status. Nas correções pelo MCP, `tipo` é opcional: omiti-lo conserva
+o tipo atual; informá-lo permite reclassificação explícita, registrada no histórico.
+`ConclusaoDoAgente` identifica autoria e permanece `Inferido`, sem confirmação de
+negócio. O Telegram distingue registro de conclusão e confirmação com base na
+natureza e no status persistidos, nunca no tipo.
+
+`Inferencia` permanece disponível para leitura e filtro de registros legados, sem
+reclassificação retroativa. Não há migration nesta entrega. A deduplicação continua
+considerando tipo, natureza, sensibilidade e conteúdo no escopo autorizado.
+A filtragem por natureza da #267 permanece fora deste fluxo.

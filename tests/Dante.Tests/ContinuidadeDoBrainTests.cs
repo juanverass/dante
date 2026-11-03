@@ -158,11 +158,22 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
         await Dizer("criar espaço Pessoal");
         var resposta=new TelegramMessage(new(123),"Use ordem consistente de locks para evitar deadlock.",new(999, IsBot:true),MessageId:900);
         api.Enqueue(new TelegramMessage(new(123),"documente isso",new(123),MessageId:901,ReplyToMessage:resposta));
-        Assert.Contains("candidato",await api.NextMessageAsync());
+        var proposta = await api.NextMessageAsync();
+        Assert.Contains("candidato", proposta); Assert.Contains("não confirmado", proposta);
         await using(var c=banco.Contexto())
         {
             Assert.Empty(await c.Conhecimentos.ToListAsync());
-            Assert.Equal("Use ordem consistente de locks para evitar deadlock.",(await c.CandidatosDeConhecimento.SingleAsync()).Conteudo);
+            var candidato = await c.CandidatosDeConhecimento.SingleAsync();
+            Assert.Equal("Use ordem consistente de locks para evitar deadlock.", candidato.Conteudo);
+            Assert.Equal(TipoDeConhecimento.Nota, candidato.Tipo);
+            Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, candidato.Natureza);
+        }
+        Assert.Contains("conclusão do agente, não confirmado", await Dizer("confirmar"));
+        await using(var c=banco.Contexto())
+        {
+            var item = await c.Conhecimentos.SingleAsync();
+            Assert.Equal(TipoDeConhecimento.Nota, item.Tipo);
+            Assert.Equal(StatusDoConhecimento.Inferido, item.Status);
         }
         api.Enqueue(new TelegramMessage(new(123),"texto comum",new(123),MessageId:902,ReplyToMessage:resposta));
         Assert.Contains("não está disponível",await api.NextMessageAsync());

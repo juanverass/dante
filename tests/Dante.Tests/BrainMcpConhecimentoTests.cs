@@ -33,7 +33,7 @@ public sealed class BrainMcpConhecimentoTests
             Assert.Equal("README.md", JsonDocument.Parse(atual.DadosEstruturados!).RootElement.GetProperty("referencia").GetString());
             Assert.Equal("Arquitetura atual", JsonDocument.Parse(atual.DadosEstruturados!).RootElement.GetProperty("titulo").GetString());
             Assert.Equal(3, atual.Revisao); Assert.Equal(Sensibilidade.Trabalho, atual.Sensibilidade);
-            Assert.Equal(TipoDeConhecimento.Inferencia, atual.Tipo); Assert.Equal(StatusDoConhecimento.Inferido, atual.Status);
+            Assert.Equal(TipoDeConhecimento.Fato, atual.Tipo); Assert.Equal(StatusDoConhecimento.Inferido, atual.Status);
             Assert.Equal(NaturezaDoConteudo.DitoPeloUsuario, atual.NaturezaDeOrigem); Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, atual.Natureza);
             Assert.Equal("arquitetura antiga", atual.Historico[0].Conteudo);
             Assert.Contains("confirmacao:", atual.Proveniencia.Origem);
@@ -274,6 +274,70 @@ public sealed class BrainMcpConhecimentoTests
         Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, fonte.NaturezaDeOrigem); Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, fonte.Natureza);
         Assert.Equal(StatusDoConhecimento.Substituido, fonte.Status);
         Assert.DoesNotContain(fonte.Historico, h => h.Status == StatusDoConhecimento.Confirmado);
+    }
+
+    [PostgreSqlFact]
+    public async Task TipoSemanticoPersisteNasCorrecoesOpcionaisENoHistoricoDoAgente()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        await a.OperarAsync("brain_capturar_conhecimento", new { conteudo = "incidente observado", tipo = "Incidente", natureza = "ConclusaoDoAgente", justificativa = "análise" });
+        Guid id;
+        await using (var db = a.Banco.Contexto()) id = (await db.CandidatosDeConhecimento.SingleAsync()).Id;
+        await a.OperarAsync("brain_corrigir_candidato", new { id, revisao = 1, conteudo = "incidente corrigido", natureza = "ConclusaoDoAgente", justificativa = "análise revisada" });
+        await using (var db = a.Banco.Contexto())
+            Assert.All((await db.CandidatosDeConhecimento.SingleAsync()).Historico, h => Assert.Equal(TipoDeConhecimento.Incidente, h.Tipo));
+        await a.OperarAsync("brain_corrigir_candidato", new { id, revisao = 2, conteudo = "solução encontrada", tipo = "Solucao", natureza = "ConclusaoDoAgente", justificativa = "nova classificação explícita" });
+        await a.OperarAsync("brain_confirmar_candidato", new { id, revisao = 3 });
+        Assert.Contains("conclusão do agente, não confirmado", await a.ConfirmarAsync());
+        await using (var db = a.Banco.Contexto())
+        {
+            var candidato = await db.CandidatosDeConhecimento.SingleAsync();
+            Assert.Equal(new[] { TipoDeConhecimento.Incidente, TipoDeConhecimento.Incidente, TipoDeConhecimento.Solucao, TipoDeConhecimento.Solucao }, candidato.Historico.Select(h => h.Tipo));
+            id = (await db.Conhecimentos.SingleAsync()).Id;
+        }
+        await a.OperarAsync("brain_atualizar_conhecimento", new { id, revisao = 1, conteudo = "solução revisada", natureza = "ConclusaoDoAgente", justificativa = "correção" });
+        await a.ConfirmarAsync();
+        await a.OperarAsync("brain_atualizar_conhecimento", new { id, revisao = 2, conteudo = "aprendizado revisado", tipo = "Aprendizado", natureza = "ConclusaoDoAgente", justificativa = "classificação explícita" });
+        await a.ConfirmarAsync();
+        await using var verificar = a.Banco.Contexto();
+        var item = await verificar.Conhecimentos.SingleAsync();
+        Assert.Equal(TipoDeConhecimento.Aprendizado, item.Tipo);
+        Assert.Equal(new[] { TipoDeConhecimento.Solucao, TipoDeConhecimento.Solucao, TipoDeConhecimento.Aprendizado }, item.Historico.Select(h => h.Tipo));
+        Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, item.NaturezaDeOrigem);
+        Assert.All(item.Historico, h => Assert.Equal(NaturezaDoConteudo.ConclusaoDoAgente, h.Natureza));
+        Assert.Equal(StatusDoConhecimento.Inferido, item.Status);
+        Assert.Throws<InvalidOperationException>(() => item.Confirmar(3, a.Prova, DateTimeOffset.UtcNow));
+    }
+
+    [PostgreSqlFact]
+    public async Task BuscaPorTipoPreservaLegadoInferenciaEDeduplicacaoDistingueTipoENatureza()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        var legado = a.Novo("semantico266 legado", tipo: TipoDeConhecimento.Inferencia);
+        await using (var db = a.Banco.Contexto()) await ConhecimentoLegadoDeTeste.InserirAsync(db, legado);
+        foreach (var (tipo, natureza) in new[] { ("Incidente", "ConclusaoDoAgente"), ("Solucao", "ConclusaoDoAgente"), ("Incidente", "FonteSelecionada"), ("Incidente", "ConclusaoDoAgente") })
+            await a.OperarAsync("brain_capturar_conhecimento", new { conteudo = "pedido", tipo, natureza, justificativa = "evidência selecionada" });
+        await using (var db = a.Banco.Contexto())
+        {
+            var candidatos = await db.CandidatosDeConhecimento.ToListAsync();
+            Assert.Equal(3, candidatos.Count);
+            Assert.Equal(2, candidatos.Single(x => x.Tipo == TipoDeConhecimento.Incidente && x.Natureza == NaturezaDoConteudo.ConclusaoDoAgente).Revisao);
+            foreach (var c in candidatos)
+            {
+                await a.OperarAsync("brain_confirmar_candidato", new { id = c.Id, revisao = c.Revisao });
+                await a.ConfirmarAsync();
+            }
+        }
+        foreach (var (tipo, quantidade) in new[] { ("Inferencia", 1), ("Incidente", 2), ("Solucao", 1), ("Nota", 0) })
+        {
+            var resultado = JsonSerializer.SerializeToElement(await a.OperarAsync("brain_buscar_conhecimento", new { texto = tipo == "Inferencia" ? "semantico266" : "pedido", tipo }));
+            Assert.Equal(quantidade, resultado.GetProperty("Resultados").GetArrayLength());
+        }
+        await using var verificar = a.Banco.Contexto();
+        var antigo = await verificar.Conhecimentos.SingleAsync(x => x.Id == legado.Id);
+        Assert.Equal(TipoDeConhecimento.Inferencia, antigo.Tipo);
+        Assert.Equal(NaturezaDoConteudo.Desconhecida, antigo.NaturezaDeOrigem);
+        Assert.Null(Assert.Single(antigo.Historico).Natureza);
     }
 
     private sealed class Ambiente(Banco banco, ServiceProvider app, TelegramBrain brain, TelegramBrain.EscopoBrainDaSessao escopo) : IAsyncDisposable
