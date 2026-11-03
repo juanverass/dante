@@ -895,7 +895,7 @@ nas respectivas issues, com vocabulário PT-BR e identidade Guid Id (AD-36).
 Na captura/correção/atualização MCP, mensagem citada só prova `DitoPeloUsuario` ou
 `FonteSelecionada` se foi escrita pelo usuário autenticado, no mesmo chat/tópico.
 Na conversa natural, mensagem própria gera `FonteSelecionada`; mensagem do bot gera
-`ConclusaoDoAgente`/`Inferencia`, que permanece `Inferido` após confirmar. Outro
+`ConclusaoDoAgente`, que permanece `Inferido` após confirmar. Outro
 usuário ou ausência de autor não prova autoria do usuário. A proveniência registra
 a autoria da seleção independentemente do responsável pela operação.
 
@@ -933,3 +933,17 @@ vigente do legado fica Desconhecida, e revisões antigas sem o campo são lidas 
 natureza não registrada. Nenhum status ou histórico existente é reescrito. Detalhes
 de persistência, compatibilidade e limites em
 [Brain MCP](../development/brain-mcp.md#natureza-do-conhecimento-e-confirmação-265-ad-59).
+
+### Tipo semântico independente da autoria (#266)
+
+Captura, correção, atualização e promoção preservam o tipo informado, independentemente
+da natureza e do status. Nas correções pelo MCP, `tipo` é opcional: omiti-lo conserva
+o tipo atual; informá-lo permite reclassificação explícita, registrada no histórico.
+`ConclusaoDoAgente` identifica autoria e permanece `Inferido`, sem confirmação de
+negócio. O Telegram distingue registro de conclusão e confirmação com base na
+natureza e no status persistidos, nunca no tipo.
+
+`Inferencia` permanece disponível para leitura e filtro de registros legados, sem
+reclassificação retroativa. Não há migration nesta entrega. A deduplicação continua
+considerando tipo, natureza, sensibilidade e conteúdo no escopo autorizado.
+A filtragem por natureza da #267 permanece fora deste fluxo.

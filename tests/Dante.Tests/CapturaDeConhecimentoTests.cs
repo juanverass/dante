@@ -35,9 +35,9 @@ public sealed class CapturaDeConhecimentoTests
     public void InferenciasDoAgenteNaoViramFatosPorConfirmacao()
     {
         var candidato = Novo(natureza: NaturezaDoConteudo.ConclusaoDoAgente);
-        Assert.Equal(TipoDeConhecimento.Inferencia, candidato.Tipo);
+        Assert.Equal(TipoDeConhecimento.Fato, candidato.Tipo);
         var conhecimento = candidato.Promover(1, BrainEfTests.Origem(), DateTimeOffset.UtcNow);
-        Assert.Equal(TipoDeConhecimento.Inferencia, conhecimento.Tipo); Assert.Equal(StatusDoConhecimento.Inferido, conhecimento.Status);
+        Assert.Equal(TipoDeConhecimento.Fato, conhecimento.Tipo); Assert.Equal(StatusDoConhecimento.Inferido, conhecimento.Status);
         Assert.Throws<InvalidOperationException>(() => conhecimento.Confirmar(1, BrainEfTests.Origem(), DateTimeOffset.UtcNow));
     }
 
@@ -170,7 +170,7 @@ public sealed class CapturaDeConhecimentoTests
         var inferencia = await service.CapturarAsync(Captura(espaco.Id) with { Natureza = NaturezaDoConteudo.ConclusaoDoAgente, Modo = ModoDeCaptura.SugestaoAutomatica });
         var id = await service.ConfirmarAsync(espaco.Id, null, inferencia.Id, 1, p);
         await using (var verificar = banco.Contexto())
-        { var k = (await verificar.Conhecimentos.FindAsync(id))!; Assert.Equal(TipoDeConhecimento.Inferencia, k.Tipo); Assert.Equal(StatusDoConhecimento.Inferido, k.Status); }
+        { var k = (await verificar.Conhecimentos.FindAsync(id))!; Assert.Equal(TipoDeConhecimento.Fato, k.Tipo); Assert.Equal(StatusDoConhecimento.Inferido, k.Status); }
         var equivalente = await service.CapturarAsync(Captura(espaco.Id));
         Assert.Equal(rejeitado.Id, equivalente.Id); Assert.Equal(EstadoDoCandidato.Rejeitado, equivalente.Estado);
     }
@@ -219,6 +219,43 @@ public sealed class CapturaDeConhecimentoTests
         var conflito = await Assert.ThrowsAsync<Dante.Application.Comum.ConflitoDeConcorrenciaException>(() => new UnitOfWork(b).SalvarAlteracoesAsync());
         Assert.Null(conflito.InnerException);
         await using var verificar = banco.Contexto(); Assert.Single(await verificar.CandidatosDeConhecimento.ToListAsync());
+    }
+
+    public static IEnumerable<object[]> TiposENaturezas() =>
+        from tipo in Enum.GetValues<TipoDeConhecimento>()
+        where tipo != TipoDeConhecimento.Inferencia
+        from natureza in new[] { NaturezaDoConteudo.DitoPeloUsuario, NaturezaDoConteudo.FonteSelecionada, NaturezaDoConteudo.ConclusaoDoAgente }
+        select new object[] { tipo, natureza };
+
+    [Theory]
+    [MemberData(nameof(TiposENaturezas))]
+    public void TipoSemanticoSobreviveCapturaCorrecaoPromocaoEConfirmacao(TipoDeConhecimento tipo, NaturezaDoConteudo natureza)
+    {
+        var candidato = Novo(tipo: tipo, natureza: natureza);
+        candidato.Corrigir(1, tipo, "conteúdo corrigido", Sensibilidade.Pessoal, "evidência", BrainEfTests.Origem(), DateTimeOffset.UtcNow);
+        Assert.Equal(tipo, candidato.Tipo);
+        Assert.All(candidato.Historico, h => Assert.Equal(tipo, h.Tipo));
+        var item = candidato.Promover(2, BrainEfTests.Origem(), DateTimeOffset.UtcNow);
+        Assert.Equal(tipo, item.Tipo);
+        Assert.All(item.Historico, h => Assert.Equal(tipo, h.Tipo));
+        Assert.Equal(natureza, item.NaturezaDeOrigem);
+        Assert.Equal(natureza == NaturezaDoConteudo.ConclusaoDoAgente ? StatusDoConhecimento.Inferido : StatusDoConhecimento.Confirmado, item.Status);
+        item.Corrigir(item.Revisao, tipo, "nova análise", null, null, Sensibilidade.Pessoal, null, null, [], BrainEfTests.Origem(), DateTimeOffset.UtcNow, NaturezaDoConteudo.ConclusaoDoAgente);
+        Assert.Equal(tipo, item.Tipo);
+        Assert.All(item.Historico, h => Assert.Equal(tipo, h.Tipo));
+        Assert.Equal(StatusDoConhecimento.Inferido, item.Status);
+        Assert.Equal(natureza, item.NaturezaDeOrigem);
+        Assert.Throws<InvalidOperationException>(() => item.Confirmar(item.Revisao, BrainEfTests.Origem(), DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void DeduplicacaoDeConclusoesDistingueTipoSemantico()
+    {
+        var incidente = Novo(tipo: TipoDeConhecimento.Incidente, natureza: NaturezaDoConteudo.ConclusaoDoAgente);
+        var solucao = Novo(tipo: TipoDeConhecimento.Solucao, natureza: NaturezaDoConteudo.ConclusaoDoAgente);
+        Assert.NotEqual(incidente.Impressao, solucao.Impressao);
+        Assert.Equal(incidente.Impressao, Novo(tipo: TipoDeConhecimento.Incidente, natureza: NaturezaDoConteudo.ConclusaoDoAgente).Impressao);
+        Assert.NotEqual(incidente.Impressao, Novo(tipo: TipoDeConhecimento.Incidente, natureza: NaturezaDoConteudo.FonteSelecionada).Impressao);
     }
 
     private static CandidatoDeConhecimento Novo(TipoDeConhecimento tipo = TipoDeConhecimento.Fato, string conteudo = "conteúdo", NaturezaDoConteudo natureza = NaturezaDoConteudo.DitoPeloUsuario) =>

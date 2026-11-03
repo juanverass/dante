@@ -30,7 +30,7 @@ public sealed class CapturaDaConversa(ICapturaDeConhecimentoAppService captura)
         if(candidato.Estado!=EstadoDoCandidato.Pendente)return "Esse conteúdo já foi avaliado; não criei um candidato duplicado.";
         var alvo=new AlvoDeConversaDto(candidato.Id,candidato.Revisao,"candidato",candidato.Tipo,null,candidato.Sensibilidade,Resumir(candidato.Conteudo,600));
         conversa.Guardar(conversa.Estado with{Pendente=conversa.Pendente("captura",alvo)});
-        var aviso=natureza==NaturezaDoConteudo.ConclusaoDoAgente?"\nO trecho é do assistente: fica registrado como conclusão do agente e, mesmo após confirmar, não vira fato confirmado.":"";
+        var aviso=natureza==NaturezaDoConteudo.ConclusaoDoAgente?"\nO trecho é do assistente: será registrado como conclusão do agente, não confirmado, mesmo após sua autorização.":"";
         return $"Preparei um candidato ({candidato.Tipo}, {candidato.Sensibilidade}): {alvo.Descricao}\nNão é um fato confirmado.{aviso} Diga confirmar para consolidar ou cancelar.";
     }
 

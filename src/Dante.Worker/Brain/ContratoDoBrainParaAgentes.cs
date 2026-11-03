@@ -13,7 +13,9 @@ internal static class ContratoDoBrainParaAgentes
         conhecimentos e possíveis duplicidades. O escopo Brain é independente do diretório de execução:
         investigar outro repositório não muda o espaço/projeto nem concede acesso a ele.
         Para registrar conhecimento geral ou derivado de um repositório, use brain_capturar_conhecimento com título,
-        conteúdo, tags e justificativa da origem; conclusões do agente são Inferencia, nunca DitoPeloUsuario.
+        conteúdo, tipo semântico, natureza, tags e justificativa da origem. Preserve o tipo semântico informado;
+        conclusões do agente têm natureza ConclusaoDoAgente e permanecem Inferido, nunca DitoPeloUsuario.
+        Não use o tipo Inferencia para indicar autoria; ele é mantido para leitura e filtro de registros legados.
         Atualize candidatos pendentes com brain_corrigir_candidato e revisão esperada.
         Para atualizar conhecimento existente, use brain_atualizar_conhecimento com ID e revisão retornados pela consulta,
         conteúdo, natureza e justificativa. A operação prepara correção no mesmo ID com histórico; não cria outro ativo.
