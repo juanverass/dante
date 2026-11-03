@@ -946,4 +946,27 @@ natureza e no status persistidos, nunca no tipo.
 `Inferencia` permanece disponível para leitura e filtro de registros legados, sem
 reclassificação retroativa. Não há migration nesta entrega. A deduplicação continua
 considerando tipo, natureza, sensibilidade e conteúdo no escopo autorizado.
-A filtragem por natureza da #267 permanece fora deste fluxo.
+A filtragem e a identificação por natureza seguem o fluxo abaixo (#267).
+
+### Consulta e contexto por natureza (#267, AD-59)
+
+1. A busca recebe `natureza` opcional e filtra a natureza **de origem** dos
+   conhecimentos no escopo autorizado, antes de paginar. Tipo continua filtro
+   semântico, inclusive `Inferencia` legado.
+2. Projeções incluem origem, natureza vigente, status e rótulo. O rótulo comum
+   identifica conclusão/revisão do agente como não confirmada, autoria desconhecida
+   como não comprovada e revisão antiga sem natureza como não registrada. Status
+   confirmado legado não elimina esses avisos nem é reescrito.
+3. Context Builder aplica o filtro também aos itens acrescentados por relações e
+   decisões do snapshot. O pacote mantém cabeçalho, precedência, ranking e orçamento;
+   campos/rótulos novos contam no custo antes de selecionar. Snapshot permanece
+   operacional e não recebe autoria ou confirmação de conhecimento.
+4. Fontes brutas são excluídas quando há filtro por natureza de conhecimento.
+   Sem filtro, conservam autoria de documento (usuário/agente/desconhecida), sem
+   atribuir natureza de conhecimento e sempre sem confirmação.
+5. Consulta/origem no Telegram, inspeção local e exportação Markdown/JSON usam a
+   mesma identificação. JSON recebe campos aditivos e mantém formato 1; o histórico
+   exportado recebe rótulos de leitura sem regravar revisões.
+
+Nenhuma migration/reindexação é exigida. Tipo nunca determina autoria ou confiabilidade.
+Detalhes de contrato e compatibilidade: [Brain MCP](../development/brain-mcp.md#natureza-na-busca-contexto-inspeção-e-exportação-267).

@@ -774,7 +774,7 @@ A migration 20261102220449 acrescenta natureza e natureza_de_origem; preenche ap
 origem comprovada por candidato registrado, deixando revisão vigente desconhecida
 no legado. Não altera status/textos/timestamps nem reescreve histórico antigo;
 revisões sem o campo são lidas como natureza não registrada. Os tipos são preservados
-independentemente da autoria (#266); busca/rótulos por natureza aguardam #267.
+independentemente da autoria (#266); busca/rótulos por natureza estão na #267.
 
 ## Tipo semântico e autoria (#266)
 
@@ -785,4 +785,23 @@ regendo confirmação conforme AD-59. Conclusões do agente permanecem inferidas
 O Telegram informa registro de conclusão, sem tratá-lo como confirmação de negócio.
 `Inferencia` e os filtros existentes continuam compatíveis com registros legados;
 não há migration ou reclassificação retroativa. Deduplicação considera natureza e tipo.
-A #267 permanece uma entrega separada, sem alterações de filtros por natureza aqui.
+A busca e a apresentação por natureza são descritas abaixo (#267).
+
+## Busca e apresentação por natureza (#267, AD-59)
+
+Busca aceita natureza de origem opcional, antes de paginação e em conjunto com
+filtros semânticos, escopo e sensibilidade. Respostas expõem natureza de origem,
+natureza vigente, status e rótulo. Context Builder reaplica o filtro aos conhecimentos
+vindos de relações e decisões do snapshot. Fontes brutas são excluídas quando esse
+filtro está ativo; sem filtro preservam autoria registrada e identificação de fonte
+não confirmada, sem natureza artificial. Snapshot permanece operacional.
+
+Regra comum de leitura rotula conclusão/revisão do agente como não confirmada e
+origem/revisão desconhecida como autoria não comprovada, independentemente do tipo.
+Confirmados humanos mantêm identificação atual; legado confirmado desconhecido
+conserva o status com aviso. Consulta natural, inspeção, exportação Markdown/JSON e
+pacote de contexto usam esses rótulos. Histórico antigo sem natureza continua sem
+natureza registrada, sem reescrita de dados. Campos JSON são aditivos, formato 1.
+Não há migration, reindexação, mudança de ranking, estimador, orçamento ou busca
+semântica; novos campos entram na contagem de tokens existente. Referências tipadas
+do snapshot (#255) permanecem fora do escopo.

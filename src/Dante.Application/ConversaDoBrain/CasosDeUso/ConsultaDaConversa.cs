@@ -26,7 +26,7 @@ public sealed class ConsultaDaConversa(BuscaDoBrainAppService busca, IConhecimen
             x.Origem==OrigemDoResultado.Conhecimento?x.Item.Status:null,x.Item.Sensibilidade,Resumir(x.Item.Conteudo??x.Item.DadosEstruturados??"conteúdo protegido",500),x.Fonte?.Numero)).ToArray();
         conversa.Guardar(conversa.Estado with{Resultados=alvos,Pendente=null,UltimoTermo=termo});
         return alvos.Length==0?"Não encontrei informação autorizada neste escopo. Não consultei outros espaços.":
-            string.Join('\n',alvos.Select((x,i)=>$"{i+1}. {x.Descricao}\n   {(x.Origem=="fonte_bruta"?"Fonte bruta, não consolidada":$"{x.Tipo}, {x.Status}")}; {x.Sensibilidade}. Origem: {Resumir(relevantes[i].Item.Origem??"não informada",200)}."))+"\nPeça a origem ou escolha um item para corrigir/invalidar.";
+            string.Join('\n',alvos.Select((x,i)=>$"{i+1}. {x.Descricao}\n   {(x.Origem=="fonte_bruta"?relevantes[i].Item.Rotulo + ", não consolidada":$"{x.Tipo}, {x.Status}; {relevantes[i].Item.Rotulo}")}; {x.Sensibilidade}. Origem: {Resumir(relevantes[i].Item.Origem??"não informada",200)}."))+"\nPeça a origem ou escolha um item para corrigir/invalidar.";
     }
     internal async Task<string> OrigemAsync(ContextoDaConversa conversa, AlvoDeConversaDto? alvo, CancellationToken cancellationToken)
     {
@@ -36,7 +36,7 @@ public sealed class ConsultaDaConversa(BuscaDoBrainAppService busca, IConhecimen
             var fonte=await fontes.ObterPorIdAsync(alvo.Id,cancellationToken);
             if(fonte is null || fonte.Removido || fonte.Revisao!=alvo.Revisao || fonte.IdEspacoDeConhecimento!=conversa.Acesso.IdEspacoDeConhecimento || fonte.IdProjeto!=conversa.Acesso.IdProjeto || !conversa.Permitida(fonte.Sensibilidade))
                 return "A fonte mudou, foi removida ou está protegida; refaça a consulta.";
-            return $"Fonte bruta: {Resumir(fonte.Origem,500)}. Formato: {fonte.Formato}; revisão {fonte.Revisao}; hash {fonte.Hash[..12]}. Importar não confirmou o conteúdo.";
+            return $"Fonte bruta: {Resumir(fonte.Origem,500)}. Formato: {fonte.Formato}; revisão {fonte.Revisao}; hash {fonte.Hash[..12]}. {RotulagemDoConhecimento.RotularFonte(fonte.Autoria)}. Importar não confirmou o conteúdo.";
         }
         var item=await CarregarAsync(conversa, alvo, cancellationToken);
         var provas=item.Historico.Where(x=>conversa.Permitida(x.Sensibilidade)).Select(x=>x.Proveniencia).Where(x=>x.ReferenciaDaFonte is not null).Distinct().Take(5).ToArray();
@@ -52,6 +52,6 @@ public sealed class ConsultaDaConversa(BuscaDoBrainAppService busca, IConhecimen
             }
             linhas.Add($"Origem: {Resumir(p.Origem,200)}. Fonte: {Resumir(referencia,500)}. Revisão da fonte: {Resumir(p.RevisaoDaFonte??"não informada",100)}. Evidência: {Resumir(p.TrechoDaFonte??"não registrada",700)}.");
         }
-        return $"{item.Tipo}; {item.Status}; {item.Sensibilidade}; revisão {item.Revisao}.\n"+(linhas.Count==0?$"Origem: {Resumir(item.Proveniencia.Origem,200)}.":string.Join('\n',linhas));
+        return $"{item.Tipo}; {item.Status}; {item.Rotulo}; {item.Sensibilidade}; revisão {item.Revisao}.\n"+(linhas.Count==0?$"Origem: {Resumir(item.Proveniencia.Origem,200)}.":string.Join('\n',linhas));
     }
 }

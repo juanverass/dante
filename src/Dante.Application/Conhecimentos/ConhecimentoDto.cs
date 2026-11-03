@@ -13,6 +13,7 @@ public sealed record ConhecimentoDto
     public NaturezaDoConteudo NaturezaDeOrigem { get; init; } = NaturezaDoConteudo.Desconhecida;
     public Guid IdAutor { get; init; }
     public NaturezaDoConteudo? Natureza { get; init; }
+    public string Rotulo => RotulagemDoConhecimento.Rotular(NaturezaDeOrigem, Natureza, Status);
     public TipoDeConhecimento Tipo { get; init; }
     public string? Conteudo { get; init; }
     public string? DadosEstruturados { get; init; }

@@ -33,6 +33,7 @@ internal static class ConhecimentoMapping
         Revisao = entidade.Revisao, IdConhecimentoSubstituto = entidade.IdConhecimentoSubstituto,
         Historico = entidade.Historico.Select(revisao => new RevisaoDoConhecimentoDto
         {
+            Rotulo = RotulagemDoConhecimento.Rotular(entidade.NaturezaDeOrigem, revisao.Natureza, revisao.Status),
             Natureza = revisao.Natureza, Numero = revisao.Numero, Tipo = revisao.Tipo, Conteudo = revisao.Conteudo, DadosEstruturados = revisao.DadosEstruturados,
             Status = revisao.Status, Confianca = revisao.Confianca, Sensibilidade = revisao.Sensibilidade,
             ValidoDesde = revisao.ValidoDesde, ValidoAte = revisao.ValidoAte, Tags = revisao.Tags.ToArray(),

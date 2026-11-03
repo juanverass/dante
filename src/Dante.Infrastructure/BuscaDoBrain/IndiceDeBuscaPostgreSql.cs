@@ -73,6 +73,7 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
                   AND {Valido}
                   AND (@id IS NULL OR c.id = @id)
                   AND (cardinality(@tipos)=0 OR c.tipo=ANY(@tipos)) AND (@tipo IS NULL OR c.tipo = @tipo) AND (@status IS NULL OR c.status = @status)
+                  AND (@natureza IS NULL OR c.natureza_de_origem = @natureza)
                   AND (@sensibilidade IS NULL OR c.sensibilidade = @sensibilidade)
                   AND (@desde IS NULL OR c.criado_em >= @desde) AND (@ate IS NULL OR c.criado_em < @ate)
                   AND (@id IS NOT NULL OR NOT EXISTS(SELECT 1 FROM unnest(@tags::text[]) tag WHERE NOT EXISTS(SELECT 1 FROM unnest(c.tags) existente WHERE lower(existente) = lower(tag))))
@@ -88,6 +89,7 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
         await using var c = await ComandoAsync(sql, cancellationToken); Escopo(c, acesso);
         Param(c,"id",NpgsqlDbType.Uuid,filtro.IdConhecimento); Param(c,"texto",NpgsqlDbType.Text,filtro.Texto);
         Param(c,"tipo",NpgsqlDbType.Integer,filtro.Tipo is null ? null : (int)filtro.Tipo);
+        Param(c,"natureza",NpgsqlDbType.Integer,filtro.NaturezaDeOrigem is { } natureza ? (int)natureza : null);
         Param(c,"status",NpgsqlDbType.Integer,filtro.Status is null ? null : (int)filtro.Status);
         Param(c,"sensibilidade",NpgsqlDbType.Integer,filtro.Sensibilidade is null ? null : (int)filtro.Sensibilidade);
         Param(c,"desde",NpgsqlDbType.TimestampTz,filtro.CriadoDesde); Param(c,"ate",NpgsqlDbType.TimestampTz,filtro.CriadoAte);

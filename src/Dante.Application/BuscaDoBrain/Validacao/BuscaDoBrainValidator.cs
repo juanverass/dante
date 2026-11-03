@@ -8,6 +8,7 @@ internal static class BuscaDoBrainValidator
             filtro.Tipos.Count > 12 || filtro.Tipos.Any(t => !Enum.IsDefined(t)) || filtro.Tags.Count > 10 || filtro.Tags.Any(t => string.IsNullOrWhiteSpace(t) || t.Length > 100) ||
             filtro.IdConhecimento == Guid.Empty || string.IsNullOrWhiteSpace(filtro.Texto) && filtro.IdConhecimento is null ||
             filtro.CriadoDesde >= filtro.CriadoAte || filtro.ValidoEm == default(DateTimeOffset) ||
+            filtro.NaturezaDeOrigem is { } natureza && !Enum.IsDefined(natureza) ||
             filtro.Tipo is { } tipo && !Enum.IsDefined(tipo) || filtro.Status is { } status && !Enum.IsDefined(status) ||
             filtro.Sensibilidade is { } s && !Enum.IsDefined(s)) throw new ArgumentException("Filtro de busca inválido.");
     }

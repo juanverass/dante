@@ -26,6 +26,6 @@ public sealed class PoliticaDeSensibilidade
             permitido ? ProtecaoDeSegredos.Redigir(item.DadosEstruturados) : null,
             permitido ? item.Tags.Select(x => ProtecaoDeSegredos.Redigir(x)!).ToArray() : [],
             permitido ? ProtecaoDeSegredos.Redigir(item.Proveniencia.Origem) : null,
-            permitido ? ProtecaoDeSegredos.Redigir(item.Proveniencia.ReferenciaDaFonte) : null, !permitido);
+            permitido ? ProtecaoDeSegredos.Redigir(item.Proveniencia.ReferenciaDaFonte) : null, !permitido, item.NaturezaDeOrigem, item.Natureza);
     }
 }

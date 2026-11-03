@@ -30,7 +30,7 @@ public sealed class BuscaDoBrainAppService(IIndiceDeBusca indice, IGeradorDeEmbe
             var match = entrada.Match!;
             var item = await conhecimentos.ObterPorIdAsync(match.Id, cancellationToken);
             if (item is null || item.Revisao != match.Revisao || item.IdEspacoDeConhecimento != acesso.IdEspacoDeConhecimento ||
-                item.IdProjeto != acesso.IdProjeto || !item.EstaValidoEm(filtro.ValidoEm ?? DateTimeOffset.UtcNow)) continue;
+                item.IdProjeto != acesso.IdProjeto || filtro.NaturezaDeOrigem is { } natureza && item.NaturezaDeOrigem != natureza || !item.EstaValidoEm(filtro.ValidoEm ?? DateTimeOffset.UtcNow)) continue;
             var saida = politica.Projetar(item, acesso, FinalidadeDeLeitura.Busca);
             if (saida.ConteudoProtegido && filtro.IdConhecimento != item.Id) continue;
             resultados.Add(new(saida, OrigemDoResultado.Conhecimento, match.Score, match.ScoreLexical, match.ScoreSemantico,

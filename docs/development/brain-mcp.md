@@ -213,7 +213,7 @@ antigos confirmados continuam assim, mas novas confirmações exigem a regra atu
 A migration é aplicada apenas por administração explícita; startup não migra.
 
 A preservação do tipo semântico na captura/correção do agente está descrita abaixo
-(#266); filtros e rótulos de busca/Context Builder por natureza ficam para #267.
+(#266); filtros e rótulos de busca/Context Builder seguem as regras da #267 abaixo.
 
 ### Tipo semântico independente da autoria (#266)
 
@@ -227,4 +227,47 @@ natureza e no status persistidos, nunca no tipo.
 `Inferencia` permanece disponível para leitura e filtro de registros legados, sem
 reclassificação retroativa. Não há migration nesta entrega. A deduplicação continua
 considerando tipo, natureza, sensibilidade e conteúdo no escopo autorizado.
-A filtragem por natureza da #267 permanece fora deste fluxo.
+A filtragem por natureza da #267 é descrita a seguir.
+
+### Natureza na busca, contexto, inspeção e exportação (#267)
+
+`brain_buscar_conhecimento` aceita `natureza` opcional: `DitoPeloUsuario`,
+`FonteSelecionada`, `ConclusaoDoAgente` ou `Desconhecida`. Esse filtro compara
+**exclusivamente a natureza de origem**, não a natureza da revisão atual. É aplicado
+antes da paginação, em conjunto com o tipo/tags e o escopo/sensibilidade já autorizados.
+Na Application, o campo correspondente é `BuscaDoBrainSearchDto.NaturezaDeOrigem`.
+O filtro também é revalidado nos conhecimentos acrescentados por relações e pelo
+snapshot no Context Builder, sem resolver novas referências tipadas (#255).
+
+A resposta de busca expõe `Item.NaturezaDeOrigem`, `Item.Natureza`, `Item.Status` e
+`Item.Rotulo`. A consulta de origem de um conhecimento também traz esses campos,
+sem remover proveniência/histórico. O tipo continua semântico: `tipo=Inferencia`
+continua filtrando legados e `tipo=Fato` não comprova confirmação.
+
+O mesmo rótulo é usado no JSON injetado pelo Context Builder, na consulta natural,
+na inspeção e nas exportações Markdown/JSON. Origem do agente é sempre identificada
+como “Conclusão do agente, não confirmada”, mesmo após correção humana. Revisão do
+agente sobre origem humana é identificada como “Revisão do agente, não confirmada”.
+Origem desconhecida é “Autoria de origem desconhecida, não comprovada”; revisão
+antiga sem natureza é “Natureza da revisão não registrada; autoria não comprovada”.
+Avisos acumulam quando necessário. Confirmados com origem e revisão humanas mantêm
+“Confirmado”; inferidos/temporários humanos recebem “não confirmado”.
+
+Os campos e rótulos são **projeções de leitura**, não modificam status, natureza ou
+histórico persistidos. O JSON de auditoria mantém formato 1 com campos aditivos;
+revisões exportadas recebem rótulo usando a origem do item e a natureza daquela
+revisão. Não há migration, reclassificação de `Inferencia` ou inferência de autoria
+por texto/proveniência. Legado `Confirmado` de autoria desconhecida conserva o
+status armazenado e recebe o aviso de autoria não comprovada.
+
+Fontes brutas continuam separadas: expõem autoria explicitamente registrada e
+rótulo de fonte não confirmada, sem natureza de conhecimento artificial. Quando
+há filtro por natureza, **fontes brutas são excluídas**, inclusive no filtro
+`Desconhecida`; sem filtro, participam como antes. Snapshots continuam contexto
+operacional sem tipo/status/natureza de conhecimento.
+
+Cabeçalho, ranking, limites, deduplicação, algoritmo de estimativa e orçamento do
+pacote permanecem os mesmos. A serialização dos campos/rótulos novos é contabilizada
+antes da seleção: mais metadados podem reduzir o conteúdo que cabe no mesmo orçamento.
+Regras de autorização e redação de conteúdo sensível permanecem aplicadas em todos
+os canais; nada autoriza acesso ao banco canônico para testes.
