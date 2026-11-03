@@ -214,9 +214,17 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 var contextos = servicos.GetRequiredService<ContextoDeTrabalhoAppService>();
                 var snapshot = await contextos.RetomarAsync(acesso, ct);
                 if (snapshot is not null && snapshot.Revisao != Inteiro(args, "revisao")) throw ErroDoBrainMcp.Revisao();
+                var idsDecisoes = snapshot?.Dados.IdsDecisoesConfirmadas ?? [];
+                if (args.TryGetProperty("ids_decisoes_confirmadas", out _))
+                {
+                    idsDecisoes = IdsDecisoesConfirmadas(args);
+                    // Preserve a resolução autorizada e a recusa sem oráculo da #251. A Application
+                    // revalida tipo, confirmação, validade e classificação antes de salvar o snapshot.
+                    foreach (var idDecisao in idsDecisoes.Distinct()) await ConhecimentoAsync(idDecisao);
+                }
                 GarantirSemCredencial([Texto(args, "objetivo", 2000), Texto(args, "tarefa", 2000), Texto(args, "progresso", 2000), Texto(args, "ultimo_resultado", 2000),
                     .. Lista(args, "referencias"), .. Lista(args, "pendencias"), .. Lista(args, "proximos_passos")]);
-                var dados = new DadosDoContexto(Texto(args, "objetivo", 2000), Texto(args, "tarefa", 2000), Texto(args, "progresso", 2000), snapshot?.Dados.IdsDecisoesConfirmadas ?? [],
+                var dados = new DadosDoContexto(Texto(args, "objetivo", 2000), Texto(args, "tarefa", 2000), Texto(args, "progresso", 2000), idsDecisoes,
                     args.TryGetProperty("referencias", out _) ? Lista(args, "referencias") : snapshot?.Dados.Referencias ?? [],
                     args.TryGetProperty("pendencias", out _) ? Lista(args, "pendencias") : snapshot?.Dados.Pendencias ?? [],
                     args.TryGetProperty("proximos_passos", out _) ? Lista(args, "proximos_passos") : snapshot?.Dados.ProximosPassos ?? [], Texto(args, "ultimo_resultado", 2000));
@@ -350,6 +358,13 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
     private static JsonElement Campo(JsonElement a, string campo, JsonValueKind tipo) =>
         a.TryGetProperty(campo, out var valor) && valor.ValueKind == tipo ? valor : throw ErroDoBrainMcp.Entrada();
     private static Guid Id(JsonElement a, string campo) => Guid.TryParse(Texto(a, campo, 40), out var id) && id != Guid.Empty ? id : throw ErroDoBrainMcp.Entrada();
+    private static Guid[] IdsDecisoesConfirmadas(JsonElement a)
+    {
+        var lista = Campo(a, "ids_decisoes_confirmadas", JsonValueKind.Array);
+        if (lista.GetArrayLength() > 20) throw ErroDoBrainMcp.Entrada();
+        return lista.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String && x.GetString() is { Length: > 0 and <= 40 } s &&
+            Guid.TryParse(s, out var id) && id != Guid.Empty ? id : throw ErroDoBrainMcp.Entrada()).ToArray();
+    }
     private static int Inteiro(JsonElement a, string campo) => Campo(a, campo, JsonValueKind.Number).TryGetInt32(out var n) && n >= 0 ? n : throw ErroDoBrainMcp.Entrada();
     private static int Limite(JsonElement a) => a.TryGetProperty("limite", out _) ? Inteiro(a, "limite") is > 0 and <= ServidorMcpDoBrain.LimiteMaximo ? Inteiro(a, "limite") : throw ErroDoBrainMcp.Entrada() : ServidorMcpDoBrain.LimitePadrao;
     private static int Deslocamento(JsonElement a) => a.TryGetProperty("deslocamento", out _) ? Inteiro(a, "deslocamento") is <= ServidorMcpDoBrain.DeslocamentoMaximo ? Inteiro(a, "deslocamento") : throw ErroDoBrainMcp.Entrada() : 0;

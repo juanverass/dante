@@ -68,8 +68,11 @@ public static class ServidorMcpDoBrain
             new() { ["origem"] = Id(), ["destino"] = Id(), ["revisao_origem"] = Revisao(), ["revisao_destino"] = Revisao(), ["tipo"] = EnumCampo<Dante.Domain.RelacoesDeConhecimento.TipoDeRelacao>() }, ["origem", "destino", "revisao_origem", "revisao_destino", "tipo"]),
         new("brain_listar_relacoes", "Relações autorizadas de um conhecimento, limite máximo 25. Aceita somente ID de conhecimento ativo (retornado por brain_buscar_conhecimento); candidatos pendentes não têm relações.", true, false, new() { ["id"] = Id(), ["limite"] = Limite() }, ["id"]),
         new("brain_obter_contexto_de_trabalho", "Snapshot operacional atual, distinto de conhecimento.", true, false, new(), []),
-        new("brain_atualizar_contexto_de_trabalho", "Atualiza snapshot operacional com revisão esperada. Não armazena transcript nem raciocínio privado e não cria Conhecimento.", false, true,
+        new("brain_atualizar_contexto_de_trabalho", "Atualiza snapshot operacional com revisão esperada. Decisões do usuário devem ser referenciadas em ids_decisoes_confirmadas, não afirmadas em texto livre: use IDs de conhecimentos Decisao já confirmados no Telegram, válidos e permitidos no mesmo escopo. A lista informada substitui a anterior; [] limpa; omitir preserva. Não armazena transcript nem raciocínio privado e não cria Conhecimento.", false, true,
             new() { ["revisao"] = Revisao(), ["objetivo"] = Texto(2000), ["tarefa"] = Texto(2000), ["progresso"] = Texto(2000), ["ultimo_resultado"] = Texto(2000),
+                ["ids_decisoes_confirmadas"] = new JsonObject { ["type"] = "array", ["maxItems"] = 20,
+                    ["items"] = new JsonObject { ["type"] = "string", ["format"] = "uuid", ["maxLength"] = 40 },
+                    ["description"] = "Lista completa de até 20 IDs de decisões confirmadas, válidas, do escopo e compatíveis com a sessão e a sensibilidade do snapshot. Duplicatas são deduplicadas ao salvar. [] remove todas; omitir mantém a lista atual. IDs vêm da busca de conhecimentos, nunca do usuário nem de candidatos." },
                 ["referencias"] = Tags(), ["pendencias"] = Tags(), ["proximos_passos"] = Tags() }, ["revisao", "objetivo", "tarefa", "progresso", "ultimo_resultado"])
     ];
     public static IReadOnlyList<string> FerramentasDeLeitura => Ferramentas.Where(x => x.Leitura).Select(x => x.Nome).ToArray();

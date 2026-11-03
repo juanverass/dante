@@ -26,6 +26,10 @@ internal static class ContratoDoBrainParaAgentes
         brain_confirmar_candidato prepara consolidação de candidato. Aprovação MCP não confirma negócio:
         apresente a proposta e peça confirmar no Telegram. Atualização, consolidação de duplicatas, relação e descarte
         também exigem confirmação Telegram, com revalidação de escopo e revisões. Capture itens individualmente.
+        Para decisões do usuário no snapshot, capture a declaração literal como Decisao/DitoPeloUsuario,
+        aguarde confirmar no Telegram e consulte o conhecimento Confirmado. Use seu ID em ids_decisoes_confirmadas
+        de brain_atualizar_contexto_de_trabalho, em vez de afirmar decisões em texto livre. Envie a lista completa
+        para substituir referências, [] para remover todas; omitir o campo preserva as atuais. Nunca peça GUID ao usuário.
         Falha, ausência ou revogação das ferramentas significa indisponibilidade da capacidade interna do Brain;
         informe essa limitação sem inventar leitura ou persistência bem-sucedida, sem procurar plugins ou URL externa.
         Respeite autorização, sensibilidade, revisões e confirmação; nunca capture transcript ou raciocínio privado.
