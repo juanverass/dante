@@ -1,0 +1,18 @@
+{
+  "versao": 1,
+  "descricao": "Conjunto de validação da #280. Usa o mesmo corpus de busca-brain.json. Os resultados esperados foram definidos e versionados antes de qualquer consulta de scores, e o conjunto não participa da calibração nem do ajuste de parâmetros; serve só para a validação final.",
+  "consultas": [
+    { "id": "V01", "categoria": "literal", "texto": "pg_dump", "relevantes": ["procedimento-backup"] },
+    { "id": "V02", "categoria": "literal", "texto": "Tailscale", "relevantes": ["fato-tailscale"] },
+    { "id": "V03", "categoria": "parafrase", "texto": "onde ficam guardadas as estatísticas de retomada entre sessões?", "relevantes": ["fato-metricas"] },
+    { "id": "V04", "categoria": "parafrase", "texto": "quem tem permissão para falar com o robô?", "relevantes": ["fato-allowlist"] },
+    { "id": "V05", "categoria": "parafrase", "texto": "como o tamanho do contexto é calculado sem o contador oficial do modelo?", "relevantes": ["aprendizado-tokens"] },
+    { "id": "V06", "categoria": "parafrase", "texto": "existe máquina própria para rodar a integração contínua?", "relevantes": ["nota-runner"] },
+    { "id": "V07", "categoria": "outro-idioma", "texto": "how do we back up the knowledge database?", "relevantes": ["procedimento-backup"] },
+    { "id": "V08", "categoria": "outro-idioma", "texto": "tool errors must not reveal whether an identifier exists", "relevantes": ["decisao-erros-mcp"] },
+    { "id": "V09", "categoria": "sem-resposta", "texto": "qual a previsão do tempo para amanhã em Recife?", "relevantes": [] },
+    { "id": "V10", "categoria": "sem-resposta", "texto": "como configurar o Redis como cache do Worker?", "relevantes": [] },
+    { "id": "V11", "categoria": "sensibilidade", "texto": "onde está guardado o envelope do cofre?", "relevantes": [] },
+    { "id": "V12", "categoria": "sensibilidade", "texto": "qual o prazo que gera multa para o cliente Alfa?", "relevantes": [] }
+  ]
+}
