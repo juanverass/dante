@@ -40,9 +40,20 @@ prepare_environment() {
         fail "corrija $ENV_FILE e rode install novamente."
 }
 
+# Nunca remove silenciosamente EnvironmentFile de uma unidade já personalizada.
+# Drop-ins são mantidos pelo install; a migração de personalizações legadas é manual.
+check_installed_environment_files() {
+    [ -f "$UNIT_DIR/$SERVICE" ] || return 0
+    while IFS= read -r assignment; do
+        grep -Fqx -- "$assignment" "$REPO_ROOT/deploy/systemd/$SERVICE" ||
+            fail "unidade instalada tem EnvironmentFile personalizado ausente no template. Revise a migração para um drop-in antes de instalar; nenhum arquivo foi alterado."
+    done < <(sed -n 's/^[[:space:]]*\(EnvironmentFile=.*\)$/\1/p' "$UNIT_DIR/$SERVICE")
+}
+
 install_service() {
     require_user_systemd
     command -v dotnet >/dev/null || fail "dotnet não encontrado no PATH."
+    check_installed_environment_files
     prepare_environment
 
     # Publish beside the current build and swap, so a running service never sees a half-written app.
@@ -56,6 +67,7 @@ install_service() {
     rm -rf "$APP_DIR.old"
 
     mkdir -p "$UNIT_DIR"
+    # Não copia exemplos nem altera $UNIT_DIR/$SERVICE.d: complementos são do operador.
     install -m 644 "$REPO_ROOT/deploy/systemd/$SERVICE" "$UNIT_DIR/$SERVICE"
     systemctl --user daemon-reload
 

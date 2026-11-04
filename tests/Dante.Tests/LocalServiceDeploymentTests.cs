@@ -15,7 +15,9 @@ public sealed class LocalServiceDeploymentTests : IDisposable
         var unit = Directives(Read("deploy", "systemd", "dante.service"));
 
         Assert.Equal("/usr/bin/env dotnet %h/.local/share/dante/app/Dante.Worker.dll", Assert.Single(unit["ExecStart"]));
-        Assert.Equal("%h/.config/dante/dante.env", Assert.Single(unit["EnvironmentFile"]));
+        // Contrato obrigatório do template; arquivos complementares são suportados pelo systemd.
+        Assert.Single(unit["EnvironmentFile"], value => value == "%h/.config/dante/dante.env");
+        Assert.DoesNotContain(unit["EnvironmentFile"], string.IsNullOrWhiteSpace);
         Assert.Equal("on-failure", Assert.Single(unit["Restart"]));
         Assert.Equal("mixed", Assert.Single(unit["KillMode"]));
         Assert.Equal("yes", Assert.Single(unit["NoNewPrivileges"]));
@@ -140,6 +142,65 @@ public sealed class LocalServiceDeploymentTests : IDisposable
         var calls = Calls();
         Assert.DoesNotContain("systemctl --user enable dante.service", calls);
         Assert.DoesNotContain("systemctl --user restart dante.service", calls);
+    }
+
+    [Fact]
+    public void ComposicaoOperacionalAcrescentaAmbienteSemRedefinirExecucaoOuPrivilegios()
+    {
+        var template = Directives(Read("deploy", "systemd", "dante.service"));
+        var complemento = Directives(Read("deploy", "systemd", "examples", "brain-runtime.conf.example"));
+        Assert.Equal("EnvironmentFile", Assert.Single(complemento.Keys));
+        Assert.Equal("%h/.config/dante/brain-runtime-connection.env", Assert.Single(complemento["EnvironmentFile"]));
+        var arquivos = template["EnvironmentFile"].Concat(complemento["EnvironmentFile"]).Distinct().ToArray();
+        Assert.Contains("%h/.config/dante/dante.env", arquivos);
+        Assert.Contains("%h/.config/dante/brain-runtime-connection.env", arquivos);
+        Assert.DoesNotContain(arquivos, string.IsNullOrWhiteSpace); // Nenhum reset da lista.
+    }
+
+    [Fact]
+    public void InstalacaoEAtualizacaoPreservamDropInEAmbientesExistentes()
+    {
+        if (!CanRunScripts()) return;
+        var home = Home(null);
+        var ambiente = Path.Combine(home, ".config", "dante", "dante.env");
+        const string conteudo = "Telegram__BotToken=123:abc\nTelegram__AllowedUserIds=1\n";
+        File.WriteAllText(ambiente, conteudo);
+        var runtime = Path.Combine(home, ".config", "dante", "brain-runtime-connection.env");
+        File.WriteAllText(runtime, "CONFIGURACAO_LOCAL=valor-ficticio\n");
+        var dir = Path.Combine(home, ".config", "systemd", "user", "dante.service.d");
+        Directory.CreateDirectory(dir);
+        var dropIn = Path.Combine(dir, "50-brain-runtime.conf");
+        var complemento = Read("deploy", "systemd", "examples", "brain-runtime.conf.example");
+        File.WriteAllText(dropIn, complemento);
+        for (var i = 0; i < 2; i++)
+        {
+            var result = RunInstall(home);
+            Assert.True(result.ExitCode == 0, result.Output);
+            Assert.Equal(conteudo, File.ReadAllText(ambiente));
+            Assert.Equal("CONFIGURACAO_LOCAL=valor-ficticio\n", File.ReadAllText(runtime));
+            Assert.Equal(complemento, File.ReadAllText(dropIn));
+            Assert.Equal(Read("deploy", "systemd", "dante.service"),
+                File.ReadAllText(Path.Combine(home, ".config", "systemd", "user", "dante.service")));
+        }
+    }
+
+    [Fact]
+    public void AtualizacaoRecusaPerderArquivoDeAmbienteDaUnidadeLegada()
+    {
+        if (!CanRunScripts()) return;
+        var home = Home(null);
+        var unit = Path.Combine(home, ".config", "systemd", "user", "dante.service");
+        Directory.CreateDirectory(Path.GetDirectoryName(unit)!);
+        var original = Read("deploy", "systemd", "dante.service") +
+            "\n[Service]\nEnvironmentFile=%h/.config/dante/personalizacao-legada.env\n";
+        File.WriteAllText(unit, original);
+        var result = RunInstall(home);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("Revise a migração", result.Output);
+        Assert.Equal(original, File.ReadAllText(unit));
+        Assert.False(File.Exists(Path.Combine(home, ".config", "dante", "dante.env")));
+        Assert.DoesNotContain(Calls(), call => call.StartsWith("dotnet", StringComparison.Ordinal) ||
+            call.Contains("stop", StringComparison.Ordinal) || call.Contains("restart", StringComparison.Ordinal));
     }
 
     private string Home(string? manualEnvironment)

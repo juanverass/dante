@@ -1,0 +1,5 @@
+# Exemplo de drop-in local, não instalado automaticamente.
+# Destino proposto: ~/.config/systemd/user/dante.service.d/50-brain-runtime.conf
+# O arquivo de ambiente deve existir, ser do usuário e ter permissão 600.
+[Service]
+EnvironmentFile=%h/.config/dante/brain-runtime-connection.env
