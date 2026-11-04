@@ -806,6 +806,20 @@ mensagem própria mantém fonte selecionada. Outro autor ou ausência de autor n
 de candidatos. A migration 20261102150504 acrescenta autoria Desconhecida ao legado,
 sem reclassificar registros: gerar candidato exige reimportação com autoria conhecida.
 
+## Evidências do agente como fonte bruta (#257, AD-60)
+
+`brain_registrar_evidencia` registra uma evidência Markdown por chamada como
+DocumentoFonte de autoria Agente, no escopo da sessão, com origem `evidencia:<guid>`,
+título, tags, justificativa opcional e proveniência de sessão única em colunas
+próprias (migration 20261103205445; legado fica neutro). Recusa credenciais, marcadores
+de transcript/raciocínio privado (regra compartilhada com o snapshot), Confidencial/
+Secreto e conteúdo acima de 20 mil caracteres. Retorna `fonte:<id>@<rev>`, resolvida
+pelo Context Builder como `fonte_bruta`. Conteúdo repetido gera outro registro e
+só é sinalizado em `possivelDuplicidade`. Nunca cria candidato ou conhecimento; candidato
+gerado do trecho é conclusão do agente e permanece inferido. O filtro de tags da busca e
+do Context Builder alcança fontes com todas as tags; demais filtros canônicos seguem
+excluindo fontes. Importação Telegram/CLI e unicidade de origem não mudaram.
+
 ## Natureza persistida e confirmação única (#265, AD-59)
 
 Conhecimento conserva natureza de origem imutável e natureza vigente, também

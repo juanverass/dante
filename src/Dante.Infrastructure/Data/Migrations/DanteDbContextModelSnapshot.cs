@@ -327,11 +327,21 @@ namespace Dante.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id_responsavel");
 
+                    b.Property<string>("Justificativa")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("justificativa");
+
                     b.Property<string>("Origem")
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("origem");
+
+                    b.Property<string>("Proveniencia")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("proveniencia");
 
                     b.Property<bool>("Removido")
                         .HasColumnType("boolean")
@@ -345,6 +355,18 @@ namespace Dante.Infrastructure.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("sensibilidade");
 
+                    b.Property<string[]>("Tags")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasColumnName("tags")
+                        .HasDefaultValueSql("'{}'::text[]");
+
+                    b.Property<string>("Titulo")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("titulo");
+
                     b.Property<uint>("Versao")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -354,6 +376,8 @@ namespace Dante.Infrastructure.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("IdProjeto", "IdEspacoDeConhecimento");
+
+                    b.HasIndex("IdEspacoDeConhecimento", "IdProjeto", "Hash");
 
                     b.HasIndex("IdEspacoDeConhecimento", "IdProjeto", "Origem")
                         .IsUnique();

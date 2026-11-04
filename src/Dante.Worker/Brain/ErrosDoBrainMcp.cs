@@ -26,6 +26,7 @@ public static class ErrosDoBrainMcp
     // Detalhes fixos e úteis ao agente; nenhum depende de dado persistido.
     public const string DetalheOrigemLiteral = "Conteúdo não consta da mensagem de origem do usuário; classifique como ConclusaoDoAgente.";
     public const string DetalheCredencial = "Possível credencial detectada; use uma referência secret://host/NOME, nunca o valor.";
+    public const string DetalheConteudoOperacional = "Registre somente resultados operacionais selecionados, sem transcript nem raciocínio privado.";
     public const string DetalheSensibilidade = "Agentes registram somente sensibilidade Publico, Pessoal ou Trabalho.";
     public const string DetalheReducaoDeSensibilidade = "A atualização não reduz a sensibilidade do conhecimento.";
     public const string DetalheNatureza = "A correção não altera a natureza do candidato.";

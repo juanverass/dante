@@ -36,7 +36,9 @@ public sealed class ConsultaDaConversa(BuscaDoBrainAppService busca, IConhecimen
             var fonte=await fontes.ObterPorIdAsync(alvo.Id,cancellationToken);
             if(fonte is null || fonte.Removido || fonte.Revisao!=alvo.Revisao || fonte.IdEspacoDeConhecimento!=conversa.Acesso.IdEspacoDeConhecimento || fonte.IdProjeto!=conversa.Acesso.IdProjeto || !conversa.Permitida(fonte.Sensibilidade))
                 return "A fonte mudou, foi removida ou está protegida; refaça a consulta.";
-            return $"Fonte bruta: {Resumir(fonte.Origem,500)}. Formato: {fonte.Formato}; revisão {fonte.Revisao}; hash {fonte.Hash[..12]}. {RotulagemDoConhecimento.RotularFonte(fonte.Autoria)}. Importar não confirmou o conteúdo.";
+            // Evidências da #257 explicam título e quem registrou; fontes sem metadados mantêm a apresentação anterior.
+            var registro=(fonte.Titulo is null?"":$" Título: {Resumir(fonte.Titulo,200)}.")+(fonte.Proveniencia is null?"":$" Registrada por: {Resumir(fonte.Proveniencia,300)}.");
+            return $"Fonte bruta: {Resumir(fonte.Origem,500)}.{registro} Formato: {fonte.Formato}; revisão {fonte.Revisao}; hash {fonte.Hash[..12]}. {RotulagemDoConhecimento.RotularFonte(fonte.Autoria)}. Importar não confirmou o conteúdo.";
         }
         var item=await CarregarAsync(conversa, alvo, cancellationToken);
         var provas=item.Historico.Where(x=>conversa.Permitida(x.Sensibilidade)).Select(x=>x.Proveniencia).Where(x=>x.ReferenciaDaFonte is not null).Distinct().Take(5).ToArray();

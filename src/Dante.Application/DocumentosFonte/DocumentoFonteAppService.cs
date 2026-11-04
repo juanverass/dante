@@ -38,6 +38,34 @@ public sealed class DocumentoFonteAppService(IDocumentoFonteRepository fontes, I
         }
         await unitOfWork.SalvarAlteracoesAsync(cancellationToken); return ParaDto(fonte);
     }
+    public const int TamanhoMaximoDaEvidencia = 20_000;
+    public const int LimiteDePossiveisDuplicidades = 10;
+    // Evidência do agente (#257): sempre nova fonte bruta com autoria Agente; nunca cria candidato ou conhecimento.
+    // Mesmo conteúdo repetido gera outro registro, preservando proveniência e metadados de cada ocorrência.
+    public async Task<EvidenciaRegistradaDto> RegistrarEvidenciaAsync(AcessoAoBrain acesso, RegistroDeEvidenciaDto evidencia,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(evidencia);
+        await leitura.ValidarAcessoAsync(acesso, cancellationToken);
+        if (!SensibilidadeDeAgente(evidencia.Sensibilidade)) throw new ArgumentException("Agentes registram evidências somente como Publico, Pessoal ou Trabalho.");
+        if (string.IsNullOrWhiteSpace(evidencia.Conteudo) || evidencia.Conteudo.Length > TamanhoMaximoDaEvidencia)
+            throw new ArgumentException($"Evidência deve ter conteúdo de até {TamanhoMaximoDaEvidencia} caracteres.");
+        if (string.IsNullOrWhiteSpace(evidencia.Proveniencia)) throw new ArgumentException("Proveniência da evidência obrigatória.");
+        string?[] textos = [evidencia.Titulo, evidencia.Conteudo, evidencia.Justificativa, evidencia.Proveniencia, .. evidencia.Tags ?? []];
+        ProtecaoDeSegredos.GarantirSeguro(textos);
+        ProtecaoDeConteudoOperacional.Garantir(textos, "Evidência aceita somente resultados operacionais selecionados.");
+        var fonte = new DocumentoFonte(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, $"evidencia:{Guid.NewGuid():D}", "markdown",
+            evidencia.Conteudo, AutoriaDaFonte.Agente, evidencia.Sensibilidade, acesso.IdUsuario, DateTimeOffset.UtcNow,
+            evidencia.Titulo, evidencia.Tags, evidencia.Justificativa, evidencia.Proveniencia);
+        // Só referências que o agente já poderia ler; itens protegidos não são revelados nem ocupam o limite.
+        var iguais = (await fontes.ListarPorHashAsync(acesso, fonte.Hash, SensibilidadesDeAgente, LimiteDePossiveisDuplicidades, cancellationToken))
+            .Select(x => ParaDto(x).Referencia).ToArray();
+        await fontes.AdicionarAsync(fonte, cancellationToken);
+        await unitOfWork.SalvarAlteracoesAsync(cancellationToken);
+        return new(ParaDto(fonte), iguais);
+    }
+    private static readonly Sensibilidade[] SensibilidadesDeAgente = [Sensibilidade.Publico, Sensibilidade.Pessoal, Sensibilidade.Trabalho];
+    private static bool SensibilidadeDeAgente(Sensibilidade s) => SensibilidadesDeAgente.Contains(s);
     public async Task<DocumentoFonteDto> ImportarArquivoAsync(AcessoAoBrain acesso, string caminho, Sensibilidade sensibilidade,
         int? revisaoEsperada = null, CancellationToken cancellationToken = default)
     {

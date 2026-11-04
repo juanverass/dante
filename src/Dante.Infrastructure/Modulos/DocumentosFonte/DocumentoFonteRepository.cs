@@ -1,3 +1,4 @@
+using Dante.Domain.Conhecimentos;
 using Dante.Application.DocumentosFonte;
 using Dante.Application.SegurancaDoBrain;
 using Dante.Domain.DocumentosFonte;
@@ -12,4 +13,9 @@ public sealed class DocumentoFonteRepository(DanteDbContext c) : Repository<Docu
     public async Task<IReadOnlyList<DocumentoFonte>> ListarAsync(AcessoAoBrain acesso, int limite, CancellationToken cancellationToken = default) =>
         await DbSet.Where(x => x.IdEspacoDeConhecimento == acesso.IdEspacoDeConhecimento && x.IdProjeto == acesso.IdProjeto && !x.Removido)
             .OrderBy(x => x.Origem).ThenBy(x => x.Id).Take(limite).ToListAsync(cancellationToken);
+    public async Task<IReadOnlyList<DocumentoFonte>> ListarPorHashAsync(AcessoAoBrain acesso, string hash, IReadOnlyCollection<Sensibilidade> permitidas, int limite,
+        CancellationToken cancellationToken = default) =>
+        await DbSet.Where(x => x.IdEspacoDeConhecimento == acesso.IdEspacoDeConhecimento && x.IdProjeto == acesso.IdProjeto && !x.Removido && x.Hash == hash &&
+                permitidas.Contains(x.Sensibilidade))
+            .OrderByDescending(x => x.AtualizadoEm).ThenBy(x => x.Id).Take(limite).ToListAsync(cancellationToken);
 }
