@@ -67,7 +67,8 @@ public sealed class PoliticaDeSensibilidadeTests
         Dante.Application.DependencyInjection.AddApplication(services);
         using var provider = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services);
         var captura = new Dante.Application.CapturaDeConhecimento.CapturaDeConhecimentoAppService(new CandidatoDeConhecimentoRepository(c),
-            new ConhecimentoRepository(c), new EspacoDeConhecimentoRepository(c), new ProjetoRepository(c), new RelacaoDeConhecimentoRepository(c), new UnitOfWork(c),
+            new ConhecimentoRepository(c), new EspacoDeConhecimentoRepository(c), new ProjetoRepository(c), new RelacaoDeConhecimentoRepository(c),
+            new Dante.Infrastructure.Modulos.CapturaDeConhecimento.VinculoEntreCandidatosRepository(c), new UnitOfWork(c),
             Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Dante.Application.Mapeamento.IMapsterTypeAdapter>(provider));
         await Assert.ThrowsAsync<ArgumentException>(() => captura.CapturarAsync(new() { IdEspacoDeConhecimento = espaco.Id,
             Conteudo = "senha=abc123456", Sensibilidade = Sensibilidade.Secreto }));

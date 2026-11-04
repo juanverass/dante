@@ -119,6 +119,95 @@ namespace Dante.Infrastructure.Data.Migrations
                     b.ToTable("candidatos_de_conhecimento", "brain_data");
                 });
 
+            modelBuilder.Entity("Dante.Domain.CapturaDeConhecimento.VinculoEntreCandidatos", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("AtualizadoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("atualizado_em");
+
+                    b.Property<DateTimeOffset>("CriadoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("criado_em");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("integer")
+                        .HasColumnName("estado");
+
+                    b.Property<Guid>("IdCandidatoIncidente")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_candidato_incidente");
+
+                    b.Property<Guid>("IdCandidatoSolucao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_candidato_solucao");
+
+                    b.Property<Guid?>("IdConhecimentoIncidente")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_conhecimento_incidente");
+
+                    b.Property<Guid?>("IdConhecimentoSolucao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_conhecimento_solucao");
+
+                    b.Property<Guid>("IdEspacoDeConhecimento")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_espaco_de_conhecimento");
+
+                    b.Property<Guid?>("IdProjeto")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_projeto");
+
+                    b.Property<Guid?>("IdRelacao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_relacao");
+
+                    b.Property<string>("MotivoDoEncerramento")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("motivo_do_encerramento");
+
+                    b.Property<string>("Proveniencia")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("proveniencia");
+
+                    b.Property<string>("ProvenienciaDoEncerramento")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("proveniencia_do_encerramento");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdCandidatoIncidente");
+
+                    b.HasIndex("IdCandidatoSolucao");
+
+                    b.HasIndex("IdRelacao");
+
+                    b.HasIndex("IdConhecimentoIncidente", "IdEspacoDeConhecimento");
+
+                    b.HasIndex("IdConhecimentoSolucao", "IdEspacoDeConhecimento");
+
+                    b.HasIndex("IdEspacoDeConhecimento", "IdCandidatoSolucao");
+
+                    b.HasIndex("IdProjeto", "IdEspacoDeConhecimento");
+
+                    b.HasIndex("IdEspacoDeConhecimento", "IdCandidatoIncidente", "IdCandidatoSolucao")
+                        .IsUnique()
+                        .HasDatabaseName("IX_vinculos_entre_candidatos_id_espaco_de_conhecimento_id_can~1");
+
+                    b.ToTable("vinculos_entre_candidatos", "brain_data");
+                });
+
             modelBuilder.Entity("Dante.Domain.Conhecimentos.Conhecimento", b =>
                 {
                     b.Property<Guid>("Id")
@@ -570,6 +659,51 @@ namespace Dante.Infrastructure.Data.Migrations
                     b.HasOne("Dante.Domain.Conhecimentos.Conhecimento", null)
                         .WithMany()
                         .HasForeignKey("IdSolucao", "IdEspacoDeConhecimento")
+                        .HasPrincipalKey("Id", "IdEspacoDeConhecimento")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Dante.Domain.CapturaDeConhecimento.VinculoEntreCandidatos", b =>
+                {
+                    b.HasOne("Dante.Domain.CapturaDeConhecimento.CandidatoDeConhecimento", null)
+                        .WithMany()
+                        .HasForeignKey("IdCandidatoIncidente")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.CapturaDeConhecimento.CandidatoDeConhecimento", null)
+                        .WithMany()
+                        .HasForeignKey("IdCandidatoSolucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_vinculos_entre_candidatos_candidatos_de_conhecimento_id_ca~1");
+
+                    b.HasOne("Dante.Domain.EspacosDeConhecimento.EspacoDeConhecimento", null)
+                        .WithMany()
+                        .HasForeignKey("IdEspacoDeConhecimento")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.RelacoesDeConhecimento.RelacaoDeConhecimento", null)
+                        .WithMany()
+                        .HasForeignKey("IdRelacao")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Dante.Domain.Conhecimentos.Conhecimento", null)
+                        .WithMany()
+                        .HasForeignKey("IdConhecimentoIncidente", "IdEspacoDeConhecimento")
+                        .HasPrincipalKey("Id", "IdEspacoDeConhecimento")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Dante.Domain.Conhecimentos.Conhecimento", null)
+                        .WithMany()
+                        .HasForeignKey("IdConhecimentoSolucao", "IdEspacoDeConhecimento")
+                        .HasPrincipalKey("Id", "IdEspacoDeConhecimento")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Dante.Domain.Projetos.Projeto", null)
+                        .WithMany()
+                        .HasForeignKey("IdProjeto", "IdEspacoDeConhecimento")
                         .HasPrincipalKey("Id", "IdEspacoDeConhecimento")
                         .OnDelete(DeleteBehavior.Restrict);
                 });

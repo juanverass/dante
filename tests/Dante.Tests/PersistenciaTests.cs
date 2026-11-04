@@ -48,8 +48,8 @@ public sealed class PersistenciaTests
     {
         using var context = new DanteDbContext(new DbContextOptionsBuilder<DanteDbContext>()
             .UseNpgsql("Host=localhost;Database=nao_conectar").Options);
-        Assert.Equal(7, context.Model.GetEntityTypes().Count());
-        Assert.Equal(13, context.Database.GetMigrations().Count());
+        Assert.Equal(8, context.Model.GetEntityTypes().Count());
+        Assert.Equal(14, context.Database.GetMigrations().Count());
         Assert.False(context.Database.HasPendingModelChanges());
         var script = context.GetService<IMigrator>().GenerateScript();
         Assert.Contains("brain_data", script);
@@ -119,7 +119,7 @@ public sealed class PersistenciaTests
             {
                 await production.Database.MigrateAsync();
                 await production.Database.MigrateAsync();
-                Assert.Equal(13, (await production.Database.GetAppliedMigrationsAsync()).Count());
+                Assert.Equal(14, (await production.Database.GetAppliedMigrationsAsync()).Count());
                 Assert.Empty(await production.Database.GetPendingMigrationsAsync());
                 await production.GetService<IMigrator>().MigrateAsync("0");
                 Assert.Empty(await production.Database.GetAppliedMigrationsAsync());
@@ -185,6 +185,7 @@ public sealed class PersistenciaTests
             base.OnModelCreating(modelBuilder);
             modelBuilder.Ignore<Dante.Domain.ContextosDeTrabalho.ContextoDeTrabalho>();
             modelBuilder.Ignore<Dante.Domain.CapturaDeConhecimento.CandidatoDeConhecimento>();
+            modelBuilder.Ignore<Dante.Domain.CapturaDeConhecimento.VinculoEntreCandidatos>();
             modelBuilder.Ignore<Dante.Domain.RelacoesDeConhecimento.RelacaoDeConhecimento>();
             modelBuilder.Ignore<Dante.Domain.Conhecimentos.Conhecimento>();
             modelBuilder.Ignore<Dante.Domain.Projetos.Projeto>();
@@ -213,6 +214,15 @@ public sealed class PersistenciaTests
 public sealed class PostgreSqlFactAttribute : FactAttribute
 {
     public PostgreSqlFactAttribute()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DANTE_TEST_POSTGRES")))
+            Skip = "Defina DANTE_TEST_POSTGRES para PostgreSQL de teste com permissão CREATE DATABASE.";
+    }
+}
+
+public sealed class PostgreSqlTheoryAttribute : TheoryAttribute
+{
+    public PostgreSqlTheoryAttribute()
     {
         if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DANTE_TEST_POSTGRES")))
             Skip = "Defina DANTE_TEST_POSTGRES para PostgreSQL de teste com permissão CREATE DATABASE.";

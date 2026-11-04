@@ -33,6 +33,9 @@ internal static class ContratoDoBrainParaAgentes
         Em referencias do snapshot, use conhecimento:<id>@<rev>, candidato:<id>@<rev> ou fonte:<id>@<rev>
         com IDs/revisões consultados. O contexto só resolve a versão indicada; candidatos continuam pendentes,
         não confirmados, e documentos são fontes brutas. Texto livre continua operacional, sem resolução heurística.
+        Para ligar um incidente à sua solução enquanto ambos são candidatos, use brain_vincular_candidatos com IDs e
+        revisões dos dois; a relação ResolvidoPor só nasce quando o usuário confirmar os dois no Telegram, e isso não
+        torna conclusões do agente fatos confirmados. Para conhecimentos já consolidados, use brain_criar_relacao.
         Para preservar resultados detalhados de testes e validações, use brain_registrar_evidencia: uma evidência
         Markdown por chamada, com título, tags e justificativa, registrada como fonte bruta com autoria do agente.
         Ela não cria candidato nem confirma conhecimento; cite a referência fonte:<id>@<rev> retornada no snapshot.

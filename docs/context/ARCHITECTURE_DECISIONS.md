@@ -2128,3 +2128,32 @@ Por quê: o snapshot resumido e substituível perdia resultados detalhados (#147
 metadados embutidos na origem ou no Markdown misturariam registro com evidência e
 alterariam o hash. Edição/remoção pelo MCP e extração automática de candidatos ficam
 fora. Guia: [Brain MCP](../development/brain-mcp.md#evidências-de-teste-como-fonte-bruta-257) e [fontes](../development/fontes.md).
+
+## AD-61 — Intenção de vínculo entre candidatos, efetivada na consolidação (#259)
+
+Status: vigente. A condição de efetivação ("dois lados consolidados", sem exigir
+`Status = Confirmado`) aguarda validação do mantenedor na revisão da #259.
+
+A intenção de `ResolvidoPor` entre dois candidatos pendentes é a entidade
+`VinculoEntreCandidatos`, separada de `RelacaoDeConhecimento`, que continua existindo só
+entre conhecimentos. O agente a registra por `brain_vincular_candidatos`; nenhuma relação é
+criada nesse momento. Quando cada candidato é promovido pela confirmação do usuário no
+Telegram, a mesma transação registra o lado consolidado; com os dois lados consolidados,
+ativos, no escopo e com tipos Incidente → Solucao, cria a relação uma única vez
+(`ObterEquivalenteAsync` e índice único) e marca a intenção como aplicada. Caso contrário,
+a intenção é cancelada sem falhar a confirmação. Descartar ou rejeitar um lado cancela a
+intenção na mesma transação. Cada consolidação grava a intenção, de modo que confirmações
+concorrentes conflitam pelo token de concorrência em vez de deixá-la pendente para sempre.
+
+A efetivação exige consolidação pelo usuário, não `Status = Confirmado`: pela AD-59 (I1),
+conclusões do agente nunca são confirmadas, e exigir o status impediria vincular incidente
+e solução diagnosticados pelo agente (caso da #147). A relação não altera tipo, natureza
+nem status de nenhum lado, como as relações já criadas por `brain_criar_relacao` entre
+conhecimentos `Inferido`.
+
+Alternativa rejeitada: expor `IdIncidente`/`IdSolucao` no MCP. Esses campos referenciam
+conhecimentos já consolidados a partir de um terceiro candidato `Aprendizado` e criam
+também `ProduziuAprendizado`; reaproveitá-los para candidatos mudaria a semântica
+existente, que permanece inalterada. Guardar a intenção no histórico JSON do candidato
+evitaria a tabela, mas tornaria frágeis a busca reversa e a concorrência.
+Guia: [Brain MCP](../development/brain-mcp.md#vínculo-incidente--solução-entre-candidatos-259).

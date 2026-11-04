@@ -12,7 +12,8 @@ namespace Dante.Application.CapturaDeConhecimento;
 
 public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepository candidatos,
     IConhecimentoRepository conhecimentos, IEspacoDeConhecimentoRepository espacos, IProjetoRepository projetos,
-    IRelacaoDeConhecimentoRepository relacoes, IUnitOfWork unitOfWork, IMapsterTypeAdapter typeAdapter, AutorizacaoDoBrain? autorizacao = null) : ICapturaDeConhecimentoAppService
+    IRelacaoDeConhecimentoRepository relacoes, IVinculoEntreCandidatosRepository vinculos, IUnitOfWork unitOfWork, IMapsterTypeAdapter typeAdapter,
+    AutorizacaoDoBrain? autorizacao = null) : ICapturaDeConhecimentoAppService
 {
     public async Task<CandidatoDeConhecimentoDto> CapturarAsync(CapturaDeConhecimentoDto captura, CancellationToken cancellationToken = default)
     {
@@ -64,6 +65,7 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
         ConhecimentoAppService.ParaProveniencia(new ProvenienciaDto { IdResponsavel = candidato.Proveniencia.IdResponsavel, Origem = candidato.Proveniencia.Origem, ReferenciaDaFonte = candidato.Proveniencia.ReferenciaDaFonte, TrechoDaFonte = candidato.Proveniencia.TrechoDaFonte });
         var conhecimento = candidato.Promover(revisaoEsperada, p, instante);
         await conhecimentos.AdicionarAsync(conhecimento, cancellationToken);
+        await EfetivarVinculosAsync(candidato, conhecimento, p, instante, cancellationToken);
         if (candidato.IdIncidente is not null)
         {
             var incidente = (await conhecimentos.ObterPorIdAsync(candidato.IdIncidente.Value, cancellationToken))!;
@@ -84,8 +86,12 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
     private async Task EncerrarAsync(Guid espaco, Guid? projeto, Guid id, int revisao, ProvenienciaDto p, bool descartar, CancellationToken ct)
     {
         var candidato = await ObterAsync(espaco, projeto, id, false, ct);
-        if (descartar) candidato.Descartar(revisao, ConhecimentoAppService.ParaProveniencia(p), DateTimeOffset.UtcNow);
-        else candidato.Rejeitar(revisao, ConhecimentoAppService.ParaProveniencia(p), DateTimeOffset.UtcNow);
+        var prova = ConhecimentoAppService.ParaProveniencia(p); var instante = DateTimeOffset.UtcNow;
+        if (descartar) candidato.Descartar(revisao, prova, instante);
+        else candidato.Rejeitar(revisao, prova, instante);
+        // Um lado encerrado nunca será consolidado: a intenção é cancelada na mesma transação, sem relação órfã.
+        foreach (var vinculo in await vinculos.ListarDoCandidatoAsync(espaco, candidato.Id, true, ct))
+        { vinculo.Cancelar(descartar ? "Candidato descartado." : "Candidato rejeitado.", prova, instante); vinculos.Atualizar(vinculo); }
         candidatos.Atualizar(candidato); await unitOfWork.SalvarAlteracoesAsync(ct);
     }
     public async Task<IReadOnlyList<CandidatoDeConhecimentoDto>> ListarPendentesAsync(Guid idEspaco, Guid? idProjeto, int limite = 50, CancellationToken cancellationToken = default, int deslocamento = 0,
@@ -96,6 +102,26 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
         CandidatoDeConhecimentoValidator.ValidarFiltros(tags, texto);
         await GarantirEscopoAsync(idEspaco, idProjeto, false, cancellationToken);
         return (await candidatos.ListarPendentesAsync(idEspaco, idProjeto, limite, cancellationToken, deslocamento, tags, texto)).Select(ParaDto).ToArray();
+    }
+    // #259: registra a intenção de ResolvidoPor entre dois candidatos pendentes; não cria relação nem confirma nada.
+    public async Task<VinculoEntreCandidatosDto> VincularAsync(Guid idEspaco, Guid? idProjeto, Guid idIncidente, int revisaoIncidente,
+        Guid idSolucao, int revisaoSolucao, ProvenienciaDto responsavel, CancellationToken cancellationToken = default)
+    {
+        var incidente = await ObterAsync(idEspaco, idProjeto, idIncidente, true, cancellationToken);
+        var solucao = await ObterAsync(idEspaco, idProjeto, idSolucao, true, cancellationToken);
+        if (incidente.Estado != EstadoDoCandidato.Pendente || incidente.Revisao != revisaoIncidente ||
+            solucao.Estado != EstadoDoCandidato.Pendente || solucao.Revisao != revisaoSolucao)
+            throw new InvalidOperationException("Candidato encerrado ou revisão desatualizada.");
+        var existente = await vinculos.ObterDoParAsync(idEspaco, idIncidente, idSolucao, cancellationToken);
+        if (existente is not null) return VinculoEntreCandidatosDto.De(existente);
+        var vinculo = new VinculoEntreCandidatos(incidente, solucao, ConhecimentoAppService.ParaProveniencia(responsavel), DateTimeOffset.UtcNow);
+        await vinculos.AdicionarAsync(vinculo, cancellationToken); await unitOfWork.SalvarAlteracoesAsync(cancellationToken);
+        return VinculoEntreCandidatosDto.De(vinculo);
+    }
+    public async Task<IReadOnlyList<VinculoEntreCandidatosDto>> ListarVinculosAsync(Guid idEspaco, Guid? idProjeto, Guid idCandidato, CancellationToken cancellationToken = default)
+    {
+        var candidato = await ObterAsync(idEspaco, idProjeto, idCandidato, false, cancellationToken);
+        return (await vinculos.ListarDoCandidatoAsync(idEspaco, candidato.Id, false, cancellationToken)).Select(VinculoEntreCandidatosDto.De).ToArray();
     }
     public async Task<CandidatoDeConhecimentoDto> ObterCandidatoAsync(Guid idEspaco, Guid? idProjeto, Guid id, CancellationToken cancellationToken = default) =>
         ParaDto(await ObterAsync(idEspaco, idProjeto, id, false, cancellationToken));
@@ -120,6 +146,30 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
         {
             var p = await projetos.ObterPorIdAsync(projeto.Value, ct) ?? throw new ArgumentException("Projeto não encontrado.");
             if (p.IdEspacoDeConhecimento != espaco || gravar && p.Arquivado) throw new InvalidOperationException("Projeto inválido ou arquivado.");
+        }
+    }
+    // Na mesma transação da promoção: registra o lado consolidado e, com os dois lados consolidados, cria
+    // ResolvidoPor uma única vez (ObterEquivalenteAsync + índice único). Lado inválido cancela a intenção sem falhar a confirmação.
+    private async Task EfetivarVinculosAsync(CandidatoDeConhecimento candidato, Conhecimento consolidado, ProvenienciaDoConhecimento responsavel,
+        DateTimeOffset instante, CancellationToken ct)
+    {
+        foreach (var vinculo in await vinculos.ListarDoCandidatoAsync(candidato.IdEspacoDeConhecimento, candidato.Id, true, ct))
+        {
+            if (vinculo.RegistrarConsolidacao(candidato.Id, consolidado.Id, instante))
+            {
+                var incidente = vinculo.IdConhecimentoIncidente == consolidado.Id ? consolidado : await conhecimentos.ObterPorIdAsync(vinculo.IdConhecimentoIncidente!.Value, ct);
+                var solucao = vinculo.IdConhecimentoSolucao == consolidado.Id ? consolidado : await conhecimentos.ObterPorIdAsync(vinculo.IdConhecimentoSolucao!.Value, ct);
+                if (!vinculo.PodeEfetivar(incidente, solucao))
+                    vinculo.Cancelar("Lado inativo, fora do escopo ou sem tipos Incidente → Solucao na consolidação.", responsavel, instante);
+                else
+                {
+                    var relacao = new RelacaoDeConhecimento(incidente!, solucao!, TipoDeRelacao.ResolvidoPor, responsavel, instante);
+                    var equivalente = await relacoes.ObterEquivalenteAsync(relacao, ct);
+                    if (equivalente is null) await relacoes.AdicionarAsync(relacao, ct);
+                    vinculo.Aplicar((equivalente ?? relacao).Id, responsavel, instante);
+                }
+            }
+            vinculos.Atualizar(vinculo);
         }
     }
     private async Task ValidarConsolidacaoAsync(CandidatoDeConhecimento candidato, CancellationToken ct)
