@@ -169,6 +169,55 @@ public sealed class BrainEfTests
         finally { if (!process.HasExited) { process.Kill(true); await process.WaitForExitAsync(); } }
     }
 
+    // #258: preparação vetorial repetível e pendências de indexação limitadas pela política de sensibilidade.
+    [PostgreSqlFact]
+    public async Task PrepararVetoresEIdempotenteEPreservaVetoresGravados()
+    {
+        await using var banco = await Banco.CriarAsync();
+        var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "Vetores");
+        var item = Novo(espaco.Id);
+        await using var c = banco.Contexto();
+        c.AddRange(espaco, item); await c.SaveChangesAsync();
+        var indice = new Dante.Infrastructure.BuscaDoBrain.IndiceDeBuscaPostgreSql(c);
+        Assert.False(await indice.VetoresDisponiveisAsync());
+        await indice.PrepararVetoresAsync();
+        var modelo = new Dante.Application.BuscaDoBrain.ModeloEmbedding("teste", "controlado", "1", 3);
+        Assert.True(await indice.GravarAsync(item.Id, item.Revisao, modelo, [1, 0, 0]));
+        await indice.PrepararVetoresAsync(); await indice.PrepararVetoresAsync();
+        Assert.True(await indice.VetoresDisponiveisAsync());
+        Assert.Equal(2, await c.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM pg_attribute WHERE attname = 'vetor' AND NOT attisdropped AND attrelid IN ('brain_index.representacoes'::regclass, 'brain_index.partes_fontes'::regclass)").SingleAsync());
+        Assert.Equal(1, await c.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM brain_index.representacoes WHERE vetor IS NOT NULL").SingleAsync());
+        Assert.Equal(1, await c.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM pg_extension WHERE extname = 'vector'").SingleAsync());
+    }
+
+    [PostgreSqlFact]
+    public async Task ListarPendentesRespeitaSensibilidadeEscopoValidadeERevisao()
+    {
+        await using var banco = await Banco.CriarAsync();
+        var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "Pendentes"); var outro = new EspacoDeConhecimento(espaco.IdUsuario, "Outro");
+        Conhecimento Com(Sensibilidade s, Guid? e = null) => new(e ?? espaco.Id, null, TipoDeConhecimento.Fato, "conteúdo " + s, null, StatusDoConhecimento.Inferido,
+            null, s, null, null, [], Origem(), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
+        var publico = Com(Sensibilidade.Publico); var pessoal = Com(Sensibilidade.Pessoal); var trabalho = Com(Sensibilidade.Trabalho);
+        var confidencial = Com(Sensibilidade.Confidencial); var secreto = Com(Sensibilidade.Secreto); var deOutro = Com(Sensibilidade.Publico, outro.Id);
+        var inativo = Com(Sensibilidade.Publico); inativo.Invalidar(1, Origem(), DateTimeOffset.UtcNow);
+        await using var c = banco.Contexto();
+        c.AddRange(espaco, outro, publico, pessoal, trabalho, confidencial, secreto, deOutro, inativo); await c.SaveChangesAsync();
+        var indice = new Dante.Infrastructure.BuscaDoBrain.IndiceDeBuscaPostgreSql(c); await indice.PrepararVetoresAsync();
+        var modelo = new Dante.Application.BuscaDoBrain.ModeloEmbedding("teste", "controlado", "1", 3);
+        var acesso = new Dante.Application.SegurancaDoBrain.AcessoAoBrain(espaco.IdUsuario, espaco.Id, null);
+        Assert.Equal(new[] { publico.Id, pessoal.Id, trabalho.Id }.Order(), (await indice.ListarPendentesAsync(acesso, modelo, 100)).Order());
+        Assert.Equal(new[] { publico.Id, pessoal.Id, trabalho.Id, confidencial.Id }.Order(),
+            (await indice.ListarPendentesAsync(acesso with { PermitirConfidencial = true, PermitirSecreto = true }, modelo, 100)).Order());
+        // Vetor da revisão atual tira o item da fila; nova revisão o devolve.
+        Assert.True(await indice.GravarAsync(publico.Id, publico.Revisao, modelo, [1, 0, 0]));
+        Assert.DoesNotContain(publico.Id, await indice.ListarPendentesAsync(acesso, modelo, 100));
+        Assert.Contains(publico.Id, await indice.ListarPendentesAsync(acesso, modelo with { Versao = "2" }, 100));
+        publico.Corrigir(publico.Revisao, publico.Tipo, "conteúdo revisto", null, null, publico.Sensibilidade, null, null, [], Origem(), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
+        await c.SaveChangesAsync();
+        Assert.Contains(publico.Id, await indice.ListarPendentesAsync(acesso, modelo, 100));
+        Assert.Single(await indice.ListarPendentesAsync(acesso, modelo, 1));
+    }
+
     internal static ProvenienciaDoConhecimento Origem() => new(Guid.NewGuid(), "usuário", "fonte", "v1", "evidência");
     internal static Conhecimento Novo(Guid espaco, Guid? projeto = null) => new(espaco, projeto, TipoDeConhecimento.Fato,
         "conteúdo", null, StatusDoConhecimento.Inferido, null, Sensibilidade.Pessoal, null, null, ["teste"], Origem(), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);

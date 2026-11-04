@@ -269,7 +269,7 @@ public sealed class TelegramBrain(IServiceScopeFactory scopeFactory,IConfigurati
     private static readonly HashSet<string> Vazias=new(StringComparer.Ordinal){"para","como","com","sem","sobre","isso","isto","esse","essa","este","esta","aquele","aquela",
         "uma","umas","uns","que","qual","quais","quando","onde","porque","por","pelo","pela","mais","menos","muito","pode","podemos","preciso","precisamos","vamos",
         "fazer","faca","agora","ainda","tambem","entao","mas","nos","nas","dos","das","voce","the","and","for","with"};
-    private static string Termos(string texto)=>string.Join(" or ",Regex.Matches(texto,@"[\p{L}\p{N}][\p{L}\p{N}_.\-]{2,63}",RegexOptions.CultureInvariant,TimeSpan.FromMilliseconds(100))
+    internal static string Termos(string texto)=>string.Join(" or ",Regex.Matches(texto,@"[\p{L}\p{N}][\p{L}\p{N}_.\-]{2,63}",RegexOptions.CultureInvariant,TimeSpan.FromMilliseconds(100))
         .Select(x=>x.Value.TrimEnd('.','-').ToLowerInvariant()).Where(x=>x.Length>=3&&!Vazias.Contains(ResolvedorDeIntencaoDoBrain.Normalizar(x))).Distinct(StringComparer.Ordinal).Take(16));
     private static string IdDaConversa(TelegramMessage mensagem)=>$"{mensagem.Chat.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)}:{(mensagem.MessageThreadId??0).ToString(System.Globalization.CultureInfo.InvariantCulture)}";
 

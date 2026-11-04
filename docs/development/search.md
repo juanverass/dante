@@ -53,3 +53,35 @@ Testes de semântica usam conceitos/vetores controlados para medir a recuperaç�
 sem correspondência literal; qualidade do modelo real depende da configuração e avaliação
 posterior. Referências: [full-text PostgreSQL](https://www.postgresql.org/docs/current/textsearch-controls.html)
 e [pgvector](https://github.com/pgvector/pgvector).
+
+## Provedor local: Ollama + bge-m3
+
+Provedor avaliado na #258 ([relatório](../brain/avaliacao-busca-hibrida/README.md)):
+Ollama em processo de usuário, sem unit systemd, com o modelo `bge-m3` (1024 dimensões).
+O conteúdo não sai do host: o endpoint é loopback, então `Externo = false`.
+
+```sh
+# Release oficial (github.com/ollama/ollama); confira o SHA-256 com o sha256sum.txt da release.
+tar --zstd -xf ollama-linux-amd64.tar.zst -C ~/.local/opt/ollama-<versão>
+ln -sfn ~/.local/opt/ollama-<versão>/bin/ollama ~/.local/bin/ollama
+OLLAMA_HOST=127.0.0.1:11434 ollama serve      # p. ex. numa sessão screen destacada
+ollama pull bge-m3 && ollama ps               # PROCESSOR deve indicar 100% GPU
+```
+
+O tarball traz o runtime CUDA (cudart/cuBLAS 12 e 13) e precisa só do driver NVIDIA. O
+toolkit CUDA não é necessário. Configuração equivalente no host:
+
+```text
+DANTE_BRAIN_EMBEDDING_ENDPOINT=http://127.0.0.1:11434/v1/embeddings
+DANTE_BRAIN_EMBEDDING_MODEL=bge-m3
+DANTE_BRAIN_EMBEDDING_VERSION=<digest curto do modelo em `ollama list`>
+DANTE_BRAIN_EMBEDDING_DIMENSION=1024
+DANTE_BRAIN_EMBEDDING_PROVIDER=ollama
+```
+
+Com o endpoint indisponível, sem modelo, sem coluna `vetor` ou com dimensão divergente, a busca
+continua lexical sem erro (`BuscaDoBrainTests`). A instância do homelab segue
+**lexical** pela decisão registrada no relatório: sem corte de relevância, o pacote
+automático enche de itens irrelevantes. O harness `ConsultasDeReferenciaDaBuscaTests`
+repete a medição só num banco descartável (`DANTE_TEST_POSTGRES` e
+`DANTE_TEST_EMBEDDING_*`).
