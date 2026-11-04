@@ -447,9 +447,21 @@ local e `bge-m3` (1024 dimensões, na GPU, endpoint loopback):
 - sem corte de relevância, o pacote automático enche até 12 itens: os tokens vão de cerca de 593 para 1861, a
   precisão do pacote cai de 0,323 para 0,102 e as consultas sem resposta passam a trazer itens.
 
-**Decisão:** a instância do homelab segue em modo lexical. O corte de relevância semântica fica para uma Issue
-própria, porque mudar o ranking estava fora do escopo. Relatório:
-[avaliação lexical × híbrida](../brain/avaliacao-busca-hibrida/README.md).
+Corte de relevância (#280, AD-62): a busca híbrida só usa a parte semântica com `DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY`
+calibrado (fail-closed: sem ele, a busca é lexical). O corte é aplicado antes do RRF, a busca pode retornar vazio e,
+no canal automático, a correspondência lexical só parcial dos termos em OR exige apoio semântico. A correspondência
+completa, o canal agente e o modo lexical não mudam. Em banco descartável, com τ = 0,52 calibrado com leave-one-out
+nas 27 consultas e uma validação final com 12 consultas separadas, escritas antes da medição:
+
+- calibração: literal 1; paráfrase e outro idioma 0,941; zero pacotes sem resposta; precisão do pacote 0,543; 298
+  tokens;
+- validação: literal 1; paráfrase e outro idioma **0,5**; zero pacotes sem resposta; precisão do pacote 0,5; 123
+  tokens.
+
+**Decisão:** a instância do homelab segue em modo lexical, porque as paráfrases reprovaram no critério de 80% na
+validação. Com o `bge-m3`, paráfrases legítimas e ruído próximo do domínio ocupam a mesma faixa de similaridade. O
+limiar `0.6` das fontes brutas não mudou. Relatórios: [avaliação lexical × híbrida](../brain/avaliacao-busca-hibrida/README.md)
+e [corte de relevância](../brain/avaliacao-busca-hibrida/corte-280/README.md).
 
 ## Qualidade do Brain (#159)
 

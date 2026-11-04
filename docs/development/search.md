@@ -77,11 +77,35 @@ DANTE_BRAIN_EMBEDDING_MODEL=bge-m3
 DANTE_BRAIN_EMBEDDING_VERSION=<digest curto do modelo em `ollama list`>
 DANTE_BRAIN_EMBEDDING_DIMENSION=1024
 DANTE_BRAIN_EMBEDDING_PROVIDER=ollama
+DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY=<limiar calibrado para este modelo, ex.: 0.52>
 ```
 
 Com o endpoint indisponível, sem modelo, sem coluna `vetor` ou com dimensão divergente, a busca
-continua lexical sem erro (`BuscaDoBrainTests`). A instância do homelab segue
-**lexical** pela decisão registrada no relatório: sem corte de relevância, o pacote
-automático enche de itens irrelevantes. O harness `ConsultasDeReferenciaDaBuscaTests`
-repete a medição só num banco descartável (`DANTE_TEST_POSTGRES` e
-`DANTE_TEST_EMBEDDING_*`).
+continua lexical sem erro (`BuscaDoBrainTests`). O harness `ConsultasDeReferenciaDaBuscaTests`
+repete a medição só num banco descartável (`DANTE_TEST_POSTGRES` e `DANTE_TEST_EMBEDDING_*`).
+
+## Corte de relevância (#280, AD-62)
+
+- **Limiar obrigatório**: `DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY` é a similaridade cosseno mínima
+  calibrada para o modelo, em cultura invariante e na faixa aberta (0, 1). Ausente ou inválida, a
+  consulta não gera embedding e a busca é lexical (fail-closed). A indexação de vetores não depende
+  dela.
+- **Corte antes da fusão**: no SQL, só entra no ranking semântico quem atinge o limiar. Cada lista é
+  ranqueada entre os aprovados antes do RRF e da paginação. Sem resultado lexical e sem nada acima do
+  limiar, a busca retorna vazio.
+- **Lexical**:
+  - a correspondência com todos os termos entra sempre;
+  - com o híbrido ativo, `TextoIntegral` (a mensagem de onde os termos em OR foram derivados, enviada
+    pelo Context Builder) faz a correspondência só parcial exigir apoio semântico;
+  - o canal agente (MCP), a conversa natural e o modo lexical ignoram essa regra.
+- **Pacote automático**: recebe só os aprovados e não é completado até o limite. A expansão por
+  relações parte só deles.
+- **Fontes brutas**: `IndiceDeFontesPostgreSql` mantém o seu `0.6` fixo. A divergência em relação ao
+  limiar configurável fica para avaliação futura. Sem limiar, as fontes também perdem a parte
+  semântica, porque a consulta não gera vetor.
+
+A instância do homelab segue **lexical**. Na validação final, com τ = 0,52 e `bge-m3`, o corte
+zerou os pacotes sem resposta e elevou a precisão do pacote para 0,5. Mas as paráfrases ficaram
+em 50% de acerto@5, contra os 80% exigidos: paráfrases legítimas e ruído próximo do domínio
+ocupam a mesma faixa de similaridade. Calibração, validação e decisão:
+[corte de relevância](../brain/avaliacao-busca-hibrida/corte-280/README.md).

@@ -1,0 +1,1662 @@
+{
+  "modelo": "ollama/bge-m3@790764642607 (1024)",
+  "variantes": {
+    "A/lexicalParcialMantida": {
+      "R0": {
+        "acerto5Literal": 1.0,
+        "acerto5Parafrase": 1.0,
+        "acerto5": 1.0,
+        "mrr": 0.8825757575757577,
+        "semRespostaComPacote": 5,
+        "semRespostaComResultado": 5,
+        "precisaoDoPacote": 0.10185185185185185,
+        "pacoteComRelevante": 1.0,
+        "tokensMedio": 1709.7777777777778
+      },
+      "R1": {
+        "parametros": {
+          "tau": 0.3
+        },
+        "utilidadeRobusta": -1.0,
+        "calibracao": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 1.0,
+          "acerto5": 1.0,
+          "mrr": 0.8825757575757577,
+          "semRespostaComPacote": 4,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.10576923076923077,
+          "pacoteComRelevante": 1.0,
+          "tokensMedio": 1644.148148148148
+        },
+        "pontosViaveis": 0,
+        "faixaViavel": null,
+        "leaveOneOut": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 1.0,
+          "acerto5": 1.0,
+          "mrr": 0.8825757575757577,
+          "semRespostaComPacote": 4,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.10576923076923077,
+          "pacoteComRelevante": 1.0,
+          "tokensMedio": 1644.148148148148
+        },
+        "parametrosLoo": [
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          }
+        ]
+      },
+      "R2": {
+        "parametros": {
+          "tau": 0.3,
+          "delta": 0.01
+        },
+        "utilidadeRobusta": -1.0,
+        "calibracao": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.7647058823529411,
+          "acerto5": 0.8181818181818182,
+          "mrr": 0.7954545454545454,
+          "semRespostaComPacote": 4,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.32038834951456313,
+          "pacoteComRelevante": 0.9545454545454546,
+          "tokensMedio": 591.4444444444445
+        },
+        "pontosViaveis": 0,
+        "faixaViavel": null,
+        "leaveOneOut": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.7647058823529411,
+          "acerto5": 0.8181818181818182,
+          "mrr": 0.7954545454545454,
+          "semRespostaComPacote": 4,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.32038834951456313,
+          "pacoteComRelevante": 0.9545454545454546,
+          "tokensMedio": 591.4444444444445
+        },
+        "parametrosLoo": [
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          }
+        ]
+      },
+      "R3": {
+        "parametros": {
+          "tau": 0.3,
+          "z": 0.0
+        },
+        "utilidadeRobusta": -1.0,
+        "calibracao": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.9411764705882353,
+          "acerto5": 0.9545454545454546,
+          "mrr": 0.8674242424242423,
+          "semRespostaComPacote": 4,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.11650485436893204,
+          "pacoteComRelevante": 1.0,
+          "tokensMedio": 1623.7407407407406
+        },
+        "pontosViaveis": 0,
+        "faixaViavel": null,
+        "leaveOneOut": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.9411764705882353,
+          "acerto5": 0.9545454545454546,
+          "mrr": 0.8674242424242423,
+          "semRespostaComPacote": 4,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.11650485436893204,
+          "pacoteComRelevante": 1.0,
+          "tokensMedio": 1623.7407407407406
+        },
+        "parametrosLoo": [
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          }
+        ]
+      }
+    },
+    "A/lexicalParcialExigeSemantica": {
+      "R0": {
+        "acerto5Literal": 1.0,
+        "acerto5Parafrase": 1.0,
+        "acerto5": 1.0,
+        "mrr": 0.8825757575757577,
+        "semRespostaComPacote": 5,
+        "semRespostaComResultado": 5,
+        "precisaoDoPacote": 0.10185185185185185,
+        "pacoteComRelevante": 1.0,
+        "tokensMedio": 1709.7777777777778
+      },
+      "R1": {
+        "parametros": {
+          "tau": 0.3
+        },
+        "utilidadeRobusta": -1.0,
+        "calibracao": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 1.0,
+          "acerto5": 1.0,
+          "mrr": 0.8825757575757577,
+          "semRespostaComPacote": 4,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.10576923076923077,
+          "pacoteComRelevante": 1.0,
+          "tokensMedio": 1644.148148148148
+        },
+        "pontosViaveis": 0,
+        "faixaViavel": null,
+        "leaveOneOut": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.7647058823529411,
+          "acerto5": 0.8181818181818182,
+          "mrr": 0.7954545454545454,
+          "semRespostaComPacote": 4,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.11284046692607004,
+          "pacoteComRelevante": 0.8181818181818182,
+          "tokensMedio": 1360.851851851852
+        },
+        "parametrosLoo": [
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.55
+          },
+          {
+            "tau": 0.55
+          },
+          {
+            "tau": 0.55
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.55
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.51
+          }
+        ]
+      },
+      "R2": {
+        "parametros": {
+          "tau": 0.3,
+          "delta": 0.01
+        },
+        "utilidadeRobusta": -1.0,
+        "calibracao": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.7647058823529411,
+          "acerto5": 0.8181818181818182,
+          "mrr": 0.7954545454545454,
+          "semRespostaComPacote": 4,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.6216216216216216,
+          "pacoteComRelevante": 0.8181818181818182,
+          "tokensMedio": 258.1111111111111
+        },
+        "pontosViaveis": 0,
+        "faixaViavel": null,
+        "leaveOneOut": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.7058823529411765,
+          "acerto5": 0.7727272727272727,
+          "mrr": 0.75,
+          "semRespostaComPacote": 4,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.5945945945945946,
+          "pacoteComRelevante": 0.7727272727272727,
+          "tokensMedio": 252.11111111111111
+        },
+        "parametrosLoo": [
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.55,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.55,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.55,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.55,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.51,
+            "delta": 0.08
+          }
+        ]
+      },
+      "R3": {
+        "parametros": {
+          "tau": 0.3,
+          "z": 0.0
+        },
+        "utilidadeRobusta": -1.0,
+        "calibracao": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.9411764705882353,
+          "acerto5": 0.9545454545454546,
+          "mrr": 0.8674242424242423,
+          "semRespostaComPacote": 4,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.11650485436893204,
+          "pacoteComRelevante": 1.0,
+          "tokensMedio": 1623.4814814814815
+        },
+        "pontosViaveis": 0,
+        "faixaViavel": null,
+        "leaveOneOut": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.7058823529411765,
+          "acerto5": 0.7727272727272727,
+          "mrr": 0.7727272727272727,
+          "semRespostaComPacote": 4,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.12552301255230125,
+          "pacoteComRelevante": 0.7727272727272727,
+          "tokensMedio": 1261.4074074074074
+        },
+        "parametrosLoo": [
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 2.5
+          },
+          {
+            "tau": 0.3,
+            "z": 2.5
+          },
+          {
+            "tau": 0.3,
+            "z": 2.5
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 2.5
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.55,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.51,
+            "z": 1.25
+          }
+        ]
+      }
+    },
+    "semA/lexicalParcialMantida": {
+      "R0": {
+        "acerto5Literal": 1.0,
+        "acerto5Parafrase": 1.0,
+        "acerto5": 1.0,
+        "mrr": 0.8825757575757577,
+        "semRespostaComPacote": 5,
+        "semRespostaComResultado": 5,
+        "precisaoDoPacote": 0.10185185185185185,
+        "pacoteComRelevante": 1.0,
+        "tokensMedio": 1708.3703703703704
+      },
+      "R1": {
+        "parametros": {
+          "tau": 0.3
+        },
+        "utilidadeRobusta": -1.0,
+        "calibracao": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 1.0,
+          "acerto5": 1.0,
+          "mrr": 0.8825757575757577,
+          "semRespostaComPacote": 5,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.10344827586206896,
+          "pacoteComRelevante": 1.0,
+          "tokensMedio": 1682.888888888889
+        },
+        "pontosViaveis": 0,
+        "faixaViavel": null,
+        "leaveOneOut": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 1.0,
+          "acerto5": 1.0,
+          "mrr": 0.8825757575757577,
+          "semRespostaComPacote": 5,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.10344827586206896,
+          "pacoteComRelevante": 1.0,
+          "tokensMedio": 1682.888888888889
+        },
+        "parametrosLoo": [
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          },
+          {
+            "tau": 0.3
+          }
+        ]
+      },
+      "R2": {
+        "parametros": {
+          "tau": 0.3,
+          "delta": 0.01
+        },
+        "utilidadeRobusta": -1.0,
+        "calibracao": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.7647058823529411,
+          "acerto5": 0.8181818181818182,
+          "mrr": 0.7954545454545454,
+          "semRespostaComPacote": 5,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.29523809523809524,
+          "pacoteComRelevante": 0.8636363636363636,
+          "tokensMedio": 602.7407407407408
+        },
+        "pontosViaveis": 0,
+        "faixaViavel": null,
+        "leaveOneOut": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.7647058823529411,
+          "acerto5": 0.8181818181818182,
+          "mrr": 0.7954545454545454,
+          "semRespostaComPacote": 5,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.29523809523809524,
+          "pacoteComRelevante": 0.8636363636363636,
+          "tokensMedio": 602.7407407407408
+        },
+        "parametrosLoo": [
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.3,
+            "delta": 0.01
+          }
+        ]
+      },
+      "R3": {
+        "parametros": {
+          "tau": 0.3,
+          "z": 0.0
+        },
+        "utilidadeRobusta": -1.0,
+        "calibracao": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.9411764705882353,
+          "acerto5": 0.9545454545454546,
+          "mrr": 0.8674242424242423,
+          "semRespostaComPacote": 5,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.11464968152866242,
+          "pacoteComRelevante": 1.0,
+          "tokensMedio": 1650.4444444444443
+        },
+        "pontosViaveis": 0,
+        "faixaViavel": null,
+        "leaveOneOut": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.9411764705882353,
+          "acerto5": 0.9545454545454546,
+          "mrr": 0.8674242424242423,
+          "semRespostaComPacote": 5,
+          "semRespostaComResultado": 4,
+          "precisaoDoPacote": 0.11464968152866242,
+          "pacoteComRelevante": 1.0,
+          "tokensMedio": 1650.4444444444443
+        },
+        "parametrosLoo": [
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          },
+          {
+            "tau": 0.3,
+            "z": 0.0
+          }
+        ]
+      }
+    },
+    "semA/lexicalParcialExigeSemantica": {
+      "R0": {
+        "acerto5Literal": 1.0,
+        "acerto5Parafrase": 1.0,
+        "acerto5": 1.0,
+        "mrr": 0.8825757575757577,
+        "semRespostaComPacote": 5,
+        "semRespostaComResultado": 5,
+        "precisaoDoPacote": 0.10185185185185185,
+        "pacoteComRelevante": 1.0,
+        "tokensMedio": 1708.3703703703704
+      },
+      "R1": {
+        "parametros": {
+          "tau": 0.52
+        },
+        "utilidadeRobusta": 0.7161764705882353,
+        "calibracao": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.9411764705882353,
+          "acerto5": 0.9545454545454546,
+          "mrr": 0.8674242424242423,
+          "semRespostaComPacote": 0,
+          "semRespostaComResultado": 1,
+          "precisaoDoPacote": 0.5434782608695652,
+          "pacoteComRelevante": 0.7727272727272727,
+          "tokensMedio": 286.48148148148147
+        },
+        "pontosViaveis": 5,
+        "faixaViavel": {
+          "min": [
+            0.49
+          ],
+          "max": [
+            0.53
+          ]
+        },
+        "leaveOneOut": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.9411764705882353,
+          "acerto5": 0.9545454545454546,
+          "mrr": 0.8674242424242423,
+          "semRespostaComPacote": 0,
+          "semRespostaComResultado": 1,
+          "precisaoDoPacote": 0.5434782608695652,
+          "pacoteComRelevante": 0.7727272727272727,
+          "tokensMedio": 286.48148148148147
+        },
+        "parametrosLoo": [
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.51
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          },
+          {
+            "tau": 0.52
+          }
+        ]
+      },
+      "R2": {
+        "parametros": {
+          "tau": 0.52,
+          "delta": 0.07
+        },
+        "utilidadeRobusta": 0.7411764705882353,
+        "calibracao": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.9411764705882353,
+          "acerto5": 0.9545454545454546,
+          "mrr": 0.8674242424242423,
+          "semRespostaComPacote": 0,
+          "semRespostaComResultado": 1,
+          "precisaoDoPacote": 0.6097560975609756,
+          "pacoteComRelevante": 0.7727272727272727,
+          "tokensMedio": 260.5925925925926
+        },
+        "pontosViaveis": 142,
+        "faixaViavel": {
+          "min": [
+            0.49,
+            0.02
+          ],
+          "max": [
+            0.53,
+            0.3
+          ]
+        },
+        "leaveOneOut": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.7647058823529411,
+          "acerto5": 0.8181818181818182,
+          "mrr": 0.8181818181818182,
+          "semRespostaComPacote": 0,
+          "semRespostaComResultado": 1,
+          "precisaoDoPacote": 0.6410256410256411,
+          "pacoteComRelevante": 0.7727272727272727,
+          "tokensMedio": 251.22222222222223
+        },
+        "parametrosLoo": [
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.08
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.51,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.51,
+            "delta": 0.02
+          },
+          {
+            "tau": 0.51,
+            "delta": 0.01
+          },
+          {
+            "tau": 0.51,
+            "delta": 0.08
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.08
+          },
+          {
+            "tau": 0.51,
+            "delta": 0.02
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.08
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.51,
+            "delta": 0.08
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          },
+          {
+            "tau": 0.52,
+            "delta": 0.07
+          }
+        ]
+      },
+      "R3": {
+        "parametros": {
+          "tau": 0.51,
+          "z": 1.5
+        },
+        "utilidadeRobusta": 0.7384737678855327,
+        "calibracao": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.9411764705882353,
+          "acerto5": 0.9545454545454546,
+          "mrr": 0.8674242424242423,
+          "semRespostaComPacote": 0,
+          "semRespostaComResultado": 1,
+          "precisaoDoPacote": 0.5813953488372093,
+          "pacoteComRelevante": 0.7727272727272727,
+          "tokensMedio": 270.5925925925926
+        },
+        "pontosViaveis": 44,
+        "faixaViavel": {
+          "min": [
+            0.49,
+            0.0
+          ],
+          "max": [
+            0.53,
+            1.75
+          ]
+        },
+        "leaveOneOut": {
+          "acerto5Literal": 1.0,
+          "acerto5Parafrase": 0.8235294117647058,
+          "acerto5": 0.8636363636363636,
+          "mrr": 0.8409090909090909,
+          "semRespostaComPacote": 0,
+          "semRespostaComResultado": 1,
+          "precisaoDoPacote": 0.5581395348837209,
+          "pacoteComRelevante": 0.7272727272727273,
+          "tokensMedio": 271.44444444444446
+        },
+        "parametrosLoo": [
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.25
+          },
+          {
+            "tau": 0.52,
+            "z": 1.75
+          },
+          {
+            "tau": 0.51,
+            "z": 2.25
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.25
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.52,
+            "z": 1.25
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          },
+          {
+            "tau": 0.51,
+            "z": 1.5
+          }
+        ]
+      }
+    }
+  }
+}

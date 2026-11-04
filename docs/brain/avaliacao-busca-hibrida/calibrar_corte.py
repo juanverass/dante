@@ -8,7 +8,11 @@ lê o corpus versionado para estimar o pacote automático.
 O script simula os dois canais com a mesma regra do índice:
 - correspondência lexical nunca é cortada;
 - o candidato só semântico passa somente se atender à regra de corte;
-- a ordem segue o RRF (k = 60) entre os aprovados.
+- a ordem segue o RRF (k = 60) entre os aprovados;
+- opcionalmente, no canal automático, a correspondência lexical só parcial (OR) exige apoio
+  semântico, e a que casa com todos os termos (lexicalCru) entra sempre. É a regra adotada.
+
+Também compara o embedding dos termos (atual) com o da mensagem natural (variante A).
 
 Uso:
     python3 -I calibrar_corte.py <calibracao-matriz.json> <busca-brain.json> [saida.json]

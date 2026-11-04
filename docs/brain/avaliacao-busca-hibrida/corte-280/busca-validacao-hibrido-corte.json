@@ -1,0 +1,546 @@
+{
+  "conjunto": "validacao@1",
+  "modo": "hibrido",
+  "nome": "validacao-hibrido-corte",
+  "geradoEm": "2026-11-04T18:38:29.8582138+00:00",
+  "modelo": "ollama/bge-m3@790764642607 (1024)",
+  "similaridadeMinima": "0.52",
+  "Indexacao": {
+    "gravados": 31,
+    "milissegundos": 426.3959,
+    "chamadas": 31,
+    "msPorEmbedding": 9.132
+  },
+  "AquecimentoMs": 25.3079,
+  "geral": {
+    "consultas": 12,
+    "comResposta": 8,
+    "acerto1": 0.625,
+    "acerto5": 0.625,
+    "mrr": 0.625,
+    "revocacao5": 0.625,
+    "pacoteComRelevante": 0.5,
+    "precisaoDoPacote": 0.5,
+    "semRespostaComResultado": 1,
+    "semRespostaComPacote": 0,
+    "recuperadosMedio": 0.667,
+    "selecionadosMedio": 0.667,
+    "descartadosMedio": 0,
+    "tokensMedio": 122.667,
+    "tokensTotal": 1472,
+    "msAgenteP50": 23.64,
+    "msAgenteP95": 27.242,
+    "msAutomaticoP50": 14.863,
+    "msAutomaticoP95": 23.49,
+    "msEmbeddingMedio": 7.524
+  },
+  "porCategoria": {
+    "literal": {
+      "consultas": 2,
+      "comResposta": 2,
+      "acerto1": 1,
+      "acerto5": 1,
+      "mrr": 1,
+      "revocacao5": 1,
+      "pacoteComRelevante": 1,
+      "precisaoDoPacote": 1,
+      "semRespostaComResultado": 0,
+      "semRespostaComPacote": 0,
+      "recuperadosMedio": 1,
+      "selecionadosMedio": 1,
+      "descartadosMedio": 0,
+      "tokensMedio": 200,
+      "tokensTotal": 400,
+      "msAgenteP50": 23.139,
+      "msAgenteP95": 24.353,
+      "msAutomaticoP50": 16.142,
+      "msAutomaticoP95": 22.857,
+      "msEmbeddingMedio": 7.507
+    },
+    "parafrase": {
+      "consultas": 4,
+      "comResposta": 4,
+      "acerto1": 0.5,
+      "acerto5": 0.5,
+      "mrr": 0.5,
+      "revocacao5": 0.5,
+      "pacoteComRelevante": 0.5,
+      "precisaoDoPacote": 0.4,
+      "semRespostaComResultado": 0,
+      "semRespostaComPacote": 0,
+      "recuperadosMedio": 1.25,
+      "selecionadosMedio": 1.25,
+      "descartadosMedio": 0,
+      "tokensMedio": 216.5,
+      "tokensTotal": 866,
+      "msAgenteP50": 23.45,
+      "msAgenteP95": 24.957,
+      "msAutomaticoP50": 15.071,
+      "msAutomaticoP95": 23.49,
+      "msEmbeddingMedio": 7.728
+    },
+    "outro-idioma": {
+      "consultas": 2,
+      "comResposta": 2,
+      "acerto1": 0.5,
+      "acerto5": 0.5,
+      "mrr": 0.5,
+      "revocacao5": 0.5,
+      "pacoteComRelevante": 0,
+      "precisaoDoPacote": 0,
+      "semRespostaComResultado": 0,
+      "semRespostaComPacote": 0,
+      "recuperadosMedio": 0.5,
+      "selecionadosMedio": 0.5,
+      "descartadosMedio": 0,
+      "tokensMedio": 103,
+      "tokensTotal": 206,
+      "msAgenteP50": 23.205,
+      "msAgenteP95": 27.242,
+      "msAutomaticoP50": 14.863,
+      "msAutomaticoP95": 15.308,
+      "msEmbeddingMedio": 7.569
+    },
+    "sem-resposta": {
+      "consultas": 2,
+      "comResposta": 0,
+      "acerto1": 0,
+      "acerto5": 0,
+      "mrr": 0,
+      "revocacao5": 0,
+      "pacoteComRelevante": 0,
+      "precisaoDoPacote": 0,
+      "semRespostaComResultado": 1,
+      "semRespostaComPacote": 0,
+      "recuperadosMedio": 0,
+      "selecionadosMedio": 0,
+      "descartadosMedio": 0,
+      "tokensMedio": 0,
+      "tokensTotal": 0,
+      "msAgenteP50": 22.325,
+      "msAgenteP95": 23.64,
+      "msAutomaticoP50": 12.82,
+      "msAutomaticoP95": 14.474,
+      "msEmbeddingMedio": 7.235
+    },
+    "sensibilidade": {
+      "consultas": 2,
+      "comResposta": 0,
+      "acerto1": 0,
+      "acerto5": 0,
+      "mrr": 0,
+      "revocacao5": 0,
+      "pacoteComRelevante": 0,
+      "precisaoDoPacote": 0,
+      "semRespostaComResultado": 0,
+      "semRespostaComPacote": 0,
+      "recuperadosMedio": 0,
+      "selecionadosMedio": 0,
+      "descartadosMedio": 0,
+      "tokensMedio": 0,
+      "tokensTotal": 0,
+      "msAgenteP50": 24.243,
+      "msAgenteP95": 24.396,
+      "msAutomaticoP50": 13.361,
+      "msAutomaticoP95": 13.971,
+      "msEmbeddingMedio": 7.378
+    }
+  },
+  "consultas": [
+    {
+      "Id": "V01",
+      "Categoria": "literal",
+      "Texto": "pg_dump",
+      "Relevantes": [
+        "procedimento-backup"
+      ],
+      "agente": {
+        "recuperados": [
+          "procedimento-backup"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "procedimento-backup",
+            "Score": 0.03278688524590164,
+            "Lexical": 0.10000000149011612,
+            "Semantico": 0.5691704323640597
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 24.3533,
+        "msEmbedding": 7.3514
+      },
+      "automatico": {
+        "Termos": "pg_dump",
+        "Recuperados": 1,
+        "selecionados": [
+          "procedimento-backup"
+        ],
+        "Descartados": 0,
+        "tokens": 205,
+        "relevantesSelecionados": 1,
+        "ms": 22.8571,
+        "msEmbedding": 7.9067
+      }
+    },
+    {
+      "Id": "V02",
+      "Categoria": "literal",
+      "Texto": "Tailscale",
+      "Relevantes": [
+        "fato-tailscale"
+      ],
+      "agente": {
+        "recuperados": [
+          "fato-tailscale"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "fato-tailscale",
+            "Score": 0.03278688524590164,
+            "Lexical": 0.10000000149011612,
+            "Semantico": 0.564177393913269
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 23.1387,
+        "msEmbedding": 7.2193
+      },
+      "automatico": {
+        "Termos": "tailscale",
+        "Recuperados": 1,
+        "selecionados": [
+          "fato-tailscale"
+        ],
+        "Descartados": 0,
+        "tokens": 195,
+        "relevantesSelecionados": 1,
+        "ms": 16.1424,
+        "msEmbedding": 7.5507
+      }
+    },
+    {
+      "Id": "V03",
+      "Categoria": "parafrase",
+      "Texto": "onde ficam guardadas as estatísticas de retomada entre sessões?",
+      "Relevantes": [
+        "fato-metricas"
+      ],
+      "agente": {
+        "recuperados": [],
+        "pontuacoes": [],
+        "acerto1": false,
+        "acerto5": false,
+        "rr": 0,
+        "revocacao5": 0,
+        "ms": 23.4495,
+        "msEmbedding": 7.6566
+      },
+      "automatico": {
+        "Termos": "ficam or guardadas or estatísticas or retomada or entre or sessões",
+        "Recuperados": 4,
+        "selecionados": [
+          "fato-metricas",
+          "solucao-scram",
+          "aprendizado-snapshot",
+          "solucao-grants"
+        ],
+        "Descartados": 0,
+        "tokens": 661,
+        "relevantesSelecionados": 1,
+        "ms": 23.4899,
+        "msEmbedding": 7.9765
+      }
+    },
+    {
+      "Id": "V04",
+      "Categoria": "parafrase",
+      "Texto": "quem tem permissão para falar com o robô?",
+      "Relevantes": [
+        "fato-allowlist"
+      ],
+      "agente": {
+        "recuperados": [
+          "fato-allowlist"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "fato-allowlist",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.5630603693091659
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 23.7934,
+        "msEmbedding": 7.5155
+      },
+      "automatico": {
+        "Termos": "quem or tem or permissão or falar or robô",
+        "Recuperados": 0,
+        "selecionados": [],
+        "Descartados": 0,
+        "tokens": 0,
+        "relevantesSelecionados": 0,
+        "ms": 15.0711,
+        "msEmbedding": 8.3085
+      }
+    },
+    {
+      "Id": "V05",
+      "Categoria": "parafrase",
+      "Texto": "como o tamanho do contexto é calculado sem o contador oficial do modelo?",
+      "Relevantes": [
+        "aprendizado-tokens"
+      ],
+      "agente": {
+        "recuperados": [
+          "aprendizado-tokens"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "aprendizado-tokens",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.6190904009884368
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 24.9574,
+        "msEmbedding": 8.468
+      },
+      "automatico": {
+        "Termos": "tamanho or contexto or calculado or contador or oficial or modelo",
+        "Recuperados": 1,
+        "selecionados": [
+          "aprendizado-tokens"
+        ],
+        "Descartados": 0,
+        "tokens": 205,
+        "relevantesSelecionados": 1,
+        "ms": 15.362,
+        "msEmbedding": 7.1014
+      }
+    },
+    {
+      "Id": "V06",
+      "Categoria": "parafrase",
+      "Texto": "existe máquina própria para rodar a integração contínua?",
+      "Relevantes": [
+        "nota-runner"
+      ],
+      "agente": {
+        "recuperados": [],
+        "pontuacoes": [],
+        "acerto1": false,
+        "acerto5": false,
+        "rr": 0,
+        "revocacao5": 0,
+        "ms": 23.1843,
+        "msEmbedding": 7.5285
+      },
+      "automatico": {
+        "Termos": "existe or máquina or própria or rodar or integração or contínua",
+        "Recuperados": 0,
+        "selecionados": [],
+        "Descartados": 0,
+        "tokens": 0,
+        "relevantesSelecionados": 0,
+        "ms": 14.3191,
+        "msEmbedding": 7.2692
+      }
+    },
+    {
+      "Id": "V07",
+      "Categoria": "outro-idioma",
+      "Texto": "how do we back up the knowledge database?",
+      "Relevantes": [
+        "procedimento-backup"
+      ],
+      "agente": {
+        "recuperados": [
+          "procedimento-backup"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "procedimento-backup",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.5373978454650112
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 27.2417,
+        "msEmbedding": 7.2935
+      },
+      "automatico": {
+        "Termos": "how or back or knowledge or database",
+        "Recuperados": 1,
+        "selecionados": [
+          "aprendizado-snapshot"
+        ],
+        "Descartados": 0,
+        "tokens": 206,
+        "relevantesSelecionados": 0,
+        "ms": 15.3078,
+        "msEmbedding": 7.1531
+      }
+    },
+    {
+      "Id": "V08",
+      "Categoria": "outro-idioma",
+      "Texto": "tool errors must not reveal whether an identifier exists",
+      "Relevantes": [
+        "decisao-erros-mcp"
+      ],
+      "agente": {
+        "recuperados": [],
+        "pontuacoes": [],
+        "acerto1": false,
+        "acerto5": false,
+        "rr": 0,
+        "revocacao5": 0,
+        "ms": 23.2053,
+        "msEmbedding": 7.6178
+      },
+      "automatico": {
+        "Termos": "tool or errors or must or not or reveal or whether or identifier or exists",
+        "Recuperados": 0,
+        "selecionados": [],
+        "Descartados": 0,
+        "tokens": 0,
+        "relevantesSelecionados": 0,
+        "ms": 14.8629,
+        "msEmbedding": 8.2119
+      }
+    },
+    {
+      "Id": "V09",
+      "Categoria": "sem-resposta",
+      "Texto": "qual a previsão do tempo para amanhã em Recife?",
+      "Relevantes": [],
+      "agente": {
+        "recuperados": [],
+        "pontuacoes": [],
+        "acerto1": false,
+        "acerto5": false,
+        "rr": 0,
+        "revocacao5": 0,
+        "ms": 22.3252,
+        "msEmbedding": 7.5683
+      },
+      "automatico": {
+        "Termos": "previsão or tempo or amanhã or recife",
+        "Recuperados": 0,
+        "selecionados": [],
+        "Descartados": 0,
+        "tokens": 0,
+        "relevantesSelecionados": 0,
+        "ms": 12.8196,
+        "msEmbedding": 6.85
+      }
+    },
+    {
+      "Id": "V10",
+      "Categoria": "sem-resposta",
+      "Texto": "como configurar o Redis como cache do Worker?",
+      "Relevantes": [],
+      "agente": {
+        "recuperados": [
+          "procedimento-deploy"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "procedimento-deploy",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.573129074964794
+          }
+        ],
+        "acerto1": false,
+        "acerto5": false,
+        "rr": 0,
+        "revocacao5": 0,
+        "ms": 23.6395,
+        "msEmbedding": 7.4361
+      },
+      "automatico": {
+        "Termos": "configurar or redis or cache or worker",
+        "Recuperados": 0,
+        "selecionados": [],
+        "Descartados": 0,
+        "tokens": 0,
+        "relevantesSelecionados": 0,
+        "ms": 14.4743,
+        "msEmbedding": 7.0863
+      }
+    },
+    {
+      "Id": "V11",
+      "Categoria": "sensibilidade",
+      "Texto": "onde está guardado o envelope do cofre?",
+      "Relevantes": [],
+      "agente": {
+        "recuperados": [],
+        "pontuacoes": [],
+        "acerto1": false,
+        "acerto5": false,
+        "rr": 0,
+        "revocacao5": 0,
+        "ms": 24.3961,
+        "msEmbedding": 7.5924
+      },
+      "automatico": {
+        "Termos": "guardado or envelope or cofre",
+        "Recuperados": 0,
+        "selecionados": [],
+        "Descartados": 0,
+        "tokens": 0,
+        "relevantesSelecionados": 0,
+        "ms": 13.3606,
+        "msEmbedding": 7.0508
+      }
+    },
+    {
+      "Id": "V12",
+      "Categoria": "sensibilidade",
+      "Texto": "qual o prazo que gera multa para o cliente Alfa?",
+      "Relevantes": [],
+      "agente": {
+        "recuperados": [],
+        "pontuacoes": [],
+        "acerto1": false,
+        "acerto5": false,
+        "rr": 0,
+        "revocacao5": 0,
+        "ms": 24.2433,
+        "msEmbedding": 7.4076
+      },
+      "automatico": {
+        "Termos": "prazo or gera or multa or cliente or alfa",
+        "Recuperados": 0,
+        "selecionados": [],
+        "Descartados": 0,
+        "tokens": 0,
+        "relevantesSelecionados": 0,
+        "ms": 13.9712,
+        "msEmbedding": 7.462
+      }
+    }
+  ]
+}
