@@ -303,10 +303,11 @@ public sealed class InteractiveAgentProcessTests
     [Fact]
     public async Task TimeoutDaLimpezaFalhaExplicitamenteELiberaRecursosAoDescartar()
     {
+        using var limpezaRealDoTeste = new CancellationTokenSource(Timeout);
         var process = IniciarComLimpeza(async (pid, inicio, ct) =>
         {
-            await ProcessTree.EncerrarEAguardarAsync(pid, inicio, ct);
-            // Simula a confirmação que não chega, sem deixar um processo real sobrevivente.
+            // O prazo curto simula só a confirmação ausente; não cancela o preparo real sob carga.
+            await ProcessTree.EncerrarEAguardarAsync(pid, inicio, limpezaRealDoTeste.Token);
             await Task.Delay(System.Threading.Timeout.Infinite, ct);
         }, TimeSpan.FromMilliseconds(200));
         var child = int.Parse(await NextStdoutAsync(process));
