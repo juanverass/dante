@@ -12,9 +12,16 @@ public sealed class GeradorDeEmbeddingHttp(HttpClient http, IConfiguration confi
     public void Dispose() => http.Dispose();
     private readonly string? endpoint = configuracao["DANTE_BRAIN_EMBEDDING_ENDPOINT"];
     public bool Externo => Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) && !uri.IsLoopback;
-    // Ausente, não numérica ou fora de (0, 1): null, e a busca permanece lexical (#280).
-    public double? SimilaridadeMinima => double.TryParse(configuracao["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"], NumberStyles.Float,
-        CultureInfo.InvariantCulture, out var limiar) && limiar is > 0 and < 1 ? limiar : null;
+    // O limiar só vale para o modelo em que foi calibrado (#280): MIN_SIMILARITY_MODEL precisa identificar o
+    // modelo atual como "provedor|nome|versão|dimensão", campo a campo. Ausente, inválido, fora de (0, 1) ou de
+    // outro modelo: null, e a busca permanece lexical.
+    public double? SimilaridadeMinima => Modelo is { } modelo && CalibradoPara(modelo, configuracao["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL"]) &&
+        double.TryParse(configuracao["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"], NumberStyles.Float, CultureInfo.InvariantCulture, out var limiar) &&
+        limiar is > 0 and < 1 ? limiar : null;
+    public static string Identificacao(ModeloEmbedding modelo) =>
+        string.Join('|', modelo.Provedor, modelo.Nome, modelo.Versao, modelo.Dimensao.ToString(CultureInfo.InvariantCulture));
+    private static bool CalibradoPara(ModeloEmbedding modelo, string? calibrado) => calibrado?.Split('|') is [var provedor, var nome, var versao, var dimensao] &&
+        provedor == modelo.Provedor && nome == modelo.Nome && versao == modelo.Versao && dimensao == modelo.Dimensao.ToString(CultureInfo.InvariantCulture);
     public ModeloEmbedding? Modelo => !string.IsNullOrWhiteSpace(endpoint) && !string.IsNullOrWhiteSpace(configuracao["DANTE_BRAIN_EMBEDDING_MODEL"]) &&
         int.TryParse(configuracao["DANTE_BRAIN_EMBEDDING_DIMENSION"], out var dim) && dim is > 0 and <= 16000 &&
         !string.IsNullOrWhiteSpace(configuracao["DANTE_BRAIN_EMBEDDING_VERSION"]) ?

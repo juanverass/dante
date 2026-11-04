@@ -448,8 +448,10 @@ local e `bge-m3` (1024 dimensões, na GPU, endpoint loopback):
   precisão do pacote cai de 0,323 para 0,102 e as consultas sem resposta passam a trazer itens.
 
 Corte de relevância (#280, AD-62): a busca híbrida só usa a parte semântica com `DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY`
-calibrado (fail-closed: sem ele, a busca é lexical). O corte é aplicado antes do RRF, a busca pode retornar vazio e,
-no canal automático, a correspondência lexical só parcial dos termos em OR exige apoio semântico. A correspondência
+vinculado ao modelo calibrado por `DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL` (`provedor|nome|versão|dimensão`).
+É fail-closed: sem limiar, ou com vínculo a outro modelo, a busca é lexical. O corte é aplicado antes do RRF, a busca pode retornar vazio e,
+no canal automático, a correspondência lexical só parcial dos termos em OR exige apoio semântico (a integral é
+verificada com `plainto_tsquery`). A correspondência
 completa, o canal agente e o modo lexical não mudam. Em banco descartável, com τ = 0,52 calibrado com leave-one-out
 nas 27 consultas e uma validação final com 12 consultas separadas, escritas antes da medição:
 

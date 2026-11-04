@@ -15,6 +15,14 @@ namespace Dante.Tests;
 // #280: corte de relevância da busca híbrida, com vetores controlados (cossenos exatos) e limiar 0,5.
 public sealed class CorteDeRelevanciaDaBuscaTests
 {
+    private const string Calibrado = "ollama|bge-m3|790764642607|3";
+    private static Dictionary<string, string?> ConfiguracaoHttp(string? limiar, string? calibrado = Calibrado, string endpoint = "http://127.0.0.1:11434/v1/embeddings") => new()
+    {
+        ["DANTE_BRAIN_EMBEDDING_ENDPOINT"] = endpoint, ["DANTE_BRAIN_EMBEDDING_MODEL"] = "bge-m3", ["DANTE_BRAIN_EMBEDDING_VERSION"] = "790764642607",
+        ["DANTE_BRAIN_EMBEDDING_DIMENSION"] = "3", ["DANTE_BRAIN_EMBEDDING_PROVIDER"] = "ollama",
+        ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"] = limiar, ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL"] = calibrado,
+    };
+
     [Theory]
     [InlineData(null, null)]
     [InlineData("", null)]
@@ -28,9 +36,71 @@ public sealed class CorteDeRelevanciaDaBuscaTests
     [InlineData("0.52", 0.52)]
     public void SimilaridadeMinimaSoValeNaFaixaAbertaEmCulturaInvariante(string? valor, double? esperado)
     {
-        var cfg = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"] = valor }).Build();
-        using var gerador = new GeradorDeEmbeddingHttp(new HttpClient(), cfg);
+        using var gerador = new GeradorDeEmbeddingHttp(new HttpClient(), new ConfigurationBuilder().AddInMemoryCollection(ConfiguracaoHttp(valor)).Build());
         Assert.Equal(esperado, gerador.SimilaridadeMinima);
+    }
+
+    // O limiar fica vinculado ao modelo calibrado: trocar provedor, nome, versão ou dimensão sem recalibrar desliga a semântica.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("bge-m3")]
+    [InlineData("ollama|bge-m3|790764642607")]
+    [InlineData("ollama|bge-m3|790764642607|3|extra")]
+    [InlineData("http|bge-m3|790764642607|3")]
+    [InlineData("ollama|BGE-M3|790764642607|3")]
+    [InlineData("ollama|bge-m3|0000000000aa|3")]
+    [InlineData("ollama|bge-m3|790764642607|1024")]
+    [InlineData(" ollama|bge-m3|790764642607|3")]
+    public void LimiarDeOutroModeloOuSemVinculoNaoVale(string? calibrado)
+    {
+        using var gerador = new GeradorDeEmbeddingHttp(new HttpClient(), new ConfigurationBuilder().AddInMemoryCollection(ConfiguracaoHttp("0.52", calibrado)).Build());
+        Assert.NotNull(gerador.Modelo); Assert.Null(gerador.SimilaridadeMinima);
+    }
+
+    [Fact]
+    public void IdentificacaoDoModeloEhAQueVinculaOLimiar()
+    {
+        using var gerador = new GeradorDeEmbeddingHttp(new HttpClient(), new ConfigurationBuilder().AddInMemoryCollection(ConfiguracaoHttp("0.52")).Build());
+        Assert.Equal(Calibrado, GeradorDeEmbeddingHttp.Identificacao(gerador.Modelo!));
+        Assert.Equal(0.52, gerador.SimilaridadeMinima);
+    }
+
+    [PostgreSqlFact]
+    public async Task ModeloTrocadoSemRecalibrarFicaLexicalSemChamarOEndpoint()
+    {
+        await using var banco = await Banco.CriarAsync(); var e = new EspacoDeConhecimento(Guid.NewGuid(), "Vínculo #280");
+        var item = new Conhecimento(e.Id, null, TipoDeConhecimento.Fato, "registro de teste", null, StatusDoConhecimento.Inferido, null, Sensibilidade.Trabalho, null, null, [],
+            new(Guid.NewGuid(), "teste", "fonte", null, "trecho"), DateTimeOffset.UtcNow, NaturezaDoConteudo.DitoPeloUsuario);
+        await using (var c = banco.Contexto()) { c.AddRange(e, item); await c.SaveChangesAsync(); }
+        var acesso = new AcessoAoBrain(e.IdUsuario, e.Id, null);
+        foreach (var (calibrado, modo) in new[] { (Calibrado, "hibrido"), ("ollama|bge-m3|outra-versao|3", "lexical") })
+        {
+            var handler = new HandlerDeEmbedding();
+            var cfg = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>(ConfiguracaoHttp("0.5", calibrado, "http://127.0.0.1:9/embeddings"))
+                { ["ConnectionStrings:Dante"] = banco.ConnectionString }).Build();
+            var services = new ServiceCollection().AddApplication().AddInfrastructure(cfg);
+            services.AddSingleton<IGeradorDeEmbedding>(new GeradorDeEmbeddingHttp(new HttpClient(handler), cfg));
+            using var provider = services.BuildServiceProvider(); using var scope = EscoposBrainDeTeste.Criar(provider, e.IdUsuario, e.Id);
+            await scope.ServiceProvider.GetRequiredService<IndiceDeBuscaPostgreSql>().PrepararVetoresAsync();
+            var busca = scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>();
+            await busca.ReindexarAsync(acesso);             // indexar não depende do limiar
+            var antes = handler.Chamadas;
+            var r = await busca.BuscarAsync(acesso, new() { Texto = "consulta sem termo do conteúdo" });
+            Assert.Equal(modo, r.Modo);
+            Assert.Equal(modo == "hibrido" ? antes + 1 : antes, handler.Chamadas);
+            if (modo == "lexical") Assert.Empty(r.Resultados);
+        }
+    }
+
+    private sealed class HandlerDeEmbedding : HttpMessageHandler
+    {
+        public int Chamadas;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Interlocked.Increment(ref Chamadas);
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("{\"data\":[{\"embedding\":[1,0,0]}]}") });
+        }
     }
 
     [PostgreSqlFact]
@@ -69,6 +139,10 @@ public sealed class CorteDeRelevanciaDaBuscaTests
         var apoiado = await busca.BuscarAsync(cenario.Acesso, new() { Texto = "zebra or alfa", TextoIntegral = "zebra alfa" });
         Assert.Contains(apoiado.Resultados, x => x.Item.Id == cenario.Apoiado.Id);
         Assert.DoesNotContain(apoiado.Resultados, x => x.Item.Id == cenario.Literal.Id);
+        // A mensagem é linguagem natural: or, aspas e exclusões nela não viram operadores da verificação integral.
+        foreach (var mensagem in new[] { "zebra or consulta", "zebra OR consulta", "\"zebra\" or consulta", "zebra -consulta" })
+            Assert.DoesNotContain((await busca.BuscarAsync(cenario.Acesso, new() { Texto = "zebra or consulta", TextoIntegral = mensagem })).Resultados,
+                x => x.Item.Id == cenario.Literal.Id);
         // Sem TextoIntegral (canal agente), a semântica OR da consulta é a de sempre.
         Assert.Contains((await busca.BuscarAsync(cenario.Acesso, new() { Texto = "zebra or consulta" })).Resultados, x => x.Item.Id == cenario.Literal.Id);
     }

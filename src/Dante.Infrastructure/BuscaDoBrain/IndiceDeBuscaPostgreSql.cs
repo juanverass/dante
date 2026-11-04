@@ -61,7 +61,9 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
         // Corte de relevância (#280): só entra no ranking semântico quem atinge a similaridade mínima, e a
         // correspondência lexical só parcial (TextoIntegral não casa) precisa desse apoio semântico.
         var integral = semantico && !string.IsNullOrWhiteSpace(filtro.TextoIntegral);
-        var lexicalIntegral = integral ? "COALESCE(ts_rank_cd(t.documento, websearch_to_tsquery('portuguese', @integral)), 0) > 0" : "true";
+        // plainto_tsquery trata a mensagem como linguagem natural: todos os lexemas em AND, sem interpretar
+        // or, aspas ou exclusões, que websearch_to_tsquery transformaria em operadores.
+        var lexicalIntegral = integral ? "COALESCE(t.documento @@ plainto_tsquery('portuguese', @integral), false)" : "true";
         var scoreVetor = semantico ? "CASE WHEN r.vetor IS NOT NULL THEN 1 - (r.vetor <=> CAST(@vetor AS vector)) END" : "NULL::double precision";
         var join = semantico ? "LEFT JOIN brain_index.representacoes r ON r.id_conhecimento = c.id AND r.revisao = t.revisao AND r.modelo = @modelo AND r.dimensao = @dimensao" : "";
         // Somente fragmentos SQL constantes; todos os valores são parâmetros.

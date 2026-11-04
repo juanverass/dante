@@ -2,9 +2,10 @@
   "conjunto": "validacao@1",
   "modo": "lexical",
   "nome": "validacao-lexical",
-  "geradoEm": "2026-11-04T18:38:30.3896888+00:00",
+  "geradoEm": "2026-11-04T18:56:16.3290784+00:00",
   "modelo": null,
   "similaridadeMinima": null,
+  "modeloCalibrado": null,
   "Indexacao": null,
   "AquecimentoMs": null,
   "geral": {
@@ -23,10 +24,10 @@
     "descartadosMedio": 0,
     "tokensMedio": 289.917,
     "tokensTotal": 3479,
-    "msAgenteP50": 12.419,
-    "msAgenteP95": 13.85,
-    "msAutomaticoP50": 5.63,
-    "msAutomaticoP95": 26.015,
+    "msAgenteP50": 11.858,
+    "msAgenteP95": 13.127,
+    "msAutomaticoP50": 5.714,
+    "msAutomaticoP95": 14.014,
     "msEmbeddingMedio": 0
   },
   "porCategoria": {
@@ -46,10 +47,10 @@
       "descartadosMedio": 0,
       "tokensMedio": 200,
       "tokensTotal": 400,
-      "msAgenteP50": 13.29,
-      "msAgenteP95": 13.85,
-      "msAutomaticoP50": 5.106,
-      "msAutomaticoP95": 12.874,
+      "msAgenteP50": 12.582,
+      "msAgenteP95": 13.127,
+      "msAutomaticoP50": 5.281,
+      "msAutomaticoP95": 14.014,
       "msEmbeddingMedio": 0
     },
     "parafrase": {
@@ -68,10 +69,10 @@
       "descartadosMedio": 0,
       "tokensMedio": 379.75,
       "tokensTotal": 1519,
-      "msAgenteP50": 11.963,
-      "msAgenteP95": 12.586,
-      "msAutomaticoP50": 6.499,
-      "msAutomaticoP95": 26.015,
+      "msAgenteP50": 11.653,
+      "msAgenteP95": 12.067,
+      "msAutomaticoP50": 6.34,
+      "msAutomaticoP95": 11.435,
       "msEmbeddingMedio": 0
     },
     "outro-idioma": {
@@ -90,10 +91,10 @@
       "descartadosMedio": 0,
       "tokensMedio": 0,
       "tokensTotal": 0,
-      "msAgenteP50": 12.602,
-      "msAgenteP95": 12.786,
-      "msAutomaticoP50": 3.956,
-      "msAutomaticoP95": 4.076,
+      "msAgenteP50": 11.696,
+      "msAgenteP95": 12.089,
+      "msAutomaticoP50": 3.453,
+      "msAutomaticoP95": 4.057,
       "msEmbeddingMedio": 0
     },
     "sem-resposta": {
@@ -112,10 +113,10 @@
       "descartadosMedio": 0,
       "tokensMedio": 493.5,
       "tokensTotal": 987,
-      "msAgenteP50": 11.783,
-      "msAgenteP95": 11.902,
-      "msAutomaticoP50": 3.823,
-      "msAutomaticoP95": 9.812,
+      "msAgenteP50": 11.17,
+      "msAgenteP95": 11.433,
+      "msAutomaticoP50": 3.671,
+      "msAutomaticoP95": 8.535,
       "msEmbeddingMedio": 0
     },
     "sensibilidade": {
@@ -134,10 +135,10 @@
       "descartadosMedio": 0,
       "tokensMedio": 286.5,
       "tokensTotal": 573,
-      "msAgenteP50": 11.66,
-      "msAgenteP95": 12.851,
-      "msAutomaticoP50": 5.63,
-      "msAutomaticoP95": 6.27,
+      "msAgenteP50": 11.858,
+      "msAgenteP95": 12.359,
+      "msAutomaticoP50": 5.714,
+      "msAutomaticoP95": 6.106,
       "msEmbeddingMedio": 0
     }
   },
@@ -165,7 +166,7 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 13.8503,
+        "ms": 13.1267,
         "msEmbedding": 0
       },
       "automatico": {
@@ -177,7 +178,7 @@
         "Descartados": 0,
         "tokens": 205,
         "relevantesSelecionados": 1,
-        "ms": 12.8744,
+        "ms": 14.0141,
         "msEmbedding": 0
       }
     },
@@ -204,7 +205,7 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 13.2903,
+        "ms": 12.5821,
         "msEmbedding": 0
       },
       "automatico": {
@@ -216,7 +217,7 @@
         "Descartados": 0,
         "tokens": 195,
         "relevantesSelecionados": 1,
-        "ms": 5.1062,
+        "ms": 5.2811,
         "msEmbedding": 0
       }
     },
@@ -234,7 +235,7 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 12.5864,
+        "ms": 11.6528,
         "msEmbedding": 0
       },
       "automatico": {
@@ -242,14 +243,14 @@
         "Recuperados": 4,
         "selecionados": [
           "fato-metricas",
+          "aprendizado-snapshot",
           "solucao-scram",
-          "solucao-happy-eyeballs",
-          "aprendizado-snapshot"
+          "solucao-happy-eyeballs"
         ],
         "Descartados": 0,
         "tokens": 672,
         "relevantesSelecionados": 1,
-        "ms": 26.015,
+        "ms": 11.4347,
         "msEmbedding": 0
       }
     },
@@ -267,7 +268,7 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 12.4194,
+        "ms": 12.0674,
         "msEmbedding": 0
       },
       "automatico": {
@@ -277,7 +278,7 @@
         "Descartados": 0,
         "tokens": 0,
         "relevantesSelecionados": 0,
-        "ms": 3.4707,
+        "ms": 3.4415,
         "msEmbedding": 0
       }
     },
@@ -295,7 +296,7 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 11.9632,
+        "ms": 11.9004,
         "msEmbedding": 0
       },
       "automatico": {
@@ -308,7 +309,7 @@
         "Descartados": 0,
         "tokens": 357,
         "relevantesSelecionados": 1,
-        "ms": 6.4986,
+        "ms": 6.3397,
         "msEmbedding": 0
       }
     },
@@ -326,7 +327,7 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 11.8882,
+        "ms": 11.5225,
         "msEmbedding": 0
       },
       "automatico": {
@@ -340,7 +341,7 @@
         "Descartados": 0,
         "tokens": 490,
         "relevantesSelecionados": 1,
-        "ms": 20.0239,
+        "ms": 6.4625,
         "msEmbedding": 0
       }
     },
@@ -358,7 +359,7 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 12.7858,
+        "ms": 11.6958,
         "msEmbedding": 0
       },
       "automatico": {
@@ -368,7 +369,7 @@
         "Descartados": 0,
         "tokens": 0,
         "relevantesSelecionados": 0,
-        "ms": 3.9565,
+        "ms": 3.4528,
         "msEmbedding": 0
       }
     },
@@ -386,7 +387,7 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 12.6016,
+        "ms": 12.0886,
         "msEmbedding": 0
       },
       "automatico": {
@@ -396,7 +397,7 @@
         "Descartados": 0,
         "tokens": 0,
         "relevantesSelecionados": 0,
-        "ms": 4.0764,
+        "ms": 4.057,
         "msEmbedding": 0
       }
     },
@@ -412,7 +413,7 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 11.7828,
+        "ms": 11.4326,
         "msEmbedding": 0
       },
       "automatico": {
@@ -422,7 +423,7 @@
         "Descartados": 0,
         "tokens": 0,
         "relevantesSelecionados": 0,
-        "ms": 3.8229,
+        "ms": 3.6713,
         "msEmbedding": 0
       }
     },
@@ -438,7 +439,7 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 11.9015,
+        "ms": 11.1704,
         "msEmbedding": 0
       },
       "automatico": {
@@ -447,15 +448,15 @@
         "selecionados": [
           "procedimento-deploy",
           "incidente-ipv6",
+          "aprendizado-ipv6-dns",
           "fato-tailscale",
           "solucao-orfao",
-          "solucao-happy-eyeballs",
-          "aprendizado-ipv6-dns"
+          "solucao-happy-eyeballs"
         ],
         "Descartados": 0,
         "tokens": 987,
         "relevantesSelecionados": 0,
-        "ms": 9.8117,
+        "ms": 8.5349,
         "msEmbedding": 0
       }
     },
@@ -471,20 +472,20 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 11.6602,
+        "ms": 11.8585,
         "msEmbedding": 0
       },
       "automatico": {
         "Termos": "guardado or envelope or cofre",
         "Recuperados": 2,
         "selecionados": [
-          "solucao-scram",
-          "fato-metricas"
+          "fato-metricas",
+          "solucao-scram"
         ],
         "Descartados": 0,
         "tokens": 351,
         "relevantesSelecionados": 0,
-        "ms": 6.2695,
+        "ms": 6.1065,
         "msEmbedding": 0
       }
     },
@@ -500,7 +501,7 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 12.8506,
+        "ms": 12.3591,
         "msEmbedding": 0
       },
       "automatico": {
@@ -512,7 +513,7 @@
         "Descartados": 0,
         "tokens": 222,
         "relevantesSelecionados": 0,
-        "ms": 5.63,
+        "ms": 5.7142,
         "msEmbedding": 0
       }
     }

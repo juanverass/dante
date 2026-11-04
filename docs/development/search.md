@@ -78,6 +78,7 @@ DANTE_BRAIN_EMBEDDING_VERSION=<digest curto do modelo em `ollama list`>
 DANTE_BRAIN_EMBEDDING_DIMENSION=1024
 DANTE_BRAIN_EMBEDDING_PROVIDER=ollama
 DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY=<limiar calibrado para este modelo, ex.: 0.52>
+DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL=<provedor|nome|versão|dimensão em que foi calibrado, ex.: ollama|bge-m3|790764642607|1024>
 ```
 
 Com o endpoint indisponível, sem modelo, sem coluna `vetor` ou com dimensão divergente, a busca
@@ -86,15 +87,19 @@ repete a medição só num banco descartável (`DANTE_TEST_POSTGRES` e `DANTE_TE
 
 ## Corte de relevância (#280, AD-62)
 
-- **Limiar obrigatório**: `DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY` é a similaridade cosseno mínima
-  calibrada para o modelo, em cultura invariante e na faixa aberta (0, 1). Ausente ou inválida, a
-  consulta não gera embedding e a busca é lexical (fail-closed). A indexação de vetores não depende
-  dela.
+- **Limiar obrigatório e vinculado ao modelo**: `DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY` é a
+  similaridade cosseno mínima, em cultura invariante e na faixa aberta (0, 1).
+  `DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL` identifica o modelo em que ela foi calibrada, como
+  `provedor|nome|versão|dimensão`, comparado campo a campo com `PROVIDER` (padrão `http`), `MODEL`,
+  `VERSION` e `DIMENSION`. Se o limiar estiver ausente, inválido ou vinculado a outro modelo, por
+  exemplo depois de trocar a versão sem recalibrar, a consulta não gera embedding e a busca é
+  lexical (fail-closed). A indexação de vetores não depende do limiar.
 - **Corte antes da fusão**: no SQL, só entra no ranking semântico quem atinge o limiar. Cada lista é
   ranqueada entre os aprovados antes do RRF e da paginação. Sem resultado lexical e sem nada acima do
   limiar, a busca retorna vazio.
 - **Lexical**:
-  - a correspondência com todos os termos entra sempre;
+  - a correspondência com todos os termos entra sempre, verificada com `plainto_tsquery` (linguagem
+    natural, sem interpretar `or`, aspas ou `-` da mensagem);
   - com o híbrido ativo, `TextoIntegral` (a mensagem de onde os termos em OR foram derivados, enviada
     pelo Context Builder) faz a correspondência só parcial exigir apoio semântico;
   - o canal agente (MCP), a conversa natural e o modo lexical ignoram essa regra.

@@ -10,7 +10,12 @@ O script simula os dois canais com a mesma regra do índice:
 - o candidato só semântico passa somente se atender à regra de corte;
 - a ordem segue o RRF (k = 60) entre os aprovados;
 - opcionalmente, no canal automático, a correspondência lexical só parcial (OR) exige apoio
-  semântico, e a que casa com todos os termos (lexicalCru) entra sempre. É a regra adotada.
+  semântico, e a que casa com todos os termos da mensagem entra sempre. É a regra adotada.
+  "Todos os termos" é `integralCru` (plainto_tsquery, como o índice); matrizes antigas sem a
+  coluna usam lexicalCru > 0 (websearch_to_tsquery), equivalente para textos sem operadores.
+
+A simulação do pacote estima tokens e não reproduz expansão por relações nem snapshot do
+Context Builder: os números finais vêm sempre do harness com o código real.
 
 Também compara o embedding dos termos (atual) com o da mensagem natural (variante A).
 
@@ -67,11 +72,15 @@ def aprovados(itens, campo_sem, regra):
     raise ValueError(tipo)
 
 
+def integral(item):
+    return item["integralCru"] if "integralCru" in item else item["lexicalCru"] > 0
+
+
 def ranquear(itens, campo_lex, campo_sem, regra, exige_semantica=False):
     """exige_semantica: correspondência lexical parcial (OR) só entra com apoio semântico;
-    a correspondência com todos os termos da mensagem (lexicalCru) entra sempre."""
+    a correspondência com todos os termos da mensagem (integralCru) entra sempre."""
     passa = aprovados(itens, campo_sem, regra)
-    lex = sorted((i for i in itens if i[campo_lex] > 0 and (not exige_semantica or i["lexicalCru"] > 0 or i["chave"] in passa)),
+    lex = sorted((i for i in itens if i[campo_lex] > 0 and (not exige_semantica or integral(i) or i["chave"] in passa)),
                  key=lambda i: (-i[campo_lex], i["chave"]))
     sem = sorted((i for i in itens if i["chave"] in passa), key=lambda i: (-i[campo_sem], i["chave"]))
     score = {}

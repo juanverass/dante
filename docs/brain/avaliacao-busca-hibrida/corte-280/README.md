@@ -10,10 +10,15 @@ ativação.
 - **Limiar absoluto de similaridade (R1)**: `DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY`, em cultura
   invariante e na faixa aberta (0, 1). No SQL, só entra no ranking semântico quem atinge o limiar.
   O corte é aplicado **antes** do RRF e da paginação: cada lista é ranqueada só entre os aprovados.
-- **Fail-closed**: sem limiar válido, a consulta não gera embedding e a busca fica lexical. A
-  indexação de vetores não depende do limiar.
+- **Limiar vinculado ao modelo calibrado**: `DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL` precisa
+  identificar exatamente o modelo configurado, no formato `provedor|nome|versão|dimensão`
+  (aqui `ollama|bge-m3|790764642607|1024`), comparado campo a campo. Trocar provedor, nome, versão
+  (digest) ou dimensão sem recalibrar desliga a semântica.
+- **Fail-closed**: sem limiar válido e vinculado ao modelo atual, a consulta não gera embedding e a
+  busca fica lexical. A indexação de vetores não depende do limiar.
 - **Correspondência lexical**:
-  - quando casa com todos os termos da mensagem, entra sempre;
+  - quando casa com todos os termos da mensagem, entra sempre. A verificação usa `plainto_tsquery`
+    (linguagem natural, lexemas em AND), para que `or`, aspas ou `-` na mensagem não virem operadores;
   - no canal automático com o híbrido ativo, quando casa só alguns dos termos em OR, precisa de
     apoio semântico acima do limiar (`TextoIntegral`, definido pelo Context Builder);
   - o canal agente (MCP), a conversa natural e o modo lexical não mudam.
@@ -40,7 +45,17 @@ ativação.
 4. A escolha usa os critérios registrados antes da medição e a **pior utilidade na vizinhança da
    grade** (faixa estável, não ponto isolado), com validação **leave-one-out**
    ([`calibracao-resultado.json`](calibracao-resultado.json)).
-5. Por fim, o código real foi medido nas 27 consultas e, **uma única vez**, nas 12 de validação.
+5. Por fim, o código real foi medido nas 27 consultas e nas 12 de validação, com τ fixo.
+   A validação **não** orientou nenhum parâmetro. Depois da correção de review (vínculo do limiar ao
+   modelo e `plainto_tsquery`), as duas medições foram repetidas com o mesmo τ:
+   - com corte, acerto, MRR, revocação, precisão e consultas sem resposta ficaram idênticos;
+   - a verificação integral coincide com o critério anterior nos 837 pares consulta × item, porque
+     nenhuma consulta tem operadores;
+   - só mudou a ordem de itens empatados. Os arquivos versionados são os dessa remedição.
+
+A simulação do `calibrar_corte.py` estima o pacote (tokens e prioridade) e não reproduz a expansão
+por relações nem o snapshot do Context Builder. Por isso ela orienta a **escolha**, e todos os
+números de resultado abaixo vêm do harness com o código real.
 
 Ambiente: Ollama 0.40.14, `bge-m3` (digest `790764642607`, 1024 dimensões), 100% na GPU RTX 3060 Ti;
 PostgreSQL 17.11 com pgvector 0.8.7 na instância de testes, com banco aleatório criado e removido
@@ -73,7 +88,8 @@ pelo harness.
 
 ### Calibração (27 consultas)
 
-Lexical e híbrido sem corte foram reexecutados na mesma sessão e reproduzem a #258.
+Lexical e híbrido sem corte foram reexecutados na mesma sessão e reproduzem as métricas de
+qualidade da #258.
 
 | Métrica | Lexical | Híbrido sem corte | Híbrido com corte (τ = 0,52) |
 | --- | ---: | ---: | ---: |
@@ -81,15 +97,16 @@ Lexical e híbrido sem corte foram reexecutados na mesma sessão e reproduzem a 
 | Acerto@5 paráfrase + outro idioma | 0 (0/17) | 1 (17/17) | **0,941 (16/17)** |
 | MRR | 0,227 | 0,883 | 0,867 |
 | Pacote com relevante | 0,864 | 1 | 0,773 |
-| Precisão do pacote | 0,323 | 0,099 | **0,543** |
+| Precisão do pacote | 0,323 | 0,102 | **0,543** |
 | Sem resposta com pacote (de 5) | 3 | 5 | **0** |
 | Sem resposta com resultado no agente (de 5) | 0 | 5 | 1 |
-| Tokens do pacote (média) | 592 | 1861 | **298** |
-| Latência agente p50 / p95 (ms) | 12,0 / 27,3 | 29,9 / 36,4 | 24,5 / 26,7 |
-| Latência automático p50 / p95 (ms) | 8,0 / 22,0 | 33,4 / 43,3 | 15,2 / 18,6 |
-| Embedding por consulta (ms) | — | 9,2 | 7,6 |
+| Tokens do pacote (média) | 593 | 1862 | **298** |
+| Latência agente p50 / p95 (ms) | 11,9 / 14,9 | 32,0 / 39,1 | 23,7 / 26,3 |
+| Latência automático p50 / p95 (ms) | 7,8 / 20,0 | 38,6 / 46,0 | 15,1 / 17,9 |
+| Embedding por consulta (ms) | — | 8,6 | 7,6 |
 
-Arquivo: [`busca-hibrido-corte.json`](busca-hibrido-corte.json).
+Arquivo: [`busca-hibrido-corte.json`](busca-hibrido-corte.json). Lexical e híbrido sem corte vêm da
+mesma execução e não foram versionados de novo; os da #258 estão na [pasta anterior](..).
 
 ### Validação final (12 consultas, sem ajuste)
 
@@ -101,8 +118,9 @@ Arquivo: [`busca-hibrido-corte.json`](busca-hibrido-corte.json).
 | Pacote com relevante | 0,625 | 1 | 0,5 |
 | Precisão do pacote | 0,25 | 0,056 | **0,5** |
 | Sem resposta com pacote (de 4) | 3 | 4 | **0** |
-| Tokens do pacote (média) | 290 | 1850 | 123 |
-| Latência automático p95 (ms) | 26,0 | 175,9 | 23,5 |
+| Tokens do pacote (média) | 290 | 1852 | 123 |
+| Latência agente p50 / p95 (ms) | 11,9 / 13,1 | 33,5 / 39,9 | 25,5 / 29,2 |
+| Latência automático p50 / p95 (ms) | 5,7 / 14,0 | 38,6 / 175,2 | 16,6 / 24,9 |
 
 Arquivos: [`busca-validacao-lexical.json`](busca-validacao-lexical.json),
 [`busca-validacao-hibrido.json`](busca-validacao-hibrido.json) e
@@ -156,6 +174,7 @@ export DANTE_TEST_POSTGRES='Host=127.0.0.1;Port=55433;Username=<conta_teste>;Pas
 export DANTE_TEST_EMBEDDING_ENDPOINT=http://127.0.0.1:11434/v1/embeddings DANTE_TEST_EMBEDDING_MODEL=bge-m3
 export DANTE_TEST_EMBEDDING_VERSION=790764642607 DANTE_TEST_EMBEDDING_DIMENSION=1024 DANTE_TEST_EMBEDDING_PROVIDER=ollama
 export DANTE_TEST_EMBEDDING_MIN_SIMILARITY=0.52 DANTE_TEST_BUSCA_RELATORIO=/tmp/avaliacao-280
+# O harness vincula o limiar ao modelo acima (ollama|bge-m3|790764642607|1024).
 dotnet test tests/Dante.Tests --filter "FullyQualifiedName~ConsultasDeReferenciaDaBuscaTests"
 python3 -I docs/brain/avaliacao-busca-hibrida/calibrar_corte.py /tmp/avaliacao-280/calibracao-matriz.json \
   tests/Dante.Tests/ConsultasDeReferencia/busca-brain.json

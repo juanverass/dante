@@ -2,16 +2,17 @@
   "conjunto": "calibracao@1",
   "modo": "hibrido",
   "nome": "hibrido-corte",
-  "geradoEm": "2026-11-04T18:38:04.2023597+00:00",
+  "geradoEm": "2026-11-04T18:56:18.0883243+00:00",
   "modelo": "ollama/bge-m3@790764642607 (1024)",
   "similaridadeMinima": "0.52",
+  "modeloCalibrado": "ollama|bge-m3|790764642607|1024",
   "Indexacao": {
     "gravados": 31,
-    "milissegundos": 407.624,
+    "milissegundos": 407.0826,
     "chamadas": 31,
-    "msPorEmbedding": 9.174
+    "msPorEmbedding": 9.059
   },
-  "AquecimentoMs": 25.37,
+  "AquecimentoMs": 26.2756,
   "geral": {
     "consultas": 27,
     "comResposta": 22,
@@ -28,11 +29,11 @@
     "descartadosMedio": 0,
     "tokensMedio": 298.185,
     "tokensTotal": 8051,
-    "msAgenteP50": 24.488,
-    "msAgenteP95": 26.699,
-    "msAutomaticoP50": 15.165,
-    "msAutomaticoP95": 18.564,
-    "msEmbeddingMedio": 7.622
+    "msAgenteP50": 23.73,
+    "msAgenteP95": 26.289,
+    "msAutomaticoP50": 15.116,
+    "msAutomaticoP95": 17.933,
+    "msEmbeddingMedio": 7.596
   },
   "porCategoria": {
     "literal": {
@@ -51,11 +52,11 @@
       "descartadosMedio": 0,
       "tokensMedio": 504.8,
       "tokensTotal": 2524,
-      "msAgenteP50": 23.946,
-      "msAgenteP95": 26.19,
-      "msAutomaticoP50": 17.799,
-      "msAutomaticoP95": 26.946,
-      "msEmbeddingMedio": 7.417
+      "msAgenteP50": 22.356,
+      "msAgenteP95": 25.537,
+      "msAutomaticoP50": 17.665,
+      "msAutomaticoP95": 24.733,
+      "msEmbeddingMedio": 7.341
     },
     "parafrase": {
       "consultas": 15,
@@ -73,11 +74,11 @@
       "descartadosMedio": 0,
       "tokensMedio": 309.2,
       "tokensTotal": 4638,
-      "msAgenteP50": 24.515,
-      "msAgenteP95": 28.077,
-      "msAutomaticoP50": 15.432,
-      "msAutomaticoP95": 17.61,
-      "msEmbeddingMedio": 7.699
+      "msAgenteP50": 24.112,
+      "msAgenteP95": 27.113,
+      "msAutomaticoP50": 15.463,
+      "msAutomaticoP95": 17.55,
+      "msEmbeddingMedio": 7.789
     },
     "outro-idioma": {
       "consultas": 2,
@@ -95,11 +96,11 @@
       "descartadosMedio": 0,
       "tokensMedio": 444.5,
       "tokensTotal": 889,
-      "msAgenteP50": 23.543,
-      "msAgenteP95": 24.189,
-      "msAutomaticoP50": 14.955,
-      "msAutomaticoP95": 16.217,
-      "msEmbeddingMedio": 7.509
+      "msAgenteP50": 22.188,
+      "msAgenteP95": 22.952,
+      "msAutomaticoP50": 13.858,
+      "msAutomaticoP95": 15.881,
+      "msEmbeddingMedio": 7.36
     },
     "sem-resposta": {
       "consultas": 2,
@@ -117,11 +118,11 @@
       "descartadosMedio": 0,
       "tokensMedio": 0,
       "tokensTotal": 0,
-      "msAgenteP50": 22.715,
-      "msAgenteP95": 22.965,
-      "msAutomaticoP50": 12.37,
-      "msAutomaticoP95": 14.322,
-      "msEmbeddingMedio": 7.434
+      "msAgenteP50": 21.805,
+      "msAgenteP95": 25.757,
+      "msAutomaticoP50": 12.325,
+      "msAutomaticoP95": 13.924,
+      "msEmbeddingMedio": 7.713
     },
     "sensibilidade": {
       "consultas": 3,
@@ -139,11 +140,11 @@
       "descartadosMedio": 0,
       "tokensMedio": 0,
       "tokensTotal": 0,
-      "msAgenteP50": 25.11,
-      "msAgenteP95": 26.65,
-      "msAutomaticoP50": 14.119,
-      "msAutomaticoP95": 14.421,
-      "msEmbeddingMedio": 7.775
+      "msAgenteP50": 22.199,
+      "msAgenteP95": 23.158,
+      "msAutomaticoP50": 12.633,
+      "msAutomaticoP95": 12.998,
+      "msEmbeddingMedio": 7.136
     }
   },
   "consultas": [
@@ -205,8 +206,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 25.7752,
-        "msEmbedding": 7.0744
+        "ms": 24.831,
+        "msEmbedding": 7.3764
       },
       "automatico": {
         "Termos": "brain or postgres",
@@ -221,8 +222,8 @@
         "Descartados": 0,
         "tokens": 805,
         "relevantesSelecionados": 1,
-        "ms": 26.9461,
-        "msEmbedding": 8.4965
+        "ms": 24.7327,
+        "msEmbedding": 8.7056
       }
     },
     {
@@ -240,21 +241,15 @@
       ],
       "agente": {
         "recuperados": [
-          "brain-postgres",
           "solucao-scram",
           "solucao-grants",
           "procedimento-backup",
+          "brain-postgres",
           "incidente-scram",
           "fato-tailscale",
           "incidente-grants"
         ],
         "pontuacoes": [
-          {
-            "Chave": "brain-postgres",
-            "Score": 0.03225806451612903,
-            "Lexical": 0.10000000149011612,
-            "Semantico": 0.5361193142008382
-          },
           {
             "Chave": "solucao-scram",
             "Score": 0.03201844262295082,
@@ -263,19 +258,25 @@
           },
           {
             "Chave": "solucao-grants",
-            "Score": 0.0317780580075662,
+            "Score": 0.03201844262295082,
             "Lexical": 0.10000000149011612,
             "Semantico": 0.5399290323257446
           },
           {
             "Chave": "procedimento-backup",
-            "Score": 0.03149801587301587,
+            "Score": 0.031746031746031744,
             "Lexical": 0.10000000149011612,
             "Semantico": 0.5320778051637951
           },
           {
+            "Chave": "brain-postgres",
+            "Score": 0.0315136476426799,
+            "Lexical": 0.10000000149011612,
+            "Semantico": 0.5361193142008382
+          },
+          {
             "Chave": "incidente-scram",
-            "Score": 0.015873015873015872,
+            "Score": 0.016129032258064516,
             "Lexical": 0.10000000149011612,
             "Semantico": 0.49175092577934265
           },
@@ -296,15 +297,15 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 0.7142857142857143,
-        "ms": 26.1903,
-        "msEmbedding": 7.6794
+        "ms": 25.5373,
+        "msEmbedding": 7.2989
       },
       "automatico": {
         "Termos": "postgres",
         "Recuperados": 7,
         "selecionados": [
-          "brain-postgres",
           "procedimento-backup",
+          "brain-postgres",
           "solucao-scram",
           "solucao-grants",
           "incidente-scram",
@@ -314,8 +315,8 @@
         "Descartados": 0,
         "tokens": 1113,
         "relevantesSelecionados": 7,
-        "ms": 18.5638,
-        "msEmbedding": 7.7282
+        "ms": 17.9333,
+        "msEmbedding": 7.9025
       }
     },
     {
@@ -341,8 +342,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 23.3544,
-        "msEmbedding": 7.0833
+        "ms": 21.6888,
+        "msEmbedding": 6.7582
       },
       "automatico": {
         "Termos": "integração",
@@ -353,8 +354,8 @@
         "Descartados": 0,
         "tokens": 192,
         "relevantesSelecionados": 1,
-        "ms": 17.7988,
-        "msEmbedding": 6.6659
+        "ms": 17.665,
+        "msEmbedding": 6.6572
       }
     },
     {
@@ -380,8 +381,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 23.0414,
-        "msEmbedding": 7.2743
+        "ms": 22.3564,
+        "msEmbedding": 7.2095
       },
       "automatico": {
         "Termos": "integrar",
@@ -392,8 +393,8 @@
         "Descartados": 0,
         "tokens": 192,
         "relevantesSelecionados": 1,
-        "ms": 15.1651,
-        "msEmbedding": 7.7377
+        "ms": 16.2868,
+        "msEmbedding": 7.5255
       }
     },
     {
@@ -419,8 +420,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 23.9455,
-        "msEmbedding": 7.3654
+        "ms": 21.6869,
+        "msEmbedding": 7.2126
       },
       "automatico": {
         "Termos": "happy or eyeballs",
@@ -431,8 +432,8 @@
         "Descartados": 0,
         "tokens": 222,
         "relevantesSelecionados": 1,
-        "ms": 14.4842,
-        "msEmbedding": 7.0637
+        "ms": 13.3219,
+        "msEmbedding": 6.7685
       }
     },
     {
@@ -479,8 +480,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 25.9406,
-        "msEmbedding": 7.7912
+        "ms": 24.2465,
+        "msEmbedding": 7.4732
       },
       "automatico": {
         "Termos": "brain or passou or usar or postgres",
@@ -495,8 +496,8 @@
         "Descartados": 0,
         "tokens": 817,
         "relevantesSelecionados": 1,
-        "ms": 17.3852,
-        "msEmbedding": 7.4161
+        "ms": 16.7891,
+        "msEmbedding": 7.557
       }
     },
     {
@@ -543,8 +544,8 @@
         "acerto5": true,
         "rr": 0.25,
         "revocacao5": 1,
-        "ms": 26.3088,
-        "msEmbedding": 8.6449
+        "ms": 25.5982,
+        "msEmbedding": 8.8813
       },
       "automatico": {
         "Termos": "banco or dados or relacional or homelab",
@@ -557,8 +558,8 @@
         "Descartados": 0,
         "tokens": 487,
         "relevantesSelecionados": 0,
-        "ms": 15.1953,
-        "msEmbedding": 7.0375
+        "ms": 15.4628,
+        "msEmbedding": 7.2964
       }
     },
     {
@@ -598,8 +599,8 @@
         "acerto5": true,
         "rr": 0.3333333333333333,
         "revocacao5": 1,
-        "ms": 23.8344,
-        "msEmbedding": 7.5884
+        "ms": 24.1124,
+        "msEmbedding": 7.549
       },
       "automatico": {
         "Termos": "integrações or concluídas or servidor or doméstico",
@@ -610,8 +611,8 @@
         "Descartados": 0,
         "tokens": 197,
         "relevantesSelecionados": 0,
-        "ms": 14.2982,
-        "msEmbedding": 7.1446
+        "ms": 16.0219,
+        "msEmbedding": 7.8577
       }
     },
     {
@@ -637,8 +638,8 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 22.3016,
-        "msEmbedding": 6.9961
+        "ms": 24.0911,
+        "msEmbedding": 7.774
       },
       "automatico": {
         "Termos": "servidor or dados",
@@ -647,8 +648,8 @@
         "Descartados": 0,
         "tokens": 0,
         "relevantesSelecionados": 0,
-        "ms": 14.1739,
-        "msEmbedding": 8.0893
+        "ms": 14.0676,
+        "msEmbedding": 8.0663
       }
     },
     {
@@ -697,21 +698,21 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 26.6992,
-        "msEmbedding": 8.6152
+        "ms": 26.2886,
+        "msEmbedding": 9.0689
       },
       "automatico": {
         "Termos": "bot or telegram or parava or responder or causa or rede or resolvemos or algo or parecido",
         "Recuperados": 2,
         "selecionados": [
-          "fato-allowlist",
-          "solucao-happy-eyeballs"
+          "solucao-happy-eyeballs",
+          "fato-allowlist"
         ],
         "Descartados": 0,
         "tokens": 361,
         "relevantesSelecionados": 1,
-        "ms": 17.2459,
-        "msEmbedding": 8.1915
+        "ms": 16.8219,
+        "msEmbedding": 8.3834
       }
     },
     {
@@ -752,8 +753,8 @@
         "acerto5": true,
         "rr": 0.5,
         "revocacao5": 1,
-        "ms": 25.9933,
-        "msEmbedding": 8.6278
+        "ms": 25.4401,
+        "msEmbedding": 9.2354
       },
       "automatico": {
         "Termos": "corrigimos or conexão or funcionava or ipv4",
@@ -765,8 +766,8 @@
         "Descartados": 0,
         "tokens": 379,
         "relevantesSelecionados": 1,
-        "ms": 15.8026,
-        "msEmbedding": 7.2402
+        "ms": 15.8032,
+        "msEmbedding": 8.0364
       }
     },
     {
@@ -799,8 +800,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 24.4879,
-        "msEmbedding": 7.4407
+        "ms": 27.1129,
+        "msEmbedding": 8.5319
       },
       "automatico": {
         "Termos": "pesquisa or não or encontra or frases or escritas or outras or palavras",
@@ -813,8 +814,8 @@
         "Descartados": 0,
         "tokens": 505,
         "relevantesSelecionados": 1,
-        "ms": 15.4315,
-        "msEmbedding": 7.1452
+        "ms": 17.5504,
+        "msEmbedding": 8.2703
       }
     },
     {
@@ -841,8 +842,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 0.5,
-        "ms": 24.8956,
-        "msEmbedding": 8.0544
+        "ms": 25.3317,
+        "msEmbedding": 7.5925
       },
       "automatico": {
         "Termos": "testes or falhavam or autenticar or banco or temporário",
@@ -855,8 +856,8 @@
         "Descartados": 0,
         "tokens": 539,
         "relevantesSelecionados": 1,
-        "ms": 15.7962,
-        "msEmbedding": 7.0808
+        "ms": 16.4283,
+        "msEmbedding": 7.5508
       }
     },
     {
@@ -883,8 +884,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 0.5,
-        "ms": 24.0431,
-        "msEmbedding": 7.7488
+        "ms": 24.1071,
+        "msEmbedding": 7.5786
       },
       "automatico": {
         "Termos": "conta or serviço or não or tinha or acesso or tabelas or índice",
@@ -895,8 +896,8 @@
         "Descartados": 0,
         "tokens": 211,
         "relevantesSelecionados": 1,
-        "ms": 14.2225,
-        "msEmbedding": 7.0791
+        "ms": 16.9964,
+        "msEmbedding": 7.4657
       }
     },
     {
@@ -922,8 +923,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 23.4048,
-        "msEmbedding": 7.3264
+        "ms": 23.7301,
+        "msEmbedding": 7.2551
       },
       "automatico": {
         "Termos": "colocar or nova or versão or serviço",
@@ -934,8 +935,8 @@
         "Descartados": 0,
         "tokens": 181,
         "relevantesSelecionados": 0,
-        "ms": 14.5829,
-        "msEmbedding": 6.8653
+        "ms": 14.0813,
+        "msEmbedding": 6.8374
       }
     },
     {
@@ -961,8 +962,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 24.5149,
-        "msEmbedding": 7.597
+        "ms": 22.2393,
+        "msEmbedding": 7.4368
       },
       "automatico": {
         "Termos": "faço or cópia or segurança or conhecimento",
@@ -971,8 +972,8 @@
         "Descartados": 0,
         "tokens": 0,
         "relevantesSelecionados": 0,
-        "ms": 13.8849,
-        "msEmbedding": 7.5923
+        "ms": 12.6225,
+        "msEmbedding": 6.9834
       }
     },
     {
@@ -998,8 +999,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 28.0772,
-        "msEmbedding": 8.9944
+        "ms": 22.8375,
+        "msEmbedding": 7.9756
       },
       "automatico": {
         "Termos": "placa or vídeo or servidor or tem",
@@ -1010,8 +1011,8 @@
         "Descartados": 0,
         "tokens": 205,
         "relevantesSelecionados": 1,
-        "ms": 17.6102,
-        "msEmbedding": 7.4104
+        "ms": 14.7832,
+        "msEmbedding": 7.3341
       }
     },
     {
@@ -1045,8 +1046,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 25.0619,
-        "msEmbedding": 7.8305
+        "ms": 24.6889,
+        "msEmbedding": 7.6217
       },
       "automatico": {
         "Termos": "processos or agente or continuavam or rodando or depois or fechar",
@@ -1058,8 +1059,8 @@
         "Descartados": 0,
         "tokens": 346,
         "relevantesSelecionados": 2,
-        "ms": 16.2056,
-        "msEmbedding": 8.1604
+        "ms": 14.8183,
+        "msEmbedding": 7.5234
       }
     },
     {
@@ -1085,8 +1086,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 24.4875,
-        "msEmbedding": 7.7207
+        "ms": 22.454,
+        "msEmbedding": 7.2439
       },
       "automatico": {
         "Termos": "idioma or escrever or nomes or classes or novas",
@@ -1097,8 +1098,8 @@
         "Descartados": 0,
         "tokens": 216,
         "relevantesSelecionados": 1,
-        "ms": 15.7455,
-        "msEmbedding": 8.1251
+        "ms": 15.1163,
+        "msEmbedding": 7.8682
       }
     },
     {
@@ -1124,8 +1125,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 1,
-        "ms": 23.626,
-        "msEmbedding": 7.6325
+        "ms": 22.6626,
+        "msEmbedding": 7.599
       },
       "automatico": {
         "Termos": "resultados or texto or vetor or são or misturados",
@@ -1136,8 +1137,8 @@
         "Descartados": 0,
         "tokens": 194,
         "relevantesSelecionados": 1,
-        "ms": 15.1648,
-        "msEmbedding": 7.79
+        "ms": 14.9348,
+        "msEmbedding": 7.8225
       }
     },
     {
@@ -1164,8 +1165,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 0.5,
-        "ms": 23.543,
-        "msEmbedding": 7.395
+        "ms": 22.1884,
+        "msEmbedding": 7.3669
       },
       "automatico": {
         "Termos": "hybrid or search or ranking or fusion",
@@ -1177,8 +1178,8 @@
         "Descartados": 0,
         "tokens": 343,
         "relevantesSelecionados": 1,
-        "ms": 14.9551,
-        "msEmbedding": 6.907
+        "ms": 13.8582,
+        "msEmbedding": 6.8316
       }
     },
     {
@@ -1205,8 +1206,8 @@
         "acerto5": true,
         "rr": 1,
         "revocacao5": 0.5,
-        "ms": 24.1894,
-        "msEmbedding": 7.8071
+        "ms": 22.952,
+        "msEmbedding": 7.3536
       },
       "automatico": {
         "Termos": "telegram or connection or hangs or ipv6 or without or fallback",
@@ -1219,8 +1220,8 @@
         "Descartados": 0,
         "tokens": 546,
         "relevantesSelecionados": 2,
-        "ms": 16.2168,
-        "msEmbedding": 7.9287
+        "ms": 15.8813,
+        "msEmbedding": 7.8897
       }
     },
     {
@@ -1235,8 +1236,8 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 22.9649,
-        "msEmbedding": 7.5302
+        "ms": 21.8046,
+        "msEmbedding": 7.5439
       },
       "automatico": {
         "Termos": "capital or mongólia",
@@ -1245,8 +1246,8 @@
         "Descartados": 0,
         "tokens": 0,
         "relevantesSelecionados": 0,
-        "ms": 12.3699,
-        "msEmbedding": 6.8172
+        "ms": 12.325,
+        "msEmbedding": 6.8822
       }
     },
     {
@@ -1261,8 +1262,8 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 22.7151,
-        "msEmbedding": 7.5363
+        "ms": 25.7574,
+        "msEmbedding": 8.2685
       },
       "automatico": {
         "Termos": "configuração or kubernetes or cluster or produção",
@@ -1271,8 +1272,8 @@
         "Descartados": 0,
         "tokens": 0,
         "relevantesSelecionados": 0,
-        "ms": 14.3219,
-        "msEmbedding": 7.8509
+        "ms": 13.9243,
+        "msEmbedding": 8.1572
       }
     },
     {
@@ -1287,8 +1288,8 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 23.9587,
-        "msEmbedding": 7.6423
+        "ms": 22.1991,
+        "msEmbedding": 6.8513
       },
       "automatico": {
         "Termos": "multa or indisponibilidade or contrato or cliente",
@@ -1297,8 +1298,8 @@
         "Descartados": 0,
         "tokens": 0,
         "relevantesSelecionados": 0,
-        "ms": 14.0671,
-        "msEmbedding": 7.3575
+        "ms": 12.6327,
+        "msEmbedding": 7.073
       }
     },
     {
@@ -1313,8 +1314,8 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 26.6495,
-        "msEmbedding": 8.3012
+        "ms": 22.1573,
+        "msEmbedding": 6.923
       },
       "automatico": {
         "Termos": "código or recuperação or cofre",
@@ -1323,8 +1324,8 @@
         "Descartados": 0,
         "tokens": 0,
         "relevantesSelecionados": 0,
-        "ms": 14.1194,
-        "msEmbedding": 7.9571
+        "ms": 12.9983,
+        "msEmbedding": 7.5295
       }
     },
     {
@@ -1348,8 +1349,8 @@
         "acerto5": false,
         "rr": 0,
         "revocacao5": 0,
-        "ms": 25.1095,
-        "msEmbedding": 7.8659
+        "ms": 23.1582,
+        "msEmbedding": 7.2723
       },
       "automatico": {
         "Termos": "busca or usa or sqlite or fts5",
@@ -1358,8 +1359,8 @@
         "Descartados": 0,
         "tokens": 0,
         "relevantesSelecionados": 0,
-        "ms": 14.4212,
-        "msEmbedding": 7.527
+        "ms": 12.4668,
+        "msEmbedding": 7.1674
       }
     }
   ]

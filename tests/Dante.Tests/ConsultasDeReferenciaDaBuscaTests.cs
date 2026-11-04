@@ -49,9 +49,17 @@ public sealed class ConsultasDeReferenciaDaBuscaTests(ITestOutputHelper saida)
     [EmbeddingLocalFact]
     public Task MatrizDeCalibracao() => GravarMatrizAsync(Conjunto.Calibracao());
 
-    private static readonly Dictionary<string, string?> SemCorte = new() { ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"] = "0.000001" };
+    // O limiar vale só para o modelo identificado (provedor|nome|versão|dimensão), o mesmo configurado no teste.
+    private static string ModeloCalibrado() => string.Join('|', Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_PROVIDER") ?? "local",
+        Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_MODEL"), Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_VERSION"),
+        Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_DIMENSION"));
+    private static Dictionary<string, string?> SemCorte => new()
+        { ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"] = "0.000001", ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL"] = ModeloCalibrado() };
     private static Dictionary<string, string?> Corte() => new()
-        { ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_MIN_SIMILARITY") };
+    {
+        ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_MIN_SIMILARITY"),
+        ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL"] = ModeloCalibrado(),
+    };
 
     private static Dictionary<string, string?> Embedding(IReadOnlyDictionary<string, string?>? extra = null)
     {
@@ -108,6 +116,7 @@ public sealed class ConsultasDeReferenciaDaBuscaTests(ITestOutputHelper saida)
         {
             // Garantia da #258: conteúdo Trabalho/Pessoal só vai para endpoint de loopback.
             Assert.NotNull(gerador.Modelo); Assert.False(gerador.Externo, "Endpoint de embedding precisa ser loopback.");
+            Assert.NotNull(gerador.SimilaridadeMinima);
             var relogio = Stopwatch.StartNew(); int gravados = 0, rodada;
             using (var scope = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id))
             {
@@ -178,6 +187,7 @@ public sealed class ConsultasDeReferenciaDaBuscaTests(ITestOutputHelper saida)
             conjunto = $"{conjunto.Nome}@{conjunto.Versao}", modo = esperado, nome, geradoEm = DateTimeOffset.UtcNow,
             modelo = amb.Gerador.Modelo is { } m ? $"{m.Provedor}/{m.Nome}@{m.Versao} ({m.Dimensao})" : null,
             similaridadeMinima = cfg.GetValueOrDefault("DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"),
+            modeloCalibrado = cfg.GetValueOrDefault("DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL"),
             amb.Indexacao, amb.AquecimentoMs, geral = Agregar(resultados), porCategoria = resultados.GroupBy(x => x.Consulta.Categoria).ToDictionary(g => g.Key, g => Agregar(g.ToList())),
             consultas = resultados.Select(x => new
             {
@@ -205,7 +215,8 @@ public sealed class ConsultasDeReferenciaDaBuscaTests(ITestOutputHelper saida)
                 SELECT c.id,
                     COALESCE(ts_rank_cd(t.documento, websearch_to_tsquery('portuguese', @cru)), 0)::double precision,
                     COALESCE(ts_rank_cd(t.documento, websearch_to_tsquery('portuguese', @termos)), 0)::double precision,
-                    1 - (r.vetor <=> CAST(@vcru AS vector)), 1 - (r.vetor <=> CAST(@vtermos AS vector))
+                    1 - (r.vetor <=> CAST(@vcru AS vector)), 1 - (r.vetor <=> CAST(@vtermos AS vector)),
+                    COALESCE(t.documento @@ plainto_tsquery('portuguese', @cru), false)
                 FROM brain_data.conhecimentos c JOIN brain_index.trabalhos t ON t.id_conhecimento = c.id
                 JOIN brain_index.representacoes r ON r.id_conhecimento = c.id AND r.revisao = t.revisao AND r.vetor IS NOT NULL
                 """, conexao);
@@ -215,7 +226,7 @@ public sealed class ConsultasDeReferenciaDaBuscaTests(ITestOutputHelper saida)
             var itens = new List<object>();
             await using (var leitor = await c.ExecuteReaderAsync())
                 while (await leitor.ReadAsync())
-                    itens.Add(new { chave = amb.Chaves[leitor.GetGuid(0)], lexicalCru = leitor.GetDouble(1), lexicalTermos = leitor.GetDouble(2), semanticoCru = leitor.GetDouble(3), semanticoTermos = leitor.GetDouble(4) });
+                    itens.Add(new { chave = amb.Chaves[leitor.GetGuid(0)], lexicalCru = leitor.GetDouble(1), lexicalTermos = leitor.GetDouble(2), semanticoCru = leitor.GetDouble(3), semanticoTermos = leitor.GetDouble(4), integralCru = leitor.GetBoolean(5) });
             consultas.Add(new { q.Id, q.Categoria, q.Texto, termos, q.Relevantes, itens });
         }
         var m = amb.Gerador.Modelo!;
