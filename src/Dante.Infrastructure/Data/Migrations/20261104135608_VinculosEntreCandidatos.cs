@@ -25,6 +25,8 @@ namespace Dante.Infrastructure.Data.Migrations
                     id_candidato_solucao = table.Column<Guid>(type: "uuid", nullable: false),
                     id_conhecimento_incidente = table.Column<Guid>(type: "uuid", nullable: true),
                     id_conhecimento_solucao = table.Column<Guid>(type: "uuid", nullable: true),
+                    revisao_conhecimento_incidente = table.Column<int>(type: "integer", nullable: true),
+                    revisao_conhecimento_solucao = table.Column<int>(type: "integer", nullable: true),
                     id_relacao = table.Column<Guid>(type: "uuid", nullable: true),
                     estado = table.Column<int>(type: "integer", nullable: false),
                     motivo_do_encerramento = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),

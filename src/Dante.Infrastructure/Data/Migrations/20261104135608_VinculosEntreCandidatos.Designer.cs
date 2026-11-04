@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Dante.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(DanteDbContext))]
-    [Migration("20261104003423_VinculosEntreCandidatos")]
+    [Migration("20261104135608_VinculosEntreCandidatos")]
     partial class VinculosEntreCandidatos
     {
         /// <inheritdoc />
@@ -181,6 +181,14 @@ namespace Dante.Infrastructure.Data.Migrations
                     b.Property<string>("ProvenienciaDoEncerramento")
                         .HasColumnType("jsonb")
                         .HasColumnName("proveniencia_do_encerramento");
+
+                    b.Property<int?>("RevisaoConhecimentoIncidente")
+                        .HasColumnType("integer")
+                        .HasColumnName("revisao_conhecimento_incidente");
+
+                    b.Property<int?>("RevisaoConhecimentoSolucao")
+                        .HasColumnType("integer")
+                        .HasColumnName("revisao_conhecimento_solucao");
 
                     b.Property<uint>("Versao")
                         .IsConcurrencyToken()

@@ -33,6 +33,9 @@ public sealed class VinculoEntreCandidatos : EntidadeBase
     // confirmações concorrentes dos dois lados conflitam pelo token de concorrência em vez de deixarem a intenção órfã.
     public Guid? IdConhecimentoIncidente { get; private set; }
     public Guid? IdConhecimentoSolucao { get; private set; }
+    // Revisão de cada conhecimento no ato da consolidação: a efetivação exige a mesma versão (revalidação de revisões).
+    public int? RevisaoConhecimentoIncidente { get; private set; }
+    public int? RevisaoConhecimentoSolucao { get; private set; }
     public Guid? IdRelacao { get; private set; }
     public EstadoDoVinculo Estado { get; private set; }
     public string? MotivoDoEncerramento { get; private set; }
@@ -42,21 +45,24 @@ public sealed class VinculoEntreCandidatos : EntidadeBase
     public DateTimeOffset AtualizadoEm { get; private set; }
 
     // Registra o conhecimento que consolidou um dos candidatos; verdadeiro quando os dois lados já são conhecimentos.
-    public bool RegistrarConsolidacao(Guid idCandidato, Guid idConhecimento, DateTimeOffset instante)
+    public bool RegistrarConsolidacao(Guid idCandidato, Guid idConhecimento, int revisao, DateTimeOffset instante)
     {
         GarantirPendente(instante);
-        if (idConhecimento == Guid.Empty) throw new ArgumentException("Conhecimento consolidado inválido.");
-        if (idCandidato == IdCandidatoIncidente) IdConhecimentoIncidente = idConhecimento;
-        else if (idCandidato == IdCandidatoSolucao) IdConhecimentoSolucao = idConhecimento;
+        if (idConhecimento == Guid.Empty || revisao < 1) throw new ArgumentException("Conhecimento consolidado inválido.");
+        if (idCandidato == IdCandidatoIncidente) (IdConhecimentoIncidente, RevisaoConhecimentoIncidente) = (idConhecimento, revisao);
+        else if (idCandidato == IdCandidatoSolucao) (IdConhecimentoSolucao, RevisaoConhecimentoSolucao) = (idConhecimento, revisao);
         else throw new ArgumentException("Candidato não pertence ao vínculo.");
         AtualizadoEm = instante;
         return IdConhecimentoIncidente is not null && IdConhecimentoSolucao is not null;
     }
-    // Regra única de efetivação: os dois lados foram consolidados pelo usuário (promoção do candidato), continuam
-    // ativos no escopo do vínculo e mantêm Incidente → Solucao. O status epistêmico não é exigido nem alterado:
-    // conclusões do agente consolidadas permanecem Inferido (AD-59 I1) e ainda assim podem ser relacionadas.
+    // Regra única de efetivação (AD-61, aprovada): os dois lados foram consolidados pelo usuário (promoção do candidato),
+    // continuam na revisão da consolidação, ativos, no escopo do vínculo, com sensibilidade de agente (como brain_criar_relacao)
+    // e mantêm Incidente → Solucao. O status epistêmico não é exigido nem alterado: conclusões do agente consolidadas
+    // permanecem Inferido (AD-59 I1) e ainda assim podem ser relacionadas.
     public bool PodeEfetivar(Conhecimento? incidente, Conhecimento? solucao) =>
         incidente is not null && solucao is not null && incidente.Id == IdConhecimentoIncidente && solucao.Id == IdConhecimentoSolucao &&
+        incidente.Revisao == RevisaoConhecimentoIncidente && solucao.Revisao == RevisaoConhecimentoSolucao &&
+        incidente.Sensibilidade <= Sensibilidade.Trabalho && solucao.Sensibilidade <= Sensibilidade.Trabalho &&
         incidente.IdEspacoDeConhecimento == IdEspacoDeConhecimento && solucao.IdEspacoDeConhecimento == IdEspacoDeConhecimento &&
         incidente.IdProjeto == IdProjeto && solucao.IdProjeto == IdProjeto &&
         RelacaoDeConhecimento.TiposCompativeis(TipoDeRelacao.ResolvidoPor, incidente.Tipo, solucao.Tipo) &&

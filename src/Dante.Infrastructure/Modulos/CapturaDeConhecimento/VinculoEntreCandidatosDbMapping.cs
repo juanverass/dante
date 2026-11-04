@@ -21,6 +21,8 @@ public sealed class VinculoEntreCandidatosDbMapping : EntidadeConfiguration<Vinc
         b.Property(x => x.IdCandidatoSolucao).HasColumnName("id_candidato_solucao");
         b.Property(x => x.IdConhecimentoIncidente).HasColumnName("id_conhecimento_incidente");
         b.Property(x => x.IdConhecimentoSolucao).HasColumnName("id_conhecimento_solucao");
+        b.Property(x => x.RevisaoConhecimentoIncidente).HasColumnName("revisao_conhecimento_incidente");
+        b.Property(x => x.RevisaoConhecimentoSolucao).HasColumnName("revisao_conhecimento_solucao");
         b.Property(x => x.IdRelacao).HasColumnName("id_relacao");
         b.Property(x => x.Estado).HasColumnName("estado");
         b.Property(x => x.MotivoDoEncerramento).HasColumnName("motivo_do_encerramento").HasMaxLength(500);

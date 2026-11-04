@@ -179,6 +179,14 @@ namespace Dante.Infrastructure.Data.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("proveniencia_do_encerramento");
 
+                    b.Property<int?>("RevisaoConhecimentoIncidente")
+                        .HasColumnType("integer")
+                        .HasColumnName("revisao_conhecimento_incidente");
+
+                    b.Property<int?>("RevisaoConhecimentoSolucao")
+                        .HasColumnType("integer")
+                        .HasColumnName("revisao_conhecimento_solucao");
+
                     b.Property<uint>("Versao")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()

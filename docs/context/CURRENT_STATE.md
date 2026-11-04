@@ -811,7 +811,7 @@ sem reclassificar registros: gerar candidato exige reimportação com autoria co
 `brain_vincular_candidatos` registra a intenção de `ResolvidoPor` entre um candidato
 Incidente e um candidato Solucao pendentes, com revisões, escopo exato e sensibilidade
 iguais aos de `brain_criar_relacao`. A intenção vive em `VinculoEntreCandidatos`
-(migration 20261104003423, tabela nova). Nenhuma relação existe enquanto algum lado
+(migration 20261104135608, tabela nova). Nenhuma relação existe enquanto algum lado
 for candidato; quando o segundo lado é consolidado pela confirmação no Telegram, a
 relação é criada uma única vez na mesma transação. Status, tipo e natureza dos dois
 conhecimentos não mudam: conclusões do agente seguem `Inferido`. Descartar/rejeitar

@@ -348,7 +348,8 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
     // Acrescenta à resposta da confirmação o efeito sobre vínculos ResolvidoPor (#259), sem alterar o status descrito.
     private static string SituacaoDosVinculos(IReadOnlyList<VinculoEntreCandidatosDto> vinculos, string mensagem) =>
         mensagem + (vinculos.Any(v => v.Estado == EstadoDoVinculo.Aplicado) ? " Relação ResolvidoPor registrada com o outro candidato já consolidado." :
-            vinculos.Any(v => v.Estado == EstadoDoVinculo.Pendente) ? " O vínculo ResolvidoPor aguarda a confirmação do outro candidato." : "");
+            vinculos.Any(v => v.Estado == EstadoDoVinculo.Pendente) ? " O vínculo ResolvidoPor aguarda a confirmação do outro candidato." :
+            vinculos.Any(v => v.Estado == EstadoDoVinculo.Cancelado) ? " O vínculo ResolvidoPor foi cancelado; nenhuma relação foi criada." : "");
     private static bool Permitida(Sensibilidade s) => s is Sensibilidade.Publico or Sensibilidade.Pessoal or Sensibilidade.Trabalho;
     private static object Resumir(CandidatoDeConhecimentoDto c) => new { c.Id, c.Titulo, c.Conteudo, c.Tags, tipo = c.Tipo.ToString(), natureza = c.Natureza.ToString(), estado = c.Estado.ToString(), c.Revisao, c.IdConhecimento };
     // S00000N recomeça a cada processo do Worker; a instância torna a sessão única na proveniência (#249).

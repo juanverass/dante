@@ -52,10 +52,10 @@ public sealed class VinculoEntreCandidatosTests
         Assert.Throws<ArgumentException>(() => new VinculoEntreCandidatos(inc, Novo(TipoDeConhecimento.Solucao, Guid.NewGuid()), prova, agora));
         var v = new VinculoEntreCandidatos(inc, sol, prova, agora);
         Assert.Equal((EstadoDoVinculo.Pendente, null, null), (v.Estado, v.IdConhecimentoIncidente, v.IdRelacao));
-        Assert.False(v.RegistrarConsolidacao(inc.Id, Guid.NewGuid(), agora));
+        Assert.False(v.RegistrarConsolidacao(inc.Id, Guid.NewGuid(), 1, agora));
         Assert.Throws<InvalidOperationException>(() => v.Aplicar(Guid.NewGuid(), prova, agora));
-        Assert.Throws<ArgumentException>(() => v.RegistrarConsolidacao(Guid.NewGuid(), Guid.NewGuid(), agora));
-        Assert.True(v.RegistrarConsolidacao(sol.Id, Guid.NewGuid(), agora));
+        Assert.Throws<ArgumentException>(() => v.RegistrarConsolidacao(Guid.NewGuid(), Guid.NewGuid(), 1, agora));
+        Assert.True(v.RegistrarConsolidacao(sol.Id, Guid.NewGuid(), 1, agora));
         Assert.False(v.PodeEfetivar(null, null));
         v.Cancelar("teste", prova, agora);
         Assert.Throws<InvalidOperationException>(() => v.Cancelar("de novo", prova, agora));
@@ -117,6 +117,8 @@ public sealed class VinculoEntreCandidatosTests
     [InlineData("rejeitar-solucao-apos-incidente")]
     [InlineData("incidente-invalidado")]
     [InlineData("tipo-corrigido")]
+    [InlineData("incidente-alterado-apos-consolidar")]
+    [InlineData("incidente-confidencial")]
     public async Task LadoEncerradoOuInvalidoCancelaSemRelacaoOrfa(string caso)
     {
         await using var c = await Cenario.CriarAsync();
@@ -131,7 +133,8 @@ public sealed class VinculoEntreCandidatosTests
                 Assert.Contains("cancela o vínculo", proposta["instrucao"]!.GetValue<string>());
                 Assert.Contains("descartado", await c.ConfirmarNoTelegramAsync());
                 await c.OperarAsync("brain_confirmar_candidato", new { id = sol.Id, revisao = sol.Revisao });
-                Assert.DoesNotContain("ResolvidoPor", await c.ConfirmarNoTelegramAsync());
+                var confirmacao = await c.ConfirmarNoTelegramAsync();
+                Assert.Contains("foi cancelado", confirmacao); Assert.DoesNotContain("Relação ResolvidoPor registrada", confirmacao);
                 break;
             case "descartar-solucao":
                 await captura.DescartarAsync(c.Escopo.Acesso.IdEspacoDeConhecimento, c.Escopo.Acesso.IdProjeto, sol.Id, sol.Revisao, prova);
@@ -150,6 +153,21 @@ public sealed class VinculoEntreCandidatosTests
                     await db.SaveChangesAsync();
                 }
                 await c.OperarAsync("brain_confirmar_candidato", new { id = sol.Id, revisao = sol.Revisao }); await c.ConfirmarNoTelegramAsync();
+                break;
+            case "incidente-alterado-apos-consolidar":
+            case "incidente-confidencial":
+                // O lado já consolidado muda de versão (ou passa a Confidencial) antes da outra confirmação: a efetivação revalida e cancela.
+                await c.OperarAsync("brain_confirmar_candidato", new { id = inc.Id, revisao = inc.Revisao }); await c.ConfirmarNoTelegramAsync();
+                await using (var db = c.Banco.Contexto())
+                {
+                    var k = await db.Conhecimentos.SingleAsync();
+                    k.Corrigir(k.Revisao, k.Tipo, k.Conteudo + " Corrigido.", k.DadosEstruturados, k.Confianca,
+                        caso == "incidente-confidencial" ? Sensibilidade.Confidencial : k.Sensibilidade, k.ValidoDesde, k.ValidoAte, k.Tags,
+                        new(c.Escopo.Acesso.IdUsuario, "teste", "conversa:55:0:302", trechoDaFonte: "corrigir"), DateTimeOffset.UtcNow, NaturezaDoConteudo.ConclusaoDoAgente);
+                    await db.SaveChangesAsync();
+                }
+                await c.OperarAsync("brain_confirmar_candidato", new { id = sol.Id, revisao = sol.Revisao });
+                Assert.Contains("foi cancelado", await c.ConfirmarNoTelegramAsync());
                 break;
             case "tipo-corrigido":
                 // Correção pendente muda a revisão; o tipo deixa de ser Incidente e a consolidação cancela a intenção.
@@ -245,6 +263,46 @@ public sealed class VinculoEntreCandidatosTests
     }
 
     [PostgreSqlFact]
+    public async Task ConfirmacoesConcorrentesNaoDuplicamNemDeixamIntencaoOrfa()
+    {
+        await using var c = await Cenario.CriarAsync();
+        var (inc, sol) = await c.CapturarParAsync("ConclusaoDoAgente");
+        await c.OperarAsync(Ferramenta, new { incidente = inc.Id, revisao_incidente = inc.Revisao, solucao = sol.Id, revisao_solucao = sol.Revisao });
+        var prova = new Dante.Application.Conhecimentos.ProvenienciaDto { IdResponsavel = c.Escopo.Acesso.IdUsuario, Origem = "confirmação Telegram", ReferenciaDaFonte = "conversa:55:0:500", TrechoDaFonte = "confirmar" };
+        async Task<Exception?> Confirmar(Guid id)
+        {
+            using var s = c.Scope();
+            try { await s.ServiceProvider.GetRequiredService<ICapturaDeConhecimentoAppService>().ConfirmarAsync(c.Escopo.Acesso.IdEspacoDeConhecimento, c.Escopo.Acesso.IdProjeto, id, 1, prova); return null; }
+            catch (Exception ex) { return ex; }
+        }
+        // Os dois lados em paralelo: no máximo um conflita (token da intenção); nenhum resultado parcial é gravado.
+        var falhas = (await Task.WhenAll(Confirmar(inc.Id), Confirmar(sol.Id))).OfType<Exception>().ToArray();
+        Assert.All(falhas, f => Assert.IsType<Dante.Application.Comum.ConflitoDeConcorrenciaException>(f));
+        await using (var db = c.Banco.Contexto())
+            foreach (var pendente in await db.CandidatosDeConhecimento.Where(x => x.Estado == EstadoDoCandidato.Pendente).Select(x => x.Id).ToListAsync())
+                Assert.Null(await Confirmar(pendente));
+        // Repetir depois de consolidado é recusado e não cria outra relação.
+        Assert.IsType<InvalidOperationException>(await Confirmar(inc.Id));
+        await using var verificar = c.Banco.Contexto();
+        Assert.Equal(TipoDeRelacao.ResolvidoPor, (await verificar.RelacoesDeConhecimento.SingleAsync()).Tipo);
+        Assert.Equal(2, await verificar.Conhecimentos.CountAsync());
+        Assert.Equal(EstadoDoVinculo.Aplicado, (await verificar.Set<VinculoEntreCandidatos>().SingleAsync()).Estado);
+    }
+
+    [PostgreSqlFact]
+    public async Task IntencaoDesatualizadaConflitaPeloTokenDeConcorrencia()
+    {
+        await using var c = await Cenario.CriarAsync();
+        var (inc, sol) = await c.CapturarParAsync("ConclusaoDoAgente");
+        await c.OperarAsync(Ferramenta, new { incidente = inc.Id, revisao_incidente = inc.Revisao, solucao = sol.Id, revisao_solucao = sol.Revisao });
+        // Leitura antes da primeira consolidação, gravada depois dela: o token xmin recusa a cópia obsoleta.
+        await using var obsoleto = c.Banco.Contexto(); var copia = await obsoleto.Set<VinculoEntreCandidatos>().SingleAsync();
+        await c.OperarAsync("brain_confirmar_candidato", new { id = inc.Id, revisao = inc.Revisao }); await c.ConfirmarNoTelegramAsync();
+        copia.RegistrarConsolidacao(sol.Id, Guid.NewGuid(), 1, DateTimeOffset.UtcNow);
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => obsoleto.SaveChangesAsync());
+    }
+
+    [PostgreSqlFact]
     public async Task ContextBuilderExpandePorResolvidoPorSoDepoisDaConsolidacaoESemRotularComoFato()
     {
         await using var c = await Cenario.CriarAsync();
@@ -315,7 +373,7 @@ public sealed class VinculoEntreCandidatosTests
             if (registrar) app.GetRequiredService<RegistroDeOperacoesBrain>().RegistrarSessao(Sessao, m);
             return app.GetRequiredService<OperacoesMcpDoBrain>().ExecutarAsync(escopo, m, Sessao, "claude", ferramenta, JsonSerializer.SerializeToElement(args));
         }
-        public Task<string> ConfirmarNoTelegramAsync() => brain.AtenderAsync(BrainMcpTests.Mensagem("confirmar", ++mensagem), "confirmar", Sessao);
+        public async Task<string> ConfirmarNoTelegramAsync() => await brain.AtenderAsync(BrainMcpTests.Mensagem("confirmar", ++mensagem), "confirmar", Sessao) ?? "";
         public async Task<(CandidatoDeConhecimentoDto Incidente, CandidatoDeConhecimentoDto Solucao)> CapturarParAsync(string natureza)
         {
             await OperarAsync("brain_capturar_conhecimento", new { conteudo = TextoIncidente, tipo = "Incidente", natureza, justificativa = "diagnóstico", tags = new[] { "teste-259" } });

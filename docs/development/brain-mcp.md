@@ -268,10 +268,14 @@ conclusões do agente consolidadas continuam `Inferido` (AD-59 I1), e a relaçã
 torna fatos. Ao preparar a confirmação, a resposta lista `vinculosPendentes`; a mensagem
 de confirmação informa se a relação foi registrada ou se aguarda o outro candidato.
 
-Descartar ou rejeitar um lado cancela a intenção na mesma transação. Na consolidação,
-lado inativo, fora do escopo ou que deixou de ser Incidente/Solucao (correção de tipo)
-também cancela a intenção, sem relação órfã e sem falhar a confirmação. Correções que só
-mudam a revisão mantêm a intenção. Confirmações concorrentes dos dois lados conflitam
+Descartar ou rejeitar um lado cancela a intenção na mesma transação. Na efetivação, o
+lado já consolidado é revalidado: precisa continuar na revisão registrada na sua
+consolidação, ativo, no escopo, com sensibilidade Publico/Pessoal/Trabalho e tipo
+Incidente/Solucao; caso contrário, a intenção é cancelada, sem relação órfã e sem falhar a
+confirmação, e a mensagem informa o cancelamento. Correções do **candidato** enquanto
+pendente mantêm a intenção; a revisão do conhecimento é fixada na consolidação.
+Limitação conhecida: se um candidato deixar de ser visível na sessão (por exemplo, passar a
+Confidencial), a intenção também deixa de ser visível e permanece pendente, sem relação. Confirmações concorrentes dos dois lados conflitam
 pelo token de concorrência da intenção; a repetição posterior efetiva o vínculo.
 Escopo alterado antes do `confirmar` recusa a operação, como nas demais propostas.
 Para conhecimentos já consolidados, use `brain_criar_relacao`.

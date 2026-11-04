@@ -155,12 +155,12 @@ public sealed class CapturaDeConhecimentoAppService(ICandidatoDeConhecimentoRepo
     {
         foreach (var vinculo in await vinculos.ListarDoCandidatoAsync(candidato.IdEspacoDeConhecimento, candidato.Id, true, ct))
         {
-            if (vinculo.RegistrarConsolidacao(candidato.Id, consolidado.Id, instante))
+            if (vinculo.RegistrarConsolidacao(candidato.Id, consolidado.Id, consolidado.Revisao, instante))
             {
                 var incidente = vinculo.IdConhecimentoIncidente == consolidado.Id ? consolidado : await conhecimentos.ObterPorIdAsync(vinculo.IdConhecimentoIncidente!.Value, ct);
                 var solucao = vinculo.IdConhecimentoSolucao == consolidado.Id ? consolidado : await conhecimentos.ObterPorIdAsync(vinculo.IdConhecimentoSolucao!.Value, ct);
                 if (!vinculo.PodeEfetivar(incidente, solucao))
-                    vinculo.Cancelar("Lado inativo, fora do escopo ou sem tipos Incidente → Solucao na consolidação.", responsavel, instante);
+                    vinculo.Cancelar("Lado alterado, inativo, fora do escopo, com sensibilidade não permitida ou sem tipos Incidente → Solucao na consolidação.", responsavel, instante);
                 else
                 {
                     var relacao = new RelacaoDeConhecimento(incidente!, solucao!, TipoDeRelacao.ResolvidoPor, responsavel, instante);
