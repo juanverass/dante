@@ -25,6 +25,10 @@ internal static class Program
             case "env":
                 Console.WriteLine(Environment.GetEnvironmentVariable(args[1]) ?? "<unset>");
                 return 0;
+            case "env-until-eof":
+                Console.WriteLine(Environment.GetEnvironmentVariable(args[1]) ?? "<unset>");
+                while (Console.In.ReadLine() is not null) { }
+                return 0;
             case "wait":
                 Console.WriteLine("ready");
                 await Task.Delay(args.Length > 1 ? int.Parse(args[1]) : Timeout.Infinite);

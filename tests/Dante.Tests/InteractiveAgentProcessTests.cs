@@ -488,11 +488,15 @@ public sealed class InteractiveAgentProcessTests
         try
         {
             var launcher = CreateLauncher();
-            await using var ordinary = await launcher.StartAsync(Request("env", name));
-            await using var general = await launcher.StartAsync(Request("env", name) with { IsGeneral = true });
+            await using var ordinary = await launcher.StartAsync(Request("env-until-eof", name));
+            await using var general = await launcher.StartAsync(Request("env-until-eof", name) with { IsGeneral = true });
 
             Assert.Equal("project-value", await NextStdoutAsync(ordinary));
             Assert.Equal("<unset>", await NextStdoutAsync(general));
+            // São sessões interativas: a fixture mantém o principal vivo até a observação e o EOF.
+            await ordinary.CloseInputAsync();
+            await general.CloseInputAsync();
+            await Task.WhenAll(ordinary.Completion, general.Completion).WaitAsync(Timeout);
         }
         finally { Environment.SetEnvironmentVariable(name, previous); }
     }
