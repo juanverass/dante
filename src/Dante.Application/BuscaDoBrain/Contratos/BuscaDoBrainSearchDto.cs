@@ -5,6 +5,10 @@ namespace Dante.Application.BuscaDoBrain;
 public sealed record BuscaDoBrainSearchDto
 {
     public string Texto { get; init; } = "";
+    // Texto integral de onde Texto foi derivado (ex.: termos em OR da mensagem). Na busca híbrida,
+    // correspondência lexical só parcial de Texto exige apoio semântico; a que casa todos os termos
+    // de TextoIntegral entra sempre (#280). Ignorado no modo lexical.
+    public string? TextoIntegral { get; init; }
     public Guid? IdConhecimento { get; init; }
     public NaturezaDoConteudo? NaturezaDeOrigem { get; init; }
     public TipoDeConhecimento? Tipo { get; init; }

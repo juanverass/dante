@@ -142,6 +142,7 @@ public sealed class GrantsDoRuntimeTests
     {
         public ModeloEmbedding? Modelo => new("teste", "runtime", "1", 3);
         public bool Externo => false;
+        public double? SimilaridadeMinima => 0.5;
         public Task<float[]?> GerarAsync(string texto, CancellationToken cancellationToken = default) => Task.FromResult<float[]?>([1, 0, 0]);
     }
 

@@ -55,9 +55,13 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
     private const string Autorizado = "c.id_espaco_de_conhecimento = @espaco AND c.id_projeto IS NOT DISTINCT FROM @projeto AND (c.sensibilidade < 3 OR c.sensibilidade = 3 AND @confidencial)";
     private const string Valido = "c.status NOT IN (3,4) AND (c.valido_desde IS NULL OR c.valido_desde <= @instante) AND (c.valido_ate IS NULL OR c.valido_ate > @instante)";
     public async Task<IReadOnlyList<MatchDaBusca>> BuscarAsync(AcessoAoBrain acesso, BuscaDoBrainSearchDto filtro,
-        ModeloEmbedding? modelo, float[]? vetor, CancellationToken cancellationToken = default)
+        ModeloEmbedding? modelo, float[]? vetor, double similaridadeMinima = 1, CancellationToken cancellationToken = default)
     {
         var semantico = vetor is not null && modelo is not null;
+        // Corte de relevância (#280): só entra no ranking semântico quem atinge a similaridade mínima, e a
+        // correspondência lexical só parcial (TextoIntegral não casa) precisa desse apoio semântico.
+        var integral = semantico && !string.IsNullOrWhiteSpace(filtro.TextoIntegral);
+        var lexicalIntegral = integral ? "COALESCE(ts_rank_cd(t.documento, websearch_to_tsquery('portuguese', @integral)), 0) > 0" : "true";
         var scoreVetor = semantico ? "CASE WHEN r.vetor IS NOT NULL THEN 1 - (r.vetor <=> CAST(@vetor AS vector)) END" : "NULL::double precision";
         var join = semantico ? "LEFT JOIN brain_index.representacoes r ON r.id_conhecimento = c.id AND r.revisao = t.revisao AND r.modelo = @modelo AND r.dimensao = @dimensao" : "";
         // Somente fragmentos SQL constantes; todos os valores são parâmetros.
@@ -65,7 +69,7 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
             WITH candidatos AS (
                 SELECT c.id, COALESCE(t.revisao, jsonb_array_length(c.historico)) AS revisao,
                     CASE WHEN @id IS NOT NULL THEN 1 ELSE COALESCE(ts_rank_cd(t.documento, websearch_to_tsquery('portuguese', @texto)), 0) END::double precision AS lexical,
-                    {scoreVetor} AS semantico
+                    {scoreVetor} AS semantico, {lexicalIntegral} AS integral
                 FROM brain_data.conhecimentos c LEFT JOIN brain_index.trabalhos t ON t.id_conhecimento = c.id
                 {join}
                 WHERE c.id_espaco_de_conhecimento = @espaco AND c.id_projeto IS NOT DISTINCT FROM @projeto
@@ -77,13 +81,19 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
                   AND (@sensibilidade IS NULL OR c.sensibilidade = @sensibilidade)
                   AND (@desde IS NULL OR c.criado_em >= @desde) AND (@ate IS NULL OR c.criado_em < @ate)
                   AND (@id IS NOT NULL OR NOT EXISTS(SELECT 1 FROM unnest(@tags::text[]) tag WHERE NOT EXISTS(SELECT 1 FROM unnest(c.tags) existente WHERE lower(existente) = lower(tag))))
+            ), aprovados AS (
+                SELECT *, COALESCE(semantico >= @limiar, false) AS semantico_ok FROM candidatos
+            ), avaliados AS (
+                SELECT *, lexical > 0 AND (integral OR semantico_ok) AS lexical_ok FROM aprovados
             ), ranks AS (
-                SELECT *, CASE WHEN lexical > 0 THEN rank() OVER (ORDER BY lexical DESC, id) END AS rl,
-                    CASE WHEN semantico > 0 THEN rank() OVER (ORDER BY semantico DESC NULLS LAST, id) END AS rs
-                FROM candidatos
+                -- Cada lista é ranqueada só entre os aprovados, antes da fusão e da paginação.
+                SELECT *, CASE WHEN lexical_ok THEN rank() OVER (PARTITION BY lexical_ok ORDER BY lexical DESC, id) END AS rl,
+                    CASE WHEN semantico_ok THEN rank() OVER (PARTITION BY semantico_ok ORDER BY semantico DESC, id) END AS rs
+                FROM avaliados
             )
-            SELECT id, revisao, COALESCE(1.0/(60+rl),0) + COALESCE(1.0/(60+rs),0) AS score, lexical, semantico
-            FROM ranks WHERE lexical > 0 OR semantico > 0
+            SELECT id, revisao, COALESCE(1.0/(60+rl),0) + COALESCE(1.0/(60+rs),0) AS score,
+                CASE WHEN lexical_ok THEN lexical ELSE 0 END::double precision AS lexical, semantico
+            FROM ranks WHERE lexical_ok OR semantico_ok
             ORDER BY score DESC, id LIMIT @limite OFFSET @offset
             """;
         await using var c = await ComandoAsync(sql, cancellationToken); Escopo(c, acesso);
@@ -97,6 +107,8 @@ public sealed class IndiceDeBuscaPostgreSql(DanteDbContext contexto) : IIndiceDe
         Param(c,"tags",NpgsqlDbType.Array | NpgsqlDbType.Text,filtro.Tags.ToArray());
         Param(c,"tipos",NpgsqlDbType.Array|NpgsqlDbType.Integer,filtro.Tipos.Select(x=>(int)x).ToArray());
         Param(c,"limite",NpgsqlDbType.Integer,filtro.Limite); Param(c,"offset",NpgsqlDbType.Integer,filtro.Deslocamento);
+        Param(c,"limiar",NpgsqlDbType.Double,similaridadeMinima);
+        if (integral) Param(c,"integral",NpgsqlDbType.Text,filtro.TextoIntegral);
         if (semantico) { Param(c,"vetor",NpgsqlDbType.Text,TextoVetor(vetor!)); Param(c,"modelo",NpgsqlDbType.Text,modelo!.Chave); Param(c,"dimensao",NpgsqlDbType.Integer,modelo.Dimensao); }
         var resultados = new List<MatchDaBusca>(); await using var reader = await c.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken)) resultados.Add(new(reader.GetGuid(0), reader.GetInt32(1), Convert.ToDouble(reader.GetValue(2),CultureInfo.InvariantCulture), reader.GetDouble(3), reader.IsDBNull(4) ? null : reader.GetDouble(4)));

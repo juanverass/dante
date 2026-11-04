@@ -12,12 +12,12 @@ public sealed class BuscaDoBrainAppService(IIndiceDeBusca indice, IGeradorDeEmbe
         await leitura.ValidarAcessoAsync(acesso, cancellationToken);
         BuscaDoBrainValidator.ValidarBusca(filtro);
         ProtecaoDeSegredos.GarantirSeguro(filtro.Texto);
-        var modelo = embeddings.Modelo; float[]? vetor = null;
-        if (modelo is not null && filtro.IdConhecimento is null && await indice.VetoresDisponiveisAsync(cancellationToken))
+        var modelo = embeddings.Modelo; float[]? vetor = null; var limiar = embeddings.SimilaridadeMinima;
+        if (modelo is not null && limiar is > 0 and < 1 && filtro.IdConhecimento is null && await indice.VetoresDisponiveisAsync(cancellationToken))
             vetor = await embeddings.GerarAsync(filtro.Texto, cancellationToken);
         if (vetor is not null) vetor = Normalizar(vetor, modelo!.Dimensao);
         var janela = filtro with { Limite = filtro.Deslocamento + filtro.Limite + 1, Deslocamento = 0 };
-        var matches = await indice.BuscarAsync(acesso, janela, modelo, vetor, cancellationToken);
+        var matches = await indice.BuscarAsync(acesso, janela, modelo, vetor, limiar ?? 1, cancellationToken);
         var encontrados = fontes is null ? Array.Empty<ResultadoDaBuscaDto>() :
             (await fontes.BuscarAsync(acesso, janela, modelo, vetor, cancellationToken)).ToArray();
         var pagina = matches.Select(m => (Id: m.Id, m.Score, Numero: -1, Match: (MatchDaBusca?)m, Fonte: (ResultadoDaBuscaDto?)null))

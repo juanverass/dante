@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -11,6 +12,9 @@ public sealed class GeradorDeEmbeddingHttp(HttpClient http, IConfiguration confi
     public void Dispose() => http.Dispose();
     private readonly string? endpoint = configuracao["DANTE_BRAIN_EMBEDDING_ENDPOINT"];
     public bool Externo => Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) && !uri.IsLoopback;
+    // Ausente, não numérica ou fora de (0, 1): null, e a busca permanece lexical (#280).
+    public double? SimilaridadeMinima => double.TryParse(configuracao["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"], NumberStyles.Float,
+        CultureInfo.InvariantCulture, out var limiar) && limiar is > 0 and < 1 ? limiar : null;
     public ModeloEmbedding? Modelo => !string.IsNullOrWhiteSpace(endpoint) && !string.IsNullOrWhiteSpace(configuracao["DANTE_BRAIN_EMBEDDING_MODEL"]) &&
         int.TryParse(configuracao["DANTE_BRAIN_EMBEDDING_DIMENSION"], out var dim) && dim is > 0 and <= 16000 &&
         !string.IsNullOrWhiteSpace(configuracao["DANTE_BRAIN_EMBEDDING_VERSION"]) ?

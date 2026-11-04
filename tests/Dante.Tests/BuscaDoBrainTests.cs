@@ -348,7 +348,7 @@ public sealed class BuscaDoBrainTests
     }
     private sealed class Gerador : IGeradorDeEmbedding
     {
-        public string Versao="1"; public bool Indisponivel, SemModelo, EhExterno; public List<string> Textos=[];
+        public string Versao="1"; public bool Indisponivel, SemModelo, EhExterno; public List<string> Textos=[]; public double? SimilaridadeMinima { get; set; } = 0.5;
         public ModeloEmbedding? Modelo=>SemModelo?null:new("teste","conceitos-controlados",Versao,3); public bool Externo=>EhExterno;
         public Task<float[]?> GerarAsync(string texto,CancellationToken ct=default)
         { Textos.Add(texto); return Task.FromResult<float[]?>(Indisponivel?null:texto.Contains("relação")||texto.Contains("associação")?[1,0,0]:[0,1,0]); }

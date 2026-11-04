@@ -23,7 +23,9 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
         ConstrucaoDeContextoValidator.ValidarPedido(pedido);
         var automatico=acesso with{PermitirSecreto=false};
         var termo=string.IsNullOrWhiteSpace(pedido.Filtros.Texto)?pedido.Mensagem:pedido.Filtros.Texto;
-        var resultado=await busca.BuscarAsync(automatico,pedido.Filtros with{Texto=termo,IdConhecimento=null,Limite=pedido.LimiteDeCandidatos,Deslocamento=0},cancellationToken);
+        // Termos derivados da mensagem: na busca híbrida, casar só parte deles exige apoio semântico (#280).
+        var integral=string.IsNullOrWhiteSpace(pedido.Filtros.Texto)?null:pedido.Mensagem;
+        var resultado=await busca.BuscarAsync(automatico,pedido.Filtros with{Texto=termo,TextoIntegral=integral,IdConhecimento=null,Limite=pedido.LimiteDeCandidatos,Deslocamento=0},cancellationToken);
         var motivos=new Dictionary<Guid,(double Score,string Motivo)>();var brutas=new List<ResultadoDaBuscaDto>();
         foreach(var r in resultado.Resultados)
             if(r.Origem==OrigemDoResultado.Conhecimento) motivos.TryAdd(r.Item.Id,(r.Score,r.Explicacao));else brutas.Add(r);
