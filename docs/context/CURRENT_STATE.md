@@ -438,6 +438,19 @@ Snapshot persistente por espaço/projeto, com campos operacionais selecionados e
 
 Busca full-text PostgreSQL com fallback lexical, filtros de escopo/sensibilidade/validade e paginação. Semântica pgvector exata e ranking híbrido por modelo/revisão; índices derivados com pendências duráveis e reindexação explícita, embeddings HTTP opcionais sem presumir assinatura das CLIs. Secreto não entra no índice lexical ou vetorial; reclassificação remove derivados, migration corretiva limpa índices antigos e rebuild respeita a política, inclusive sob concorrência. Consulta por ID preserva apenas metadados permitidos sem depender do índice lexical. Fontes brutas rastreáveis participam da busca pela #158. Guia: [busca](../development/search.md).
 
+Avaliação da #258: o conjunto versionado `tests/Dante.Tests/ConsultasDeReferencia/busca-brain.json` (27 consultas) é
+medido pelo harness opt-in `ConsultasDeReferenciaDaBuscaTests`, só em banco descartável, nos dois modos. Com Ollama
+local e `bge-m3` (1024 dimensões, na GPU, endpoint loopback):
+
+- acerto@5 vai de 0,227 para 1 e o MRR de 0,227 para 0,883; paráfrases e consultas em outro idioma saem de 0 para 1;
+- as consultas literais não perdem acerto;
+- sem corte de relevância, o pacote automático enche até 12 itens: os tokens vão de cerca de 593 para 1861, a
+  precisão do pacote cai de 0,323 para 0,102 e as consultas sem resposta passam a trazer itens.
+
+**Decisão:** a instância do homelab segue em modo lexical. O corte de relevância semântica fica para uma Issue
+própria, porque mudar o ranking estava fora do escopo. Relatório:
+[avaliação lexical × híbrida](../brain/avaliacao-busca-hibrida/README.md).
+
 ## Qualidade do Brain (#159)
 
 Revisão manual limitada detecta duplicatas/contradições potenciais, órfãos, fontes sem referência e validade/confirmação. Consolidação explícita preserva todas as proveniências e substitui originais transacionalmente. CONTRADIZ tem resolução auditável; conflitos abertos, histórico inativo/substituído e itens fora de validade não entram na seleção neutra para contexto. Inferência não substitui confirmação automaticamente. Guia: [qualidade](../development/quality.md).
