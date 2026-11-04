@@ -421,7 +421,7 @@ public sealed class ServidorMcpDePlanilhas(IServiceScopeFactory scopes, OrigemDa
         string[] obrigatorias, bool leitura)
     {
         var schema = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject(propriedades
-            .Select(p => KeyValuePair.Create(p.Nome, p.Schema.DeepClone()))) };
+            .Select(p => KeyValuePair.Create<string, JsonNode?>(p.Nome, p.Schema.DeepClone()))) };
         if (obrigatorias.Length > 0) schema["required"] = new JsonArray(obrigatorias.Select(o => (JsonNode)o).ToArray());
         return new JsonObject
         {

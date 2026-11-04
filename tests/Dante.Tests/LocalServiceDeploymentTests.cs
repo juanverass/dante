@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.Versioning;
 
 namespace Dante.Tests;
 
@@ -203,6 +204,7 @@ public sealed class LocalServiceDeploymentTests : IDisposable
             call.Contains("stop", StringComparison.Ordinal) || call.Contains("restart", StringComparison.Ordinal));
     }
 
+    [SupportedOSPlatform("linux")]
     private string Home(string? manualEnvironment)
     {
         var home = Path.Combine(temp, "home");
@@ -231,6 +233,7 @@ public sealed class LocalServiceDeploymentTests : IDisposable
         return File.Exists(log) ? File.ReadAllLines(log) : [];
     }
 
+    [SupportedOSPlatform("linux")]
     private static void Stub(string bin, string name, string body)
     {
         var path = Path.Combine(bin, name);
@@ -256,6 +259,7 @@ public sealed class LocalServiceDeploymentTests : IDisposable
     }
 
     // The scripts target Linux and refuse root, so elsewhere these tests have nothing to check.
+    [SupportedOSPlatformGuard("linux")]
     private static bool CanRunScripts() =>
         OperatingSystem.IsLinux() && Environment.UserName != "root" && File.Exists("/bin/bash");
 

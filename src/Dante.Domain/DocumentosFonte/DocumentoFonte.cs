@@ -16,7 +16,7 @@ public sealed class DocumentoFonte : EntidadeBase
     // Metadados opcionais (#257) descrevem o registro; não fazem parte do conteúdo nem do hash.
     public DocumentoFonte(Guid idEspaco, Guid? idProjeto, string origem, string formato, string conteudo,
         AutoriaDaFonte autoria, Sensibilidade sensibilidade, Guid idResponsavel, DateTimeOffset instante,
-        string? titulo = null, IReadOnlyList<string>? tags = null, string? justificativa = null, string? proveniencia = null)
+        string? titulo = null, IReadOnlyList<string>? tags = null, string? justificativa = null, string? proveniencia = null) : this()
     {
         if (idEspaco == Guid.Empty || idProjeto == Guid.Empty) throw new ArgumentException("Escopo inválido.");
         IdEspacoDeConhecimento = idEspaco; IdProjeto = idProjeto;

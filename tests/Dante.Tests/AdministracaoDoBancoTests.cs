@@ -24,7 +24,11 @@ public sealed class AdministracaoDoBancoTests
 
         // Health precisa de conta runtime; a conta administrativa é recusada mesmo com schema completo.
         await using var role = await RoleDeTeste.CriarAsync(banco, "health");
-        await contexto.Database.ExecuteSqlRawAsync($"GRANT USAGE ON SCHEMA brain_meta TO {role.Nome}; GRANT SELECT ON ALL TABLES IN SCHEMA brain_meta TO {role.Nome}");
+        // Identificadores SQL não são parâmetros de valores: delimitar e escapar pelo provider.
+        using var identificadores = new Npgsql.NpgsqlCommandBuilder();
+        var nomeDaRole = identificadores.QuoteIdentifier(role.Nome);
+        var grants = $"GRANT USAGE ON SCHEMA brain_meta TO {nomeDaRole}; GRANT SELECT ON ALL TABLES IN SCHEMA brain_meta TO {nomeDaRole}";
+        await contexto.Database.ExecuteSqlRawAsync(grants);
         await using var runtime = Banco.Contexto(role.ConnectionString);
         var health = new AdministracaoDoBanco(runtime);
         Assert.True(await health.VerificarSaudeAsync());
