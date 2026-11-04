@@ -2160,3 +2160,39 @@ também `ProduziuAprendizado`; reaproveitá-los para candidatos mudaria a semân
 existente, que permanece inalterada. Guardar a intenção no histórico JSON do candidato
 evitaria a tabela, mas tornaria frágeis a busca reversa e a concorrência.
 Guia: [Brain MCP](../development/brain-mcp.md#vínculo-incidente--solução-entre-candidatos-259).
+
+## AD-62 — Corte de relevância da busca híbrida, fail-closed e calibrado por modelo (#280)
+
+Status: vigente (#280). Complementa a busca do Brain (#154), a busca híbrida medida na #258 e o
+RRF existente, que continua sendo a ordem entre os aprovados.
+
+A parte semântica da busca só é usada com uma similaridade cosseno mínima calibrada para o modelo
+(`DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY`, faixa aberta 0–1), vinculada à identidade exata desse modelo
+(`DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL = provedor|nome|versão|dimensão`, comparada campo a
+campo). Sem ela, ou com vínculo a outro modelo, a consulta não gera embedding e a busca é lexical. O corte é aplicado no SQL antes do RRF e da paginação. Cada lista é ranqueada só
+entre os aprovados, e a busca pode retornar vazio. A correspondência lexical que casa com todos os
+termos da mensagem (`plainto_tsquery`, sem operadores) nunca é cortada. Com o híbrido ativo, a correspondência só parcial dos termos em OR derivados
+da mensagem (`TextoIntegral`, enviado pelo Context Builder) exige apoio semântico. O canal agente, a
+conversa natural e o modo lexical não mudam. A expansão por relações parte só dos aprovados.
+
+Por quê:
+
+- o score RRF depende só da posição e não informa relevância;
+- `semantico > 0` admitia praticamente todos os itens;
+- o lexical em OR montava pacote por coincidência de uma palavra (#258, #280);
+- o limiar depende do modelo, por isso não há padrão embutido e ele fica preso à identidade
+  calibrada: um modelo não calibrado, ou trocado sem recalibrar, nunca injeta resultados fracos;
+- `websearch_to_tsquery` interpretaria `or`, aspas e `-` da mensagem como operadores, e uma
+  correspondência parcial passaria por integral.
+
+Alternativas medidas e rejeitadas:
+
+- margem relativa ao melhor score (R2) e z-score por consulta (R3): leave-one-out pior;
+- embedding da mensagem natural no canal automático (variante A): reprovou no critério de abstenção
+  com limiar único;
+- manter o lexical parcial intacto: nenhum limiar zerava os pacotes sem resposta.
+
+O limiar `0.6` fixo das fontes brutas não foi alterado, e a divergência fica para avaliação futura.
+Com o `bge-m3`, a validação final reprovou no critério de paráfrases (50% contra 80%). Por isso a
+instância do homelab permanece lexical. Relatório:
+[corte de relevância](../brain/avaliacao-busca-hibrida/corte-280/README.md).

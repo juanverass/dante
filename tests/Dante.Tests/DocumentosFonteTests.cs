@@ -123,7 +123,7 @@ public sealed class DocumentosFonteTests
     }
     private sealed class Gerador : IGeradorDeEmbedding
     {
-        public string Versao="1"; public List<string> Textos=[]; public bool Externo=>true;
+        public string Versao="1"; public List<string> Textos=[]; public bool Externo=>true; public double? SimilaridadeMinima=>0.5;
         public ModeloEmbedding? Modelo=>new("teste","fontes",Versao,3);
         public Task<float[]?> GerarAsync(string texto,CancellationToken cancellationToken=default){Textos.Add(texto);return Task.FromResult<float[]?>([1,0,0]);}
     }

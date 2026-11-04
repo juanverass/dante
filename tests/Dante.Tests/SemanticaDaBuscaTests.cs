@@ -135,8 +135,8 @@ public sealed class SemanticaDaBuscaTests
     private sealed class IndiceObservado(IndiceDeBuscaPostgreSql indice, ConcurrentQueue<string> consultas) : IIndiceDeBusca
     {
         public Task<bool> VetoresDisponiveisAsync(CancellationToken ct = default) => indice.VetoresDisponiveisAsync(ct);
-        public Task<IReadOnlyList<MatchDaBusca>> BuscarAsync(AcessoAoBrain acesso, BuscaDoBrainSearchDto filtro, ModeloEmbedding? modelo, float[]? vetor, CancellationToken ct = default)
-        { consultas.Enqueue(filtro.Texto); return indice.BuscarAsync(acesso, filtro, modelo, vetor, ct); }
+        public Task<IReadOnlyList<MatchDaBusca>> BuscarAsync(AcessoAoBrain acesso, BuscaDoBrainSearchDto filtro, ModeloEmbedding? modelo, float[]? vetor, double similaridadeMinima = 1, CancellationToken ct = default)
+        { consultas.Enqueue(filtro.Texto); return indice.BuscarAsync(acesso, filtro, modelo, vetor, similaridadeMinima, ct); }
         public Task<IReadOnlyList<Guid>> ListarPendentesAsync(AcessoAoBrain acesso, ModeloEmbedding modelo, int limite, CancellationToken ct = default) => indice.ListarPendentesAsync(acesso, modelo, limite, ct);
         public Task<bool> GravarAsync(Guid id, int revisao, ModeloEmbedding modelo, float[] vetor, CancellationToken ct = default) => indice.GravarAsync(id, revisao, modelo, vetor, ct);
         public Task LimparModeloAsync(AcessoAoBrain acesso, ModeloEmbedding modelo, CancellationToken ct = default) => indice.LimparModeloAsync(acesso, modelo, ct);

@@ -1,0 +1,1500 @@
+{
+  "conjunto": "validacao@1",
+  "modo": "hibrido",
+  "nome": "validacao-hibrido",
+  "geradoEm": "2026-11-04T18:56:10.8681381+00:00",
+  "modelo": "ollama/bge-m3@790764642607 (1024)",
+  "similaridadeMinima": "0.000001",
+  "modeloCalibrado": "ollama|bge-m3|790764642607|1024",
+  "Indexacao": {
+    "gravados": 31,
+    "milissegundos": 2718.0716,
+    "chamadas": 31,
+    "msPorEmbedding": 69.653
+  },
+  "AquecimentoMs": 66.2999,
+  "geral": {
+    "consultas": 12,
+    "comResposta": 8,
+    "acerto1": 1,
+    "acerto5": 1,
+    "mrr": 1,
+    "revocacao5": 1,
+    "pacoteComRelevante": 1,
+    "precisaoDoPacote": 0.056,
+    "semRespostaComResultado": 4,
+    "semRespostaComPacote": 4,
+    "recuperadosMedio": 31,
+    "selecionadosMedio": 12,
+    "descartadosMedio": 19,
+    "tokensMedio": 1851.583,
+    "tokensTotal": 22219,
+    "msAgenteP50": 33.464,
+    "msAgenteP95": 39.903,
+    "msAutomaticoP50": 38.631,
+    "msAutomaticoP95": 175.201,
+    "msEmbeddingMedio": 9.937
+  },
+  "porCategoria": {
+    "literal": {
+      "consultas": 2,
+      "comResposta": 2,
+      "acerto1": 1,
+      "acerto5": 1,
+      "mrr": 1,
+      "revocacao5": 1,
+      "pacoteComRelevante": 1,
+      "precisaoDoPacote": 0.083,
+      "semRespostaComResultado": 0,
+      "semRespostaComPacote": 0,
+      "recuperadosMedio": 31,
+      "selecionadosMedio": 12,
+      "descartadosMedio": 19,
+      "tokensMedio": 1847,
+      "tokensTotal": 3694,
+      "msAgenteP50": 31.64,
+      "msAgenteP95": 37.743,
+      "msAutomaticoP50": 39.228,
+      "msAutomaticoP95": 175.201,
+      "msEmbeddingMedio": 9.783
+    },
+    "parafrase": {
+      "consultas": 4,
+      "comResposta": 4,
+      "acerto1": 1,
+      "acerto5": 1,
+      "mrr": 1,
+      "revocacao5": 1,
+      "pacoteComRelevante": 1,
+      "precisaoDoPacote": 0.083,
+      "semRespostaComResultado": 0,
+      "semRespostaComPacote": 0,
+      "recuperadosMedio": 31,
+      "selecionadosMedio": 12,
+      "descartadosMedio": 19,
+      "tokensMedio": 1842.5,
+      "tokensTotal": 7370,
+      "msAgenteP50": 32.556,
+      "msAgenteP95": 38.832,
+      "msAutomaticoP50": 38.631,
+      "msAutomaticoP95": 41.197,
+      "msEmbeddingMedio": 9.851
+    },
+    "outro-idioma": {
+      "consultas": 2,
+      "comResposta": 2,
+      "acerto1": 1,
+      "acerto5": 1,
+      "mrr": 1,
+      "revocacao5": 1,
+      "pacoteComRelevante": 1,
+      "precisaoDoPacote": 0.083,
+      "semRespostaComResultado": 0,
+      "semRespostaComPacote": 0,
+      "recuperadosMedio": 31,
+      "selecionadosMedio": 12,
+      "descartadosMedio": 19,
+      "tokensMedio": 1862,
+      "tokensTotal": 3724,
+      "msAgenteP50": 33.464,
+      "msAgenteP95": 39.903,
+      "msAutomaticoP50": 37.485,
+      "msAutomaticoP95": 45.562,
+      "msEmbeddingMedio": 11.145
+    },
+    "sem-resposta": {
+      "consultas": 2,
+      "comResposta": 0,
+      "acerto1": 0,
+      "acerto5": 0,
+      "mrr": 0,
+      "revocacao5": 0,
+      "pacoteComRelevante": 0,
+      "precisaoDoPacote": 0,
+      "semRespostaComResultado": 2,
+      "semRespostaComPacote": 2,
+      "recuperadosMedio": 31,
+      "selecionadosMedio": 12,
+      "descartadosMedio": 19,
+      "tokensMedio": 1855.5,
+      "tokensTotal": 3711,
+      "msAgenteP50": 31.853,
+      "msAgenteP95": 38.747,
+      "msAutomaticoP50": 37.517,
+      "msAutomaticoP95": 37.807,
+      "msEmbeddingMedio": 9.541
+    },
+    "sensibilidade": {
+      "consultas": 2,
+      "comResposta": 0,
+      "acerto1": 0,
+      "acerto5": 0,
+      "mrr": 0,
+      "revocacao5": 0,
+      "pacoteComRelevante": 0,
+      "precisaoDoPacote": 0,
+      "semRespostaComResultado": 2,
+      "semRespostaComPacote": 2,
+      "recuperadosMedio": 31,
+      "selecionadosMedio": 12,
+      "descartadosMedio": 19,
+      "tokensMedio": 1860,
+      "tokensTotal": 3720,
+      "msAgenteP50": 32.583,
+      "msAgenteP95": 35.379,
+      "msAutomaticoP50": 37.681,
+      "msAutomaticoP95": 49.751,
+      "msEmbeddingMedio": 9.451
+    }
+  },
+  "consultas": [
+    {
+      "Id": "V01",
+      "Categoria": "literal",
+      "Texto": "pg_dump",
+      "Relevantes": [
+        "procedimento-backup"
+      ],
+      "agente": {
+        "recuperados": [
+          "procedimento-backup",
+          "referencia-pgvector",
+          "decisao-pgvector-exato",
+          "aprendizado-snapshot",
+          "nota-runner",
+          "solucao-scram",
+          "solucao-orfao",
+          "incidente-scram",
+          "fato-hardware",
+          "brain-postgres"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "procedimento-backup",
+            "Score": 0.03278688524590164,
+            "Lexical": 0.10000000149011612,
+            "Semantico": 0.5691704323640597
+          },
+          {
+            "Chave": "referencia-pgvector",
+            "Score": 0.016129032258064516,
+            "Lexical": 0,
+            "Semantico": 0.5181290220099114
+          },
+          {
+            "Chave": "decisao-pgvector-exato",
+            "Score": 0.015873015873015872,
+            "Lexical": 0,
+            "Semantico": 0.4331177771091461
+          },
+          {
+            "Chave": "aprendizado-snapshot",
+            "Score": 0.015625,
+            "Lexical": 0,
+            "Semantico": 0.4191640019416809
+          },
+          {
+            "Chave": "nota-runner",
+            "Score": 0.015384615384615385,
+            "Lexical": 0,
+            "Semantico": 0.4068203568458557
+          },
+          {
+            "Chave": "solucao-scram",
+            "Score": 0.015151515151515152,
+            "Lexical": 0,
+            "Semantico": 0.3958574893559529
+          },
+          {
+            "Chave": "solucao-orfao",
+            "Score": 0.014925373134328358,
+            "Lexical": 0,
+            "Semantico": 0.39543259143829346
+          },
+          {
+            "Chave": "incidente-scram",
+            "Score": 0.014705882352941176,
+            "Lexical": 0,
+            "Semantico": 0.3934226632118225
+          },
+          {
+            "Chave": "fato-hardware",
+            "Score": 0.014492753623188406,
+            "Lexical": 0,
+            "Semantico": 0.3901974856853485
+          },
+          {
+            "Chave": "brain-postgres",
+            "Score": 0.014285714285714285,
+            "Lexical": 0,
+            "Semantico": 0.37889441125955714
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 37.7429,
+        "msEmbedding": 13.6284
+      },
+      "automatico": {
+        "Termos": "pg_dump",
+        "Recuperados": 31,
+        "selecionados": [
+          "instrucao-segredos",
+          "decisao-pgvector-exato",
+          "decisao-candidatos",
+          "decisao-rrf",
+          "decisao-erros-mcp",
+          "procedimento-backup",
+          "brain-postgres",
+          "preferencia-ptbr",
+          "procedimento-deploy",
+          "referencia-pgvector",
+          "aprendizado-snapshot",
+          "nota-runner"
+        ],
+        "Descartados": 19,
+        "tokens": 1835,
+        "relevantesSelecionados": 1,
+        "ms": 175.2012,
+        "msEmbedding": 9.1031
+      }
+    },
+    {
+      "Id": "V02",
+      "Categoria": "literal",
+      "Texto": "Tailscale",
+      "Relevantes": [
+        "fato-tailscale"
+      ],
+      "agente": {
+        "recuperados": [
+          "fato-tailscale",
+          "nota-runner",
+          "decisao-rrf",
+          "aprendizado-snapshot",
+          "fato-metricas",
+          "fato-hardware",
+          "decisao-pgvector-exato",
+          "solucao-grants",
+          "limitacao-busca",
+          "pessoal-passaporte"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "fato-tailscale",
+            "Score": 0.03278688524590164,
+            "Lexical": 0.10000000149011612,
+            "Semantico": 0.564177393913269
+          },
+          {
+            "Chave": "nota-runner",
+            "Score": 0.016129032258064516,
+            "Lexical": 0,
+            "Semantico": 0.3998076915740967
+          },
+          {
+            "Chave": "decisao-rrf",
+            "Score": 0.015873015873015872,
+            "Lexical": 0,
+            "Semantico": 0.3988444209098816
+          },
+          {
+            "Chave": "aprendizado-snapshot",
+            "Score": 0.015625,
+            "Lexical": 0,
+            "Semantico": 0.3904750347137451
+          },
+          {
+            "Chave": "fato-metricas",
+            "Score": 0.015384615384615385,
+            "Lexical": 0,
+            "Semantico": 0.38316388080012453
+          },
+          {
+            "Chave": "fato-hardware",
+            "Score": 0.015151515151515152,
+            "Lexical": 0,
+            "Semantico": 0.37877655029296875
+          },
+          {
+            "Chave": "decisao-pgvector-exato",
+            "Score": 0.014925373134328358,
+            "Lexical": 0,
+            "Semantico": 0.3781430721282959
+          },
+          {
+            "Chave": "solucao-grants",
+            "Score": 0.014705882352941176,
+            "Lexical": 0,
+            "Semantico": 0.3738078773021698
+          },
+          {
+            "Chave": "limitacao-busca",
+            "Score": 0.014492753623188406,
+            "Lexical": 0,
+            "Semantico": 0.36950361728668213
+          },
+          {
+            "Chave": "pessoal-passaporte",
+            "Score": 0.014285714285714285,
+            "Lexical": 0,
+            "Semantico": 0.36529088020324707
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 31.6401,
+        "msEmbedding": 7.7537
+      },
+      "automatico": {
+        "Termos": "tailscale",
+        "Recuperados": 31,
+        "selecionados": [
+          "instrucao-segredos",
+          "decisao-rrf",
+          "decisao-pgvector-exato",
+          "decisao-candidatos",
+          "decisao-erros-mcp",
+          "brain-postgres",
+          "procedimento-backup",
+          "procedimento-deploy",
+          "preferencia-ptbr",
+          "fato-tailscale",
+          "fato-metricas",
+          "solucao-happy-eyeballs"
+        ],
+        "Descartados": 19,
+        "tokens": 1859,
+        "relevantesSelecionados": 1,
+        "ms": 39.2284,
+        "msEmbedding": 8.6455
+      }
+    },
+    {
+      "Id": "V03",
+      "Categoria": "parafrase",
+      "Texto": "onde ficam guardadas as estatísticas de retomada entre sessões?",
+      "Relevantes": [
+        "fato-metricas"
+      ],
+      "agente": {
+        "recuperados": [
+          "fato-metricas",
+          "fato-tailscale",
+          "aprendizado-snapshot",
+          "solucao-scram",
+          "procedimento-backup",
+          "fato-hardware",
+          "incidente-scram",
+          "solucao-grants",
+          "nota-runner",
+          "aprendizado-ipv6-dns"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "fato-metricas",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.49367569368111197
+          },
+          {
+            "Chave": "fato-tailscale",
+            "Score": 0.016129032258064516,
+            "Lexical": 0,
+            "Semantico": 0.4682747721672058
+          },
+          {
+            "Chave": "aprendizado-snapshot",
+            "Score": 0.015873015873015872,
+            "Lexical": 0,
+            "Semantico": 0.46131086349487305
+          },
+          {
+            "Chave": "solucao-scram",
+            "Score": 0.015625,
+            "Lexical": 0,
+            "Semantico": 0.45322001259207734
+          },
+          {
+            "Chave": "procedimento-backup",
+            "Score": 0.015384615384615385,
+            "Lexical": 0,
+            "Semantico": 0.4242841727818304
+          },
+          {
+            "Chave": "fato-hardware",
+            "Score": 0.015151515151515152,
+            "Lexical": 0,
+            "Semantico": 0.41559097170829773
+          },
+          {
+            "Chave": "incidente-scram",
+            "Score": 0.014925373134328358,
+            "Lexical": 0,
+            "Semantico": 0.40761512517929077
+          },
+          {
+            "Chave": "solucao-grants",
+            "Score": 0.014705882352941176,
+            "Lexical": 0,
+            "Semantico": 0.4054688811302185
+          },
+          {
+            "Chave": "nota-runner",
+            "Score": 0.014492753623188406,
+            "Lexical": 0,
+            "Semantico": 0.39658790826797485
+          },
+          {
+            "Chave": "aprendizado-ipv6-dns",
+            "Score": 0.014285714285714285,
+            "Lexical": 0,
+            "Semantico": 0.38311344385147095
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 38.8324,
+        "msEmbedding": 15.2183
+      },
+      "automatico": {
+        "Termos": "ficam or guardadas or estatísticas or retomada or entre or sessões",
+        "Recuperados": 31,
+        "selecionados": [
+          "instrucao-segredos",
+          "decisao-erros-mcp",
+          "decisao-rrf",
+          "decisao-candidatos",
+          "decisao-pgvector-exato",
+          "procedimento-backup",
+          "preferencia-ptbr",
+          "procedimento-deploy",
+          "brain-postgres",
+          "fato-metricas",
+          "aprendizado-snapshot",
+          "solucao-scram"
+        ],
+        "Descartados": 19,
+        "tokens": 1857,
+        "relevantesSelecionados": 1,
+        "ms": 41.197,
+        "msEmbedding": 8.601
+      }
+    },
+    {
+      "Id": "V04",
+      "Categoria": "parafrase",
+      "Texto": "quem tem permissão para falar com o robô?",
+      "Relevantes": [
+        "fato-allowlist"
+      ],
+      "agente": {
+        "recuperados": [
+          "fato-allowlist",
+          "fato-ferramentas-mcp",
+          "fato-hardware",
+          "fato-tailscale",
+          "aprendizado-snapshot",
+          "solucao-orfao",
+          "pessoal-passaporte",
+          "nota-runner",
+          "decisao-rrf",
+          "procedimento-reindex"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "fato-allowlist",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.5630603693091659
+          },
+          {
+            "Chave": "fato-ferramentas-mcp",
+            "Score": 0.016129032258064516,
+            "Lexical": 0,
+            "Semantico": 0.36759714081304495
+          },
+          {
+            "Chave": "fato-hardware",
+            "Score": 0.015873015873015872,
+            "Lexical": 0,
+            "Semantico": 0.35601583981419627
+          },
+          {
+            "Chave": "fato-tailscale",
+            "Score": 0.015625,
+            "Lexical": 0,
+            "Semantico": 0.3512511640041379
+          },
+          {
+            "Chave": "aprendizado-snapshot",
+            "Score": 0.015384615384615385,
+            "Lexical": 0,
+            "Semantico": 0.34566138114563394
+          },
+          {
+            "Chave": "solucao-orfao",
+            "Score": 0.015151515151515152,
+            "Lexical": 0,
+            "Semantico": 0.343413213287997
+          },
+          {
+            "Chave": "pessoal-passaporte",
+            "Score": 0.014925373134328358,
+            "Lexical": 0,
+            "Semantico": 0.34022269605262956
+          },
+          {
+            "Chave": "nota-runner",
+            "Score": 0.014705882352941176,
+            "Lexical": 0,
+            "Semantico": 0.33619699858444996
+          },
+          {
+            "Chave": "decisao-rrf",
+            "Score": 0.014492753623188406,
+            "Lexical": 0,
+            "Semantico": 0.3320359985806949
+          },
+          {
+            "Chave": "procedimento-reindex",
+            "Score": 0.014285714285714285,
+            "Lexical": 0,
+            "Semantico": 0.33063946183684756
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 38.0984,
+        "msEmbedding": 14.5995
+      },
+      "automatico": {
+        "Termos": "quem or tem or permissão or falar or robô",
+        "Recuperados": 31,
+        "selecionados": [
+          "instrucao-segredos",
+          "decisao-erros-mcp",
+          "decisao-rrf",
+          "decisao-candidatos",
+          "decisao-pgvector-exato",
+          "preferencia-ptbr",
+          "procedimento-backup",
+          "procedimento-deploy",
+          "brain-postgres",
+          "fato-allowlist",
+          "pessoal-passaporte",
+          "aprendizado-snapshot"
+        ],
+        "Descartados": 19,
+        "tokens": 1825,
+        "relevantesSelecionados": 1,
+        "ms": 39.7018,
+        "msEmbedding": 8.4692
+      }
+    },
+    {
+      "Id": "V05",
+      "Categoria": "parafrase",
+      "Texto": "como o tamanho do contexto é calculado sem o contador oficial do modelo?",
+      "Relevantes": [
+        "aprendizado-tokens"
+      ],
+      "agente": {
+        "recuperados": [
+          "aprendizado-tokens",
+          "aprendizado-snapshot",
+          "decisao-erros-mcp",
+          "decisao-candidatos",
+          "decisao-pgvector-exato",
+          "fato-metricas",
+          "procedimento-reindex",
+          "referencia-pgvector",
+          "limitacao-busca",
+          "incidente-orfao"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "aprendizado-tokens",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.6190904009884368
+          },
+          {
+            "Chave": "aprendizado-snapshot",
+            "Score": 0.016129032258064516,
+            "Lexical": 0,
+            "Semantico": 0.45981109142303467
+          },
+          {
+            "Chave": "decisao-erros-mcp",
+            "Score": 0.015873015873015872,
+            "Lexical": 0,
+            "Semantico": 0.428428590297699
+          },
+          {
+            "Chave": "decisao-candidatos",
+            "Score": 0.015625,
+            "Lexical": 0,
+            "Semantico": 0.3819275129990294
+          },
+          {
+            "Chave": "decisao-pgvector-exato",
+            "Score": 0.015384615384615385,
+            "Lexical": 0,
+            "Semantico": 0.37430936098098755
+          },
+          {
+            "Chave": "fato-metricas",
+            "Score": 0.015151515151515152,
+            "Lexical": 0,
+            "Semantico": 0.3728308192739136
+          },
+          {
+            "Chave": "procedimento-reindex",
+            "Score": 0.014925373134328358,
+            "Lexical": 0,
+            "Semantico": 0.35898762941360474
+          },
+          {
+            "Chave": "referencia-pgvector",
+            "Score": 0.014705882352941176,
+            "Lexical": 0,
+            "Semantico": 0.35881920807476153
+          },
+          {
+            "Chave": "limitacao-busca",
+            "Score": 0.014492753623188406,
+            "Lexical": 0,
+            "Semantico": 0.3571001887321472
+          },
+          {
+            "Chave": "incidente-orfao",
+            "Score": 0.014285714285714285,
+            "Lexical": 0,
+            "Semantico": 0.3559974431991577
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 32.0439,
+        "msEmbedding": 8.4708
+      },
+      "automatico": {
+        "Termos": "tamanho or contexto or calculado or contador or oficial or modelo",
+        "Recuperados": 31,
+        "selecionados": [
+          "instrucao-segredos",
+          "decisao-erros-mcp",
+          "decisao-candidatos",
+          "decisao-rrf",
+          "decisao-pgvector-exato",
+          "preferencia-ptbr",
+          "procedimento-backup",
+          "procedimento-deploy",
+          "brain-postgres",
+          "aprendizado-tokens",
+          "aprendizado-snapshot",
+          "referencia-pgvector"
+        ],
+        "Descartados": 19,
+        "tokens": 1845,
+        "relevantesSelecionados": 1,
+        "ms": 37.7542,
+        "msEmbedding": 7.5437
+      }
+    },
+    {
+      "Id": "V06",
+      "Categoria": "parafrase",
+      "Texto": "existe máquina própria para rodar a integração contínua?",
+      "Relevantes": [
+        "nota-runner"
+      ],
+      "agente": {
+        "recuperados": [
+          "nota-runner",
+          "fato-hardware",
+          "decisao-pgvector-exato",
+          "fato-tailscale",
+          "brain-postgres",
+          "fato-ferramentas-mcp",
+          "referencia-pgvector",
+          "fato-metricas",
+          "decisao-rrf",
+          "solucao-grants"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "nota-runner",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.4962289333343506
+          },
+          {
+            "Chave": "fato-hardware",
+            "Score": 0.016129032258064516,
+            "Lexical": 0,
+            "Semantico": 0.45697662234306335
+          },
+          {
+            "Chave": "decisao-pgvector-exato",
+            "Score": 0.015873015873015872,
+            "Lexical": 0,
+            "Semantico": 0.43090200424194336
+          },
+          {
+            "Chave": "fato-tailscale",
+            "Score": 0.015625,
+            "Lexical": 0,
+            "Semantico": 0.42050331830978394
+          },
+          {
+            "Chave": "brain-postgres",
+            "Score": 0.015384615384615385,
+            "Lexical": 0,
+            "Semantico": 0.41514831275631936
+          },
+          {
+            "Chave": "fato-ferramentas-mcp",
+            "Score": 0.015151515151515152,
+            "Lexical": 0,
+            "Semantico": 0.40871137380599976
+          },
+          {
+            "Chave": "referencia-pgvector",
+            "Score": 0.014925373134328358,
+            "Lexical": 0,
+            "Semantico": 0.4084185009252139
+          },
+          {
+            "Chave": "fato-metricas",
+            "Score": 0.014705882352941176,
+            "Lexical": 0,
+            "Semantico": 0.40772367738853943
+          },
+          {
+            "Chave": "decisao-rrf",
+            "Score": 0.014492753623188406,
+            "Lexical": 0,
+            "Semantico": 0.4076065123081207
+          },
+          {
+            "Chave": "solucao-grants",
+            "Score": 0.014285714285714285,
+            "Lexical": 0,
+            "Semantico": 0.4047267436981201
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 32.556,
+        "msEmbedding": 7.8168
+      },
+      "automatico": {
+        "Termos": "existe or máquina or própria or rodar or integração or contínua",
+        "Recuperados": 31,
+        "selecionados": [
+          "instrucao-segredos",
+          "decisao-erros-mcp",
+          "decisao-rrf",
+          "decisao-candidatos",
+          "decisao-pgvector-exato",
+          "brain-postgres",
+          "preferencia-ptbr",
+          "procedimento-backup",
+          "procedimento-deploy",
+          "nota-runner",
+          "solucao-orfao",
+          "aprendizado-snapshot"
+        ],
+        "Descartados": 19,
+        "tokens": 1843,
+        "relevantesSelecionados": 1,
+        "ms": 38.6312,
+        "msEmbedding": 8.0899
+      }
+    },
+    {
+      "Id": "V07",
+      "Categoria": "outro-idioma",
+      "Texto": "how do we back up the knowledge database?",
+      "Relevantes": [
+        "procedimento-backup"
+      ],
+      "agente": {
+        "recuperados": [
+          "procedimento-backup",
+          "decisao-candidatos",
+          "brain-postgres",
+          "aprendizado-snapshot",
+          "fato-tailscale",
+          "instrucao-segredos",
+          "decisao-pgvector-exato",
+          "solucao-grants",
+          "fato-metricas",
+          "limitacao-busca"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "procedimento-backup",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.5373978454650112
+          },
+          {
+            "Chave": "decisao-candidatos",
+            "Score": 0.016129032258064516,
+            "Lexical": 0,
+            "Semantico": 0.4476812481880219
+          },
+          {
+            "Chave": "brain-postgres",
+            "Score": 0.015873015873015872,
+            "Lexical": 0,
+            "Semantico": 0.43098488450050665
+          },
+          {
+            "Chave": "aprendizado-snapshot",
+            "Score": 0.015625,
+            "Lexical": 0,
+            "Semantico": 0.4227660642405717
+          },
+          {
+            "Chave": "fato-tailscale",
+            "Score": 0.015384615384615385,
+            "Lexical": 0,
+            "Semantico": 0.41481406004345134
+          },
+          {
+            "Chave": "instrucao-segredos",
+            "Score": 0.015151515151515152,
+            "Lexical": 0,
+            "Semantico": 0.40529785124672424
+          },
+          {
+            "Chave": "decisao-pgvector-exato",
+            "Score": 0.014925373134328358,
+            "Lexical": 0,
+            "Semantico": 0.4047876355178581
+          },
+          {
+            "Chave": "solucao-grants",
+            "Score": 0.014705882352941176,
+            "Lexical": 0,
+            "Semantico": 0.40141276112718893
+          },
+          {
+            "Chave": "fato-metricas",
+            "Score": 0.014492753623188406,
+            "Lexical": 0,
+            "Semantico": 0.40087603328001564
+          },
+          {
+            "Chave": "limitacao-busca",
+            "Score": 0.014285714285714285,
+            "Lexical": 0,
+            "Semantico": 0.4004709481912293
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 39.9026,
+        "msEmbedding": 14.3506
+      },
+      "automatico": {
+        "Termos": "how or back or knowledge or database",
+        "Recuperados": 31,
+        "selecionados": [
+          "instrucao-segredos",
+          "decisao-candidatos",
+          "decisao-rrf",
+          "decisao-pgvector-exato",
+          "decisao-erros-mcp",
+          "procedimento-backup",
+          "brain-postgres",
+          "preferencia-ptbr",
+          "procedimento-deploy",
+          "aprendizado-snapshot",
+          "limitacao-busca",
+          "fato-tailscale"
+        ],
+        "Descartados": 19,
+        "tokens": 1862,
+        "relevantesSelecionados": 1,
+        "ms": 45.5625,
+        "msEmbedding": 13.8391
+      }
+    },
+    {
+      "Id": "V08",
+      "Categoria": "outro-idioma",
+      "Texto": "tool errors must not reveal whether an identifier exists",
+      "Relevantes": [
+        "decisao-erros-mcp"
+      ],
+      "agente": {
+        "recuperados": [
+          "decisao-erros-mcp",
+          "fato-allowlist",
+          "decisao-candidatos",
+          "incidente-orfao",
+          "instrucao-segredos",
+          "incidente-ipv6",
+          "decisao-pgvector-exato",
+          "fato-hardware",
+          "aprendizado-ipv6-dns",
+          "nota-runner"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "decisao-erros-mcp",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.5004258155822754
+          },
+          {
+            "Chave": "fato-allowlist",
+            "Score": 0.016129032258064516,
+            "Lexical": 0,
+            "Semantico": 0.424560546875
+          },
+          {
+            "Chave": "decisao-candidatos",
+            "Score": 0.015873015873015872,
+            "Lexical": 0,
+            "Semantico": 0.4202283275263512
+          },
+          {
+            "Chave": "incidente-orfao",
+            "Score": 0.015625,
+            "Lexical": 0,
+            "Semantico": 0.3847147822380066
+          },
+          {
+            "Chave": "instrucao-segredos",
+            "Score": 0.015384615384615385,
+            "Lexical": 0,
+            "Semantico": 0.38418158888816833
+          },
+          {
+            "Chave": "incidente-ipv6",
+            "Score": 0.015151515151515152,
+            "Lexical": 0,
+            "Semantico": 0.3838242728919685
+          },
+          {
+            "Chave": "decisao-pgvector-exato",
+            "Score": 0.014925373134328358,
+            "Lexical": 0,
+            "Semantico": 0.3777869641780853
+          },
+          {
+            "Chave": "fato-hardware",
+            "Score": 0.014705882352941176,
+            "Lexical": 0,
+            "Semantico": 0.37210172414779663
+          },
+          {
+            "Chave": "aprendizado-ipv6-dns",
+            "Score": 0.014492753623188406,
+            "Lexical": 0,
+            "Semantico": 0.3717613220214844
+          },
+          {
+            "Chave": "nota-runner",
+            "Score": 0.014285714285714285,
+            "Lexical": 0,
+            "Semantico": 0.3680912256240845
+          }
+        ],
+        "acerto1": true,
+        "acerto5": true,
+        "rr": 1,
+        "revocacao5": 1,
+        "ms": 33.4641,
+        "msEmbedding": 7.9877
+      },
+      "automatico": {
+        "Termos": "tool or errors or must or not or reveal or whether or identifier or exists",
+        "Recuperados": 31,
+        "selecionados": [
+          "instrucao-segredos",
+          "decisao-erros-mcp",
+          "decisao-candidatos",
+          "decisao-pgvector-exato",
+          "decisao-rrf",
+          "preferencia-ptbr",
+          "procedimento-backup",
+          "procedimento-deploy",
+          "brain-postgres",
+          "fato-ferramentas-mcp",
+          "aprendizado-snapshot",
+          "incidente-orfao"
+        ],
+        "Descartados": 19,
+        "tokens": 1862,
+        "relevantesSelecionados": 1,
+        "ms": 37.4853,
+        "msEmbedding": 8.4032
+      }
+    },
+    {
+      "Id": "V09",
+      "Categoria": "sem-resposta",
+      "Texto": "qual a previsão do tempo para amanhã em Recife?",
+      "Relevantes": [],
+      "agente": {
+        "recuperados": [
+          "pessoal-passaporte",
+          "fato-metricas",
+          "aprendizado-tokens",
+          "decisao-rrf",
+          "fato-hardware",
+          "decisao-erros-mcp",
+          "solucao-scram",
+          "procedimento-reindex",
+          "aprendizado-snapshot",
+          "procedimento-backup"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "pessoal-passaporte",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.34492167830467224
+          },
+          {
+            "Chave": "fato-metricas",
+            "Score": 0.016129032258064516,
+            "Lexical": 0,
+            "Semantico": 0.3305236497677462
+          },
+          {
+            "Chave": "aprendizado-tokens",
+            "Score": 0.015873015873015872,
+            "Lexical": 0,
+            "Semantico": 0.32497702092069325
+          },
+          {
+            "Chave": "decisao-rrf",
+            "Score": 0.015625,
+            "Lexical": 0,
+            "Semantico": 0.322998046875
+          },
+          {
+            "Chave": "fato-hardware",
+            "Score": 0.015384615384615385,
+            "Lexical": 0,
+            "Semantico": 0.305446058511734
+          },
+          {
+            "Chave": "decisao-erros-mcp",
+            "Score": 0.015151515151515152,
+            "Lexical": 0,
+            "Semantico": 0.30016446113586426
+          },
+          {
+            "Chave": "solucao-scram",
+            "Score": 0.014925373134328358,
+            "Lexical": 0,
+            "Semantico": 0.2932282213432662
+          },
+          {
+            "Chave": "procedimento-reindex",
+            "Score": 0.014705882352941176,
+            "Lexical": 0,
+            "Semantico": 0.29108479619026184
+          },
+          {
+            "Chave": "aprendizado-snapshot",
+            "Score": 0.014492753623188406,
+            "Lexical": 0,
+            "Semantico": 0.2909885048866272
+          },
+          {
+            "Chave": "procedimento-backup",
+            "Score": 0.014285714285714285,
+            "Lexical": 0,
+            "Semantico": 0.2830099249783138
+          }
+        ],
+        "acerto1": false,
+        "acerto5": false,
+        "rr": 0,
+        "revocacao5": 0,
+        "ms": 38.7467,
+        "msEmbedding": 14.8795
+      },
+      "automatico": {
+        "Termos": "previsão or tempo or amanhã or recife",
+        "Recuperados": 31,
+        "selecionados": [
+          "instrucao-segredos",
+          "decisao-rrf",
+          "decisao-erros-mcp",
+          "decisao-candidatos",
+          "decisao-pgvector-exato",
+          "procedimento-backup",
+          "preferencia-ptbr",
+          "procedimento-deploy",
+          "brain-postgres",
+          "pessoal-passaporte",
+          "aprendizado-snapshot",
+          "aprendizado-tokens"
+        ],
+        "Descartados": 19,
+        "tokens": 1837,
+        "relevantesSelecionados": 0,
+        "ms": 37.8069,
+        "msEmbedding": 7.7324
+      }
+    },
+    {
+      "Id": "V10",
+      "Categoria": "sem-resposta",
+      "Texto": "como configurar o Redis como cache do Worker?",
+      "Relevantes": [],
+      "agente": {
+        "recuperados": [
+          "procedimento-deploy",
+          "procedimento-reindex",
+          "incidente-ipv6",
+          "solucao-orfao",
+          "solucao-scram",
+          "nota-runner",
+          "preferencia-ptbr",
+          "procedimento-backup",
+          "aprendizado-tokens",
+          "aprendizado-ipv6-dns"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "procedimento-deploy",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.573129074964794
+          },
+          {
+            "Chave": "procedimento-reindex",
+            "Score": 0.016129032258064516,
+            "Lexical": 0,
+            "Semantico": 0.4866161644458771
+          },
+          {
+            "Chave": "incidente-ipv6",
+            "Score": 0.015873015873015872,
+            "Lexical": 0,
+            "Semantico": 0.458040778870493
+          },
+          {
+            "Chave": "solucao-orfao",
+            "Score": 0.015625,
+            "Lexical": 0,
+            "Semantico": 0.45733651518821716
+          },
+          {
+            "Chave": "solucao-scram",
+            "Score": 0.015384615384615385,
+            "Lexical": 0,
+            "Semantico": 0.4543047276553682
+          },
+          {
+            "Chave": "nota-runner",
+            "Score": 0.015151515151515152,
+            "Lexical": 0,
+            "Semantico": 0.44182467460632324
+          },
+          {
+            "Chave": "preferencia-ptbr",
+            "Score": 0.014925373134328358,
+            "Lexical": 0,
+            "Semantico": 0.4049196243286133
+          },
+          {
+            "Chave": "procedimento-backup",
+            "Score": 0.014705882352941176,
+            "Lexical": 0,
+            "Semantico": 0.4012864947702438
+          },
+          {
+            "Chave": "aprendizado-tokens",
+            "Score": 0.014492753623188406,
+            "Lexical": 0,
+            "Semantico": 0.3975175978232869
+          },
+          {
+            "Chave": "aprendizado-ipv6-dns",
+            "Score": 0.014285714285714285,
+            "Lexical": 0,
+            "Semantico": 0.39720773696899414
+          }
+        ],
+        "acerto1": false,
+        "acerto5": false,
+        "rr": 0,
+        "revocacao5": 0,
+        "ms": 31.8526,
+        "msEmbedding": 8.0455
+      },
+      "automatico": {
+        "Termos": "configurar or redis or cache or worker",
+        "Recuperados": 31,
+        "selecionados": [
+          "instrucao-segredos",
+          "decisao-candidatos",
+          "decisao-erros-mcp",
+          "decisao-rrf",
+          "decisao-pgvector-exato",
+          "procedimento-deploy",
+          "preferencia-ptbr",
+          "procedimento-backup",
+          "brain-postgres",
+          "solucao-orfao",
+          "incidente-ipv6",
+          "aprendizado-ipv6-dns"
+        ],
+        "Descartados": 19,
+        "tokens": 1874,
+        "relevantesSelecionados": 0,
+        "ms": 37.5173,
+        "msEmbedding": 7.5062
+      }
+    },
+    {
+      "Id": "V11",
+      "Categoria": "sensibilidade",
+      "Texto": "onde está guardado o envelope do cofre?",
+      "Relevantes": [],
+      "agente": {
+        "recuperados": [
+          "fato-metricas",
+          "procedimento-backup",
+          "pessoal-passaporte",
+          "fato-hardware",
+          "aprendizado-tokens",
+          "instrucao-segredos",
+          "pessoal-pao",
+          "decisao-erros-mcp",
+          "solucao-scram",
+          "fato-ferramentas-mcp"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "fato-metricas",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.37968844589785766
+          },
+          {
+            "Chave": "procedimento-backup",
+            "Score": 0.016129032258064516,
+            "Lexical": 0,
+            "Semantico": 0.3738097882696798
+          },
+          {
+            "Chave": "pessoal-passaporte",
+            "Score": 0.015873015873015872,
+            "Lexical": 0,
+            "Semantico": 0.3606417394066901
+          },
+          {
+            "Chave": "fato-hardware",
+            "Score": 0.015625,
+            "Lexical": 0,
+            "Semantico": 0.3536511274368249
+          },
+          {
+            "Chave": "aprendizado-tokens",
+            "Score": 0.015384615384615385,
+            "Lexical": 0,
+            "Semantico": 0.34576195478439575
+          },
+          {
+            "Chave": "instrucao-segredos",
+            "Score": 0.015151515151515152,
+            "Lexical": 0,
+            "Semantico": 0.34040652754345757
+          },
+          {
+            "Chave": "pessoal-pao",
+            "Score": 0.014925373134328358,
+            "Lexical": 0,
+            "Semantico": 0.33665080884997955
+          },
+          {
+            "Chave": "decisao-erros-mcp",
+            "Score": 0.014705882352941176,
+            "Lexical": 0,
+            "Semantico": 0.33546437832500864
+          },
+          {
+            "Chave": "solucao-scram",
+            "Score": 0.014492753623188406,
+            "Lexical": 0,
+            "Semantico": 0.33471044898033386
+          },
+          {
+            "Chave": "fato-ferramentas-mcp",
+            "Score": 0.014285714285714285,
+            "Lexical": 0,
+            "Semantico": 0.3345968922732414
+          }
+        ],
+        "acerto1": false,
+        "acerto5": false,
+        "rr": 0,
+        "revocacao5": 0,
+        "ms": 32.5828,
+        "msEmbedding": 7.9691
+      },
+      "automatico": {
+        "Termos": "guardado or envelope or cofre",
+        "Recuperados": 31,
+        "selecionados": [
+          "instrucao-segredos",
+          "decisao-erros-mcp",
+          "decisao-candidatos",
+          "decisao-pgvector-exato",
+          "decisao-rrf",
+          "preferencia-ptbr",
+          "procedimento-backup",
+          "procedimento-deploy",
+          "brain-postgres",
+          "solucao-scram",
+          "fato-metricas",
+          "pessoal-passaporte"
+        ],
+        "Descartados": 19,
+        "tokens": 1832,
+        "relevantesSelecionados": 0,
+        "ms": 49.7507,
+        "msEmbedding": 14.3334
+      }
+    },
+    {
+      "Id": "V12",
+      "Categoria": "sensibilidade",
+      "Texto": "qual o prazo que gera multa para o cliente Alfa?",
+      "Relevantes": [],
+      "agente": {
+        "recuperados": [
+          "pessoal-passaporte",
+          "incidente-grants",
+          "solucao-orfao",
+          "solucao-happy-eyeballs",
+          "fato-allowlist",
+          "incidente-orfao",
+          "solucao-grants",
+          "fato-hardware",
+          "incidente-ipv6",
+          "aprendizado-ipv6-dns"
+        ],
+        "pontuacoes": [
+          {
+            "Chave": "pessoal-passaporte",
+            "Score": 0.01639344262295082,
+            "Lexical": 0,
+            "Semantico": 0.36589401960372925
+          },
+          {
+            "Chave": "incidente-grants",
+            "Score": 0.016129032258064516,
+            "Lexical": 0,
+            "Semantico": 0.32517211587262906
+          },
+          {
+            "Chave": "solucao-orfao",
+            "Score": 0.015873015873015872,
+            "Lexical": 0,
+            "Semantico": 0.3239139914512634
+          },
+          {
+            "Chave": "solucao-happy-eyeballs",
+            "Score": 0.015625,
+            "Lexical": 0,
+            "Semantico": 0.32250505685806274
+          },
+          {
+            "Chave": "fato-allowlist",
+            "Score": 0.015384615384615385,
+            "Lexical": 0,
+            "Semantico": 0.3161138594150543
+          },
+          {
+            "Chave": "incidente-orfao",
+            "Score": 0.015151515151515152,
+            "Lexical": 0,
+            "Semantico": 0.3158528208732605
+          },
+          {
+            "Chave": "solucao-grants",
+            "Score": 0.014925373134328358,
+            "Lexical": 0,
+            "Semantico": 0.31533393263816833
+          },
+          {
+            "Chave": "fato-hardware",
+            "Score": 0.014705882352941176,
+            "Lexical": 0,
+            "Semantico": 0.3129672706127167
+          },
+          {
+            "Chave": "incidente-ipv6",
+            "Score": 0.014492753623188406,
+            "Lexical": 0,
+            "Semantico": 0.29224597904134253
+          },
+          {
+            "Chave": "aprendizado-ipv6-dns",
+            "Score": 0.014285714285714285,
+            "Lexical": 0,
+            "Semantico": 0.2914830446243286
+          }
+        ],
+        "acerto1": false,
+        "acerto5": false,
+        "rr": 0,
+        "revocacao5": 0,
+        "ms": 35.3787,
+        "msEmbedding": 8.137
+      },
+      "automatico": {
+        "Termos": "prazo or gera or multa or cliente or alfa",
+        "Recuperados": 31,
+        "selecionados": [
+          "instrucao-segredos",
+          "decisao-rrf",
+          "decisao-candidatos",
+          "decisao-erros-mcp",
+          "decisao-pgvector-exato",
+          "preferencia-ptbr",
+          "procedimento-backup",
+          "procedimento-deploy",
+          "brain-postgres",
+          "solucao-happy-eyeballs",
+          "solucao-grants",
+          "incidente-grants"
+        ],
+        "Descartados": 19,
+        "tokens": 1888,
+        "relevantesSelecionados": 0,
+        "ms": 37.6811,
+        "msEmbedding": 7.3655
+      }
+    }
+  ]
+}

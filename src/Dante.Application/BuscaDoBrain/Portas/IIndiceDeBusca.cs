@@ -5,7 +5,7 @@ public interface IIndiceDeBusca
 {
     Task<bool> VetoresDisponiveisAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<MatchDaBusca>> BuscarAsync(AcessoAoBrain acesso, BuscaDoBrainSearchDto filtro,
-        ModeloEmbedding? modelo, float[]? vetor, CancellationToken cancellationToken = default);
+        ModeloEmbedding? modelo, float[]? vetor, double similaridadeMinima = 1, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<Guid>> ListarPendentesAsync(AcessoAoBrain acesso, ModeloEmbedding modelo, int limite,
         CancellationToken cancellationToken = default);
     Task<bool> GravarAsync(Guid id, int revisao, ModeloEmbedding modelo, float[] vetor, CancellationToken cancellationToken = default);

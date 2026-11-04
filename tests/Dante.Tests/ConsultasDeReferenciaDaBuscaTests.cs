@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Dante.Application;
@@ -14,31 +15,77 @@ using Dante.Worker.Telegram;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Xunit.Abstractions;
 namespace Dante.Tests;
 
-// Medição opt-in da #258: o mesmo corpus/consultas versionados em modo lexical e híbrido.
+// Medição opt-in da #258/#280: o mesmo corpus em modo lexical e híbrido, com e sem corte de relevância.
 // Qualidade não é asserção (depende do modelo); invariantes de segurança e de acerto literal são.
-// Com DANTE_TEST_BUSCA_RELATORIO, grava busca-<modo>.json nesse diretório para comparação.
+// Com DANTE_TEST_BUSCA_RELATORIO, grava busca-<nome>.json nesse diretório para comparação.
+// A calibração (#280) usa só busca-brain.json; busca-brain-validacao.json fica para a validação final.
 public sealed class ConsultasDeReferenciaDaBuscaTests(ITestOutputHelper saida)
 {
     [PostgreSqlFact]
-    public Task LinhaDeBaseLexical() => MedirAsync(null);
+    public Task LinhaDeBaseLexical() => MedirAsync(Conjunto.Calibracao(), "lexical", null);
+
+    // Referência sem corte efetivo: limiar ínfimo aprova todo vetor, como o híbrido medido na #258.
+    [EmbeddingLocalFact]
+    public Task BuscaHibridaComEmbeddingLocal() => MedirAsync(Conjunto.Calibracao(), "hibrido", Embedding(SemCorte));
+
+    [CorteCalibradoFact]
+    public Task BuscaHibridaComCorte() => MedirAsync(Conjunto.Calibracao(), "hibrido-corte", Embedding(Corte()));
+
+    // Validação final (#280): consultas que não participaram da calibração.
+    [PostgreSqlFact]
+    public Task ValidacaoLexical() => MedirAsync(Conjunto.Validacao(), "validacao-lexical", null);
 
     [EmbeddingLocalFact]
-    public Task BuscaHibridaComEmbeddingLocal() => MedirAsync(new Dictionary<string, string?>
-    {
-        ["DANTE_BRAIN_EMBEDDING_ENDPOINT"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_ENDPOINT"),
-        ["DANTE_BRAIN_EMBEDDING_MODEL"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_MODEL"),
-        ["DANTE_BRAIN_EMBEDDING_VERSION"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_VERSION"),
-        ["DANTE_BRAIN_EMBEDDING_DIMENSION"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_DIMENSION"),
-        ["DANTE_BRAIN_EMBEDDING_PROVIDER"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_PROVIDER") ?? "local",
-    });
+    public Task ValidacaoHibridaSemCorte() => MedirAsync(Conjunto.Validacao(), "validacao-hibrido", Embedding(SemCorte));
 
-    private async Task MedirAsync(Dictionary<string, string?>? embedding)
+    [CorteCalibradoFact]
+    public Task ValidacaoHibridaComCorte() => MedirAsync(Conjunto.Validacao(), "validacao-hibrido-corte", Embedding(Corte()));
+
+    // Scores lexical e semântico de todos os itens indexáveis, só para as consultas de calibração.
+    [EmbeddingLocalFact]
+    public Task MatrizDeCalibracao() => GravarMatrizAsync(Conjunto.Calibracao());
+
+    // O limiar vale só para o modelo identificado (provedor|nome|versão|dimensão), o mesmo configurado no teste.
+    private static string ModeloCalibrado() => string.Join('|', Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_PROVIDER") ?? "local",
+        Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_MODEL"), Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_VERSION"),
+        Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_DIMENSION"));
+    private static Dictionary<string, string?> SemCorte => new()
+        { ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"] = "0.000001", ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL"] = ModeloCalibrado() };
+    private static Dictionary<string, string?> Corte() => new()
     {
-        var conjunto = Conjunto.Carregar();
-        await using var banco = await Banco.CriarAsync();
+        ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_MIN_SIMILARITY"),
+        ["DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL"] = ModeloCalibrado(),
+    };
+
+    private static Dictionary<string, string?> Embedding(IReadOnlyDictionary<string, string?>? extra = null)
+    {
+        var d = new Dictionary<string, string?>
+        {
+            ["DANTE_BRAIN_EMBEDDING_ENDPOINT"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_ENDPOINT"),
+            ["DANTE_BRAIN_EMBEDDING_MODEL"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_MODEL"),
+            ["DANTE_BRAIN_EMBEDDING_VERSION"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_VERSION"),
+            ["DANTE_BRAIN_EMBEDDING_DIMENSION"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_DIMENSION"),
+            ["DANTE_BRAIN_EMBEDDING_PROVIDER"] = Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_PROVIDER") ?? "local",
+        };
+        foreach (var (k, v) in extra ?? new Dictionary<string, string?>()) d[k] = v;
+        return d;
+    }
+
+    private sealed record Ambiente(Banco Banco, ServiceProvider Provider, EspacoDeConhecimento Espaco, Dictionary<Guid, string> Chaves,
+        GeradorCronometrado Gerador, AcessoAoBrain Acesso, object? Indexacao, double? AquecimentoMs) : IAsyncDisposable
+    {
+        public IServiceScope Escopo() => EscoposBrainDeTeste.Criar(Provider, Espaco.IdUsuario, Espaco.Id);
+        public async ValueTask DisposeAsync() { await Provider.DisposeAsync(); await Banco.DisposeAsync(); }
+    }
+
+    // Banco descartável com o corpus versionado; com embedding, indexa e aquece antes de medir.
+    private static async Task<Ambiente> PrepararAsync(Conjunto conjunto, Dictionary<string, string?>? embedding)
+    {
+        var banco = await Banco.CriarAsync();
         var espaco = new EspacoDeConhecimento(Guid.NewGuid(), "Referência #258");
         var chaves = new Dictionary<Guid, string>();
         await using (var c = banco.Contexto())
@@ -60,16 +107,16 @@ public sealed class ConsultasDeReferenciaDaBuscaTests(ITestOutputHelper saida)
         var gerador = new GeradorCronometrado(new GeradorDeEmbeddingHttp(new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }), cfg));
         var services = new ServiceCollection().AddApplication().AddInfrastructure(cfg);
         services.AddSingleton<IGeradorDeEmbedding>(gerador);
-        using var provider = services.BuildServiceProvider();
+        var provider = services.BuildServiceProvider();
         var acesso = new AcessoAoBrain(espaco.IdUsuario, espaco.Id, null);
         var proibidos = conjunto.Proibidos.ToHashSet(StringComparer.Ordinal);
-        var esperado = embedding is null ? "lexical" : "hibrido";
         object? indexacao = null; double? aquecimentoMs = null;
 
         if (embedding is not null)
         {
             // Garantia da #258: conteúdo Trabalho/Pessoal só vai para endpoint de loopback.
             Assert.NotNull(gerador.Modelo); Assert.False(gerador.Externo, "Endpoint de embedding precisa ser loopback.");
+            Assert.NotNull(gerador.SimilaridadeMinima);
             var relogio = Stopwatch.StartNew(); int gravados = 0, rodada;
             using (var scope = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id))
             {
@@ -97,40 +144,51 @@ public sealed class ConsultasDeReferenciaDaBuscaTests(ITestOutputHelper saida)
             aquecimentoMs = relogio.Elapsed.TotalMilliseconds;
             gerador.Chamadas.Clear();
         }
+        return new(banco, provider, espaco, chaves, gerador, acesso, indexacao, aquecimentoMs);
+    }
 
+    private async Task MedirAsync(Conjunto conjunto, string nome, Dictionary<string, string?>? embedding)
+    {
+        await using var amb = await PrepararAsync(conjunto, embedding);
+        var proibidos = conjunto.Proibidos.ToHashSet(StringComparer.Ordinal);
+        var esperado = embedding is null ? "lexical" : "hibrido";
         var resultados = new List<ResultadoDaConsulta>();
         foreach (var q in conjunto.Consultas)
         {
-            using var scope = EscoposBrainDeTeste.Criar(provider, espaco.IdUsuario, espaco.Id);
+            using var scope = amb.Escopo();
             var busca = scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>();
-            var antes = gerador.Chamadas.Count; var relogio = Stopwatch.StartNew();
+            var antes = amb.Gerador.Chamadas.Count; var relogio = Stopwatch.StartNew();
             // Canal agente (MCP): texto cru, limite padrão da ferramenta.
-            var r = await busca.BuscarAsync(acesso, new() { Texto = q.Texto, Tags = q.Tags ?? [], Limite = 10 });
+            var r = await busca.BuscarAsync(amb.Acesso, new() { Texto = q.Texto, Tags = q.Tags ?? [], Limite = 10 });
             var msAgente = relogio.Elapsed.TotalMilliseconds;
-            var embAgente = gerador.Chamadas.Skip(antes).Sum();
+            var embAgente = amb.Gerador.Chamadas.Skip(antes).Sum();
             Assert.Equal(esperado, r.Modo);
-            var ids = r.Resultados.Select(x => chaves[x.Item.Id]).ToArray();
-            // Canal automático (Telegram): termos unidos por OR e parâmetros do pacote inicial.
-            var termos = TelegramBrain.Termos(q.Texto); antes = gerador.Chamadas.Count; relogio.Restart();
-            var pacote = await scope.ServiceProvider.GetRequiredService<ConstrutorDeContextoAppService>().ConstruirAsync(acesso,
+            var ids = r.Resultados.Select(x => amb.Chaves[x.Item.Id]).ToArray();
+            // Canal automático (Telegram): termos unidos por OR, mensagem natural e parâmetros do pacote inicial.
+            var termos = TelegramBrain.Termos(q.Texto); antes = amb.Gerador.Chamadas.Count; relogio.Restart();
+            var pacote = await scope.ServiceProvider.GetRequiredService<ConstrutorDeContextoAppService>().ConstruirAsync(amb.Acesso,
                 new() { Mensagem = q.Texto, Filtros = new() { Texto = termos }, OrcamentoDeTokens = 2048, LimiteDeItens = 12, IncluirSnapshot = false });
             var msAutomatico = relogio.Elapsed.TotalMilliseconds;
-            var embAutomatico = gerador.Chamadas.Skip(antes).Sum();
-            var selecionados = pacote.Itens.Select(x => chaves[x.Id]).ToArray();
+            var embAutomatico = amb.Gerador.Chamadas.Skip(antes).Sum();
+            var selecionados = pacote.Itens.Select(x => amb.Chaves[x.Id]).ToArray();
             Assert.DoesNotContain(ids, proibidos.Contains); Assert.DoesNotContain(selecionados, proibidos.Contains);
-            Assert.DoesNotContain(pacote.Registros, x => chaves.TryGetValue(x.Id, out var k) && proibidos.Contains(k) && x.Estado != "descartado");
-            resultados.Add(new(q, termos, ids, r.Resultados.Select(x => new Pontuacao(chaves[x.Item.Id], x.Score, x.ScoreLexical, x.ScoreSemantico)).ToArray(),
+            Assert.DoesNotContain(pacote.Registros, x => amb.Chaves.TryGetValue(x.Id, out var k) && proibidos.Contains(k) && x.Estado != "descartado");
+            resultados.Add(new(q, termos, ids, r.Resultados.Select(x => new Pontuacao(amb.Chaves[x.Item.Id], x.Score, x.ScoreLexical, x.ScoreSemantico)).ToArray(),
                 msAgente, embAgente, selecionados, pacote.Registros.Select(x => x.Chave).Distinct(StringComparer.Ordinal).Count(),
                 pacote.Registros.Count(x => x.Estado == "descartado"), pacote.Custo.TokensEstimados, msAutomatico, embAutomatico));
         }
-        // Híbrido não pode perder o que a busca literal já acha.
-        Assert.All(resultados.Where(x => x.Consulta.Categoria == "literal"), x => Assert.True(x.AcertoEm(5), $"{x.Consulta.Id} perdeu acerto literal."));
+        // Na calibração, o híbrido não pode perder o que a busca literal já acha; na validação, o resultado é só relatado.
+        if (conjunto.Nome == "calibracao")
+            Assert.All(resultados.Where(x => x.Consulta.Categoria == "literal"), x => Assert.True(x.AcertoEm(5), $"{x.Consulta.Id} perdeu acerto literal."));
 
+        var cfg = embedding ?? [];
         var relatorio = new
         {
-            conjunto = conjunto.Versao, modo = esperado, geradoEm = DateTimeOffset.UtcNow,
-            modelo = gerador.Modelo is { } m ? $"{m.Provedor}/{m.Nome}@{m.Versao} ({m.Dimensao})" : null,
-            indexacao, aquecimentoMs, geral = Agregar(resultados), porCategoria = resultados.GroupBy(x => x.Consulta.Categoria).ToDictionary(g => g.Key, g => Agregar(g.ToList())),
+            conjunto = $"{conjunto.Nome}@{conjunto.Versao}", modo = esperado, nome, geradoEm = DateTimeOffset.UtcNow,
+            modelo = amb.Gerador.Modelo is { } m ? $"{m.Provedor}/{m.Nome}@{m.Versao} ({m.Dimensao})" : null,
+            similaridadeMinima = cfg.GetValueOrDefault("DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY"),
+            modeloCalibrado = cfg.GetValueOrDefault("DANTE_BRAIN_EMBEDDING_MIN_SIMILARITY_MODEL"),
+            amb.Indexacao, amb.AquecimentoMs, geral = Agregar(resultados), porCategoria = resultados.GroupBy(x => x.Consulta.Categoria).ToDictionary(g => g.Key, g => Agregar(g.ToList())),
             consultas = resultados.Select(x => new
             {
                 x.Consulta.Id, x.Consulta.Categoria, x.Consulta.Texto, x.Consulta.Relevantes,
@@ -138,13 +196,50 @@ public sealed class ConsultasDeReferenciaDaBuscaTests(ITestOutputHelper saida)
                 automatico = new { x.Termos, x.Recuperados, selecionados = x.Selecionados, x.Descartados, tokens = x.Tokens, relevantesSelecionados = x.RelevantesSelecionados(), ms = x.MsAutomatico, msEmbedding = x.EmbAutomatico },
             }),
         };
-        var json = JsonSerializer.Serialize(relatorio, new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
-        saida.WriteLine(JsonSerializer.Serialize(new { relatorio.modo, relatorio.modelo, relatorio.indexacao, relatorio.aquecimentoMs, relatorio.geral, relatorio.porCategoria }, new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
-        if (Environment.GetEnvironmentVariable("DANTE_TEST_BUSCA_RELATORIO") is { Length: > 0 } dir)
+        saida.WriteLine(JsonSerializer.Serialize(new { relatorio.nome, relatorio.modelo, relatorio.similaridadeMinima, relatorio.Indexacao, relatorio.AquecimentoMs, relatorio.geral, relatorio.porCategoria }, Json));
+        await GravarAsync($"busca-{nome}.json", relatorio);
+    }
+
+    private async Task GravarMatrizAsync(Conjunto conjunto)
+    {
+        Assert.Equal("calibracao", conjunto.Nome);
+        await using var amb = await PrepararAsync(conjunto, Embedding(SemCorte));
+        var consultas = new List<object>();
+        await using var conexao = new NpgsqlConnection(amb.Banco.ConnectionString); await conexao.OpenAsync();
+        foreach (var q in conjunto.Consultas)
         {
-            Directory.CreateDirectory(dir);
-            await File.WriteAllTextAsync(Path.Combine(dir, $"busca-{esperado}.json"), json + "\n");
+            var termos = TelegramBrain.Termos(q.Texto);
+            var cru = await amb.Gerador.GerarAsync(q.Texto); var deTermos = await amb.Gerador.GerarAsync(termos);
+            Assert.NotNull(cru); Assert.NotNull(deTermos);
+            await using var c = new NpgsqlCommand("""
+                SELECT c.id,
+                    COALESCE(ts_rank_cd(t.documento, websearch_to_tsquery('portuguese', @cru)), 0)::double precision,
+                    COALESCE(ts_rank_cd(t.documento, websearch_to_tsquery('portuguese', @termos)), 0)::double precision,
+                    1 - (r.vetor <=> CAST(@vcru AS vector)), 1 - (r.vetor <=> CAST(@vtermos AS vector)),
+                    COALESCE(t.documento @@ plainto_tsquery('portuguese', @cru), false)
+                FROM brain_data.conhecimentos c JOIN brain_index.trabalhos t ON t.id_conhecimento = c.id
+                JOIN brain_index.representacoes r ON r.id_conhecimento = c.id AND r.revisao = t.revisao AND r.vetor IS NOT NULL
+                """, conexao);
+            c.Parameters.AddWithValue("cru", q.Texto); c.Parameters.AddWithValue("termos", termos);
+            c.Parameters.AddWithValue("vcru", Vetor(BuscaDoBrainAppService.Normalizar(cru!, cru!.Length)));
+            c.Parameters.AddWithValue("vtermos", Vetor(BuscaDoBrainAppService.Normalizar(deTermos!, deTermos!.Length)));
+            var itens = new List<object>();
+            await using (var leitor = await c.ExecuteReaderAsync())
+                while (await leitor.ReadAsync())
+                    itens.Add(new { chave = amb.Chaves[leitor.GetGuid(0)], lexicalCru = leitor.GetDouble(1), lexicalTermos = leitor.GetDouble(2), semanticoCru = leitor.GetDouble(3), semanticoTermos = leitor.GetDouble(4), integralCru = leitor.GetBoolean(5) });
+            consultas.Add(new { q.Id, q.Categoria, q.Texto, termos, q.Relevantes, itens });
         }
+        var m = amb.Gerador.Modelo!;
+        await GravarAsync("calibracao-matriz.json", new { conjunto = $"{conjunto.Nome}@{conjunto.Versao}", modelo = $"{m.Provedor}/{m.Nome}@{m.Versao} ({m.Dimensao})", geradoEm = DateTimeOffset.UtcNow, consultas });
+    }
+
+    private static string Vetor(float[] v) => "[" + string.Join(",", v.Select(x => x.ToString("R", CultureInfo.InvariantCulture))) + "]";
+    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+    private static async Task GravarAsync(string arquivo, object conteudo)
+    {
+        if (Environment.GetEnvironmentVariable("DANTE_TEST_BUSCA_RELATORIO") is not { Length: > 0 } dir) return;
+        Directory.CreateDirectory(dir);
+        await File.WriteAllTextAsync(Path.Combine(dir, arquivo), JsonSerializer.Serialize(conteudo, Json) + "\n");
     }
 
     private static object Agregar(IReadOnlyList<ResultadoDaConsulta> r)
@@ -187,15 +282,25 @@ public sealed class ConsultasDeReferenciaDaBuscaTests(ITestOutputHelper saida)
     internal sealed record Consulta(string Id, string Categoria, string Texto, IReadOnlyList<string> Relevantes, IReadOnlyList<string>? Tags, string? Origem);
     internal sealed record Conjunto(int Versao, IReadOnlyList<string> Proibidos, IReadOnlyList<ItemDoCorpus> Corpus, IReadOnlyList<Consulta> Consultas)
     {
-        public static Conjunto Carregar() => JsonSerializer.Deserialize<Conjunto>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "ConsultasDeReferencia", "busca-brain.json")),
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+        public string Nome { get; init; } = "calibracao";
+        private static readonly JsonSerializerOptions Opcoes = new() { PropertyNameCaseInsensitive = true };
+        private static string Ler(string arquivo) => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "ConsultasDeReferencia", arquivo));
+        public static Conjunto Calibracao() => JsonSerializer.Deserialize<Conjunto>(Ler("busca-brain.json"), Opcoes)!;
+        // Mesmo corpus da calibração; só as consultas vêm do conjunto de validação.
+        public static Conjunto Validacao()
+        {
+            var validacao = JsonSerializer.Deserialize<ConsultasDeValidacao>(Ler("busca-brain-validacao.json"), Opcoes)!;
+            return Calibracao() with { Versao = validacao.Versao, Consultas = validacao.Consultas, Nome = "validacao" };
+        }
     }
+    internal sealed record ConsultasDeValidacao(int Versao, IReadOnlyList<Consulta> Consultas);
     // Mede cada chamada ao gerador real sem alterar o resultado.
     private sealed class GeradorCronometrado(GeradorDeEmbeddingHttp interno) : IGeradorDeEmbedding
     {
         public List<double> Chamadas { get; } = [];
         public ModeloEmbedding? Modelo => interno.Modelo;
         public bool Externo => interno.Externo;
+        public double? SimilaridadeMinima => interno.SimilaridadeMinima;
         public async Task<float[]?> GerarAsync(string texto, CancellationToken cancellationToken = default)
         {
             var relogio = Stopwatch.StartNew();
@@ -212,5 +317,15 @@ public sealed class EmbeddingLocalFactAttribute : FactAttribute
         if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DANTE_TEST_POSTGRES")) ||
             new[] { "ENDPOINT", "MODEL", "VERSION", "DIMENSION" }.Any(x => string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_" + x))))
             Skip = "Defina DANTE_TEST_POSTGRES (com pgvector) e DANTE_TEST_EMBEDDING_ENDPOINT/MODEL/VERSION/DIMENSION de um provedor local.";
+    }
+}
+
+public sealed class CorteCalibradoFactAttribute : FactAttribute
+{
+    public CorteCalibradoFactAttribute()
+    {
+        if (new EmbeddingLocalFactAttribute().Skip is { } motivo) Skip = motivo;
+        else if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DANTE_TEST_EMBEDDING_MIN_SIMILARITY")))
+            Skip = "Defina DANTE_TEST_EMBEDDING_MIN_SIMILARITY com o limiar calibrado (ver docs/brain/avaliacao-busca-hibrida).";
     }
 }

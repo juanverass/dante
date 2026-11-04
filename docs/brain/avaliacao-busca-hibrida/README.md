@@ -158,6 +158,10 @@ A decisão é reversível só por configuração. Para reavaliar, use o mesmo ha
 este conjunto. A recomendação é tratar o corte de relevância semântica numa Issue
 própria e repetir esta medição antes de habilitar.
 
+> **Atualização (#280):** o corte de relevância foi implementado e medido. O homelab continua
+> lexical porque as paráfrases não atingiram o critério na validação final. Ver
+> [corte de relevância](corte-280/README.md).
+
 ## Como reproduzir
 
 Pré-requisitos: instância de teste com pgvector e conta com CREATE DATABASE, e Ollama
