@@ -75,6 +75,28 @@ internal static class ProcessTree
         }
     }
 
+    // Espera pelo processo identificado, não por um PID que possa ter sido reutilizado.
+    // Falhas de acesso/encerramento são propagadas: não equivalem a limpeza concluída.
+    public static async Task EncerrarEAguardarAsync(int processId, DateTime startTime, CancellationToken cancellationToken)
+    {
+        Process process;
+        try { process = Process.GetProcessById(processId); }
+        catch (ArgumentException) { return; } // Já saiu.
+        using (process)
+        {
+            try
+            {
+                if (process.HasExited || process.StartTime != startTime) return;
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (InvalidOperationException) when (process.HasExited)
+            {
+                // Saiu entre a verificação de identidade e a solicitação de encerramento.
+            }
+        }
+    }
+
     private static IEnumerable<(int Id, int ParentId)> SnapshotParents() =>
         OperatingSystem.IsWindows() ? SnapshotWindows() : SnapshotLinux();
 

@@ -244,6 +244,111 @@ public sealed class InteractiveAgentProcessTests
         await ReadToEndAsync(stopped).WaitAsync(Timeout);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public async Task ConclusaoConfirmaSaidaDeTodosOsDescendentesEPermiteEncerrarNovamente(int quantidade)
+    {
+        await using var process = await StartAsync("spawn-until-eof", RuntimeConfig, quantidade.ToString());
+        var filhos = new List<int>();
+        for (var i = 0; i < quantidade; i++) filhos.Add(int.Parse(await NextStdoutAsync(process)));
+        var result = await process.StopAsync(Timeout).WaitAsync(Timeout);
+        Assert.False(result.Killed); Assert.Equal(0, result.ExitCode);
+        Assert.All(filhos, pid => Assert.True(HasExited(pid)));
+        Assert.Equal(result, await process.StopAsync(Timeout));
+        await process.CloseInputAsync();
+        await ReadToEndAsync(process).WaitAsync(Timeout);
+        await process.DisposeAsync();
+        await process.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task DescendenteQueSaiNaturalmenteAntesDoPrincipalNaoImpedeLimpeza()
+    {
+        await using var process = await StartAsync("spawn-until-eof", RuntimeConfig, "1", "50");
+        var child = int.Parse(await NextStdoutAsync(process));
+        await WaitUntilExitedAsync(child);
+        Assert.False(process.Completion.IsCompleted);
+        await process.CloseInputAsync();
+        Assert.Equal(0, (await process.Completion.WaitAsync(Timeout)).ExitCode);
+        Assert.True(HasExited(child));
+    }
+
+    [Fact]
+    public async Task CompletionEsperaConfirmacaoDosDescendentesMesmoComPrincipalEncerrado()
+    {
+        var entrou = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var liberar = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var process = IniciarComLimpeza(async (pid, inicio, ct) =>
+        {
+            entrou.TrySetResult();
+            await liberar.Task.WaitAsync(ct);
+            await ProcessTree.EncerrarEAguardarAsync(pid, inicio, ct);
+        });
+        var child = int.Parse(await NextStdoutAsync(process));
+        try
+        {
+            await process.CloseInputAsync();
+            await entrou.Task.WaitAsync(Timeout);
+            Assert.True(HasExited(process.ProcessId));
+            Assert.False(process.Completion.IsCompleted);
+            Assert.False(HasExited(child));
+        }
+        finally { liberar.TrySetResult(); }
+        await process.Completion.WaitAsync(Timeout);
+        Assert.True(HasExited(child));
+        await ReadToEndAsync(process).WaitAsync(Timeout);
+    }
+
+    [Fact]
+    public async Task TimeoutDaLimpezaFalhaExplicitamenteELiberaRecursosAoDescartar()
+    {
+        var process = IniciarComLimpeza(async (pid, inicio, ct) =>
+        {
+            await ProcessTree.EncerrarEAguardarAsync(pid, inicio, ct);
+            // Simula a confirmação que não chega, sem deixar um processo real sobrevivente.
+            await Task.Delay(System.Threading.Timeout.Infinite, ct);
+        }, TimeSpan.FromMilliseconds(200));
+        var child = int.Parse(await NextStdoutAsync(process));
+        await process.CloseInputAsync();
+        var error = await Assert.ThrowsAsync<TimeoutException>(() => process.Completion.WaitAsync(Timeout));
+        Assert.Contains("saída não confirmada", error.Message);
+        Assert.True(HasExited(child));
+        Assert.True(HasExited(process.ProcessId));
+        await Assert.ThrowsAsync<TimeoutException>(() => process.DisposeAsync().AsTask());
+        await process.DisposeAsync();
+        await ReadToEndAsync(process).WaitAsync(Timeout);
+    }
+
+    [Fact]
+    public async Task IdentidadeDivergenteNuncaEncerraOutroProcessoEProcessoJaEncerradoEhAceito()
+    {
+        using var child = IniciarProbe("wait");
+        var inicio = child.StartTime;
+        try
+        {
+            await ProcessTree.EncerrarEAguardarAsync(child.Id, inicio.AddSeconds(-1), CancellationToken.None);
+            Assert.False(child.HasExited);
+        }
+        finally { child.Kill(); await child.WaitForExitAsync(); }
+        await ProcessTree.EncerrarEAguardarAsync(child.Id, inicio, CancellationToken.None);
+    }
+
+    private static InteractiveAgentProcess IniciarComLimpeza(Func<int, DateTime, CancellationToken, Task> limpeza,
+        TimeSpan? prazo = null) => new(IniciarProbe("spawn-until-eof", RuntimeConfig), null, limpeza, prazo);
+
+    private static Process IniciarProbe(params string[] argumentos)
+    {
+        var start = new ProcessStartInfo(FindDotnetHost())
+        {
+            UseShellExecute = false, RedirectStandardInput = true,
+            RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        foreach (var argumento in new[] { "exec", "--runtimeconfig", RuntimeConfig, ProbeAssembly }.Concat(argumentos))
+            start.ArgumentList.Add(argumento);
+        return Process.Start(start)!;
+    }
+
     [Fact]
     public async Task RedactionFailureFailsTheOutputAndKillsTheProcess()
     {

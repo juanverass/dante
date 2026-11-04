@@ -27,7 +27,7 @@ internal static class Program
                 return 0;
             case "wait":
                 Console.WriteLine("ready");
-                await Task.Delay(Timeout.InfiniteTimeSpan);
+                await Task.Delay(args.Length > 1 ? int.Parse(args[1]) : Timeout.Infinite);
                 return 0;
             case "interactive":
                 // Echoes each stdin line until "exit"/"fail" or EOF; proves streaming and repeated input.
@@ -70,13 +70,17 @@ internal static class Program
                 await Task.Delay(Timeout.InfiniteTimeSpan);
                 return 0;
             case "spawn-until-eof":
-                // Like "spawn", but exits cleanly on stdin EOF while the grandchild keeps running.
-                using (var child = Process.Start(new ProcessStartInfo(Environment.ProcessPath!)
-                       {
-                           ArgumentList = { "exec", "--runtimeconfig", args[1], typeof(Program).Assembly.Location, "wait" },
-                           UseShellExecute = false
-                       }))
+                // Múltiplos descendentes e saída natural opcional para os testes de limpeza.
+                var count = args.Length > 2 ? int.Parse(args[2]) : 1;
+                for (var index = 0; index < count; index++)
                 {
+                    var start = new ProcessStartInfo(Environment.ProcessPath!)
+                    {
+                        ArgumentList = { "exec", "--runtimeconfig", args[1], typeof(Program).Assembly.Location, "wait" },
+                        UseShellExecute = false
+                    };
+                    if (args.Length > 3) start.ArgumentList.Add(args[3]);
+                    using var child = Process.Start(start);
                     Console.WriteLine(child!.Id);
                 }
 

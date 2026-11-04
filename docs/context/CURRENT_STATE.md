@@ -298,8 +298,10 @@ recuperado depois ("UNKNOWN") e o id upstream mudou nas duas CLIs; depois do `/c
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
 `SessionRegistry` → drivers reais → CLIs simuladas do `Dante.ProcessProbe`).
 
-`InteractiveAgentProcessTests.GracefulExitDoesNotLeaveOrphanedChildProcess` (#62) pode ser
-intermitente na suíte completa em WSL2 e passa isolado; já falhava assim antes da #63.
+`InteractiveAgentProcess.Completion` aguarda a saída dos descendentes identificados após o encerramento
+do principal, com prazo compartilhado de 5 segundos, identidade PID/início preservada e falha explícita
+em timeout. Dispose libera os leitores e recursos também em falhas. Isso corrige a corrida histórica de
+`GracefulExitDoesNotLeaveOrphanedChildProcess` entre enviar SIGKILL e observar a saída efetiva.
 `TelegramBotApiTests.OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard` também falhou uma vez na suíte
 completa durante a #94 e de novo no baseline da #95; passa isolado e nas execuções seguintes. Na #96 falhou no baseline
 (antes de qualquer mudança) e em duas de três execuções completas, sempre passando isolado.

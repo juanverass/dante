@@ -41,6 +41,9 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
     private static readonly TimeSpan DescendantTrackingInterval = TimeSpan.FromSeconds(1);
 
     private readonly Process process;
+    private readonly Func<int, DateTime, CancellationToken, Task> encerrarDescendente;
+    private readonly TimeSpan prazoDaLimpeza;
+    private readonly Task concluirSaida;
     private readonly Func<string, string>? redactOutput;
     private readonly Channel<AgentOutputLine> output =
         Channel.CreateBounded<AgentOutputLine>(new BoundedChannelOptions(OutputCapacity)
@@ -60,9 +63,12 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
     private bool killed;
     private int disposed;
 
-    internal InteractiveAgentProcess(Process process, Func<string, string>? redactOutput)
+    internal InteractiveAgentProcess(Process process, Func<string, string>? redactOutput,
+        Func<int, DateTime, CancellationToken, Task>? encerrarDescendente = null, TimeSpan? prazoDaLimpeza = null)
     {
         this.process = process;
+        this.encerrarDescendente = encerrarDescendente ?? ProcessTree.EncerrarEAguardarAsync;
+        this.prazoDaLimpeza = prazoDaLimpeza ?? TimeSpan.FromSeconds(5);
         this.redactOutput = redactOutput;
         ProcessId = process.Id;
         StartedAtUtc = DateTimeOffset.UtcNow;
@@ -70,7 +76,7 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
 
         var stdout = PumpAsync(process.StandardOutput, AgentOutputStream.StandardOutput);
         var stderr = PumpAsync(process.StandardError, AgentOutputStream.StandardError);
-        _ = CompleteOutputAsync(stdout, stderr);
+        concluirSaida = CompleteOutputAsync(stdout, stderr);
         _ = MonitorExitAsync();
         _ = TrackDescendantsAsync();
     }
@@ -209,11 +215,19 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
             return;
         }
 
-        Kill();
-        await Completion;
-        // Stop the pumps even when nobody drains the output, so they do not wait on a full channel forever.
-        await pumpCancellation.CancelAsync();
-        process.Dispose();
+        try
+        {
+            Kill();
+            await Completion;
+        }
+        finally
+        {
+            // Também libera pipes e recursos quando a limpeza falha ou ninguém drena a saída.
+            await pumpCancellation.CancelAsync();
+            await concluirSaida;
+            process.Dispose();
+            pumpCancellation.Dispose();
+        }
     }
 
     private void EnsureAcceptsInput()
@@ -334,16 +348,35 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
 
     private async Task MonitorExitAsync()
     {
-        await process.WaitForExitAsync();
-        // A graceful exit does not end what the agent started: survivors would be orphaned.
-        KillTrackedDescendants();
-        bool wasKilled;
-        lock (stateGate)
+        try
         {
-            state = InteractiveAgentProcessState.Exited;
-            wasKilled = killed;
+            await process.WaitForExitAsync();
+            KeyValuePair<int, DateTime>[] tracked;
+            lock (descendants) { tracked = [.. descendants]; }
+            using var prazo = new CancellationTokenSource(prazoDaLimpeza);
+            try
+            {
+                // Um prazo compartilhado limita a limpeza de todos os descendentes, inclusive em paralelo.
+                await Task.WhenAll(tracked.Select(x => encerrarDescendente(x.Key, x.Value, prazo.Token)));
+            }
+            catch (OperationCanceledException) when (prazo.IsCancellationRequested)
+            {
+                throw new TimeoutException("Prazo de limpeza dos processos descendentes excedido; saída não confirmada.");
+            }
+            bool wasKilled;
+            lock (stateGate)
+            {
+                state = InteractiveAgentProcessState.Exited;
+                wasKilled = killed;
+            }
+            completion.TrySetResult(new AgentProcessExit(process.ExitCode, wasKilled));
         }
-
-        completion.TrySetResult(new AgentProcessExit(process.ExitCode, wasKilled));
+        catch (Exception exception)
+        {
+            lock (stateGate) { state = InteractiveAgentProcessState.Exited; }
+            output.Writer.TryComplete(exception);
+            await pumpCancellation.CancelAsync();
+            completion.TrySetException(exception);
+        }
     }
 }
