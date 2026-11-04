@@ -27,6 +27,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="ConsultasDeReferencia/*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../../src/Dante.WebApi/Dante.WebApi.csproj" />
     <ProjectReference Include="../../src/Dante.Worker/Dante.Worker.csproj" />
     <ProjectReference Include="../Dante.ProcessProbe/Dante.ProcessProbe.csproj" />

@@ -242,6 +242,104 @@ public sealed class BuscaDoBrainTests
         Assert.Null(await ativo.GerarAsync("texto")); handler.Json="{\"data\":[{\"embedding\":[3,4]}]}";
         var v=await ativo.GerarAsync("texto"); Assert.Equal(0.6,v![0],5); Assert.Equal(0.8,v[1],5);
     }
+    // #258: regressões do fallback lexical e da garantia de não enviar conteúdo para fora do host.
+    [Fact]
+    public void NormalizacaoProduzVetorUnitarioERecusaDimensaoDivergente()
+    {
+        var v=BuscaDoBrainAppService.Normalizar([3,0,4],3);
+        Assert.Equal(1.0,Math.Sqrt(v.Sum(x=>(double)x*x)),5); Assert.Equal(0.6,v[0],5); Assert.Equal(0.8,v[2],5);
+        Assert.Throws<ArgumentException>(()=>BuscaDoBrainAppService.Normalizar([1,2],3));
+        Assert.Throws<ArgumentException>(()=>BuscaDoBrainAppService.Normalizar([1,2,3,4],3));
+        Assert.Throws<ArgumentException>(()=>BuscaDoBrainAppService.Normalizar([float.PositiveInfinity,0,0],3));
+    }
+    [Theory]
+    [InlineData("http://127.0.0.1:11434/v1/embeddings",false)]
+    [InlineData("http://localhost:11434/v1/embeddings",false)]
+    [InlineData("http://[::1]:11434/v1/embeddings",false)]
+    [InlineData("http://192.168.0.10:11434/v1/embeddings",true)]
+    [InlineData("http://homelab:11434/v1/embeddings",true)]
+    [InlineData("https://api.example.com/v1/embeddings",true)]
+    public async Task GeradorSoEnviaParaLoopbackSemAutorizacaoExterna(string endpoint,bool externo)
+    {
+        var handler=new Handler{ Json="{\"data\":[{\"embedding\":[1,0,0]}]}" };
+        using var gerador=new GeradorDeEmbeddingHttp(new HttpClient(handler),Configuracao(endpoint,3));
+        Assert.Equal(externo,gerador.Externo); Assert.NotNull(gerador.Modelo);
+        var v=await gerador.GerarAsync("conteúdo de trabalho");
+        // Sem HTTPS + DANTE_BRAIN_EMBEDDING_ALLOW_EXTERNAL=true, nada sai do host: nenhuma requisição é feita.
+        Assert.Equal(externo?0:1,handler.Chamadas); Assert.Equal(externo,v is null);
+    }
+    [Fact]
+    public async Task GeradorDescartaRespostaComDimensaoDivergente()
+    {
+        var handler=new Handler{ Json="{\"data\":[{\"embedding\":[1,0]}]}" };
+        using var gerador=new GeradorDeEmbeddingHttp(new HttpClient(handler),Configuracao("http://127.0.0.1:11434/v1/embeddings",3));
+        Assert.Null(await gerador.GerarAsync("texto")); Assert.Equal(1,handler.Chamadas);
+    }
+    [PostgreSqlFact]
+    public async Task SemModeloSemColunaVetorOuComDimensaoDivergenteBuscaContinuaLexical()
+    {
+        await using var banco=await Banco.CriarAsync(); var e=new EspacoDeConhecimento(Guid.NewGuid(),"Fallback");
+        var a=Novo(e.Id,"incidente de rede no homelab");
+        await using(var c=banco.Contexto()) { c.AddRange(e,a); await c.SaveChangesAsync(); }
+        var acesso=new AcessoAoBrain(e.IdUsuario,e.Id,null);
+        // 1. Modelo não configurado: o gerador nem é chamado.
+        var semModelo=new Gerador{ SemModelo=true };
+        using(var provider=Provider(banco.ConnectionString,semModelo)) using(var scope=EscoposBrainDeTeste.Criar(provider,e.IdUsuario,e.Id))
+        {
+            var busca=scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>();
+            var r=await busca.BuscarAsync(acesso,new() { Texto="rede" });
+            Assert.Equal("lexical",r.Modo); Assert.Null(r.ModeloEmbedding); Assert.Equal(a.Id,Assert.Single(r.Resultados).Item.Id);
+            Assert.Equal(0,await busca.ReindexarAsync(acesso)); Assert.Empty(semModelo.Textos);
+        }
+        // 2. Modelo configurado, mas a coluna vetor ainda não existe (search-enable-vector não executado).
+        var comModelo=new Gerador();
+        using(var provider=Provider(banco.ConnectionString,comModelo)) using(var scope=EscoposBrainDeTeste.Criar(provider,e.IdUsuario,e.Id))
+        {
+            var busca=scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>();
+            Assert.False(await scope.ServiceProvider.GetRequiredService<IndiceDeBuscaPostgreSql>().VetoresDisponiveisAsync());
+            var r=await busca.BuscarAsync(acesso,new() { Texto="rede" });
+            Assert.Equal("lexical",r.Modo); Assert.Single(r.Resultados);
+            Assert.Equal(0,await busca.ReindexarAsync(acesso)); Assert.Empty(comModelo.Textos);
+        }
+        // 3. Coluna existe, mas o provedor devolve dimensão diferente da configurada: nada é gravado e a busca degrada.
+        var handler=new Handler{ Json="{\"data\":[{\"embedding\":[1,0]}]}" };
+        using(var divergente=new GeradorDeEmbeddingHttp(new HttpClient(handler),Configuracao("http://127.0.0.1:11434/v1/embeddings",3)))
+        using(var provider=Provider(banco.ConnectionString,divergente)) using(var scope=EscoposBrainDeTeste.Criar(provider,e.IdUsuario,e.Id))
+        {
+            await scope.ServiceProvider.GetRequiredService<IndiceDeBuscaPostgreSql>().PrepararVetoresAsync();
+            var busca=scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>();
+            Assert.Equal(0,await busca.ReindexarAsync(acesso)); Assert.True(handler.Chamadas>0);
+            var r=await busca.BuscarAsync(acesso,new() { Texto="rede" });
+            Assert.Equal("lexical",r.Modo); Assert.Equal(a.Id,Assert.Single(r.Resultados).Item.Id);
+        }
+        await using(var c=banco.Contexto())
+            Assert.Empty(await c.Database.SqlQuery<Guid>($"SELECT id_conhecimento AS \"Value\" FROM brain_index.representacoes").ToListAsync());
+    }
+    [PostgreSqlFact]
+    public async Task ReindexacaoRespeitaSensibilidadeEProtecaoDeSegredos()
+    {
+        await using var banco=await Banco.CriarAsync(); var e=new EspacoDeConhecimento(Guid.NewGuid(),"Reindexação");
+        var trabalho=Novo(e.Id,"relação de trabalho"); var pessoal=Novo(e.Id,"relação pessoal",Sensibilidade.Pessoal);
+        var confidencial=Novo(e.Id,"relação confidencial",Sensibilidade.Confidencial); var secreto=Novo(e.Id,"relação secreta",Sensibilidade.Secreto);
+        // Semeado direto no banco, contornando a captura: a reindexação ainda não pode enviar a credencial ao gerador.
+        var credencial=Novo(e.Id,"relação com senha=abcd1234efgh");
+        await using(var c=banco.Contexto()) { c.AddRange(e,trabalho,pessoal,confidencial,secreto,credencial); await c.SaveChangesAsync(); }
+        foreach(var externo in new[]{true,false})
+        {
+            var gerador=new Gerador{ EhExterno=externo, Versao=externo?"externo":"local" };
+            using var provider=Provider(banco.ConnectionString,gerador); using var scope=EscoposBrainDeTeste.Criar(provider,e.IdUsuario,e.Id);
+            await scope.ServiceProvider.GetRequiredService<IndiceDeBuscaPostgreSql>().PrepararVetoresAsync();
+            // Mesmo com Confidencial autorizado no acesso, gerador externo não recebe Confidencial.
+            var gravados=await scope.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>().ReindexarAsync(new AcessoAoBrain(e.IdUsuario,e.Id,null,true));
+            Assert.Equal(externo?2:3,gravados);
+            Assert.DoesNotContain(gerador.Textos,x=>x.Contains("secreta")||x.Contains("senha"));
+            Assert.Equal(!externo,gerador.Textos.Any(x=>x.Contains("confidencial")));
+            Assert.Contains(gerador.Textos,x=>x.Contains("pessoal"));
+        }
+    }
+    private static IConfiguration Configuracao(string endpoint,int dimensao)=>new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> {
+        ["DANTE_BRAIN_EMBEDDING_ENDPOINT"]=endpoint,["DANTE_BRAIN_EMBEDDING_MODEL"]="bge-m3",
+        ["DANTE_BRAIN_EMBEDDING_VERSION"]="1",["DANTE_BRAIN_EMBEDDING_DIMENSION"]=dimensao.ToString(System.Globalization.CultureInfo.InvariantCulture) }).Build();
     private sealed class Handler : HttpMessageHandler
     {
         public int Chamadas; public string Json="{}";
@@ -250,8 +348,8 @@ public sealed class BuscaDoBrainTests
     }
     private sealed class Gerador : IGeradorDeEmbedding
     {
-        public string Versao="1"; public bool Indisponivel; public List<string> Textos=[];
-        public ModeloEmbedding? Modelo=>new("teste","conceitos-controlados",Versao,3); public bool Externo=>false;
+        public string Versao="1"; public bool Indisponivel, SemModelo, EhExterno; public List<string> Textos=[];
+        public ModeloEmbedding? Modelo=>SemModelo?null:new("teste","conceitos-controlados",Versao,3); public bool Externo=>EhExterno;
         public Task<float[]?> GerarAsync(string texto,CancellationToken ct=default)
         { Textos.Add(texto); return Task.FromResult<float[]?>(Indisponivel?null:texto.Contains("relação")||texto.Contains("associação")?[1,0,0]:[0,1,0]); }
     }
