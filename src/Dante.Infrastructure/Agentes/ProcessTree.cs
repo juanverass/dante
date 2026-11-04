@@ -27,15 +27,14 @@ internal static class ProcessTree
         }
     }
 
-    public static List<(int Id, DateTime StartTime)> GetDescendants(int rootId, DateTime rootStartTime)
+    public static List<(int Id, DateTime StartTime)> GetDescendants(int rootId, DateTime rootStartTime, bool exigirPrincipal = false)
     {
         var descendants = new List<(int Id, DateTime StartTime)>();
-        if (!IsSupported)
-        {
-            return descendants;
-        }
-
-        var childrenByParent = SnapshotParents()
+        if (!IsSupported) throw new PlatformNotSupportedException("Observação da árvore de processos não suportada.");
+        var parents = SnapshotParents().ToArray();
+        if (exigirPrincipal && !parents.Any(x => x.Id == rootId))
+            throw new InvalidOperationException("Processo principal saiu antes da observação inicial da árvore.");
+        var childrenByParent = parents
             .GroupBy(entry => entry.ParentId)
             .ToDictionary(group => group.Key, group => group.Select(entry => entry.Id).ToList());
         var pending = new Queue<(int Id, DateTime StartTime)>([(rootId, rootStartTime)]);
@@ -46,7 +45,7 @@ internal static class ProcessTree
             {
                 // A process started before its "parent" belongs to an earlier owner of that PID (Windows keeps the
                 // parent PID of orphans), so it is not a descendant.
-                if (visited.Add(childId) && TryGetStartTime(childId) is { } startTime && startTime >= parent.StartTime)
+                if (visited.Add(childId) && ObterIdentidadeDoDescendente(childId) is { } startTime && startTime >= parent.StartTime)
                 {
                     descendants.Add((childId, startTime));
                     pending.Enqueue((childId, startTime));
@@ -55,6 +54,17 @@ internal static class ProcessTree
         }
 
         return descendants;
+    }
+
+    private static DateTime? ObterIdentidadeDoDescendente(int id)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(id);
+            try { return process.StartTime; }
+            catch (InvalidOperationException) when (process.HasExited) { return null; }
+        }
+        catch (ArgumentException) { return null; } // Saiu durante a descoberta, não falha de acesso.
     }
 
     // Kills the process and whatever it started, unless the PID now belongs to another process.
@@ -117,11 +127,9 @@ internal static class ProcessTree
                 var fields = stat[(stat.LastIndexOf(')') + 2)..].Split(' ');
                 entries.Add((id, int.Parse(fields[1])));
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-                                                  or FormatException or ArgumentOutOfRangeException
-                                                  or IndexOutOfRangeException)
+            catch (IOException) when (!Directory.Exists(directory))
             {
-                // The process exited while the snapshot was taken.
+                // Apenas o desaparecimento comprovado é ausência; acesso negado/erro de leitura propagam.
             }
         }
 
@@ -132,17 +140,18 @@ internal static class ProcessTree
     {
         var entries = new List<(int Id, int ParentId)>();
         using var snapshot = CreateToolhelp32Snapshot(SnapshotProcesses, 0);
-        if (snapshot.IsInvalid)
-        {
-            return entries;
-        }
+        if (snapshot.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
 
         var entry = new ProcessEntry32 { Size = (uint)Marshal.SizeOf<ProcessEntry32>() };
-        for (var found = Process32First(snapshot, ref entry); found; found = Process32Next(snapshot, ref entry))
+        var found = Process32First(snapshot, ref entry);
+        while (found)
         {
             entries.Add(((int)entry.ProcessId, (int)entry.ParentProcessId));
+            found = Process32Next(snapshot, ref entry);
         }
-
+        const int semMaisProcessos = 18; // ERROR_NO_MORE_FILES: término normal da enumeração.
+        var erro = Marshal.GetLastWin32Error();
+        if (erro != semMaisProcessos) throw new Win32Exception(erro);
         return entries;
     }
 

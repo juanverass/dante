@@ -334,6 +334,107 @@ public sealed class InteractiveAgentProcessTests
         await ProcessTree.EncerrarEAguardarAsync(child.Id, inicio, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task CapturaFinalAguardaDescobertaEmAndamentoIncluindoFilhoCriadoNaUltimaJanela()
+    {
+        using var entrou = new ManualResetEventSlim();
+        using var consultar = new ManualResetEventSlim();
+        using var capturou = new ManualResetEventSlim();
+        using var liberar = new ManualResetEventSlim();
+        using var raw = IniciarProbe("spawn-on-command", RuntimeConfig);
+        var chamadas = 0;
+        await using var process = new InteractiveAgentProcess(raw, null, observarDescendentes: (pid, inicio) =>
+        {
+            var ultima = Interlocked.Increment(ref chamadas) == 2;
+            if (ultima)
+            {
+                entrou.Set();
+                if (!consultar.Wait(Timeout)) throw new TimeoutException("Teste não liberou a consulta.");
+            }
+            var encontrados = ProcessTree.GetDescendants(pid, inicio);
+            if (ultima)
+            {
+                capturou.Set();
+                if (!liberar.Wait(Timeout)) throw new TimeoutException("Teste não liberou a descoberta.");
+            }
+            return encontrados;
+        });
+        Assert.Equal("ready", await NextStdoutAsync(process));
+        var fechar = Task.Run(process.CloseInputAsync);
+        int child;
+        try
+        {
+            Assert.True(await Task.Run(() => entrou.Wait(Timeout)));
+            // O filho nasce depois que a última observação já começou.
+            await raw.StandardInput.WriteLineAsync("spawn");
+            await raw.StandardInput.FlushAsync();
+            child = int.Parse(await NextStdoutAsync(process));
+            consultar.Set();
+            Assert.True(await Task.Run(() => capturou.Wait(Timeout)));
+            raw.StandardInput.Close();
+            await raw.WaitForExitAsync().WaitAsync(Timeout);
+            Assert.False(process.Completion.IsCompleted);
+        }
+        finally { consultar.Set(); liberar.Set(); }
+        await fechar.WaitAsync(Timeout);
+        await process.Completion.WaitAsync(Timeout);
+        Assert.True(HasExited(child));
+        await ReadToEndAsync(process).WaitAsync(Timeout);
+    }
+
+    [Fact]
+    public async Task IdentidadeInicialIndisponivelNaoEhListaVaziaNemAutorizaMatarPorPid()
+    {
+        using var raw = IniciarProbe("interactive");
+        var consultou = false;
+        var matou = false;
+        var process = new InteractiveAgentProcess(raw, null,
+            encerrarDescendente: (_, _, _) => { matou = true; return Task.CompletedTask; },
+            obterIdentidade: _ => null,
+            observarDescendentes: (_, _) => { consultou = true; return []; });
+        Assert.Equal("ready", await NextStdoutAsync(process));
+        await process.CloseInputAsync();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => process.Completion.WaitAsync(Timeout));
+        Assert.Contains("Identidade inicial", error.InnerException!.Message);
+        Assert.False(consultou); Assert.False(matou);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => process.DisposeAsync().AsTask());
+    }
+
+    [Fact]
+    public async Task FalhaDeObservacaoNaoEhTratadaComoAusenciaDeDescendentes()
+    {
+        using var raw = IniciarProbe("interactive");
+        var process = new InteractiveAgentProcess(raw, null,
+            observarDescendentes: (_, _) => throw new UnauthorizedAccessException("falha simulada"));
+        Assert.Equal("ready", await NextStdoutAsync(process));
+        await process.CloseInputAsync();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => process.Completion.WaitAsync(Timeout));
+        Assert.IsType<UnauthorizedAccessException>(error.InnerException);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => process.DisposeAsync().AsTask());
+    }
+
+    [Fact]
+    public async Task PrincipalMuitoRapidoNaoPermiteDeclararLimpezaSemObservacaoInicial()
+    {
+        using var raw = IniciarProbe("spawn-and-exit", RuntimeConfig);
+        var childId = int.Parse((await raw.StandardOutput.ReadLineAsync().WaitAsync(Timeout))!);
+        using var child = Process.GetProcessById(childId);
+        try
+        {
+            await raw.WaitForExitAsync().WaitAsync(Timeout);
+            var process = new InteractiveAgentProcess(raw, null);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => process.Completion.WaitAsync(Timeout));
+            Assert.False(child.HasExited); // Não há identidade observada que autorize a limpeza desse filho.
+            await Assert.ThrowsAsync<InvalidOperationException>(() => process.DisposeAsync().AsTask());
+        }
+        finally
+        {
+            // O teste mantém o próprio handle; a limpeza de fallback não é atribuída ao código sob teste.
+            if (!child.HasExited) child.Kill();
+            await child.WaitForExitAsync().WaitAsync(Timeout);
+        }
+    }
+
     private static InteractiveAgentProcess IniciarComLimpeza(Func<int, DateTime, CancellationToken, Task> limpeza,
         TimeSpan? prazo = null) => new(IniciarProbe("spawn-until-eof", RuntimeConfig), null, limpeza, prazo);
 

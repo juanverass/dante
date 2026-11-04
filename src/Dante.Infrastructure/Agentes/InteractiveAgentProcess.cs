@@ -36,14 +36,21 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
 {
     // Bounded: a slow reader stops the pumps, and the full pipe then pauses the agent instead of growing memory.
     private const int OutputCapacity = 256;
-    // Descendants started and exited within one interval may go unseen; the explicit refreshes before closing stdin
-    // cover the shutdown paths.
+    // Observação periódica, complementada antes de fechar stdin. A finalização para o ciclo e aguarda
+    // a descoberta em andamento; falha de identidade/observação nunca equivale a árvore vazia.
     private static readonly TimeSpan DescendantTrackingInterval = TimeSpan.FromSeconds(1);
 
     private readonly Process process;
     private readonly Func<int, DateTime, CancellationToken, Task> encerrarDescendente;
     private readonly TimeSpan prazoDaLimpeza;
     private readonly Task concluirSaida;
+    private readonly Task rastreamento;
+    private readonly CancellationTokenSource pararObservacao = new();
+    private readonly Func<int, DateTime, IReadOnlyList<(int Id, DateTime StartTime)>> observarDescendentes;
+    // O lock de descendants cobre a descoberta inteira, não apenas a publicação dos resultados.
+    private bool observacaoEncerrada;
+    private bool observacaoInicialConcluida;
+    private Exception? falhaDeObservacao;
     private readonly Func<string, string>? redactOutput;
     private readonly Channel<AgentOutputLine> output =
         Channel.CreateBounded<AgentOutputLine>(new BoundedChannelOptions(OutputCapacity)
@@ -64,7 +71,9 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
     private int disposed;
 
     internal InteractiveAgentProcess(Process process, Func<string, string>? redactOutput,
-        Func<int, DateTime, CancellationToken, Task>? encerrarDescendente = null, TimeSpan? prazoDaLimpeza = null)
+        Func<int, DateTime, CancellationToken, Task>? encerrarDescendente = null, TimeSpan? prazoDaLimpeza = null,
+        Func<int, DateTime?>? obterIdentidade = null,
+        Func<int, DateTime, IReadOnlyList<(int Id, DateTime StartTime)>>? observarDescendentes = null)
     {
         this.process = process;
         this.encerrarDescendente = encerrarDescendente ?? ProcessTree.EncerrarEAguardarAsync;
@@ -72,13 +81,18 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         this.redactOutput = redactOutput;
         ProcessId = process.Id;
         StartedAtUtc = DateTimeOffset.UtcNow;
-        startTime = ProcessTree.TryGetStartTime(process.Id);
+        startTime = (obterIdentidade ?? ProcessTree.TryGetStartTime)(process.Id);
+        this.observarDescendentes = observarDescendentes ?? ((pid, inicio) =>
+            ProcessTree.GetDescendants(pid, inicio, exigirPrincipal: !observacaoInicialConcluida));
+        if (startTime is null)
+            falhaDeObservacao = new InvalidOperationException("Identidade inicial do processo principal indisponível; limpeza não confirmada.");
 
         var stdout = PumpAsync(process.StandardOutput, AgentOutputStream.StandardOutput);
         var stderr = PumpAsync(process.StandardError, AgentOutputStream.StandardError);
         concluirSaida = CompleteOutputAsync(stdout, stderr);
+        // A primeira descoberta ocorre antes de iniciar o monitor de saída.
+        rastreamento = TrackDescendantsAsync();
         _ = MonitorExitAsync();
-        _ = TrackDescendantsAsync();
     }
 
     public int ProcessId { get; }
@@ -227,6 +241,7 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
             await concluirSaida;
             process.Dispose();
             pumpCancellation.Dispose();
+            pararObservacao.Dispose();
         }
     }
 
@@ -307,27 +322,33 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
 
     private async Task TrackDescendantsAsync()
     {
-        while (!Completion.IsCompleted)
+        try
         {
-            TrackDescendants();
-            await Task.WhenAny(Completion, Task.Delay(DescendantTrackingInterval));
+            while (!pararObservacao.IsCancellationRequested && TrackDescendants())
+                await Task.Delay(DescendantTrackingInterval, pararObservacao.Token);
         }
+        catch (OperationCanceledException) when (pararObservacao.IsCancellationRequested) { }
     }
 
-    // Records the current descendants while the agent is alive; after it exits they are no longer reachable from it.
-    private void TrackDescendants()
+    // Serializa descoberta e publicação com a captura final, inclusive nas chamadas síncronas de Stop/CloseInput.
+    private bool TrackDescendants()
     {
-        if (startTime is not { } rootStartTime || Completion.IsCompleted)
-        {
-            return;
-        }
-
-        var found = ProcessTree.GetDescendants(ProcessId, rootStartTime);
         lock (descendants)
         {
-            foreach (var (id, descendantStartTime) in found)
+            if (observacaoEncerrada || falhaDeObservacao is not null) return false;
+            try
             {
-                descendants.TryAdd(id, descendantStartTime);
+                if (startTime is not { } rootStartTime)
+                    throw new InvalidOperationException("Identidade inicial do processo principal indisponível.");
+                foreach (var (id, descendantStartTime) in observarDescendentes(ProcessId, rootStartTime))
+                    descendants.TryAdd(id, descendantStartTime);
+                observacaoInicialConcluida = true;
+                return true;
+            }
+            catch (Exception exception)
+            {
+                falhaDeObservacao = exception;
+                return false;
             }
         }
     }
@@ -351,8 +372,19 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         try
         {
             await process.WaitForExitAsync();
+            // Para o ciclo, aguarda a descoberta em andamento e só então congela a última captura publicada.
+            await pararObservacao.CancelAsync();
+            await rastreamento;
             KeyValuePair<int, DateTime>[] tracked;
-            lock (descendants) { tracked = [.. descendants]; }
+            Exception? falha;
+            lock (descendants)
+            {
+                observacaoEncerrada = true;
+                tracked = [.. descendants];
+                falha = falhaDeObservacao;
+                if (!observacaoInicialConcluida && falha is null)
+                    falha = new InvalidOperationException("Observação inicial da árvore não confirmada.");
+            }
             using var prazo = new CancellationTokenSource(prazoDaLimpeza);
             try
             {
@@ -363,6 +395,9 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
             {
                 throw new TimeoutException("Prazo de limpeza dos processos descendentes excedido; saída não confirmada.");
             }
+            // Limpa o que foi identificado com segurança, mas nunca transforma observação incompleta em sucesso.
+            if (falha is not null)
+                throw new InvalidOperationException("Observação da árvore de processos falhou; limpeza não confirmada.", falha);
             bool wasKilled;
             lock (stateGate)
             {
@@ -373,6 +408,8 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         }
         catch (Exception exception)
         {
+            await pararObservacao.CancelAsync();
+            await rastreamento;
             lock (stateGate) { state = InteractiveAgentProcessState.Exited; }
             output.Writer.TryComplete(exception);
             await pumpCancellation.CancelAsync();

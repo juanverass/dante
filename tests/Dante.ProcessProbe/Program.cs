@@ -69,7 +69,14 @@ internal static class Program
 
                 await Task.Delay(Timeout.InfiniteTimeSpan);
                 return 0;
+            case "spawn-on-command":
+            case "spawn-and-exit":
             case "spawn-until-eof":
+                if (args[0] == "spawn-on-command")
+                {
+                    Console.WriteLine("ready");
+                    if (Console.In.ReadLine() != "spawn") return 2;
+                }
                 // Múltiplos descendentes e saída natural opcional para os testes de limpeza.
                 var count = args.Length > 2 ? int.Parse(args[2]) : 1;
                 for (var index = 0; index < count; index++)
@@ -84,6 +91,7 @@ internal static class Program
                     Console.WriteLine(child!.Id);
                 }
 
+                if (args[0] == "spawn-and-exit") return 0;
                 while (Console.In.ReadLine() is not null)
                 {
                 }

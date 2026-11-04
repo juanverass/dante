@@ -300,7 +300,10 @@ recuperado depois ("UNKNOWN") e o id upstream mudou nas duas CLIs; depois do `/c
 
 `InteractiveAgentProcess.Completion` aguarda a saída dos descendentes identificados após o encerramento
 do principal, com prazo compartilhado de 5 segundos, identidade PID/início preservada e falha explícita
-em timeout. Dispose libera os leitores e recursos também em falhas. Isso corrige a corrida histórica de
+em timeout. O monitor para e aguarda o rastreamento antes de congelar a captura final; descoberta e
+publicação são serializadas com essa captura. Identidade inicial ausente ou falha de observação
+impedem declarar limpeza confirmada. Dispose libera os leitores e recursos também em falhas.
+Isso corrige a corrida histórica de
 `GracefulExitDoesNotLeaveOrphanedChildProcess` entre enviar SIGKILL e observar a saída efetiva.
 `TelegramBotApiTests.OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard` também falhou uma vez na suíte
 completa durante a #94 e de novo no baseline da #95; passa isolado e nas execuções seguintes. Na #96 falhou no baseline

@@ -40,14 +40,39 @@ prepare_environment() {
         fail "corrija $ENV_FILE e rode install novamente."
 }
 
-# Nunca remove silenciosamente EnvironmentFile de uma unidade já personalizada.
-# Drop-ins são mantidos pelo install; a migração de personalizações legadas é manual.
+# Subconjunto conservador: nunca tenta adivinhar resets, quoting, escapes ou continuações.
+# O parser do systemd aceita mais sintaxe; uma unidade fora deste subconjunto exige revisão manual.
+environment_file_sequence() {
+    LC_ALL=C awk '
+        function recusar() { exit 2 }
+        {
+            sub(/\r$/, "")
+            line=$0
+            sub(/^[[:space:]]+/, "", line); sub(/[[:space:]]+$/, "", line)
+            if (line == "" || line ~ /^[#;]/) next
+            if (index(line, "\\") != 0) recusar()
+            if (line ~ /^\[[A-Za-z][A-Za-z0-9]*\]$/) { section=line; next }
+            if (line !~ /^[A-Za-z][A-Za-z0-9]*[[:space:]]*=/) recusar()
+            equal=index(line, "=")
+            key=substr(line, 1, equal-1); sub(/[[:space:]]+$/, "", key)
+            if (key != "EnvironmentFile") next
+            if (section != "[Service]") recusar()
+            value=substr(line, equal+1); sub(/^[[:space:]]+/, "", value)
+            # Reset ou formato não interpretado com segurança: recusar, nunca descartar.
+            if (value == "" || value !~ /^-?(\/|%h\/)[A-Za-z0-9_.\/%:@+\-]+$/) recusar()
+            print value
+        }
+    ' "$1"
+}
+
 check_installed_environment_files() {
     [ -f "$UNIT_DIR/$SERVICE" ] || return 0
-    while IFS= read -r assignment; do
-        grep -Fqx -- "$assignment" "$REPO_ROOT/deploy/systemd/$SERVICE" ||
-            fail "unidade instalada tem EnvironmentFile personalizado ausente no template. Revise a migração para um drop-in antes de instalar; nenhum arquivo foi alterado."
-    done < <(sed -n 's/^[[:space:]]*\(EnvironmentFile=.*\)$/\1/p' "$UNIT_DIR/$SERVICE")
+    local installed_files template_files
+    installed_files="$(environment_file_sequence "$UNIT_DIR/$SERVICE")" &&
+        template_files="$(environment_file_sequence "$REPO_ROOT/deploy/systemd/$SERVICE")" ||
+        fail "não foi possível interpretar com segurança EnvironmentFile. Revise a migração para um drop-in; nenhum arquivo foi alterado."
+    [ "$installed_files" = "$template_files" ] ||
+        fail "unidade instalada tem sequência EnvironmentFile diferente do template. Revise a migração para um drop-in antes de instalar; nenhum arquivo foi alterado."
 }
 
 install_service() {
