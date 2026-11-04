@@ -27,6 +27,10 @@ internal static class FiltrosDoBrain
         modelo.Entity<RelacaoDeConhecimento>().HasQueryFilter(x => contexto.Administracao ||
             x.IdEspacoDeConhecimento == contexto.IdEspaco && x.IdProjeto == contexto.IdProjeto &&
             contexto.Conhecimentos.Any(c => c.Id == x.IdOrigem) && contexto.Conhecimentos.Any(c => c.Id == x.IdDestino));
+        // Intenção de vínculo (#259): visível só no escopo exato e quando os dois candidatos são visíveis (sensibilidade).
+        modelo.Entity<VinculoEntreCandidatos>().HasQueryFilter(x => contexto.Administracao ||
+            x.IdEspacoDeConhecimento == contexto.IdEspaco && x.IdProjeto == contexto.IdProjeto &&
+            contexto.CandidatosDeConhecimento.Any(c => c.Id == x.IdCandidatoIncidente) && contexto.CandidatosDeConhecimento.Any(c => c.Id == x.IdCandidatoSolucao));
     }
 
     private static void AplicarEscopoESensibilidade<TEntity>(ModelBuilder modelo, DanteDbContext contexto,

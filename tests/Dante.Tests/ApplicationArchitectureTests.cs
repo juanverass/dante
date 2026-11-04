@@ -52,7 +52,7 @@ public sealed class ApplicationArchitectureTests
 
         var repositories = Infrastructure.GetTypes().Where(t => t is { IsClass: true, IsAbstract: false, IsGenericTypeDefinition: false } &&
             t.Name.EndsWith("Repository", StringComparison.Ordinal) && t.Namespace!.StartsWith("Dante.Infrastructure.Modulos.", StringComparison.Ordinal)).ToArray();
-        Assert.Equal(7, repositories.Length);
+        Assert.Equal(8, repositories.Length);
         Assert.All(repositories, adapter =>
         {
             var porta = Assert.Single(adapter.GetInterfaces(), i => i.Name == "I" + adapter.Name);

@@ -806,6 +806,19 @@ mensagem própria mantém fonte selecionada. Outro autor ou ausência de autor n
 de candidatos. A migration 20261102150504 acrescenta autoria Desconhecida ao legado,
 sem reclassificar registros: gerar candidato exige reimportação com autoria conhecida.
 
+## Vínculo incidente → solução entre candidatos (#259, AD-61)
+
+`brain_vincular_candidatos` registra a intenção de `ResolvidoPor` entre um candidato
+Incidente e um candidato Solucao pendentes, com revisões, escopo exato e sensibilidade
+iguais aos de `brain_criar_relacao`. A intenção vive em `VinculoEntreCandidatos`
+(migration 20261104135608, tabela nova). Nenhuma relação existe enquanto algum lado
+for candidato; quando o segundo lado é consolidado pela confirmação no Telegram, a
+relação é criada uma única vez na mesma transação. Status, tipo e natureza dos dois
+conhecimentos não mudam: conclusões do agente seguem `Inferido`. Descartar/rejeitar
+um lado, ou consolidá-lo inativo ou com tipo incompatível, cancela a intenção. O
+Context Builder passa a expandir pela relação depois da consolidação. O caminho legado
+`IdIncidente`/`IdSolucao` (candidato Aprendizado sobre conhecimentos) não mudou.
+
 ## Evidências do agente como fonte bruta (#257, AD-60)
 
 `brain_registrar_evidencia` registra uma evidência Markdown por chamada como

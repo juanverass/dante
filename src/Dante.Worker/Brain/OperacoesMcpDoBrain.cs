@@ -96,16 +96,21 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                     }
                     var id = await app.ConfirmarAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, alvo.Id, alvo.Revisao, responsavel, cancelamento);
                     var consolidado = await services.GetRequiredService<IConhecimentoAppService>().ObterPorIdAsync(id, cancelamento);
-                    return consolidado?.Status switch
+                    return SituacaoDosVinculos(await app.ListarVinculosAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, alvo.Id, cancelamento), consolidado?.Status switch
                     {
                         StatusDoConhecimento.Confirmado => "Candidato consolidado com sua confirmação e proveniência preservada.",
                         StatusDoConhecimento.Inferido when consolidado.NaturezaDeOrigem == NaturezaDoConteudo.ConclusaoDoAgente || consolidado.Natureza == NaturezaDoConteudo.ConclusaoDoAgente
                             => "Candidato consolidado. Conteúdo registrado como conclusão do agente, não confirmado. Sua confirmação autoriza o registro; ele permanece inferido.",
                         StatusDoConhecimento.Inferido => "Candidato consolidado. Conteúdo registrado como inferido, não confirmado.",
                         _ => "Candidato consolidado. Consulte o Brain para verificar o estado atual."
-                    };
+                    });
                 });
-                return new { candidato = Resumir(alvo), aguardandoConfirmacao = true, instrucao = "Mostre a proposta ao usuário. Ele deve enviar confirmar no Telegram (ou cancelar). Nenhuma consolidação/descarte foi aplicada." };
+                var vinculosDoAlvo = (await captura.ListarVinculosAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, alvo.Id, ct))
+                    .Where(v => v.Estado == EstadoDoVinculo.Pendente).Select(ResumirVinculo).ToArray();
+                return new { candidato = Resumir(alvo), vinculosPendentes = vinculosDoAlvo, aguardandoConfirmacao = true, instrucao = "Mostre a proposta ao usuário. Ele deve enviar confirmar no Telegram (ou cancelar). Nenhuma consolidação/descarte foi aplicada." +
+                    (vinculosDoAlvo.Length == 0 ? "" : nome == "brain_confirmar_candidato"
+                        ? " Informe que o vínculo ResolvidoPor pendente só vira relação quando os dois candidatos estiverem consolidados."
+                        : " Informe que descartar cancela o vínculo ResolvidoPor pendente.") };
             case "brain_atualizar_conhecimento":
                 var existente = await ConhecimentoAsync(Id(args, "id"));
                 if (existente.Revisao != Inteiro(args, "revisao")) throw ErroDoBrainMcp.Revisao();
@@ -218,6 +223,18 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                         sensibilidade = fonteRegistrada.Sensibilidade.ToString(), autoria = fonteRegistrada.Autoria.ToString(), fonteRegistrada.Rotulo },
                     referencia = registrada.Referencia, possivelDuplicidade = registrada.PossivelDuplicidade, duplicidades = registrada.PossiveisDuplicidades,
                     confirmado = false, instrucao = "Evidência registrada como fonte bruta, não confirmada. Use a referência em referencias do snapshot; não é conhecimento." };
+            case "brain_vincular_candidatos":
+                // Compara IDs antes de resolver: o mesmo candidato nos dois lados é erro de entrada sem consultar o alvo.
+                if (Id(args, "incidente") == Id(args, "solucao")) throw ErroDoBrainMcp.Entrada();
+                var incidenteDoVinculo = await CandidatoAsync("incidente"); var solucaoDoVinculo = await CandidatoAsync("solucao");
+                if (incidenteDoVinculo.Estado != EstadoDoCandidato.Pendente || incidenteDoVinculo.Revisao != Inteiro(args, "revisao_incidente") ||
+                    solucaoDoVinculo.Estado != EstadoDoCandidato.Pendente || solucaoDoVinculo.Revisao != Inteiro(args, "revisao_solucao")) throw ErroDoBrainMcp.Revisao();
+                if (!RelacaoDeConhecimento.TiposCompativeis(TipoDeRelacao.ResolvidoPor, incidenteDoVinculo.Tipo, solucaoDoVinculo.Tipo))
+                    throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheTiposDoVinculo);
+                var vinculo = await captura.VincularAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, incidenteDoVinculo.Id, incidenteDoVinculo.Revisao,
+                    solucaoDoVinculo.Id, solucaoDoVinculo.Revisao, prova, ct);
+                return new { vinculo = ResumirVinculo(vinculo), incidente = Resumir(incidenteDoVinculo), solucao = Resumir(solucaoDoVinculo), relacaoCriada = vinculo.IdRelacao is not null,
+                    instrucao = "Nenhuma relação foi criada agora. ResolvidoPor será registrada quando o usuário confirmar os dois candidatos no Telegram; registrar o vínculo não confirma o conteúdo." };
             case "brain_obter_contexto_de_trabalho": return await servicos.GetRequiredService<ContextoDeTrabalhoAppService>().RetomarAsync(acesso, ct);
             case "brain_atualizar_contexto_de_trabalho":
                 var contextos = servicos.GetRequiredService<ContextoDeTrabalhoAppService>();
@@ -276,9 +293,9 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
         // Resolução de IDs enviados pelo agente. Inexistente, outro espaço/projeto/usuário, sensibilidade não permitida,
         // conteúdo protegido e item inativo produzem a MESMA exceção, sem detalhe (#251: sem oráculo de enumeração).
         // ID do tipo errado só vira entrada_invalida quando o outro item é visível ao agente neste escopo.
-        async Task<CandidatoDeConhecimentoDto> CandidatoAsync()
+        async Task<CandidatoDeConhecimentoDto> CandidatoAsync(string campo = "id")
         {
-            var id = Id(args, "id");
+            var id = Id(args, campo);
             CandidatoDeConhecimentoDto candidato;
             try { candidato = await captura.ObterCandidatoAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, id, ct); }
             catch (ArgumentException)
@@ -327,6 +344,12 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             fonte.Text?.Contains(dto.Conteudo, StringComparison.Ordinal) == true) return;
         throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheOrigemLiteral);
     }
+    private static object ResumirVinculo(VinculoEntreCandidatosDto v) => new { v.Id, estado = v.Estado.ToString(), v.IdCandidatoIncidente, v.IdCandidatoSolucao, v.IdRelacao, v.MotivoDoEncerramento };
+    // Acrescenta à resposta da confirmação o efeito sobre vínculos ResolvidoPor (#259), sem alterar o status descrito.
+    private static string SituacaoDosVinculos(IReadOnlyList<VinculoEntreCandidatosDto> vinculos, string mensagem) =>
+        mensagem + (vinculos.Any(v => v.Estado == EstadoDoVinculo.Aplicado) ? " Relação ResolvidoPor registrada com o outro candidato já consolidado." :
+            vinculos.Any(v => v.Estado == EstadoDoVinculo.Pendente) ? " O vínculo ResolvidoPor aguarda a confirmação do outro candidato." :
+            vinculos.Any(v => v.Estado == EstadoDoVinculo.Cancelado) ? " O vínculo ResolvidoPor foi cancelado; nenhuma relação foi criada." : "");
     private static bool Permitida(Sensibilidade s) => s is Sensibilidade.Publico or Sensibilidade.Pessoal or Sensibilidade.Trabalho;
     private static object Resumir(CandidatoDeConhecimentoDto c) => new { c.Id, c.Titulo, c.Conteudo, c.Tags, tipo = c.Tipo.ToString(), natureza = c.Natureza.ToString(), estado = c.Estado.ToString(), c.Revisao, c.IdConhecimento };
     // S00000N recomeça a cada processo do Worker; a instância torna a sessão única na proveniência (#249).

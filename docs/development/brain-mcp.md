@@ -54,6 +54,7 @@ recusa o canal anterior. Reinício do Worker não restaura capacidades.
 | brain_confirmar_candidato | Prepara proposta de consolidação, sem promovê-la |
 | brain_cancelar_candidato | Prepara descarte auditado, sem aplicá-lo |
 | brain_criar_relacao | Prepara relação tipada entre alvos autorizados com revisões |
+| brain_vincular_candidatos | Registra a intenção de `ResolvidoPor` entre candidato Incidente e candidato Solucao pendentes; não cria relação |
 | brain_listar_relacoes | Vizinhança autorizada de um conhecimento |
 | brain_registrar_evidencia | Uma evidência Markdown de teste/validação como fonte bruta de autoria do agente; retorna `fonte:<id>@<rev>` |
 | brain_obter_contexto_de_trabalho | Snapshot operacional ativo |
@@ -246,6 +247,38 @@ projeto nulo) e sensibilidade, além de `Permitida` no MCP. Sem texto e com tags
 ou `tags: []`, a listagem mantém o comportamento anterior. Só retorna candidatos pendentes, com estado,
 natureza e revisão; promovidos, rejeitados e descartados são excluídos. Não inclui
 candidatos em `brain_buscar_conhecimento` nem no pacote de contexto.
+
+## Vínculo incidente → solução entre candidatos (#259)
+
+`brain_vincular_candidatos` recebe `incidente`, `revisao_incidente`, `solucao` e
+`revisao_solucao`, todos obrigatórios. Os dois IDs precisam ser de candidatos pendentes
+do escopo exato da sessão, visíveis ao agente (Publico, Pessoal ou Trabalho), com tipos
+`Incidente` e `Solucao`, nas revisões informadas. A recusa segue a #251: inexistente,
+outro espaço/projeto/usuário ou sensibilidade não permitida produzem a mesma resposta
+`nao_encontrado_ou_nao_autorizado`; ID de conhecimento é entrada inválida com detalhe;
+revisão desatualizada ou candidato encerrado é `revisao_desatualizada`; tipos trocados
+recebem detalhe próprio. Repetir o mesmo par devolve a intenção existente.
+
+Registrar o vínculo **não** cria relação, não confirma conteúdo e não pede confirmação.
+A relação nasce na confirmação de negócio dos candidatos, pelo Telegram, e só quando os
+dois lados estiverem consolidados: na mesma transação em que o segundo candidato é
+promovido, o Brain cria `ResolvidoPor` uma única vez (`ObterEquivalenteAsync` e índice
+único) e marca a intenção como aplicada. O status epistêmico não é exigido nem alterado:
+conclusões do agente consolidadas continuam `Inferido` (AD-59 I1), e a relação não as
+torna fatos. Ao preparar a confirmação, a resposta lista `vinculosPendentes`; a mensagem
+de confirmação informa se a relação foi registrada ou se aguarda o outro candidato.
+
+Descartar ou rejeitar um lado cancela a intenção na mesma transação. Na efetivação, o
+lado já consolidado é revalidado: precisa continuar na revisão registrada na sua
+consolidação, ativo, no escopo, com sensibilidade Publico/Pessoal/Trabalho e tipo
+Incidente/Solucao; caso contrário, a intenção é cancelada, sem relação órfã e sem falhar a
+confirmação, e a mensagem informa o cancelamento. Correções do **candidato** enquanto
+pendente mantêm a intenção; a revisão do conhecimento é fixada na consolidação.
+Limitação conhecida: se um candidato deixar de ser visível na sessão (por exemplo, passar a
+Confidencial), a intenção também deixa de ser visível e permanece pendente, sem relação. Confirmações concorrentes dos dois lados conflitam
+pelo token de concorrência da intenção; a repetição posterior efetiva o vínculo.
+Escopo alterado antes do `confirmar` recusa a operação, como nas demais propostas.
+Para conhecimentos já consolidados, use `brain_criar_relacao`.
 
 ## Evidências de teste como fonte bruta (#257)
 

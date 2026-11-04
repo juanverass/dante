@@ -31,6 +31,7 @@ internal static class BrainServiceCollectionExtensions
         services.AddScoped<Dante.Application.ContextosDeTrabalho.IContextoDeTrabalhoRepository, ContextoDeTrabalhoRepository>();
         services.AddSingleton<Dante.Application.MetricasDoBrain.IRegistroDeMetricasDoBrain>(_ => new Dante.Infrastructure.MetricasDoBrain.RegistroDeMetricasEmArquivo(configuration));
         services.AddScoped<Dante.Application.CapturaDeConhecimento.ICandidatoDeConhecimentoRepository, CandidatoDeConhecimentoRepository>();
+        services.AddScoped<Dante.Application.CapturaDeConhecimento.IVinculoEntreCandidatosRepository, VinculoEntreCandidatosRepository>();
         services.AddScoped<Dante.Application.RelacoesDeConhecimento.IRelacaoDeConhecimentoRepository, RelacaoDeConhecimentoRepository>();
     }
 }

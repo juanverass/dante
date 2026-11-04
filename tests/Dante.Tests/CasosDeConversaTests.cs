@@ -132,5 +132,9 @@ public sealed class CasosDeConversaTests
         public Task<IReadOnlyList<CandidatoDeConhecimentoDto>> ListarPendentesAsync(Guid idEspaco, Guid? idProjeto, int limite = 50,
             CancellationToken cancellationToken = default, int deslocamento = 0, IReadOnlyList<string>? tags = null, string? texto = null) => throw new NotSupportedException();
         public Task<CandidatoDeConhecimentoDto> ObterCandidatoAsync(Guid idEspaco, Guid? idProjeto, Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<VinculoEntreCandidatosDto> VincularAsync(Guid idEspaco, Guid? idProjeto, Guid idIncidente, int revisaoIncidente,
+            Guid idSolucao, int revisaoSolucao, ProvenienciaDto responsavel, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<VinculoEntreCandidatosDto>> ListarVinculosAsync(Guid idEspaco, Guid? idProjeto, Guid idCandidato,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
