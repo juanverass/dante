@@ -436,6 +436,111 @@ public sealed class InteractiveAgentProcessTests
         }
     }
 
+    [Fact]
+    public async Task PidDaRaizReutilizadoEntreObservacoesNaoAssociaNemEncerraProcessosDeTerceiros()
+    {
+        using var raw = IniciarProbe("interactive");
+        var rawId = raw.Id;
+        var rawInicio = raw.StartTime;
+        using var terceiro = IniciarProbe("wait");
+        var observacoes = 0;
+        var limpezas = 0;
+        var snapshotsDaRaizReutilizada = 0;
+        var process = new InteractiveAgentProcess(raw, null,
+            encerrarDescendente: (_, _, _) => { limpezas++; return Task.CompletedTask; },
+            observarDescendentes: (pid, inicio) =>
+            {
+                var reutilizado = Interlocked.Increment(ref observacoes) > 1;
+                return ProcessTree.GetDescendants(pid, inicio,
+                    obterIdentidadeRaiz: _ => reutilizado ? inicio.AddSeconds(1) : inicio,
+                    obterSnapshot: () =>
+                    {
+                        if (reutilizado) snapshotsDaRaizReutilizada++;
+                        return reutilizado ? [(pid, 0), (terceiro.Id, pid)] : [(pid, 0)];
+                    });
+            });
+        try
+        {
+            Assert.Equal("ready", await NextStdoutAsync(process));
+            await process.CloseInputAsync();
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => process.Completion.WaitAsync(Timeout));
+            var causa = Assert.IsType<ObservacaoDaRaizEncerradaException>(error.InnerException);
+            Assert.Equal(FimDaObservacaoDaRaiz.IdentidadeDivergente, causa.Motivo);
+            Assert.Equal(FimDaObservacaoDaRaiz.IdentidadeDivergente, process.FimDaObservacao);
+            Assert.Equal(0, limpezas);
+            Assert.Equal(0, snapshotsDaRaizReutilizada);
+            Assert.False(terceiro.HasExited);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => process.DisposeAsync().AsTask());
+        }
+        finally
+        {
+            if (!terceiro.HasExited) terceiro.Kill();
+            await terceiro.WaitForExitAsync().WaitAsync(Timeout);
+            await ProcessTree.EncerrarEAguardarAsync(rawId, rawInicio, CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task PrincipalQueSaiDuranteLeituraInicialNaoAceitaIdentidadePosteriorDoMesmoPid()
+    {
+        using var raw = IniciarProbe("interactive");
+        using var terceiro = IniciarProbe("wait");
+        var consultouArvore = false;
+        var process = new InteractiveAgentProcess(raw, null,
+            obterIdentidade: _ =>
+            {
+                raw.StandardInput.Close();
+                Assert.True(raw.WaitForExit((int)Timeout.TotalMilliseconds));
+                return terceiro.StartTime; // Simula leitura de outro processo depois de a raiz original sair.
+            },
+            observarDescendentes: (_, _) => { consultouArvore = true; return []; });
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => process.Completion.WaitAsync(Timeout));
+            Assert.False(consultouArvore);
+            Assert.False(terceiro.HasExited);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => process.DisposeAsync().AsTask());
+        }
+        finally
+        {
+            if (!terceiro.HasExited) terceiro.Kill();
+            await terceiro.WaitForExitAsync().WaitAsync(Timeout);
+        }
+    }
+
+    [Fact]
+    public async Task MudancaDeIdentidadeDuranteSnapshotDescartaAArvoreAntesDePercorrerDescendentes()
+    {
+        using var raw = IniciarProbe("interactive");
+        try
+        {
+            Assert.Equal("ready", await raw.StandardOutput.ReadLineAsync().WaitAsync(Timeout));
+            var inicio = raw.StartTime;
+            var leituras = 0;
+            var error = Assert.Throws<ObservacaoDaRaizEncerradaException>(() => ProcessTree.GetDescendants(raw.Id, inicio,
+                obterIdentidadeRaiz: _ => ++leituras == 1 ? inicio : inicio.AddSeconds(1)));
+            Assert.Equal(FimDaObservacaoDaRaiz.IdentidadeDivergente, error.Motivo);
+            Assert.Equal(2, leituras);
+        }
+        finally { raw.StandardInput.Close(); await raw.WaitForExitAsync().WaitAsync(Timeout); }
+    }
+
+    [Fact]
+    public async Task RaizAusenteDepoisDaObservacaoInicialRegistraFimDaObservacaoSemPercorrerOutroPid()
+    {
+        using var raw = IniciarProbe("interactive");
+        var observacoes = 0;
+        await using var process = new InteractiveAgentProcess(raw, null, observarDescendentes: (pid, inicio) =>
+        {
+            var encerrado = Interlocked.Increment(ref observacoes) > 1;
+            return ProcessTree.GetDescendants(pid, inicio, obterIdentidadeRaiz: _ => encerrado ? null : inicio);
+        });
+        Assert.Equal("ready", await NextStdoutAsync(process));
+        await process.CloseInputAsync();
+        await process.Completion.WaitAsync(Timeout);
+        Assert.Equal(FimDaObservacaoDaRaiz.PrincipalEncerrado, process.FimDaObservacao);
+    }
+
     private static InteractiveAgentProcess IniciarComLimpeza(Func<int, DateTime, CancellationToken, Task> limpeza,
         TimeSpan? prazo = null) => new(IniciarProbe("spawn-until-eof", RuntimeConfig), null, limpeza, prazo);
 

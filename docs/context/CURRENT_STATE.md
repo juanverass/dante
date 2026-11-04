@@ -302,7 +302,11 @@ recuperado depois ("UNKNOWN") e o id upstream mudou nas duas CLIs; depois do `/c
 do principal, com prazo compartilhado de 5 segundos, identidade PID/início preservada e falha explícita
 em timeout. O monitor para e aguarda o rastreamento antes de congelar a captura final; descoberta e
 publicação são serializadas com essa captura. Identidade inicial ausente ou falha de observação
-impedem declarar limpeza confirmada. Dispose libera os leitores e recursos também em falhas.
+impedem declarar limpeza confirmada. A identidade da raiz é revalidada antes e depois de cada snapshot;
+PID reciclado encerra a observação com falha, sem percorrer a nova árvore. Dispose libera os leitores
+e recursos também em falhas. A garantia atual limita-se aos descendentes observados: filhos criados
+e reparentados entre ciclos podem escapar ao polling. Contenção nativa por agente ainda é necessária
+para garantir a ausência desses sobreviventes, independentemente da saída do principal.
 Isso corrige a corrida histórica de
 `GracefulExitDoesNotLeaveOrphanedChildProcess` entre enviar SIGKILL e observar a saída efetiva.
 `TelegramBotApiTests.OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard` também falhou uma vez na suíte

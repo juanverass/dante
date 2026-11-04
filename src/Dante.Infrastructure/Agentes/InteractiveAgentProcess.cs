@@ -31,7 +31,7 @@ public sealed class AgentProcessInputClosedException(string message, Exception? 
 
 // One long-lived agent process: stdout/stderr are read line by line as they arrive and stdin accepts serialized
 // JSONL writes. Interrupting a turn is a protocol message written by the driver; StopAsync/DisposeAsync end the
-// whole process tree, and descendants still alive when the agent exits are killed, so no child is left orphaned.
+// whole process tree. Recorded survivors are killed; polling alone does not contain children born between snapshots.
 public sealed class InteractiveAgentProcess : IAsyncDisposable
 {
     // Bounded: a slow reader stops the pumps, and the full pipe then pauses the agent instead of growing memory.
@@ -51,6 +51,11 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
     private bool observacaoEncerrada;
     private bool observacaoInicialConcluida;
     private Exception? falhaDeObservacao;
+    private FimDaObservacaoDaRaiz? fimDaObservacaoDaRaiz;
+    internal FimDaObservacaoDaRaiz? FimDaObservacao
+    {
+        get { lock (descendants) { return fimDaObservacaoDaRaiz; } }
+    }
     private readonly Func<string, string>? redactOutput;
     private readonly Channel<AgentOutputLine> output =
         Channel.CreateBounded<AgentOutputLine>(new BoundedChannelOptions(OutputCapacity)
@@ -81,7 +86,9 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         this.redactOutput = redactOutput;
         ProcessId = process.Id;
         StartedAtUtc = DateTimeOffset.UtcNow;
-        startTime = (obterIdentidade ?? ProcessTree.TryGetStartTime)(process.Id);
+        // Consulta o Process original dos dois lados: não aceita a identidade de um PID reciclado após sua saída.
+        startTime = process.HasExited ? null : (obterIdentidade ?? ProcessTree.TryGetStartTime)(process.Id);
+        if (process.HasExited) startTime = null;
         this.observarDescendentes = observarDescendentes ?? ((pid, inicio) =>
             ProcessTree.GetDescendants(pid, inicio, exigirPrincipal: !observacaoInicialConcluida));
         if (startTime is null)
@@ -108,8 +115,8 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
     // cannot be processed (the redaction hook threw), it completes with that exception and the process is killed.
     public ChannelReader<AgentOutputLine> Output => output.Reader;
 
-    // Completes when the process exits and its surviving descendants were killed, independently of whether the
-    // output was consumed.
+    // Confirma saída do principal e limpeza dos descendentes identificados, independentemente do consumo da saída.
+    // Não comprova ausência de filhos nunca observados: essa garantia requer contenção nativa no lançamento.
     public Task<AgentProcessExit> Completion => completion.Task;
 
     // Writes one line atomically: concurrent callers are serialized and never interleave. The token only
@@ -345,6 +352,14 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
                 observacaoInicialConcluida = true;
                 return true;
             }
+            catch (ObservacaoDaRaizEncerradaException exception)
+            {
+                fimDaObservacaoDaRaiz = exception.Motivo;
+                // Após observação válida, a saída da raiz encerra o ciclo; identidade divergente degrada a limpeza.
+                if (exception.Motivo != FimDaObservacaoDaRaiz.PrincipalEncerrado || !observacaoInicialConcluida)
+                    falhaDeObservacao = exception;
+                return false;
+            }
             catch (Exception exception)
             {
                 falhaDeObservacao = exception;
@@ -380,6 +395,7 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
             lock (descendants)
             {
                 observacaoEncerrada = true;
+                fimDaObservacaoDaRaiz ??= FimDaObservacaoDaRaiz.PrincipalEncerrado;
                 tracked = [.. descendants];
                 falha = falhaDeObservacao;
                 if (!observacaoInicialConcluida && falha is null)

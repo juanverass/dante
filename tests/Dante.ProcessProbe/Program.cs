@@ -73,9 +73,15 @@ internal static class Program
 
                 await Task.Delay(Timeout.InfiniteTimeSpan);
                 return 0;
+            case "spawn-on-eof":
             case "spawn-on-command":
             case "spawn-and-exit":
             case "spawn-until-eof":
+                if (args[0] == "spawn-on-eof")
+                {
+                    Console.WriteLine("ready");
+                    while (Console.In.ReadLine() is not null) { }
+                }
                 if (args[0] == "spawn-on-command")
                 {
                     Console.WriteLine("ready");
@@ -95,7 +101,7 @@ internal static class Program
                     Console.WriteLine(child!.Id);
                 }
 
-                if (args[0] == "spawn-and-exit") return 0;
+                if (args[0] is "spawn-and-exit" or "spawn-on-eof") return 0;
                 while (Console.In.ReadLine() is not null)
                 {
                 }

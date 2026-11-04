@@ -5,6 +5,16 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Dante.Infrastructure.Agentes;
 
+internal enum FimDaObservacaoDaRaiz { PrincipalEncerrado, IdentidadeDivergente }
+
+internal sealed class ObservacaoDaRaizEncerradaException(FimDaObservacaoDaRaiz motivo)
+    : InvalidOperationException(motivo == FimDaObservacaoDaRaiz.PrincipalEncerrado
+        ? "Processo principal não existe mais; observação da raiz encerrada."
+        : "Identidade do processo principal divergiu; árvore do PID reutilizado não será percorrida.")
+{
+    public FimDaObservacaoDaRaiz Motivo { get; } = motivo;
+}
+
 // Legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
 // Descendant discovery that .NET does not expose: once the root exits, its children are no longer reachable through
 // Process.Kill(entireProcessTree), so InteractiveAgentProcess records them while the root is alive. Each process is
@@ -27,11 +37,17 @@ internal static class ProcessTree
         }
     }
 
-    public static List<(int Id, DateTime StartTime)> GetDescendants(int rootId, DateTime rootStartTime, bool exigirPrincipal = false)
+    public static List<(int Id, DateTime StartTime)> GetDescendants(int rootId, DateTime rootStartTime, bool exigirPrincipal = false,
+        Func<int, DateTime?>? obterIdentidadeRaiz = null,
+        Func<IReadOnlyList<(int Id, int ParentId)>>? obterSnapshot = null)
     {
         var descendants = new List<(int Id, DateTime StartTime)>();
         if (!IsSupported) throw new PlatformNotSupportedException("Observação da árvore de processos não suportada.");
-        var parents = SnapshotParents().ToArray();
+        var lerIdentidadeRaiz = obterIdentidadeRaiz ?? ObterIdentidadeDoDescendente;
+        // A presença do PID não basta. Confirma a identidade antes e depois de coletar cada snapshot.
+        ValidarIdentidadeRaiz(rootId, rootStartTime, lerIdentidadeRaiz);
+        var parents = (obterSnapshot is null ? SnapshotParents() : obterSnapshot()).ToArray();
+        ValidarIdentidadeRaiz(rootId, rootStartTime, lerIdentidadeRaiz);
         if (exigirPrincipal && !parents.Any(x => x.Id == rootId))
             throw new InvalidOperationException("Processo principal saiu antes da observação inicial da árvore.");
         var childrenByParent = parents
@@ -54,6 +70,13 @@ internal static class ProcessTree
         }
 
         return descendants;
+    }
+
+    private static void ValidarIdentidadeRaiz(int id, DateTime inicioEsperado, Func<int, DateTime?> lerIdentidade)
+    {
+        var inicio = lerIdentidade(id);
+        if (inicio is null) throw new ObservacaoDaRaizEncerradaException(FimDaObservacaoDaRaiz.PrincipalEncerrado);
+        if (inicio != inicioEsperado) throw new ObservacaoDaRaizEncerradaException(FimDaObservacaoDaRaiz.IdentidadeDivergente);
     }
 
     private static DateTime? ObterIdentidadeDoDescendente(int id)
