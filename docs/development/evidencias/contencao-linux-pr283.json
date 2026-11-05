@@ -1,0 +1,98 @@
+{
+  "ambiente": {
+    "commit_fonte": "2dadd58aa8b096e76b84216dff5cfa53569e6586",
+    "systemd": "systemd 259 (259.9-0ubuntu0.1)",
+    "kernel": "7.0.0-42-generic",
+    "arquitetura": "x86_64",
+    "cgroup_filesystem": "cgroup2"
+  },
+  "especificos": {
+    "aprovados": 84,
+    "falhas": 0,
+    "skips_windows": 1
+  },
+  "repeticoes": {
+    "commit": "2dadd58aa8b096e76b84216dff5cfa53569e6586",
+    "rodadas": 100,
+    "testes_por_rodada": 22,
+    "aprovados": 2200,
+    "casos_nativos_por_rodada": 11,
+    "casos_simulados_de_limpeza_por_rodada": 10,
+    "caso_compativel_de_backpressure_por_rodada": 1,
+    "segundos": 224.44
+  },
+  "carga": {
+    "execucoes_concorrentes": 4,
+    "casos_por_execucao": 41,
+    "aprovados": 164,
+    "falhas": 0
+  },
+  "observacoes_linux_reais": {
+    "BootstrapAnunciaPidRealDentroDoScopeAntesDeExecutarCLI": {
+      "PidCliente": 1271194,
+      "PidBootstrap": 1271194,
+      "PidDoPidfd": 1271194,
+      "InicioUtc": "2026-11-05T14:47:35.7758794Z",
+      "Unidade": "dante-agent-6b00bd08a25b408a8a1fcdf6e12cef0c.scope",
+      "Cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/dante-agent-6b00bd08a25b408a8a1fcdf6e12cef0c.scope",
+      "Estado": "T"
+    },
+    "CancelamentoNaBarreiraNaoLiberaCLI": {
+      "PidCliente": 1271512,
+      "PidBootstrap": 1271512,
+      "PidDoPidfd": 1271512,
+      "InicioUtc": "2026-11-05T14:47:36.4358794Z",
+      "Unidade": "dante-agent-f04089f2b40242f391cd9770205b6dcb.scope",
+      "Cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/dante-agent-f04089f2b40242f391cd9770205b6dcb.scope",
+      "Estado": "T"
+    },
+    "DuploForkESetsidReparentamFilhosSemEscaparDoScope": {
+      "principal": 1271558,
+      "intermediario": 1271562,
+      "neto": 1271563,
+      "bisneto": 1271564
+    },
+    "SaidaDoBootstrapNaBarreiraFalhaSemExecutarCLI": {
+      "PidCliente": 1271523,
+      "PidBootstrap": 1271523,
+      "PidDoPidfd": 1271523,
+      "InicioUtc": "2026-11-05T14:47:36.4758794Z",
+      "Unidade": "dante-agent-246ef9eac4c74453abaec8c2120da147.scope",
+      "Cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/dante-agent-246ef9eac4c74453abaec8c2120da147.scope",
+      "Estado": "T"
+    }
+  },
+  "executado_em_utc": "2026-11-05T14:57:59.307371+00:00",
+  "suites_completas": [
+    {
+      "execucao": 1,
+      "aprovados": 1739,
+      "falhas": [],
+      "skips": 25
+    },
+    {
+      "execucao": 2,
+      "aprovados": 1738,
+      "falhas": [
+        "Dante.Tests.TelegramBotApiTests.OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard"
+      ],
+      "skips": 25
+    },
+    {
+      "execucao": 3,
+      "aprovados": 1738,
+      "falhas": [
+        "Dante.Tests.TelegramBotApiTests.OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard"
+      ],
+      "skips": 25
+    }
+  ],
+  "preservacao": {
+    "arquivos_operacionais_preservados": true,
+    "worker_mesmo_pid": true,
+    "embeddings_ativos": false,
+    "probes_sobreviventes": 0,
+    "scopes_de_teste_remanescentes": 0,
+    "banco_canonico_acessado_pelo_trabalho": false
+  }
+}

@@ -149,3 +149,5 @@ Fontes primárias:
 - [cgroups v2: herança e populated](https://docs.kernel.org/admin-guide/cgroup-v2.html).
 - [Windows: atributos JOB_LIST e HANDLE_LIST](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute).
 - [Windows: Jobs, herança, notificações e fechamento](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects).
+
+Evidência de execução: [validação Linux da PR #283](evidencias/contencao-linux-pr283.md).
