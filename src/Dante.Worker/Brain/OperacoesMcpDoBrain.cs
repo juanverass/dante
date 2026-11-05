@@ -108,6 +108,8 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 var vinculosDoAlvo = (await captura.ListarVinculosAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, alvo.Id, ct))
                     .Where(v => v.Estado == EstadoDoVinculo.Pendente).Select(ResumirVinculo).ToArray();
                 return new { candidato = Resumir(alvo), vinculosPendentes = vinculosDoAlvo, aguardandoConfirmacao = true, instrucao = "Mostre a proposta ao usuário. Ele deve enviar confirmar no Telegram (ou cancelar). Nenhuma consolidação/descarte foi aplicada." +
+                    (nome == "brain_confirmar_candidato" && alvo.Natureza == NaturezaDoConteudo.ConclusaoDoAgente
+                        ? " Essa autorização permite somente registrar a conclusão como Inferido. " + ContratoDoBrainParaAgentes.RegraDaConfirmacao : "") +
                     (vinculosDoAlvo.Length == 0 ? "" : nome == "brain_confirmar_candidato"
                         ? " Informe que o vínculo ResolvidoPor pendente só vira relação quando os dois candidatos estiverem consolidados."
                         : " Informe que descartar cancela o vínculo ResolvidoPor pendente.") };
@@ -234,7 +236,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 var vinculo = await captura.VincularAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, incidenteDoVinculo.Id, incidenteDoVinculo.Revisao,
                     solucaoDoVinculo.Id, solucaoDoVinculo.Revisao, prova, ct);
                 return new { vinculo = ResumirVinculo(vinculo), incidente = Resumir(incidenteDoVinculo), solucao = Resumir(solucaoDoVinculo), relacaoCriada = vinculo.IdRelacao is not null,
-                    instrucao = "Nenhuma relação foi criada agora. ResolvidoPor será registrada quando o usuário confirmar os dois candidatos no Telegram; registrar o vínculo não confirma o conteúdo." };
+                    instrucao = "Nenhuma relação foi criada agora. ResolvidoPor será registrada quando o usuário autorizar o registro dos dois candidatos no Telegram. " + ContratoDoBrainParaAgentes.RegraDaConfirmacao + " Registrar o vínculo não confirma o conteúdo." };
             case "brain_obter_contexto_de_trabalho": return await servicos.GetRequiredService<ContextoDeTrabalhoAppService>().RetomarAsync(acesso, ct);
             case "brain_atualizar_contexto_de_trabalho":
                 var contextos = servicos.GetRequiredService<ContextoDeTrabalhoAppService>();
@@ -348,10 +350,11 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
     // Acrescenta à resposta da confirmação o efeito sobre vínculos ResolvidoPor (#259), sem alterar o status descrito.
     private static string SituacaoDosVinculos(IReadOnlyList<VinculoEntreCandidatosDto> vinculos, string mensagem) =>
         mensagem + (vinculos.Any(v => v.Estado == EstadoDoVinculo.Aplicado) ? " Relação ResolvidoPor registrada com o outro candidato já consolidado." :
-            vinculos.Any(v => v.Estado == EstadoDoVinculo.Pendente) ? " O vínculo ResolvidoPor aguarda a confirmação do outro candidato." :
+            vinculos.Any(v => v.Estado == EstadoDoVinculo.Pendente) ? " O vínculo ResolvidoPor aguarda autorização para registrar o outro candidato; isso não confirma o conteúdo." :
             vinculos.Any(v => v.Estado == EstadoDoVinculo.Cancelado) ? " O vínculo ResolvidoPor foi cancelado; nenhuma relação foi criada." : "");
     private static bool Permitida(Sensibilidade s) => s is Sensibilidade.Publico or Sensibilidade.Pessoal or Sensibilidade.Trabalho;
-    private static object Resumir(CandidatoDeConhecimentoDto c) => new { c.Id, c.Titulo, c.Conteudo, c.Tags, tipo = c.Tipo.ToString(), natureza = c.Natureza.ToString(), estado = c.Estado.ToString(), c.Revisao, c.IdConhecimento };
+    private static object Resumir(CandidatoDeConhecimentoDto c) => new { c.Id, c.Titulo, c.Conteudo, c.Tags, tipo = c.Tipo.ToString(), natureza = c.Natureza.ToString(), estado = c.Estado.ToString(), c.Revisao, c.IdConhecimento,
+        orientacaoDeConfirmacao = c.Natureza == NaturezaDoConteudo.ConclusaoDoAgente ? ContratoDoBrainParaAgentes.RegraDaConfirmacao : null };
     // S00000N recomeça a cada processo do Worker; a instância torna a sessão única na proveniência (#249).
     internal static string Origem(string agente, string instancia, string sessao) => $"MCP/agente:{agente};sessao:{instancia}:{sessao}";
     private ProvenienciaDto Prova(TelegramMessage m, Guid usuario, string conversa, string sessao, string agente) => new()

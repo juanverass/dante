@@ -890,6 +890,14 @@ no legado. Não altera status/textos/timestamps nem reescreve histórico antigo;
 revisões sem o campo são lidas como natureza não registrada. Os tipos são preservados
 independentemente da autoria (#266); busca/rótulos por natureza estão na #267.
 
+O contrato dos agentes e as descrições/respostas MCP distinguem autorização operacional
+para registrar candidatos ou relacioná-los de confirmação epistêmica (#147). Não se oferece
+confirmar/promover conclusões do agente nem se trata Inferido como pendência de confirmação.
+Uma nova declaração literal do usuário gera outro conhecimento com proveniência própria;
+não altera a autoria ou o estado do original. A regra aplica a AD-59 existente, sem
+migration ou mudança nas invariantes de promoção. A validação permanece isolada e não
+representa atualização do Worker ativo nem conclusão da #147.
+
 ## Tipo semântico e autoria (#266)
 
 Captura e correções pelo MCP preservam o tipo semântico informado. O tipo opcional
