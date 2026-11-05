@@ -62,6 +62,18 @@ A confirmação lê `cgroup.events: populated 0`; remoção do diretório do esc
 hierarquia ainda acessível também demonstra que ficou vazio. Enviar sinal sozinho não
 constitui confirmação. Estado desconhecido e falhas de leitura não equivalem a vazio.
 
+Em falhas de inicialização, a limpeza tem três etapas independentes, sempre tentadas:
+encerrar/aguardar o bootstrap, parar a unidade e confirmar raiz encerrada + contenção
+vazia. Cada etapa tem até 5s e token próprio, independente do lançamento cancelado.
+Timeout/sinal recusado não pula stop; falha/timeout de stop não pula confirmação.
+A falha original e todos os erros de limpeza são agregados, sem declarar sucesso.
+Quando o caminho do cgroup ainda não foi capturado, a confirmação consulta LoadState,
+ActiveState e ControlGroup da unidade exclusiva. Unidade ausente só é aceita com
+resposta positiva do manager e saída da raiz confirmada; erro genérico não equivale
+a unidade inexistente. No encerramento normal, o prazo compartilhado de Completion
+permanece 5s. A limpeza de inicialização pode consumir até três prazos separados;
+liberar recursos dos subprocessos de controle também tem espera limitada.
+
 Requisitos: cgroups v2, systemd-run com `--expand-environment=no` (systemd >=254),
 user manager acessível, `/bin/sh`, `/proc` e libc com pidfd_open/pidfd_send_signal.
 Não exige Delegate=yes no Worker, porque a unidade é criada pelo manager fora de seu

@@ -308,7 +308,9 @@ e recursos também em falhas. Em modo compatibilidade a garantia limita-se aos d
 e reparentados entre ciclos podem escapar ao polling. O lançamento estrito da AD-63,
 em implementação isolada, usa scopes systemd/cgroup v2 no Linux e Job Objects na criação
 no Windows; Completion exige contenção vazia. O bootstrap Linux anuncia seu PID por
-handshake; identidade, pidfd, STOP e cgroup são confirmados antes de liberar a CLI. Não há fallback automático e o modo de
+handshake; identidade, pidfd, STOP e cgroup são confirmados antes de liberar a CLI.
+Falhas de inicialização sempre tentam encerrar o bootstrap, parar a unidade e confirmar
+vazio, com prazos independentes e agregação da falha original e dos erros de limpeza. Não há fallback automático e o modo de
 compatibilidade requer configuração explícita. Homelab permanece sem migração operacional.
 Isso corrige a corrida histórica de
 `GracefulExitDoesNotLeaveOrphanedChildProcess` entre enviar SIGKILL e observar a saída efetiva.

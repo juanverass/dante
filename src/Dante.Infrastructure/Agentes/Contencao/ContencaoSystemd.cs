@@ -104,32 +104,38 @@ internal sealed class ContencaoSystemd(string unidade, string caminhoCgroup) : I
         }
         catch (Exception falha)
         {
-            // Primeiro impede exec tardio do bootstrap. Só depois fecha a unidade exclusiva, se foi criada.
-            if (iniciado && !processo.HasExited)
-            {
-                if (pidfd is { IsInvalid: false })
+            var erroLimpeza = await LimpezaDaInicializacao.TentarAsync(falha,
+                async token =>
                 {
-                    if (pidfd_send_signal(pidfd, 9, IntPtr.Zero, 0) != 0 && !processo.HasExited)
-                        throw new AgentProcessStartException("Não foi possível encerrar o bootstrap pela identidade original.", falha);
-                }
-                else processo.Kill(); // Processo original retornado por Process.Start; nenhum exec de CLI foi liberado.
-                await processo.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
-            }
-            using var limpeza = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            try
-            {
-                // stop de uma unidade inexistente não pode esconder erro da inicialização.
-                if (iniciado && (contencao is null || !contencao.EstaVazia()))
-                    await ExecutarControleAsync(["stop", unidade], limpeza.Token);
-            }
-            catch (Exception erroLimpeza)
-            {
-                throw new AgentProcessStartException("Inicialização e limpeza da contenção systemd falharam.",
-                    new AggregateException(falha, erroLimpeza));
-            }
-            finally { processo.Dispose(); }
+                    if (!iniciado || processo.HasExited) return;
+                    if (pidfd is { IsInvalid: false })
+                    {
+                        var resultadoSinal = pidfd_send_signal(pidfd, 9, IntPtr.Zero, 0);
+                        var erroSinal = resultadoSinal == 0 ? 0 : Marshal.GetLastPInvokeError();
+                        if (resultadoSinal != 0 && !processo.HasExited)
+                            throw new System.ComponentModel.Win32Exception(erroSinal,
+                                "Falha ao sinalizar o bootstrap pela identidade original.");
+                    }
+                    else processo.Kill(); // Objeto original; nenhuma CLI foi liberada antes da identificação.
+                    await processo.WaitForExitAsync(token);
+                },
+                async token =>
+                {
+                    if (iniciado) await PararUnidadeAsync(unidade, token);
+                },
+                async token =>
+                {
+                    if (!iniciado) return; // Process.Start falhou; nenhuma solicitação ao manager ocorreu.
+                    // Stop pode ter resgatado uma falha anterior de sinal/espera; comprova também saída da raiz.
+                    await ConfirmarUnidadeVaziaAsync(unidade, contencao, token);
+                    await processo.WaitForExitAsync(token);
+                });
+            if (erroLimpeza is not null)
+                throw new AgentProcessStartException("Inicialização/limpeza do scope " + unidade +
+                    " falhou; consulte a falha original e as etapas de limpeza.",
+                    erroLimpeza);
             if (falha is OperationCanceledException && cancellationToken.IsCancellationRequested)
-                throw new OperationCanceledException("Lançamento contido cancelado e bootstrap encerrado.", falha, cancellationToken);
+                throw new OperationCanceledException("Lançamento contido cancelado; raiz encerrada e contenção vazia confirmadas.", falha, cancellationToken);
             throw new AgentProcessStartException("Não foi possível estabelecer contenção systemd; lançamento recusado.", falha);
         }
         finally { pidfd?.Dispose(); if (!transferido) processo.Dispose(); }
@@ -188,6 +194,43 @@ internal sealed class ContencaoSystemd(string unidade, string caminhoCgroup) : I
         if (!EstaVazia()) throw new IOException("systemd concluiu a parada, mas o cgroup do agente ainda está ocupado.");
     }
 
+    private static async Task PararUnidadeAsync(string unidade, CancellationToken token)
+    {
+        try { await ExecutarControleAsync(["stop", unidade], token); }
+        catch (IOException erroStop)
+        {
+            // Unidade já removida não precisa de stop. Exige resposta positiva do manager, não erro genérico.
+            string estado;
+            try { estado = await ExecutarControleAsync(["show", unidade, "--property=LoadState", "--value"], token); }
+            catch (Exception erroConsulta)
+            {
+                throw new AggregateException("Stop e consulta da unidade falharam.", erroStop, erroConsulta);
+            }
+            if (estado.Trim() != "not-found") throw;
+        }
+    }
+
+    private static async Task ConfirmarUnidadeVaziaAsync(string unidade, ContencaoSystemd? contencao, CancellationToken token)
+    {
+        if (contencao is not null)
+        {
+            if (!contencao.EstaVazia()) throw new IOException("Scope " + unidade + " ainda populated após tentativa de stop.");
+            return;
+        }
+        // Falhas anteriores ao handshake podem não ter capturado o caminho; consulta só a unidade exclusiva.
+        var resposta = await ExecutarControleAsync(["show", unidade, "--property=LoadState", "--property=ActiveState", "--property=ControlGroup"], token);
+        var campos = resposta.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Split('=', 2)).ToDictionary(p => p[0], p => p.Length == 2 ? p[1] : "");
+        if (campos.GetValueOrDefault("LoadState") == "not-found") return;
+        if (!campos.TryGetValue("ControlGroup", out var grupo)) throw new IOException("Manager não informou o cgroup da unidade.");
+        if (grupo.Length == 0 && campos.GetValueOrDefault("ActiveState") is "inactive" or "failed") return;
+        var caminho = Path.GetFullPath(Raiz + grupo);
+        if (!grupo.EndsWith("/" + unidade, StringComparison.Ordinal) || !caminho.StartsWith(Raiz + "/", StringComparison.Ordinal))
+            throw new IOException("Manager informou cgroup inesperado para a unidade exclusiva.");
+        if (!new ContencaoSystemd(unidade, caminho).EstaVazia())
+            throw new IOException("Scope " + unidade + " ainda populated após tentativa de stop.");
+    }
+
     private static void AdicionarConexaoAoGerenciador(ProcessStartInfo comando)
     {
         // Só o bootstrap recebe a conexão ao gerenciador. Os valores acrescentados são removidos antes do exec.
@@ -195,7 +238,7 @@ internal sealed class ContencaoSystemd(string unidade, string caminhoCgroup) : I
         comando.Environment.TryAdd("DBUS_SESSION_BUS_ADDRESS", "unix:path=" + comando.Environment["XDG_RUNTIME_DIR"] + "/bus");
     }
 
-    private static async Task ExecutarControleAsync(string[] argumentos, CancellationToken token)
+    private static async Task<string> ExecutarControleAsync(string[] argumentos, CancellationToken token)
     {
         var start = new ProcessStartInfo("/usr/bin/systemctl")
         { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
@@ -212,6 +255,7 @@ internal sealed class ContencaoSystemd(string unidade, string caminhoCgroup) : I
             await processo.WaitForExitAsync(token);
             await Task.WhenAll(saida, erro);
             if (processo.ExitCode != 0) throw new IOException("Controle da unidade de contenção falhou (código " + processo.ExitCode + ").");
+            return await saida;
         }
         finally
         {
