@@ -332,7 +332,7 @@ Código: `Sessions/AgentSession.cs`, `Sessions/AgentEvent.cs`; testes em
 
 ## AD-17 — Processo interativo: saída incremental limitada, stdin serializado, parada sem órfãos
 
-Status: vigente (Epic #60, #62)
+Status: vigente (Epic #60, #62); lançamento/garantia de descendentes substituídos pela AD-63 em modo estrito.
 
 Sessões interativas usam `InteractiveAgentProcessLauncher`, separado do
 `AgentProcessExecutor` one-shot, que continua inalterado para jobs. Os dois montam o
@@ -2196,3 +2196,41 @@ O limiar `0.6` fixo das fontes brutas não foi alterado, e a divergência fica p
 Com o `bge-m3`, a validação final reprovou no critério de paráfrases (50% contra 80%). Por isso a
 instância do homelab permanece lexical. Relatório:
 [corte de relevância](../brain/avaliacao-busca-hibrida/corte-280/README.md).
+
+
+## AD-63 — Contenção nativa por sessão interativa, estrita por padrão
+
+Status: implementação isolada para revisão independente, autorizada pelo mantenedor.
+Substitui o lançamento e a garantia baseada em polling da AD-17. Não habilitada no
+Worker em execução. Executores one-shot não mudam.
+
+O contraexemplo reproduzido na PR #283 criou filho após EOF e encerrou o pai antes de
+outro snapshot: Completion confirmou sucesso com filho vivo. Sincronizar a última
+observação ou diminuir o intervalo não elimina essa janela. A contenção precisa
+preceder a execução do agente e sobreviver à saída do principal.
+
+Decisão vigente: infraestrutura inicia cada sessão estrita dentro de scope systemd/cgroup
+v2 no Linux. Windows foi retirado desta entrega por decisão do mantenedor. Completion exige raiz
+encerrada e confirmação nativa de grupo vazio. Falhas/timeout são explícitos.
+O núcleo não recebe APIs ou tipos de plataforma.
+
+Linux usa bootstrap shell **fixo** com handshake de identificador/PID, barreira STOP,
+validação de identidade/cgroup e do PID fixado pelo pidfd antes da liberação. A igualdade
+entre PID inicial e anunciado é comprovada pelo protocolo; divergência recusa o lançamento.
+O exec conserva PID e recebe ArgumentList sem interpolação. Isto é exceção
+interna documentada à descrição de lançamento sem shell da AD-17, não execução de
+comando arbitrário. O gerenciador cria uma unidade exclusiva fora do cgroup do Worker;
+não há alteração automática de serviço, drop-in ou Delegate no homelab.
+
+O plano inicial de Job Objects Windows foi retirado antes da integração: o backend e
+seu teste nativo foram removidos e o modo estrito recusa plataformas não Linux.
+A prioridade é integrar a contenção Linux validada; eventual retomada Windows exige
+nova autorização e homologação própria, fora desta PR. O legado de compatibilidade
+permanece apenas por escolha explícita, com garantia inferior, sem fallback automático.
+
+Estrito é o padrão: falta de suporte recusa execução. Compatibilidade só por opção
+explícita (`DANTE_AGENT_CONTAINMENT_MODE=compatibility`) e com aviso de garantia inferior;
+nunca fallback automático. A implantação ou migração operacional exige outra autorização.
+Não se trata de sandbox contra brokers externos ou código malicioso com privilégios
+do mesmo usuário. Detalhes, dependências e matriz de testes no
+[contrato de contenção](../development/contencao-de-agentes.md).

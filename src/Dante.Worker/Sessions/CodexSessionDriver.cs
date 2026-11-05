@@ -929,12 +929,12 @@ public sealed class CodexSessionDriver(
         var sandbox = settings?["sandboxPolicy"] as JsonObject;
         var collaboration = settings?["collaborationMode"] as JsonObject;
         // A positive RPC response alone does not attest the policy. Compare the effective settings notification.
-        if (GetString(settings, "approvalPolicy") != Policy(requested).ApprovalPolicy ||
+        if (sandbox is null || GetString(settings, "approvalPolicy") != Policy(requested).ApprovalPolicy ||
             GetString(settings, "approvalsReviewer") != (requested == AgentPermissionProfile.Auto ? "auto_review" : "user") ||
             GetString(sandbox, "type") != (requested == AgentPermissionProfile.Plan ? "readOnly" : "workspaceWrite") ||
-            sandbox?["networkAccess"] is not JsonValue network || network.GetValueKind() != JsonValueKind.False ||
+            sandbox["networkAccess"] is not JsonValue network || network.GetValueKind() != JsonValueKind.False ||
             (requested != AgentPermissionProfile.Plan &&
-                (!SameRoots(sandbox?["writableRoots"] as JsonArray, writableRoots) ||
+                (!SameRoots(sandbox["writableRoots"] as JsonArray, writableRoots) ||
                  sandbox["excludeTmpdirEnvVar"]?.GetValue<bool>() != false || sandbox["excludeSlashTmp"]?.GetValue<bool>() != false)) ||
             GetString(collaboration, "mode") != (requested == AgentPermissionProfile.Plan ? "plan" : "default") ||
             GetString(settings, "cwd") != workingDirectory || GetString(settings, "model") != model ||

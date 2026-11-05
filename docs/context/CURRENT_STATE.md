@@ -298,8 +298,22 @@ recuperado depois ("UNKNOWN") e o id upstream mudou nas duas CLIs; depois do `/c
 `InteractiveSessionEndToEndTests` exercita o caminho interativo completo (Telegram →
 `SessionRegistry` → drivers reais → CLIs simuladas do `Dante.ProcessProbe`).
 
-`InteractiveAgentProcessTests.GracefulExitDoesNotLeaveOrphanedChildProcess` (#62) pode ser
-intermitente na suíte completa em WSL2 e passa isolado; já falhava assim antes da #63.
+`InteractiveAgentProcess.Completion` aguarda a saída dos descendentes identificados após o encerramento
+do principal, com prazo compartilhado de 5 segundos, identidade PID/início preservada e falha explícita
+em timeout. O monitor para e aguarda o rastreamento antes de congelar a captura final; descoberta e
+publicação são serializadas com essa captura. Identidade inicial ausente ou falha de observação
+impedem declarar limpeza confirmada. A identidade da raiz é revalidada antes e depois de cada snapshot;
+PID reciclado encerra a observação com falha, sem percorrer a nova árvore. Dispose libera os leitores
+e recursos também em falhas. Em modo compatibilidade a garantia limita-se aos descendentes observados: filhos criados
+e reparentados entre ciclos podem escapar ao polling. O lançamento estrito da AD-63,
+em implementação isolada, usa scopes systemd/cgroup v2 somente no Linux; o backend
+Windows foi removido e o modo estrito recusa outras plataformas. Completion exige contenção vazia. O bootstrap Linux anuncia seu PID por
+handshake; identidade, pidfd, STOP e cgroup são confirmados antes de liberar a CLI.
+Falhas de inicialização sempre tentam encerrar o bootstrap, parar a unidade e confirmar
+vazio, com prazos independentes e agregação da falha original e dos erros de limpeza. Não há fallback automático e o modo de
+compatibilidade requer configuração explícita. Homelab permanece sem migração operacional.
+Isso corrige a corrida histórica de
+`GracefulExitDoesNotLeaveOrphanedChildProcess` entre enviar SIGKILL e observar a saída efetiva.
 `TelegramBotApiTests.OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard` também falhou uma vez na suíte
 completa durante a #94 e de novo no baseline da #95; passa isolado e nas execuções seguintes. Na #96 falhou no baseline
 (antes de qualquer mudança) e em duas de três execuções completas, sempre passando isolado.

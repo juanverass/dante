@@ -1,0 +1,120 @@
+{
+  "baseline_commit": "68479e488e6430d4eb73406089d0af2651e9bd93",
+  "pr_code_commit": "abafaabdbbdab7ecf3214c47a5c9cb1b510ae352",
+  "baseline_runs": [
+    {
+      "rodada": 1,
+      "exit_code": 1,
+      "scope": "dante-validation-baseline-fcb28a210e834092a57ba2a7f021a074.scope",
+      "scope_apos_stop": "LoadState=not-found\nActiveState=inactive\nControlGroup=",
+      "falhas": [
+        "Dante.Tests.InteractiveAgentProcessTests.GracefulExitDoesNotLeaveOrphanedChildProcess"
+      ],
+      "telegram_reproduzido": false,
+      "aprovados": 1668,
+      "total": 1693,
+      "skips": 24
+    },
+    {
+      "rodada": 2,
+      "exit_code": 1,
+      "scope": "dante-validation-baseline-af5fa18e7ac44094b02353db50a3963f.scope",
+      "scope_apos_stop": "LoadState=not-found\nActiveState=inactive\nControlGroup=",
+      "falhas": [
+        "Dante.Tests.TelegramBotApiTests.OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard",
+        "Dante.Tests.InteractiveAgentProcessTests.GracefulExitDoesNotLeaveOrphanedChildProcess"
+      ],
+      "telegram_reproduzido": true,
+      "aprovados": 1667,
+      "total": 1693,
+      "skips": 24
+    }
+  ],
+  "fontes_telegram": {
+    "tests/Dante.Tests/TelegramBotApiTests.cs": {
+      "base_sha256": "a93028e441ad36fb143b1688091a03eb19bdf7b7c6ce625e09e69456448dedb7",
+      "pr_sha256": "a93028e441ad36fb143b1688091a03eb19bdf7b7c6ce625e09e69456448dedb7",
+      "identicos": true
+    },
+    "src/Dante.Worker/Telegram/TelegramDeliveryService.cs": {
+      "base_sha256": "fccdc7a2ae7f16c99d4bc516c2ab426e2f799277b46928a2aefd9b8df87d26ab",
+      "pr_sha256": "fccdc7a2ae7f16c99d4bc516c2ab426e2f799277b46928a2aefd9b8df87d26ab",
+      "identicos": true
+    },
+    "src/Dante.Worker/Telegram/TelegramBotApi.cs": {
+      "base_sha256": "020e9c699d88be30bb3f757987d759afd075f5ee24263c06f05bd6335dced416",
+      "pr_sha256": "020e9c699d88be30bb3f757987d759afd075f5ee24263c06f05bd6335dced416",
+      "identicos": true
+    }
+  },
+  "falha_base_telegram": "Assert.Single() Failure: The collection contained 2 items\nCollection: [{\"chat_id\":-123,\"action\":\"typing\"}, {\"chat_id\":-123,\"text\":\"Estou bem, e voc\\u0026#234;? \\u0026lt;tudo\\u0026gt; \\u0026amp; \\u0026#39;certo\\u0026#39;\\n\",\"parse_mode\":\"HTML\"}]\n   at Dante.Tests.TelegramBotApiTests.OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard() in tests/Dante.Tests/TelegramBotApiTests.cs:line 291\n--- End of stack trace from previous location ---",
+  "sdk": "10.0.114",
+  "kernel_linux_inalterado": {
+    "src/Dante.Infrastructure/Agentes/Contencao/ContencaoSystemd.cs": {
+      "blob_checkpoint_2dadd58": "323148759d45752496b1f2b05b7152379c923134",
+      "blob_atual": "323148759d45752496b1f2b05b7152379c923134",
+      "identicos": true
+    },
+    "src/Dante.Infrastructure/Agentes/Contencao/LimpezaDaInicializacao.cs": {
+      "blob_checkpoint_2dadd58": "2fd7e787969b31456c7ab66aebc0817fb84dad78",
+      "blob_atual": "2fd7e787969b31456c7ab66aebc0817fb84dad78",
+      "identicos": true
+    }
+  },
+  "specific_tests": {
+    "aprovados": 86,
+    "falhas": 0,
+    "skips": 0
+  },
+  "baseline_code_unmodified": true,
+  "pr_runs": [
+    {
+      "commit": "abafaabdbbdab7ecf3214c47a5c9cb1b510ae352",
+      "rodada": 1,
+      "scope": "dante-validation-pr-b9fa36b3e56146e888de3481cff42e63.scope",
+      "exit_code": 0,
+      "scope_apos_stop": "LoadState=not-found\nActiveState=inactive\nControlGroup=",
+      "aprovados": 1741,
+      "skips": 24,
+      "falhas": []
+    },
+    {
+      "commit": "abafaabdbbdab7ecf3214c47a5c9cb1b510ae352",
+      "rodada": 2,
+      "scope": "dante-validation-pr-ca44d747a50943a49dad4b6c0460f0b7.scope",
+      "exit_code": 0,
+      "scope_apos_stop": "LoadState=not-found\nActiveState=inactive\nControlGroup=",
+      "aprovados": 1741,
+      "skips": 24,
+      "falhas": []
+    },
+    {
+      "commit": "abafaabdbbdab7ecf3214c47a5c9cb1b510ae352",
+      "rodada": 3,
+      "scope": "dante-validation-pr-f95eb394fcbb41b4925123263ed21765.scope",
+      "exit_code": -6,
+      "scope_apos_stop": "LoadState=not-found\nActiveState=inactive\nControlGroup="
+    },
+    {
+      "commit": "abafaabdbbdab7ecf3214c47a5c9cb1b510ae352",
+      "rodada": 4,
+      "substitui_abortada": 3,
+      "scope": "dante-validation-pr-a53984cac5224e669eff41f1a94660dd.scope",
+      "exit_code": 0,
+      "scope_apos_stop": "LoadState=not-found\nActiveState=inactive\nControlGroup=",
+      "aprovados": 1741,
+      "skips": 24,
+      "falhas": []
+    }
+  ],
+  "windows_backend_removed": true,
+  "data_utc": "2026-11-05T16:45:02.077688+00:00",
+  "preservacao": {
+    "worker_mesmo_pid": true,
+    "arquivos_operacionais_preservados": true,
+    "probes_remanescentes": 0,
+    "scopes_remanescentes": 0,
+    "embeddings_no_servico": false,
+    "banco_canonico_acessado": false
+  }
+}

@@ -47,9 +47,11 @@ public sealed class ApplicationArchitectureTests
     [Fact]
     public void PortasFicamNaApplicationEInfrastructureSoAsImplementa()
     {
-        Assert.Equal(["IAgentExecutableResolver", "IAgentProcessExecutor", "IInteractiveAgentProcessLauncher"],
+        Assert.Equal(["IAgentExecutableResolver", "IAgentProcessExecutor", "IContencaoDeAgente", "IInteractiveAgentProcessLauncher"],
             Infrastructure.GetTypes().Where(t => t.IsInterface).Select(t => t.Name).Order());
 
+        // Detalhe privado do ciclo de vida nativo; não é porta do núcleo nem API pública de plataforma.
+        Assert.False(Infrastructure.GetType("Dante.Infrastructure.Agentes.IContencaoDeAgente")!.IsPublic);
         var repositories = Infrastructure.GetTypes().Where(t => t is { IsClass: true, IsAbstract: false, IsGenericTypeDefinition: false } &&
             t.Name.EndsWith("Repository", StringComparison.Ordinal) && t.Namespace!.StartsWith("Dante.Infrastructure.Modulos.", StringComparison.Ordinal)).ToArray();
         Assert.Equal(8, repositories.Length);

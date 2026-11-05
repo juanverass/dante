@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.Versioning;
 
 namespace Dante.Tests;
 
@@ -15,7 +16,9 @@ public sealed class LocalServiceDeploymentTests : IDisposable
         var unit = Directives(Read("deploy", "systemd", "dante.service"));
 
         Assert.Equal("/usr/bin/env dotnet %h/.local/share/dante/app/Dante.Worker.dll", Assert.Single(unit["ExecStart"]));
-        Assert.Equal("%h/.config/dante/dante.env", Assert.Single(unit["EnvironmentFile"]));
+        // Contrato obrigatório do template; arquivos complementares são suportados pelo systemd.
+        Assert.Single(unit["EnvironmentFile"], value => value == "%h/.config/dante/dante.env");
+        Assert.DoesNotContain(unit["EnvironmentFile"], string.IsNullOrWhiteSpace);
         Assert.Equal("on-failure", Assert.Single(unit["Restart"]));
         Assert.Equal("mixed", Assert.Single(unit["KillMode"]));
         Assert.Equal("yes", Assert.Single(unit["NoNewPrivileges"]));
@@ -142,6 +145,139 @@ public sealed class LocalServiceDeploymentTests : IDisposable
         Assert.DoesNotContain("systemctl --user restart dante.service", calls);
     }
 
+    [Fact]
+    public void ComposicaoOperacionalAcrescentaAmbienteSemRedefinirExecucaoOuPrivilegios()
+    {
+        var template = Directives(Read("deploy", "systemd", "dante.service"));
+        var complemento = Directives(Read("deploy", "systemd", "examples", "brain-runtime.conf.example"));
+        Assert.Equal("EnvironmentFile", Assert.Single(complemento.Keys));
+        Assert.Equal("%h/.config/dante/brain-runtime-connection.env", Assert.Single(complemento["EnvironmentFile"]));
+        var arquivos = template["EnvironmentFile"].Concat(complemento["EnvironmentFile"]).Distinct().ToArray();
+        Assert.Contains("%h/.config/dante/dante.env", arquivos);
+        Assert.Contains("%h/.config/dante/brain-runtime-connection.env", arquivos);
+        Assert.DoesNotContain(arquivos, string.IsNullOrWhiteSpace); // Nenhum reset da lista.
+    }
+
+    [Fact]
+    public void InstalacaoEAtualizacaoPreservamDropInEAmbientesExistentes()
+    {
+        if (!CanRunScripts()) return;
+        var home = Home(null);
+        var ambiente = Path.Combine(home, ".config", "dante", "dante.env");
+        const string conteudo = "Telegram__BotToken=123:abc\nTelegram__AllowedUserIds=1\n";
+        File.WriteAllText(ambiente, conteudo);
+        var runtime = Path.Combine(home, ".config", "dante", "brain-runtime-connection.env");
+        File.WriteAllText(runtime, "CONFIGURACAO_LOCAL=valor-ficticio\n");
+        var dir = Path.Combine(home, ".config", "systemd", "user", "dante.service.d");
+        Directory.CreateDirectory(dir);
+        var dropIn = Path.Combine(dir, "50-brain-runtime.conf");
+        var complemento = Read("deploy", "systemd", "examples", "brain-runtime.conf.example");
+        File.WriteAllText(dropIn, complemento);
+        for (var i = 0; i < 2; i++)
+        {
+            var result = RunInstall(home);
+            Assert.True(result.ExitCode == 0, result.Output);
+            Assert.Equal(conteudo, File.ReadAllText(ambiente));
+            Assert.Equal("CONFIGURACAO_LOCAL=valor-ficticio\n", File.ReadAllText(runtime));
+            Assert.Equal(complemento, File.ReadAllText(dropIn));
+            Assert.Equal(Read("deploy", "systemd", "dante.service"),
+                File.ReadAllText(Path.Combine(home, ".config", "systemd", "user", "dante.service")));
+        }
+    }
+
+    [Fact]
+    public void AtualizacaoRecusaPerderArquivoDeAmbienteDaUnidadeLegada()
+    {
+        if (!CanRunScripts()) return;
+        var home = Home(null);
+        var unit = Path.Combine(home, ".config", "systemd", "user", "dante.service");
+        Directory.CreateDirectory(Path.GetDirectoryName(unit)!);
+        var original = Read("deploy", "systemd", "dante.service") +
+            "\n[Service]\nEnvironmentFile=%h/.config/dante/personalizacao-legada.env\n";
+        File.WriteAllText(unit, original);
+        var result = RunInstall(home);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("Revise a migração", result.Output);
+        Assert.Equal(original, File.ReadAllText(unit));
+        Assert.False(File.Exists(Path.Combine(home, ".config", "dante", "dante.env")));
+        Assert.DoesNotContain(Calls(), call => call.StartsWith("dotnet", StringComparison.Ordinal) ||
+            call.Contains("stop", StringComparison.Ordinal) || call.Contains("restart", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("  EnvironmentFile = %h/.config/dante/personalizacao.env  ")]
+    [InlineData("EnvironmentFile=%h/.config/dante/a.env\nEnvironmentFile = %h/.config/dante/b.env")]
+    [InlineData("EnvironmentFile=\nEnvironmentFile=%h/.config/dante/dante.env")]
+    [InlineData("EnvironmentFile=%h/.config/dante/a.env \\\n %h/.config/dante/b.env")]
+    [InlineData("EnvironmentFile=\"%h/.config/dante/personalizacao.env\"")]
+    [InlineData("EnvironmentFile='%h/.config/dante/personalizacao.env'")]
+    public void AtualizacaoRecusaSintaxeOuSequenciaNaoComprovadamentePreservada(string diretivas)
+    {
+        if (!CanRunScripts()) return;
+        var home = Home(null);
+        var unit = Path.Combine(home, ".config", "systemd", "user", "dante.service");
+        Directory.CreateDirectory(Path.GetDirectoryName(unit)!);
+        var original = Read("deploy", "systemd", "dante.service") + "\n[Service]\n" + diretivas + "\n";
+        File.WriteAllText(unit, original);
+        var result = RunInstall(home);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("Revise a migração", result.Output);
+        Assert.Equal(original, File.ReadAllText(unit));
+        Assert.False(File.Exists(Path.Combine(home, ".config", "dante", "dante.env")));
+        Assert.DoesNotContain(Calls(), call => call.StartsWith("dotnet", StringComparison.Ordinal) ||
+            call.Contains("stop", StringComparison.Ordinal) || call.Contains("restart", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void EspacosNaDiretivaObrigatoriaSaoNormalizadosSemPerderConfiguracao()
+    {
+        if (!CanRunScripts()) return;
+        var home = Home(null);
+        var unit = Path.Combine(home, ".config", "systemd", "user", "dante.service");
+        Directory.CreateDirectory(Path.GetDirectoryName(unit)!);
+        File.WriteAllText(unit, Read("deploy", "systemd", "dante.service").Replace(
+            "EnvironmentFile=%h/.config/dante/dante.env", "  EnvironmentFile \t= \t%h/.config/dante/dante.env  ", StringComparison.Ordinal));
+        var result = RunInstall(home);
+        Assert.True(result.ExitCode == 0, result.Output);
+    }
+
+    [SystemdParserFact]
+    public void ParserRealValidaTemplateEDropInSemConsultarGerenciadorAtivo()
+    {
+        var result = VerificarComSystemd(Read("deploy", "systemd", "examples", "brain-runtime.conf.example"));
+        Assert.True(result.ExitCode == 0, result.Output);
+    }
+
+    [SystemdParserFact]
+    public void ParserRealRejeitaDropInQueAdicionaSegundoExecStartSemReset()
+    {
+        // Verifica que o parser real leu o drop-in: dois ExecStart são inválidos em Type=simple.
+        var result = VerificarComSystemd("[Service]\nExecStart=/usr/bin/env true\n");
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("ExecStart", result.Output);
+    }
+
+    private (int ExitCode, string Output) VerificarComSystemd(string complemento)
+    {
+        var unidades = Path.Combine(temp, "offline");
+        var runtime = Path.Combine(temp, "runtime");
+        Directory.CreateDirectory(runtime);
+        if (OperatingSystem.IsLinux()) File.SetUnixFileMode(runtime, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        Directory.CreateDirectory(Path.Combine(unidades, "dante.service.d"));
+        // Substitui %h somente nesta fixture para nem referenciar os ambientes reais do operador.
+        File.WriteAllText(Path.Combine(unidades, "dante.service"), Read("deploy", "systemd", "dante.service").Replace("%h", temp, StringComparison.Ordinal));
+        File.WriteAllText(Path.Combine(unidades, "dante.service.d", "50-brain.conf"), complemento.Replace("%h", temp, StringComparison.Ordinal));
+        return Run(["-c", "exec /usr/bin/systemd-analyze --user --generators=no --man=no verify \"$1\"", "systemd-verify", Path.Combine(unidades, "dante.service")],
+            new Dictionary<string, string>
+            {
+                ["XDG_RUNTIME_DIR"] = runtime,
+                ["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + Path.Combine(runtime, "bus-inexistente"),
+                ["XDG_CONFIG_HOME"] = Path.Combine(temp, "config"),
+                ["SYSTEMD_UNIT_PATH"] = unidades + ":/usr/lib/systemd/user"
+            });
+    }
+
+    [SupportedOSPlatform("linux")]
     private string Home(string? manualEnvironment)
     {
         var home = Path.Combine(temp, "home");
@@ -170,6 +306,7 @@ public sealed class LocalServiceDeploymentTests : IDisposable
         return File.Exists(log) ? File.ReadAllLines(log) : [];
     }
 
+    [SupportedOSPlatform("linux")]
     private static void Stub(string bin, string name, string body)
     {
         var path = Path.Combine(bin, name);
@@ -195,6 +332,7 @@ public sealed class LocalServiceDeploymentTests : IDisposable
     }
 
     // The scripts target Linux and refuse root, so elsewhere these tests have nothing to check.
+    [SupportedOSPlatformGuard("linux")]
     private static bool CanRunScripts() =>
         OperatingSystem.IsLinux() && Environment.UserName != "root" && File.Exists("/bin/bash");
 
@@ -227,5 +365,15 @@ public sealed class LocalServiceDeploymentTests : IDisposable
             if (File.Exists(Path.Combine(directory.FullName, "Dante.sln"))) return directory.FullName;
         }
         throw new InvalidOperationException("Raiz do repositório não encontrada.");
+    }
+}
+
+// A ausência da ferramenta é um skip explícito; o teste estático de composição continua disponível.
+internal sealed class SystemdParserFactAttribute : FactAttribute
+{
+    public SystemdParserFactAttribute()
+    {
+        if (!OperatingSystem.IsLinux() || !File.Exists("/usr/bin/systemd-analyze"))
+            Skip = "Parser real do systemd indisponível; composição coberta apenas pelo teste estático neste ambiente.";
     }
 }

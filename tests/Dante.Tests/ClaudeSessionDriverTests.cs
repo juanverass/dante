@@ -714,7 +714,7 @@ public sealed class ClaudeSessionDriverTests
         private static readonly string ProbeAssembly = typeof(ProbeMarker).Assembly.Location;
         private static readonly string RuntimeConfig =
             Path.Combine(AppContext.BaseDirectory, "Dante.Tests.runtimeconfig.json");
-        private readonly InteractiveAgentProcessLauncher inner = new(new DotnetResolver());
+        private readonly InteractiveAgentProcessLauncher inner = new(new DotnetResolver(), new OpcoesContencaoAgentes { Modo = ModoContencaoAgentes.Compatibilidade });
 
         public List<AgentProcessRequest> Requests { get; } = [];
 

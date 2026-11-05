@@ -245,6 +245,30 @@ nano ~/.config/dante/dante.env      # Telegram__BotToken, Telegram__AllowedUserI
 deploy/dante-service.sh install
 ```
 
+O template versionado mantém o ambiente padrão em `dante.env`. Arquivos adicionais de ambiente
+podem ser definidos por drop-ins locais em `~/.config/systemd/user/dante.service.d/`, como no
+[exemplo do Brain](deploy/systemd/examples/brain-runtime.conf.example). O exemplo não é instalado
+nem ativado automaticamente. Não coloque credenciais no drop-in; mantenha-as em arquivo protegido
+(permissão 600). Sem `EnvironmentFile=` vazio, as entradas são acumuladas; valores dos arquivos
+posteriores prevalecem. Não use esse exemplo para habilitar embeddings.
+
+O instalador preserva os drop-ins e os arquivos de ambiente existentes. Antes de copiar o template,
+compara a sequência completa de `EnvironmentFile` da unidade instalada com a do template, normalizando
+whitespace. Resets, quoting, escapes, continuações e outros formatos fora do subconjunto interpretado
+com segurança são recusados para revisão manual; não são tratados como ausência de personalização.
+Uma sequência diferente também é recusada antes de alterar arquivos ou publicar o Worker. A migração de personalizações legadas exige revisão
+do diff e autorização operacional específica. Editar o template local não é necessário para novas
+personalizações. Testes de contrato verificam as garantias obrigatórias do template; testes separados
+exercitam composição, instalação, atualização e preservação em diretórios temporários com serviços simulados.
+Quando `systemd-analyze` está disponível, testes adicionais usam `verify --user --generators=no --man=no`
+sobre unit e drop-in descartáveis, com diretório de runtime e endereço de bus isolados. Um drop-in inválido
+é rejeitado para comprovar que foi lido pelo parser. Isso não carrega unidades no gerenciador ativo,
+não inicia serviços e não executa `daemon-reload`. Sem a ferramenta, o skip explica a limitação e o teste
+estático permanece. A consulta de propriedades efetivas por `systemctl show` em outro gerenciador
+não é exercitada por esses testes offline.
+Sintaxe: [systemd.syntax](https://www.freedesktop.org/software/systemd/man/latest/systemd.syntax.html);
+validação: [systemd-analyze](https://www.freedesktop.org/software/systemd/man/latest/systemd-analyze.html).
+
 O systemd não usa shell: o `dante.env` aceita só `CHAVE=valor` literal, sem `$VAR`, `~`, `` `comando` ``, barra
 invertida ou comentário na mesma linha (`export` é removido na conversão). Um arquivo com outra coisa é recusado,
 indicando apenas o número da linha, antes de qualquer instalação — por exemplo,

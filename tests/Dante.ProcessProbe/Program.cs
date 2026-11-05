@@ -10,6 +10,11 @@ internal static class Program
     {
         switch (args[0])
         {
+            case "marcar-inicio":
+                File.WriteAllText(args[1], Environment.ProcessId.ToString());
+                Console.WriteLine("ready");
+                while (Console.In.ReadLine() is not null) { }
+                return 0;
             case "fake-claude":
                 return FakeClaude.Run(args);
             case "echo":
@@ -25,9 +30,13 @@ internal static class Program
             case "env":
                 Console.WriteLine(Environment.GetEnvironmentVariable(args[1]) ?? "<unset>");
                 return 0;
+            case "env-until-eof":
+                Console.WriteLine(Environment.GetEnvironmentVariable(args[1]) ?? "<unset>");
+                while (Console.In.ReadLine() is not null) { }
+                return 0;
             case "wait":
                 Console.WriteLine("ready");
-                await Task.Delay(Timeout.InfiniteTimeSpan);
+                await Task.Delay(args.Length > 1 ? int.Parse(args[1]) : Timeout.Infinite);
                 return 0;
             case "interactive":
                 // Echoes each stdin line until "exit"/"fail" or EOF; proves streaming and repeated input.
@@ -49,12 +58,13 @@ internal static class Program
 
                 Console.WriteLine("stdin closed");
                 return 0;
+            case "burst-until-eof":
             case "burst":
                 for (var index = 0; index < int.Parse(args[1]); index++)
                 {
                     Console.WriteLine($"line {index}");
                 }
-
+                if (args[0] == "burst-until-eof") while (Console.In.ReadLine() is not null) { }
                 return 0;
             case "spawn":
                 // Starts a grandchild that never exits and reports its PID; args[1] is the runtimeconfig path.
@@ -69,17 +79,51 @@ internal static class Program
 
                 await Task.Delay(Timeout.InfiniteTimeSpan);
                 return 0;
-            case "spawn-until-eof":
-                // Like "spawn", but exits cleanly on stdin EOF while the grandchild keeps running.
-                using (var child = Process.Start(new ProcessStartInfo(Environment.ProcessPath!)
-                       {
-                           ArgumentList = { "exec", "--runtimeconfig", args[1], typeof(Program).Assembly.Location, "wait" },
-                           UseShellExecute = false
-                       }))
+            case "tree-until-eof":
+            case "tree-node":
+                if (args[0] == "tree-node") Console.WriteLine(Environment.ProcessId);
+                var niveis = int.Parse(args[2]);
+                if (niveis > 0)
                 {
+                    using var node = Process.Start(new ProcessStartInfo(Environment.ProcessPath!)
+                    {
+                        UseShellExecute = false,
+                        ArgumentList = { "exec", "--runtimeconfig", args[1], typeof(Program).Assembly.Location,
+                            "tree-node", args[1], (niveis - 1).ToString() }
+                    });
+                }
+                if (args[0] == "tree-node") await Task.Delay(Timeout.Infinite);
+                while (Console.In.ReadLine() is not null) { }
+                return 0;
+            case "spawn-on-eof":
+            case "spawn-on-command":
+            case "spawn-and-exit":
+            case "spawn-until-eof":
+                if (args[0] == "spawn-on-eof")
+                {
+                    Console.WriteLine("ready");
+                    while (Console.In.ReadLine() is not null) { }
+                }
+                if (args[0] == "spawn-on-command")
+                {
+                    Console.WriteLine("ready");
+                    if (Console.In.ReadLine() != "spawn") return 2;
+                }
+                // Múltiplos descendentes e saída natural opcional para os testes de limpeza.
+                var count = args.Length > 2 ? int.Parse(args[2]) : 1;
+                for (var index = 0; index < count; index++)
+                {
+                    var start = new ProcessStartInfo(Environment.ProcessPath!)
+                    {
+                        ArgumentList = { "exec", "--runtimeconfig", args[1], typeof(Program).Assembly.Location, "wait" },
+                        UseShellExecute = false
+                    };
+                    if (args.Length > 3) start.ArgumentList.Add(args[3]);
+                    using var child = Process.Start(start);
                     Console.WriteLine(child!.Id);
                 }
 
+                if (args[0] is "spawn-and-exit" or "spawn-on-eof") return 0;
                 while (Console.In.ReadLine() is not null)
                 {
                 }

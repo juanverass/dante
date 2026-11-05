@@ -5,6 +5,16 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Dante.Infrastructure.Agentes;
 
+internal enum FimDaObservacaoDaRaiz { PrincipalEncerrado, IdentidadeDivergente }
+
+internal sealed class ObservacaoDaRaizEncerradaException(FimDaObservacaoDaRaiz motivo)
+    : InvalidOperationException(motivo == FimDaObservacaoDaRaiz.PrincipalEncerrado
+        ? "Processo principal não existe mais; observação da raiz encerrada."
+        : "Identidade do processo principal divergiu; árvore do PID reutilizado não será percorrida.")
+{
+    public FimDaObservacaoDaRaiz Motivo { get; } = motivo;
+}
+
 // Legado movido do Worker na #167: o nome em inglês fica até a migração explícita (AD-38).
 // Descendant discovery that .NET does not expose: once the root exits, its children are no longer reachable through
 // Process.Kill(entireProcessTree), so InteractiveAgentProcess records them while the root is alive. Each process is
@@ -27,15 +37,20 @@ internal static class ProcessTree
         }
     }
 
-    public static List<(int Id, DateTime StartTime)> GetDescendants(int rootId, DateTime rootStartTime)
+    public static List<(int Id, DateTime StartTime)> GetDescendants(int rootId, DateTime rootStartTime, bool exigirPrincipal = false,
+        Func<int, DateTime?>? obterIdentidadeRaiz = null,
+        Func<IReadOnlyList<(int Id, int ParentId)>>? obterSnapshot = null)
     {
         var descendants = new List<(int Id, DateTime StartTime)>();
-        if (!IsSupported)
-        {
-            return descendants;
-        }
-
-        var childrenByParent = SnapshotParents()
+        if (!IsSupported) throw new PlatformNotSupportedException("Observação da árvore de processos não suportada.");
+        var lerIdentidadeRaiz = obterIdentidadeRaiz ?? ObterIdentidadeDoDescendente;
+        // A presença do PID não basta. Confirma a identidade antes e depois de coletar cada snapshot.
+        ValidarIdentidadeRaiz(rootId, rootStartTime, lerIdentidadeRaiz);
+        var parents = (obterSnapshot is null ? SnapshotParents() : obterSnapshot()).ToArray();
+        ValidarIdentidadeRaiz(rootId, rootStartTime, lerIdentidadeRaiz);
+        if (exigirPrincipal && !parents.Any(x => x.Id == rootId))
+            throw new InvalidOperationException("Processo principal saiu antes da observação inicial da árvore.");
+        var childrenByParent = parents
             .GroupBy(entry => entry.ParentId)
             .ToDictionary(group => group.Key, group => group.Select(entry => entry.Id).ToList());
         var pending = new Queue<(int Id, DateTime StartTime)>([(rootId, rootStartTime)]);
@@ -46,7 +61,7 @@ internal static class ProcessTree
             {
                 // A process started before its "parent" belongs to an earlier owner of that PID (Windows keeps the
                 // parent PID of orphans), so it is not a descendant.
-                if (visited.Add(childId) && TryGetStartTime(childId) is { } startTime && startTime >= parent.StartTime)
+                if (visited.Add(childId) && ObterIdentidadeDoDescendente(childId) is { } startTime && startTime >= parent.StartTime)
                 {
                     descendants.Add((childId, startTime));
                     pending.Enqueue((childId, startTime));
@@ -55,6 +70,24 @@ internal static class ProcessTree
         }
 
         return descendants;
+    }
+
+    private static void ValidarIdentidadeRaiz(int id, DateTime inicioEsperado, Func<int, DateTime?> lerIdentidade)
+    {
+        var inicio = lerIdentidade(id);
+        if (inicio is null) throw new ObservacaoDaRaizEncerradaException(FimDaObservacaoDaRaiz.PrincipalEncerrado);
+        if (inicio != inicioEsperado) throw new ObservacaoDaRaizEncerradaException(FimDaObservacaoDaRaiz.IdentidadeDivergente);
+    }
+
+    private static DateTime? ObterIdentidadeDoDescendente(int id)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(id);
+            try { return process.StartTime; }
+            catch (InvalidOperationException) when (process.HasExited) { return null; }
+        }
+        catch (ArgumentException) { return null; } // Saiu durante a descoberta, não falha de acesso.
     }
 
     // Kills the process and whatever it started, unless the PID now belongs to another process.
@@ -72,6 +105,28 @@ internal static class ProcessTree
                                               or Win32Exception or NotSupportedException or AggregateException)
         {
             // Already gone, or not ours to kill.
+        }
+    }
+
+    // Espera pelo processo identificado, não por um PID que possa ter sido reutilizado.
+    // Falhas de acesso/encerramento são propagadas: não equivalem a limpeza concluída.
+    public static async Task EncerrarEAguardarAsync(int processId, DateTime startTime, CancellationToken cancellationToken)
+    {
+        Process process;
+        try { process = Process.GetProcessById(processId); }
+        catch (ArgumentException) { return; } // Já saiu.
+        using (process)
+        {
+            try
+            {
+                if (process.HasExited || process.StartTime != startTime) return;
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (InvalidOperationException) when (process.HasExited)
+            {
+                // Saiu entre a verificação de identidade e a solicitação de encerramento.
+            }
         }
     }
 
@@ -95,11 +150,9 @@ internal static class ProcessTree
                 var fields = stat[(stat.LastIndexOf(')') + 2)..].Split(' ');
                 entries.Add((id, int.Parse(fields[1])));
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-                                                  or FormatException or ArgumentOutOfRangeException
-                                                  or IndexOutOfRangeException)
+            catch (IOException) when (!Directory.Exists(directory))
             {
-                // The process exited while the snapshot was taken.
+                // Apenas o desaparecimento comprovado é ausência; acesso negado/erro de leitura propagam.
             }
         }
 
@@ -110,17 +163,18 @@ internal static class ProcessTree
     {
         var entries = new List<(int Id, int ParentId)>();
         using var snapshot = CreateToolhelp32Snapshot(SnapshotProcesses, 0);
-        if (snapshot.IsInvalid)
-        {
-            return entries;
-        }
+        if (snapshot.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
 
         var entry = new ProcessEntry32 { Size = (uint)Marshal.SizeOf<ProcessEntry32>() };
-        for (var found = Process32First(snapshot, ref entry); found; found = Process32Next(snapshot, ref entry))
+        var found = Process32First(snapshot, ref entry);
+        while (found)
         {
             entries.Add(((int)entry.ProcessId, (int)entry.ParentProcessId));
+            found = Process32Next(snapshot, ref entry);
         }
-
+        const int semMaisProcessos = 18; // ERROR_NO_MORE_FILES: término normal da enumeração.
+        var erro = Marshal.GetLastWin32Error();
+        if (erro != semMaisProcessos) throw new Win32Exception(erro);
         return entries;
     }
 
