@@ -14,6 +14,18 @@ public sealed class ContencaoNativaTests(Xunit.Abstractions.ITestOutputHelper ou
         (OperatingSystem.IsWindows() ? "C:\\Program Files\\dotnet\\dotnet.exe" : "/usr/bin/dotnet");
 
     [Fact]
+    public void PlataformaNaoLinuxRecusadaSemBackendWindowsOuFallback()
+    {
+        var erro = Assert.Throws<AgentProcessStartException>(() => InteractiveAgentProcessLauncher.ExigirPlataformaEstrita(false));
+        Assert.Contains("Linux", erro.Message);
+        Assert.Contains("Windows removido", erro.Message);
+        Assert.Null(typeof(InteractiveAgentProcessLauncher).Assembly.GetType("Dante.Infrastructure.Agentes.ContencaoWindows"));
+    }
+
+    [Fact]
+    public void PlataformaLinuxAdmiteContencaoEstrita() => InteractiveAgentProcessLauncher.ExigirPlataformaEstrita(true);
+
+    [Fact]
     public void PadraoEstritoECompatibilidadeSoPorOpcaoExplicita()
     {
         Assert.Equal(ModoContencaoAgentes.Estrito, new OpcoesContencaoAgentes().Modo);
@@ -360,7 +372,8 @@ internal class NativeFactAttribute : FactAttribute
 {
     public NativeFactAttribute()
     {
-        if (Environment.GetEnvironmentVariable("DANTE_TEST_NATIVE_CONTAINMENT") != "1")
+        if (!OperatingSystem.IsLinux()) Skip = "Contenção nativa desta entrega disponível somente em Linux.";
+        else if (Environment.GetEnvironmentVariable("DANTE_TEST_NATIVE_CONTAINMENT") != "1")
             Skip = "Integração nativa exige laboratório autorizado: DANTE_TEST_NATIVE_CONTAINMENT=1.";
     }
 }
@@ -368,7 +381,8 @@ internal sealed class NativeTheoryAttribute : TheoryAttribute
 {
     public NativeTheoryAttribute()
     {
-        if (Environment.GetEnvironmentVariable("DANTE_TEST_NATIVE_CONTAINMENT") != "1")
+        if (!OperatingSystem.IsLinux()) Skip = "Contenção nativa desta entrega disponível somente em Linux.";
+        else if (Environment.GetEnvironmentVariable("DANTE_TEST_NATIVE_CONTAINMENT") != "1")
             Skip = "Integração nativa exige laboratório autorizado: DANTE_TEST_NATIVE_CONTAINMENT=1.";
     }
 }
@@ -442,46 +456,5 @@ public sealed class ContratoContencaoTests
         internal bool Liberada { get; private set; }
         public Task EncerrarEConfirmarVaziaAsync(CancellationToken token) => encerrar(token);
         public void Dispose() => Liberada = true;
-    }
-}
-
-public sealed class ContencaoWindowsTests
-{
-    [WindowsNativeFact]
-    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-    public async Task FecharUltimoHandleDoJobEncerraRaizEFilhos()
-    {
-        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "C:\\Program Files\\dotnet\\dotnet.exe")
-        {
-            WorkingDirectory = AppContext.BaseDirectory, UseShellExecute = false,
-            StandardInputEncoding = new System.Text.UTF8Encoding(false)
-        };
-        foreach (var arg in new[] { "exec", "--runtimeconfig", Path.Combine(AppContext.BaseDirectory, "Dante.Tests.runtimeconfig.json"),
-                     typeof(ProbeMarker).Assembly.Location, "spawn", Path.Combine(AppContext.BaseDirectory, "Dante.Tests.runtimeconfig.json") })
-            start.ArgumentList.Add(arg);
-        var contido = ContencaoWindows.Iniciar(start, CancellationToken.None);
-        try
-        {
-            using var prazo = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            int pid;
-            while (!int.TryParse(await contido.Saida.ReadLineAsync(prazo.Token), out pid)) prazo.Token.ThrowIfCancellationRequested();
-            using var filho = Process.GetProcessById(pid);
-            contido.Contencao.Dispose();
-            await contido.Processo.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
-            await filho.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.True(filho.HasExited);
-        }
-        finally
-        {
-            contido.Contencao.Dispose();
-            contido.Entrada.Dispose(); contido.Saida.Dispose(); contido.Erro.Dispose(); contido.Processo.Dispose();
-        }
-    }
-}
-internal sealed class WindowsNativeFactAttribute : NativeFactAttribute
-{
-    public WindowsNativeFactAttribute()
-    {
-        if (!OperatingSystem.IsWindows()) Skip = "Integração Job Objects exige runner Windows.";
     }
 }

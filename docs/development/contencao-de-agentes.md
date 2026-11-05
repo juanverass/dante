@@ -74,6 +74,12 @@ a unidade inexistente. No encerramento normal, o prazo compartilhado de Completi
 permanece 5s. A limpeza de inicialização pode consumir até três prazos separados;
 liberar recursos dos subprocessos de controle também tem espera limitada.
 
+O orquestrador limita a espera, não interrompe à força uma Task que ignore o token.
+Os delegates de produção devem cooperar com cancelamento; os subprocessos de controle
+possuem encerramento/liberação próprios. O teste com delegate não cooperativo comprova
+que a etapa seguinte é tentada, não que a Task anterior tenha sido abortada. Não
+acrescentar delegate não cooperativo sem estratégia própria de encerramento.
+
 Requisitos: cgroups v2, systemd-run com `--expand-environment=no` (systemd >=254),
 user manager acessível, `/bin/sh`, `/proc` e libc com pidfd_open/pidfd_send_signal.
 Não exige Delegate=yes no Worker, porque a unidade é criada pelo manager fora de seu
@@ -83,28 +89,18 @@ O usuário do serviço precisa poder criar escopos próprios. O código não ins
 reinicia ou modifica unidade persistente. Testes reais usam apenas suas próprias
 unidades transitórias. Outro manager/namespace requer acesso explícito no laboratório.
 
-## Windows: Job Object na criação
+## Escopo Linux; Windows retirado
 
-CreateJobObject + KILL_ON_JOB_CLOSE, sem BREAKAWAY_OK/SILENT_BREAKAWAY_OK.
-STARTUPINFOEX inclui JOB_LIST e HANDLE_LIST; CreateProcessW associa o processo
-atomicamente ao Job e o mantém suspenso. Confirma IsProcessInJob, abre o handle do
-processo original e prepara os pipes antes de ResumeThread. Não há intervalo de código
-da CLI executando fora do Job, nem dependência de associação posterior ao Start.
+Por decisão do mantenedor, o backend Windows/Job Objects e seu teste nativo foram
+removidos desta entrega. O modo estrito é recusado explicitamente fora do Linux,
+antes de iniciar qualquer backend, sem fallback automático. Homologar Windows deixou
+de ser critério de integração desta PR Linux; eventual retomada exige nova autorização
+e testes em runner Windows. Compilação não serve como homologação.
 
-Apenas os três handles filhos dos pipes são herdados. O handle do Job não é herdado.
-O ambiente vem do mesmo filtro de AgentProcessStartInfo, em bloco Unicode, e os
-argumentos usam escaping Windows, sem cmd.exe intermediário. Falha na criação fecha
-Job, pipes, thread e handles; fechamento do último Job mata processos associados.
-
-TerminateJobObject solicita a limpeza. QueryInformationJobObject confirma ActiveProcesses=0
-com espera limitada pelo prazo, em consultas espaçadas de 25 ms. Notificações de Job
-não são usadas como prova única, pois a documentação não garante todas as mensagens.
-A contagem é do grupo nativo, independente da ancestralidade ou de PIDs reparentados.
-
-Requisitos: Windows 10/Server 2016 ou posterior (JOB_LIST) e permissão para Jobs aninhados
-se o host já estiver em Job. Hosts/CLIs que exijam breakaway incompatível devem falhar
-explicitamente ou usar compatibilidade configurada conscientemente. Não há runner
-Windows neste laboratório Linux: compilação não comprova funcionamento do backend.
+O modo de compatibilidade continua sendo o legado, somente por opção explícita e com
+aviso de garantia inferior; não é uma oferta de contenção nativa Windows nem motivo
+para divulgar suporte multiplataforma. Referências históricas a WSL (kernel Linux)
+e rotinas legadas não representam reintrodução do backend removido.
 
 ## Compatibilidade e limites
 
@@ -139,7 +135,7 @@ Os registros não incluem variáveis de ambiente, argumentos de tarefas ou segre
 Cobrir filhos após EOF, quatro níveis, saída abrupta, parada forçada, concorrência,
 argumentos/ambiente, indisponibilidade do manager, executável ausente e shell com setsid.
 Repetir cenários críticos 100 vezes e três suítes completas com PostgreSQL descartável.
-Não declarar determinismo Windows sem executar em Windows. Não mascarar falhas
+Não declarar suporte Windows ou determinismo global com base nesta entrega Linux. Não mascarar falhas
 preexistentes de Telegram/continuidade.
 
 Fontes primárias:
@@ -147,7 +143,5 @@ Fontes primárias:
 - [systemd-run: ordem de criação de scope e exec](https://github.com/systemd/systemd/blob/v259/src/run/run.c).
 - [systemd-run: scopes e expansão de ambiente](https://man7.org/linux/man-pages/man1/systemd-run.1.html).
 - [cgroups v2: herança e populated](https://docs.kernel.org/admin-guide/cgroup-v2.html).
-- [Windows: atributos JOB_LIST e HANDLE_LIST](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute).
-- [Windows: Jobs, herança, notificações e fechamento](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects).
 
 Evidência de execução: [validação Linux da PR #283](evidencias/contencao-linux-pr283.md).

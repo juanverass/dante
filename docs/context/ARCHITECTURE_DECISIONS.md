@@ -2209,8 +2209,8 @@ outro snapshot: Completion confirmou sucesso com filho vivo. Sincronizar a últi
 observação ou diminuir o intervalo não elimina essa janela. A contenção precisa
 preceder a execução do agente e sobreviver à saída do principal.
 
-Decisão: infraestrutura inicia cada sessão dentro de scope systemd/cgroup v2 no Linux,
-ou Job Object associado atomicamente na criação no Windows. Completion exige raiz
+Decisão vigente: infraestrutura inicia cada sessão estrita dentro de scope systemd/cgroup
+v2 no Linux. Windows foi retirado desta entrega por decisão do mantenedor. Completion exige raiz
 encerrada e confirmação nativa de grupo vazio. Falhas/timeout são explícitos.
 O núcleo não recebe APIs ou tipos de plataforma.
 
@@ -2222,9 +2222,11 @@ interna documentada à descrição de lançamento sem shell da AD-17, não execu
 comando arbitrário. O gerenciador cria uma unidade exclusiva fora do cgroup do Worker;
 não há alteração automática de serviço, drop-in ou Delegate no homelab.
 
-Windows usa STARTUPINFOEX/JOB_LIST, criação suspensa, confirmação de associação,
-KILL_ON_JOB_CLOSE e nenhum breakaway autorizado. Só herda os pipes necessários.
-Ausência de runner Windows impede declarar homologação desse backend.
+O plano inicial de Job Objects Windows foi retirado antes da integração: o backend e
+seu teste nativo foram removidos e o modo estrito recusa plataformas não Linux.
+A prioridade é integrar a contenção Linux validada; eventual retomada Windows exige
+nova autorização e homologação própria, fora desta PR. O legado de compatibilidade
+permanece apenas por escolha explícita, com garantia inferior, sem fallback automático.
 
 Estrito é o padrão: falta de suporte recusa execução. Compatibilidade só por opção
 explícita (`DANTE_AGENT_CONTAINMENT_MODE=compatibility`) e com aviso de garantia inferior;

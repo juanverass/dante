@@ -263,7 +263,7 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         {
             // Também libera pipes e recursos quando a limpeza falha ou ninguém drena a saída.
             await pumpCancellation.CancelAsync();
-            // KILL_ON_JOB_CLOSE também libera pipes herdados se a confirmação nativa tiver falhado.
+            // Libera também os recursos da contenção quando a confirmação tiver falhado.
             contido?.Contencao.Dispose();
             await concluirSaida;
             entrada.Dispose(); saidaPadrao.Dispose(); erroPadrao.Dispose();

@@ -40,12 +40,11 @@ public sealed class InteractiveAgentProcessLauncher(IAgentExecutableResolver exe
         if (!Enum.IsDefined(modo)) throw new AgentProcessStartException("Modo de contenção inválido.");
         if (modo == ModoContencaoAgentes.Estrito)
         {
+            ExigirPlataformaEstrita(OperatingSystem.IsLinux());
             ProcessoContido contido;
             try
             {
-                if (OperatingSystem.IsLinux()) contido = await ContencaoSystemd.IniciarAsync(startInfo, cancellationToken);
-                else if (OperatingSystem.IsWindows()) contido = ContencaoWindows.Iniciar(startInfo, cancellationToken);
-                else throw new PlatformNotSupportedException("Contenção nativa indisponível nesta plataforma.");
+                contido = await ContencaoSystemd.IniciarAsync(startInfo, cancellationToken);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception exception)
@@ -77,4 +76,10 @@ public sealed class InteractiveAgentProcessLauncher(IAgentExecutableResolver exe
 
         return new InteractiveAgentProcess(process, redactOutput);
     }
+    internal static void ExigirPlataformaEstrita(bool linux)
+    {
+        if (!linux)
+            throw new AgentProcessStartException("Contenção estrita disponível apenas em Linux. Backend Windows removido desta entrega; nenhum fallback automático será usado.");
+    }
+
 }
