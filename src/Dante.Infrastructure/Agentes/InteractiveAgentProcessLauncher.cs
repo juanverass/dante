@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace Dante.Infrastructure.Agentes;
 
@@ -9,13 +10,14 @@ public sealed class AgentProcessStartException(string message, Exception? innerE
     : Exception(message, innerException);
 
 // Starts long-lived agent processes for interactive sessions; one-shot jobs keep using AgentProcessExecutor.
-public sealed class InteractiveAgentProcessLauncher(IAgentExecutableResolver executableResolver)
+public sealed class InteractiveAgentProcessLauncher(IAgentExecutableResolver executableResolver, OpcoesContencaoAgentes? opcoes = null,
+    ILogger<InteractiveAgentProcessLauncher>? logger = null)
     : IInteractiveAgentProcessLauncher
 {
     // The structured protocols are UTF-8 JSONL; no BOM may precede the first line written to stdin.
     private static readonly Encoding Utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
-    public Task<InteractiveAgentProcess> StartAsync(
+    public async Task<InteractiveAgentProcess> StartAsync(
         AgentProcessRequest request,
         Func<string, string>? redactOutput = null,
         CancellationToken cancellationToken = default)
@@ -34,6 +36,26 @@ public sealed class InteractiveAgentProcessLauncher(IAgentExecutableResolver exe
         startInfo.StandardOutputEncoding = Utf8;
         startInfo.StandardErrorEncoding = Utf8;
 
+        var modo = (opcoes ?? OpcoesContencaoAgentes.DoAmbiente()).Modo;
+        if (!Enum.IsDefined(modo)) throw new AgentProcessStartException("Modo de contenção inválido.");
+        if (modo == ModoContencaoAgentes.Estrito)
+        {
+            ProcessoContido contido;
+            try
+            {
+                if (OperatingSystem.IsLinux()) contido = await ContencaoSystemd.IniciarAsync(startInfo, cancellationToken);
+                else if (OperatingSystem.IsWindows()) contido = ContencaoWindows.Iniciar(startInfo, cancellationToken);
+                else throw new PlatformNotSupportedException("Contenção nativa indisponível nesta plataforma.");
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception exception)
+            {
+                throw new AgentProcessStartException("Contenção estrita indisponível; agente não foi liberado sem contenção.", exception);
+            }
+            return new InteractiveAgentProcess(contido.Processo, redactOutput, contido: contido);
+        }
+
+        logger?.LogWarning("Modo compatibilidade de processos habilitado explicitamente; descendentes entre snapshots podem sobreviver.");
         var process = new Process { StartInfo = startInfo };
         try
         {
@@ -53,6 +75,6 @@ public sealed class InteractiveAgentProcessLauncher(IAgentExecutableResolver exe
             throw;
         }
 
-        return Task.FromResult(new InteractiveAgentProcess(process, redactOutput));
+        return new InteractiveAgentProcess(process, redactOutput);
     }
 }

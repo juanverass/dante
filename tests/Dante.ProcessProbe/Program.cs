@@ -73,6 +73,22 @@ internal static class Program
 
                 await Task.Delay(Timeout.InfiniteTimeSpan);
                 return 0;
+            case "tree-until-eof":
+            case "tree-node":
+                if (args[0] == "tree-node") Console.WriteLine(Environment.ProcessId);
+                var niveis = int.Parse(args[2]);
+                if (niveis > 0)
+                {
+                    using var node = Process.Start(new ProcessStartInfo(Environment.ProcessPath!)
+                    {
+                        UseShellExecute = false,
+                        ArgumentList = { "exec", "--runtimeconfig", args[1], typeof(Program).Assembly.Location,
+                            "tree-node", args[1], (niveis - 1).ToString() }
+                    });
+                }
+                if (args[0] == "tree-node") await Task.Delay(Timeout.Infinite);
+                while (Console.In.ReadLine() is not null) { }
+                return 0;
             case "spawn-on-eof":
             case "spawn-on-command":
             case "spawn-and-exit":

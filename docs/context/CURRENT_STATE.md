@@ -304,9 +304,11 @@ em timeout. O monitor para e aguarda o rastreamento antes de congelar a captura 
 publicação são serializadas com essa captura. Identidade inicial ausente ou falha de observação
 impedem declarar limpeza confirmada. A identidade da raiz é revalidada antes e depois de cada snapshot;
 PID reciclado encerra a observação com falha, sem percorrer a nova árvore. Dispose libera os leitores
-e recursos também em falhas. A garantia atual limita-se aos descendentes observados: filhos criados
-e reparentados entre ciclos podem escapar ao polling. Contenção nativa por agente ainda é necessária
-para garantir a ausência desses sobreviventes, independentemente da saída do principal.
+e recursos também em falhas. Em modo compatibilidade a garantia limita-se aos descendentes observados: filhos criados
+e reparentados entre ciclos podem escapar ao polling. O lançamento estrito da AD-63,
+em implementação isolada, usa scopes systemd/cgroup v2 no Linux e Job Objects na criação
+no Windows; Completion exige contenção vazia. Não há fallback automático e o modo de
+compatibilidade requer configuração explícita. Homelab permanece sem migração operacional.
 Isso corrige a corrida histórica de
 `GracefulExitDoesNotLeaveOrphanedChildProcess` entre enviar SIGKILL e observar a saída efetiva.
 `TelegramBotApiTests.OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard` também falhou uma vez na suíte

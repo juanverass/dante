@@ -611,7 +611,8 @@ public sealed class InteractiveAgentProcessTests
     {
         var missing = new InteractiveAgentProcessLauncher(new FixedResolver(null));
         var unstartable = new InteractiveAgentProcessLauncher(
-            new FixedResolver(Path.Combine(AppContext.BaseDirectory, "missing-agent-executable.exe")));
+            new FixedResolver(Path.Combine(AppContext.BaseDirectory, "missing-agent-executable.exe")),
+            new OpcoesContencaoAgentes { Modo = ModoContencaoAgentes.Compatibilidade });
 
         var unavailable = await Assert.ThrowsAsync<AgentProcessStartException>(
             () => missing.StartAsync(Request("interactive")));
@@ -683,7 +684,7 @@ public sealed class InteractiveAgentProcessTests
     }
 
     private static InteractiveAgentProcessLauncher CreateLauncher() =>
-        new(new FixedResolver(FindDotnetHost()));
+        new(new FixedResolver(FindDotnetHost()), new OpcoesContencaoAgentes { Modo = ModoContencaoAgentes.Compatibilidade });
 
     private static AgentProcessRequest Request(params string[] arguments) =>
         new(AgentKind.Codex, AppContext.BaseDirectory,

@@ -31,7 +31,7 @@ public sealed class AgentProcessInputClosedException(string message, Exception? 
 
 // One long-lived agent process: stdout/stderr are read line by line as they arrive and stdin accepts serialized
 // JSONL writes. Interrupting a turn is a protocol message written by the driver; StopAsync/DisposeAsync end the
-// whole process tree. Recorded survivors are killed; polling alone does not contain children born between snapshots.
+// native containment before Completion succeeds. Compatibility mode only tracks recorded survivors.
 public sealed class InteractiveAgentProcess : IAsyncDisposable
 {
     // Bounded: a slow reader stops the pumps, and the full pipe then pauses the agent instead of growing memory.
@@ -41,6 +41,15 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
     private static readonly TimeSpan DescendantTrackingInterval = TimeSpan.FromSeconds(1);
 
     private readonly Process process;
+    private readonly ProcessoContido? contido;
+    private readonly StreamWriter entrada;
+    private readonly StreamReader saidaPadrao;
+    private readonly StreamReader erroPadrao;
+    private readonly object limpezaGate = new();
+    private Task? limpezaNativa;
+    public bool ContencaoNativa => contido is not null;
+    public string? AvisoDeContencao => ContencaoNativa ? null :
+        "Modo compatibilidade: limpeza limitada aos descendentes observados; filhos entre snapshots podem sobreviver.";
     private readonly Func<int, DateTime, CancellationToken, Task> encerrarDescendente;
     private readonly TimeSpan prazoDaLimpeza;
     private readonly Task concluirSaida;
@@ -78,9 +87,13 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
     internal InteractiveAgentProcess(Process process, Func<string, string>? redactOutput,
         Func<int, DateTime, CancellationToken, Task>? encerrarDescendente = null, TimeSpan? prazoDaLimpeza = null,
         Func<int, DateTime?>? obterIdentidade = null,
-        Func<int, DateTime, IReadOnlyList<(int Id, DateTime StartTime)>>? observarDescendentes = null)
+        Func<int, DateTime, IReadOnlyList<(int Id, DateTime StartTime)>>? observarDescendentes = null, ProcessoContido? contido = null)
     {
         this.process = process;
+        this.contido = contido;
+        entrada = contido?.Entrada ?? process.StandardInput;
+        saidaPadrao = contido?.Saida ?? process.StandardOutput;
+        erroPadrao = contido?.Erro ?? process.StandardError;
         this.encerrarDescendente = encerrarDescendente ?? ProcessTree.EncerrarEAguardarAsync;
         this.prazoDaLimpeza = prazoDaLimpeza ?? TimeSpan.FromSeconds(5);
         this.redactOutput = redactOutput;
@@ -94,11 +107,11 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         if (startTime is null)
             falhaDeObservacao = new InvalidOperationException("Identidade inicial do processo principal indisponível; limpeza não confirmada.");
 
-        var stdout = PumpAsync(process.StandardOutput, AgentOutputStream.StandardOutput);
-        var stderr = PumpAsync(process.StandardError, AgentOutputStream.StandardError);
+        var stdout = PumpAsync(saidaPadrao, AgentOutputStream.StandardOutput);
+        var stderr = PumpAsync(erroPadrao, AgentOutputStream.StandardError);
         concluirSaida = CompleteOutputAsync(stdout, stderr);
         // A primeira descoberta ocorre antes de iniciar o monitor de saída.
-        rastreamento = TrackDescendantsAsync();
+        rastreamento = contido is null ? TrackDescendantsAsync() : Task.CompletedTask;
         _ = MonitorExitAsync();
     }
 
@@ -115,8 +128,8 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
     // cannot be processed (the redaction hook threw), it completes with that exception and the process is killed.
     public ChannelReader<AgentOutputLine> Output => output.Reader;
 
-    // Confirma saída do principal e limpeza dos descendentes identificados, independentemente do consumo da saída.
-    // Não comprova ausência de filhos nunca observados: essa garantia requer contenção nativa no lançamento.
+    // Em modo estrito confirma raiz encerrada e contenção vazia. No modo compatibilidade, só os filhos observados.
+    // O consumo da saída é independente da confirmação; falha/timeout nunca confirma limpeza.
     public Task<AgentProcessExit> Completion => completion.Task;
 
     // Writes one line atomically: concurrent callers are serialized and never interleave. The token only
@@ -135,7 +148,7 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
             EnsureAcceptsInput();
             try
             {
-                var input = process.StandardInput;
+                var input = entrada;
                 await input.WriteAsync(line + "\n");
                 await input.FlushAsync();
             }
@@ -217,6 +230,11 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
             killed = true;
         }
 
+        if (contido is not null)
+        {
+            _ = IniciarLimpezaNativa();
+            return;
+        }
         try
         {
             process.Kill(entireProcessTree: true);
@@ -245,7 +263,10 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         {
             // Também libera pipes e recursos quando a limpeza falha ou ninguém drena a saída.
             await pumpCancellation.CancelAsync();
+            // KILL_ON_JOB_CLOSE também libera pipes herdados se a confirmação nativa tiver falhado.
+            contido?.Contencao.Dispose();
             await concluirSaida;
+            entrada.Dispose(); saidaPadrao.Dispose(); erroPadrao.Dispose();
             process.Dispose();
             pumpCancellation.Dispose();
             pararObservacao.Dispose();
@@ -281,7 +302,7 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
 
         try
         {
-            process.StandardInput.Close();
+            entrada.Close();
         }
         catch (IOException)
         {
@@ -340,6 +361,7 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
     // Serializa descoberta e publicação com a captura final, inclusive nas chamadas síncronas de Stop/CloseInput.
     private bool TrackDescendants()
     {
+        if (contido is not null) return false;
         lock (descendants)
         {
             if (observacaoEncerrada || falhaDeObservacao is not null) return false;
@@ -382,11 +404,42 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
         }
     }
 
+    private Task IniciarLimpezaNativa()
+    {
+        lock (limpezaGate) return limpezaNativa ??= LimparContencaoAsync();
+    }
+
+    private async Task LimparContencaoAsync()
+    {
+        try
+        {
+            using var prazo = new CancellationTokenSource(prazoDaLimpeza);
+            try { await contido!.Contencao.EncerrarEConfirmarVaziaAsync(prazo.Token); }
+            catch (OperationCanceledException) when (prazo.IsCancellationRequested)
+            { throw new TimeoutException("Prazo de limpeza da contenção excedido; grupo vazio não confirmado."); }
+        }
+        catch (Exception exception)
+        {
+            output.Writer.TryComplete(exception);
+            await pumpCancellation.CancelAsync();
+            completion.TrySetException(exception);
+            throw;
+        }
+    }
+
     private async Task MonitorExitAsync()
     {
         try
         {
             await process.WaitForExitAsync();
+            if (contido is not null)
+            {
+                await IniciarLimpezaNativa();
+                bool encerrado;
+                lock (stateGate) { state = InteractiveAgentProcessState.Exited; encerrado = killed; }
+                completion.TrySetResult(new AgentProcessExit(process.ExitCode, encerrado));
+                return;
+            }
             // Para o ciclo, aguarda a descoberta em andamento e só então congela a última captura publicada.
             await pararObservacao.CancelAsync();
             await rastreamento;
