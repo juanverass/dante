@@ -60,7 +60,9 @@ public sealed class InteractiveAgentProcessTests
     public async Task SlowReaderReceivesEveryLineInOrder()
     {
         const int count = 5_000;
-        await using var process = await StartAsync("burst", count.ToString());
+        // O teste mede backpressure e ordem, não a corrida entre saída precoce e observação inicial.
+        await using var process = await StartAsync("burst-until-eof", count.ToString());
+        await process.CloseInputAsync(); // Só libera a saída da fixture após StartAsync observar a raiz viva.
 
         var index = 0;
         await foreach (var line in process.Output.ReadAllAsync().WithCancellation(Cancel()))

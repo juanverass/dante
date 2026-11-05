@@ -58,12 +58,13 @@ internal static class Program
 
                 Console.WriteLine("stdin closed");
                 return 0;
+            case "burst-until-eof":
             case "burst":
                 for (var index = 0; index < int.Parse(args[1]); index++)
                 {
                     Console.WriteLine($"line {index}");
                 }
-
+                if (args[0] == "burst-until-eof") while (Console.In.ReadLine() is not null) { }
                 return 0;
             case "spawn":
                 // Starts a grandchild that never exits and reports its PID; args[1] is the runtimeconfig path.

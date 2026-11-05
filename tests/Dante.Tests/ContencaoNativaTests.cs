@@ -280,8 +280,16 @@ public sealed class ContencaoNativaTests(Xunit.Abstractions.ITestOutputHelper ou
         Assert.Contains("populated 1", File.ReadAllLines(Path.Combine(caminho, "cgroup.events")));
         await ator.CloseInputAsync();
         await ator.Completion.WaitAsync(Prazo);
-        if (Directory.Exists(caminho)) Assert.Contains("populated 0", File.ReadAllLines(Path.Combine(caminho, "cgroup.events")));
-        else Assert.True(Directory.Exists(Path.GetDirectoryName(caminho)));
+        try { Assert.Contains("populated 0", File.ReadAllLines(Path.Combine(caminho, "cgroup.events"))); }
+        catch (IOException)
+        {
+            // O manager pode remover o grupo entre abrir e ler o arquivo. Comprova remoção, não erro genérico.
+            var ausencia = Record.Exception(() => File.GetAttributes(caminho));
+            Assert.True(ausencia is FileNotFoundException or DirectoryNotFoundException,
+                "Falha de leitura sem comprovação de remoção do cgroup.");
+            _ = File.GetAttributes(Path.GetDirectoryName(caminho)!);
+            _ = File.GetAttributes("/sys/fs/cgroup/cgroup.controllers");
+        }
     }
 
     [NativeFact]
