@@ -21,6 +21,21 @@ O escopo autorizado permanece independente do repositório investigado.
 `dante_planilhas` continua disponível por um provider independente;
 `CompositorDeFerramentas` reúne os providers de `IProvedorDeFerramentas`.
 
+## Autorização de registro e confirmação do conteúdo (AD-59)
+
+`brain_confirmar_candidato` conserva o nome e a confirmação operacional pelo Telegram,
+mas não promete `Status=Confirmado`. Para `ConclusaoDoAgente`, a autorização apenas
+consolida o registro como `Inferido`; o mesmo vale para a relação após consolidar os dois
+candidatos. O contrato dos agentes, as descrições e a orientação retornada para candidatos
+do agente explicitam que não se oferece confirmar ou promover esses registros a fatos.
+Inferido não é uma espera por confirmação humana. A origem e a regra de domínio não mudam.
+
+O usuário pode fazer uma nova declaração literal, com suas próprias palavras. Ela pode
+originar outro candidato `DitoPeloUsuario`, com a mensagem autenticada como proveniência,
+e seguir a confirmação explícita normal. O novo conhecimento pode referenciar o original
+por `DerivadoDe`, sem alterar o original. Um simples “confirmar”, “concordo” ou “documente
+isso” sobre uma conclusão do agente não constitui essa nova declaração literal.
+
 ## Canal local e escopo
 
 O processo `--mcp-brain --pipe <endpoint>` implementa JSON-RPC MCP stdio e encaminha
