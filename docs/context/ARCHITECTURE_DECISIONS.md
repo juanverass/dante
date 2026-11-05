@@ -2214,8 +2214,10 @@ ou Job Object associado atomicamente na criação no Windows. Completion exige r
 encerrada e confirmação nativa de grupo vazio. Falhas/timeout são explícitos.
 O núcleo não recebe APIs ou tipos de plataforma.
 
-Linux usa bootstrap shell **fixo** com barreira STOP, confirmação de cgroup e liberação
-por pidfd; exec conserva PID e recebe ArgumentList sem interpolação. Isto é exceção
+Linux usa bootstrap shell **fixo** com handshake de identificador/PID, barreira STOP,
+validação de identidade/cgroup e do PID fixado pelo pidfd antes da liberação. A igualdade
+entre PID inicial e anunciado é comprovada pelo protocolo; divergência recusa o lançamento.
+O exec conserva PID e recebe ArgumentList sem interpolação. Isto é exceção
 interna documentada à descrição de lançamento sem shell da AD-17, não execução de
 comando arbitrário. O gerenciador cria uma unidade exclusiva fora do cgroup do Worker;
 não há alteração automática de serviço, drop-in ou Delegate no homelab.

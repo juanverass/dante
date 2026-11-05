@@ -5,7 +5,7 @@ using Dante.ProcessProbe;
 
 namespace Dante.Tests;
 
-public sealed class ContencaoNativaTests
+public sealed class ContencaoNativaTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private static readonly TimeSpan Prazo = TimeSpan.FromSeconds(20);
     private static readonly string Runtime = Path.Combine(AppContext.BaseDirectory, "Dante.Tests.runtimeconfig.json");
@@ -146,14 +146,126 @@ public sealed class ContencaoNativaTests
         Assert.True(AgentProcessStartInfo.TryCreate(Pedido("interactive"), new Resolver(Dotnet), out var start, out _));
         using var cancelar = new CancellationTokenSource();
         var passouPelaBarreira = false;
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ContencaoSystemd.IniciarAsync(start, cancelar.Token, token =>
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ContencaoSystemd.IniciarAsync(start, cancelar.Token, (diagnostico, token) =>
         {
+            output.WriteLine(System.Text.Json.JsonSerializer.Serialize(diagnostico));
             passouPelaBarreira = true;
             cancelar.Cancel();
             token.ThrowIfCancellationRequested();
             return Task.CompletedTask;
         }));
         Assert.True(passouPelaBarreira);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("outro:123")]
+    [InlineData("bootstrap:0")]
+    [InlineData("bootstrap:-1")]
+    [InlineData("bootstrap:123:456")]
+    [InlineData("bootstrap:99999999999999999")]
+    public void HandshakeInvalidoNaoIdentificaBootstrap(string? linha) =>
+        Assert.Throws<AgentProcessStartException>(() => ContencaoSystemd.LerPidDoHandshake(linha, "bootstrap"));
+
+    [Fact]
+    public void IdentidadeDivergenteRecusaOBootstrapAntesDaLiberacao()
+    {
+        using var processo = Process.GetCurrentProcess();
+        Assert.Throws<AgentProcessStartException>(() => ContencaoSystemd.ValidarIdentidadeBootstrap(
+            processo, processo.Id, processo.StartTime.AddSeconds(-1)));
+    }
+
+    [LinuxNativeFact]
+    public async Task BootstrapAnunciaPidRealDentroDoScopeAntesDeExecutarCLI()
+    {
+        var marcador = Path.Combine(Path.GetTempPath(), "dante-cli-ainda-nao-liberada-" + Guid.NewGuid().ToString("N"));
+        Assert.True(AgentProcessStartInfo.TryCreate(Pedido("marcar-inicio", marcador), new Resolver(Dotnet), out var start, out _));
+        DiagnosticoBootstrapLinux? observado = null;
+        var contido = await ContencaoSystemd.IniciarAsync(start, CancellationToken.None, (diagnostico, token) =>
+        {
+            observado = diagnostico;
+            Assert.False(File.Exists(marcador));
+            Assert.Equal(diagnostico.PidBootstrap, diagnostico.PidDoPidfd);
+            Assert.Equal(diagnostico.PidCliente, diagnostico.PidBootstrap); // Medido via handshake, não inferido.
+            Assert.Contains("/" + diagnostico.Unidade, diagnostico.Cgroup);
+            Assert.Equal("T", diagnostico.Estado);
+            Assert.Contains(File.ReadAllLines($"/proc/{diagnostico.PidBootstrap}/status"), l => l.StartsWith("State:\tT"));
+            Assert.Contains("0::" + diagnostico.Cgroup, File.ReadAllLines($"/proc/{diagnostico.PidBootstrap}/cgroup"));
+            using var bootstrap = Process.GetProcessById(diagnostico.PidBootstrap);
+            Assert.Equal(diagnostico.InicioUtc, bootstrap.StartTime.ToUniversalTime());
+            output.WriteLine(System.Text.Json.JsonSerializer.Serialize(diagnostico));
+            return Task.CompletedTask;
+        });
+        await using var ator = new InteractiveAgentProcess(contido.Processo, null, contido: contido);
+        try
+        {
+            Assert.Equal("ready", await Linha(ator));
+            Assert.Equal(ator.ProcessId.ToString(), File.ReadAllText(marcador));
+            Assert.NotNull(observado);
+            await ator.CloseInputAsync();
+            await ator.Completion.WaitAsync(Prazo);
+            Assert.True(((ContencaoSystemd)contido.Contencao).EstaVazia());
+            output.WriteLine("Contenção vazia confirmada após Completion.");
+        }
+        finally { File.Delete(marcador); }
+    }
+
+    [LinuxNativeFact]
+    public async Task SaidaDoBootstrapNaBarreiraFalhaSemExecutarCLI()
+    {
+        Assert.True(AgentProcessStartInfo.TryCreate(Pedido("interactive"), new Resolver(Dotnet), out var start, out _));
+        await Assert.ThrowsAsync<AgentProcessStartException>(() => ContencaoSystemd.IniciarAsync(start, CancellationToken.None,
+            async (diagnostico, token) =>
+            {
+                output.WriteLine(System.Text.Json.JsonSerializer.Serialize(diagnostico));
+                using var bootstrap = Process.GetProcessById(diagnostico.PidBootstrap);
+                Assert.Equal(diagnostico.InicioUtc, bootstrap.StartTime.ToUniversalTime());
+                bootstrap.Kill();
+                await bootstrap.WaitForExitAsync(token);
+            }));
+    }
+
+    [LinuxNativeFact]
+    public async Task TimeoutNaBarreiraNaoLiberaCLI()
+    {
+        Assert.True(AgentProcessStartInfo.TryCreate(Pedido("interactive"), new Resolver(Dotnet), out var start, out _));
+        var erro = await Assert.ThrowsAsync<AgentProcessStartException>(() => ContencaoSystemd.IniciarAsync(start, CancellationToken.None,
+            async (diagnostico, token) =>
+            {
+                output.WriteLine(System.Text.Json.JsonSerializer.Serialize(diagnostico));
+                await Task.Delay(Timeout.Infinite, token);
+            }));
+        Assert.IsAssignableFrom<OperationCanceledException>(erro.InnerException);
+    }
+
+    [LinuxNativeFact]
+    public async Task DuploForkESetsidReparentamFilhosSemEscaparDoScope()
+    {
+        var script = "echo ready; read inicio; /bin/sh -c 'echo $$; /usr/bin/setsid /bin/sh -c \"echo \\$\\$; /bin/sleep 60 & echo \\$!; wait\" </dev/null &'; read fim";
+        var launcher = new InteractiveAgentProcessLauncher(new Resolver("/bin/sh"), new());
+        await using var ator = await launcher.StartAsync(new AgentProcessRequest(AgentKind.Codex, AppContext.BaseDirectory, ["-c", script]));
+        Assert.Equal("ready", await Linha(ator));
+        await ator.WriteLineAsync("iniciar");
+        var intermediario = await Pid(ator);
+        var neto = await Pid(ator);
+        var bisneto = await Pid(ator);
+        output.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { principal = ator.ProcessId, intermediario, neto, bisneto }));
+        var grupo = File.ReadAllLines($"/proc/{ator.ProcessId}/cgroup").Single(l => l.StartsWith("0::"));
+        Assert.Contains(grupo, File.ReadAllLines($"/proc/{neto}/cgroup"));
+        Assert.Contains(grupo, File.ReadAllLines($"/proc/{bisneto}/cgroup"));
+        // Aguarda a saída do intermediário; não confunde processo ainda encerrando com reparentamento concluído.
+        var limite = DateTime.UtcNow + Prazo;
+        while (Vivo(intermediario))
+        {
+            Assert.True(DateTime.UtcNow < limite);
+            await Task.Delay(20);
+        }
+        Assert.DoesNotContain(File.ReadAllLines($"/proc/{neto}/status"), l => l == "PPid:\t" + intermediario);
+        using (var raiz = Process.GetProcessById(ator.ProcessId)) raiz.Kill();
+        await ator.Completion.WaitAsync(Prazo);
+        Assert.False(Vivo(neto)); Assert.False(Vivo(bisneto));
+        output.WriteLine("Filhos reparentados encerrados antes de Completion concluir com sucesso.");
     }
 
     [LinuxNativeFact]

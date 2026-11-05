@@ -10,6 +10,11 @@ internal static class Program
     {
         switch (args[0])
         {
+            case "marcar-inicio":
+                File.WriteAllText(args[1], Environment.ProcessId.ToString());
+                Console.WriteLine("ready");
+                while (Console.In.ReadLine() is not null) { }
+                return 0;
             case "fake-claude":
                 return FakeClaude.Run(args);
             case "echo":

@@ -30,8 +30,22 @@ Uma unidade aleatória `dante-agent-<guid>.scope` é criada por lançamento, com
 fixa, KillMode=control-group, SendSIGKILL=yes e TimeoutStopSec=3s.
 
 Um bootstrap `/bin/sh` usa **script fixo**, sem interpolação de prompt, executável ou
-argumentos: para com STOP e depois executa `exec "$@"`. A infraestrutura confirma o
-estado parado e o caminho cgroup v2 específico antes de enviar CONT por **pidfd**.
+argumentos: anuncia `identificador-aleatório:PID` em uma linha exclusiva de stdout,
+para com STOP e depois executa `exec "$@"`. A infraestrutura consome a linha antes de
+entregar stdout à CLI, valida o identificador e obtém o PID anunciado pelo próprio
+bootstrap. Confirma o horário de início, abre pidfd desse PID e verifica o campo Pid
+em `/proc/self/fdinfo`. Em seguida confirma estado parado e cgroup v2 específico antes
+de enviar CONT por **esse pidfd**. Identidade, STOP e associação ao scope são
+revalidados imediatamente antes da liberação; a mesma janela de 5s cobre todo o protocolo.
+Handshake ausente/inválido, saída antecipada, divergência ou prazo excedido recusam o lançamento.
+
+Em `--scope`, a implementação upstream de systemd-run v259 chama `execvpe` depois de
+StartTransientUnit e de aguardar a ativação; diferentemente de `--service`, não delega
+esse exec ao manager. Os PIDs do processo iniciado e do bootstrap coincidem na versão
+avaliada (systemd 259), mas essa igualdade agora é **medida pelo handshake**, não inferida de Process.Id.
+A versão que anunciar PID distinto é recusada explicitamente antes do CONT, pois o
+monitor usa o processo original do scope; não se tenta adaptar por polling ou liberar
+um comando cuja identidade não foi confirmada.
 A CLI e todos os filhos criados diretamente por fork/exec nascem nesse grupo, mesmo
 com setsid, duplo fork ou saída do pai entre snapshots. Não existe migração posterior
 do processo de agente. O PID se conserva no exec. Isto acrescenta um bootstrap shell
@@ -102,6 +116,13 @@ Sem opt-in, integração nativa gera skip explícito. Com opt-in, indisponibilid
 não skip. Os testes de contrato com contenção falsa executam sempre, cobrindo ordem de
 Completion, falha de observação e timeout. Testes de protocolo existentes selecionam
 compatibilidade explicitamente; não se confundem com evidência de contenção nativa.
+
+O teste da barreira registra PID inicial, PID anunciado, PID do pidfd, horário de início,
+unidade, caminho do cgroup e estado T no TRX. Um arquivo marcador, escrito somente pela
+CLI simulada, está ausente durante a barreira e só aparece após o CONT. Outro teste
+cria dois forks com setsid, aguarda a saída do intermediário, comprova associação dos
+filhos reparentados ao mesmo scope e verifica limpeza após morte inesperada da raiz.
+Os registros não incluem variáveis de ambiente, argumentos de tarefas ou segredos.
 
 Cobrir filhos após EOF, quatro níveis, saída abrupta, parada forçada, concorrência,
 argumentos/ambiente, indisponibilidade do manager, executável ausente e shell com setsid.
