@@ -145,3 +145,5 @@ Fontes primárias:
 - [cgroups v2: herança e populated](https://docs.kernel.org/admin-guide/cgroup-v2.html).
 
 Evidência de execução: [validação Linux da PR #283](evidencias/contencao-linux-pr283.md).
+
+Escopo final e comparação com a base: [fechamento Linux da PR #283](evidencias/fechamento-linux-pr283.md).

@@ -1,5 +1,10 @@
 # Evidência Linux — contenção de agentes, PR #283
 
+Checkpoint histórico do commit 2dadd58, anterior à retirada do backend Windows.
+Os números e skips abaixo registram aquela execução; não descrevem o escopo atual.
+A decisão Linux e a comparação dinâmica com a base constam no
+[fechamento da validação](fechamento-linux-pr283.md).
+
 Fonte executada: `2dadd58aa8b096e76b84216dff5cfa53569e6586`.
 Execução do implementador em 05/11/2026, sem CI e sem revisão independente de execução.
 Este relatório e o [JSON de resultados](contencao-linux-pr283.json) versionam a evidência;
