@@ -200,7 +200,8 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
         }
     }
 
-    // Nota Markdown fornecida pelo usuário em 2026-11-09 (texto literal da mensagem dele; não é fixture inventada).
+    // Fixture de teste: texto da nota colado na conversa do Telegram em 2026-11-09, sem verificação de quem o redigiu.
+    // No ensaio ele é submetido por um ator simulado, em banco descartável. Não comprova ingestão no Brain operacional.
     internal const string NotaDoUsuario = """
         Nota de validação — D.A.N.T.E. Brain
         Identificador: DANTE147-MD-2026-11-09-ALFA
@@ -242,7 +243,7 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
         "Qual identificador foi atribuído à nota Markdown?", "Quais são os três assuntos registrados como candidatos?"
     ];
 
-    // Cenário da nota: o usuário importa pela rota de produção (autoria Usuario) e uma sessão independente,
+    // Cenário da nota: um ator simulado como usuário importa pela rota de produção (autoria Usuario) e uma sessão independente,
     // sem o conteúdo da nota no pedido, responde às perguntas da própria nota usando só o Brain.
     [EnsaioIndependente]
     [InlineData(1)]
@@ -264,7 +265,7 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
         string respostaB = ""; object? resultadoFinal = null;
         try
         {
-            // Sessão A = o próprio usuário pelo Telegram: comando de importação com o texto literal.
+            // Sessão A: ator simulado no papel do usuário envia o comando de importação com o texto da fixture.
             var importe = "importe Markdown Nota de validação — D.A.N.T.E. Brain: " + NotaDoUsuario;
             Assert.Contains("Fonte bruta adicionada", await brain.AtenderAsync(BrainMcpTests.Mensagem(importe, 100), importe, null, ct));
             await using (var db = banco.Contexto())
