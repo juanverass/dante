@@ -53,7 +53,7 @@ public sealed class BrainMcpTests
         Assert.Equal(4, respostas.Length); Assert.Equal("dante_brain", respostas[0]["result"]!["serverInfo"]!["name"]!.GetValue<string>());
         Assert.Contains("capacidade interna", respostas[0]["result"]!["instructions"]!.GetValue<string>());
         Assert.Contains("Nunca procure o Brain em plugins", respostas[0]["result"]!["instructions"]!.GetValue<string>());
-        var tools = respostas[1]["result"]!["tools"]!.AsArray(); Assert.Equal(16, tools.Count);
+        var tools = respostas[1]["result"]!["tools"]!.AsArray(); Assert.Equal(17, tools.Count);
         Assert.All(tools, t => Assert.False(t!["inputSchema"]!["additionalProperties"]!.GetValue<bool>()));
         Assert.True(tools.Single(t => t!["name"]!.GetValue<string>() == "brain_buscar_conhecimento")!["annotations"]!["readOnlyHint"]!.GetValue<bool>());
         Assert.True(tools.Single(t => t!["name"]!.GetValue<string>() == "brain_cancelar_candidato")!["annotations"]!["destructiveHint"]!.GetValue<bool>());
@@ -93,7 +93,7 @@ public sealed class BrainMcpTests
     public void EscritasMcpNaoOferecemNaturezaReservadaAoLegado()
     {
         var escritas = ServidorMcpDoBrain.Ferramentas.Where(f => !f.Leitura && f.Propriedades.ContainsKey("natureza")).ToArray();
-        Assert.Equal(3, escritas.Length);
+        Assert.Equal(4, escritas.Length); // #223: brain_capturar_em_outro_projeto também escreve natureza.
         foreach (var ferramenta in escritas)
         {
             var valores = ferramenta.Propriedades["natureza"]!["enum"]!.AsArray().Select(x => x!.GetValue<string>()).ToArray();

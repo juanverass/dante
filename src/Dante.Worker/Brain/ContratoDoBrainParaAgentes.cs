@@ -33,6 +33,10 @@ internal static class ContratoDoBrainParaAgentes
         explícita no Telegram e referenciar o original por DerivadoDe; não muda o ID, a origem ou o status do original.
         Um simples "confirmar", "concordo" ou "documente isso" não é nova declaração literal do conteúdo do agente.
         Não use o tipo Inferencia para indicar autoria; ele é mantido para leitura e filtro de registros legados.
+        Projeto ativo e destino do conhecimento podem divergir: se o usuário pedir para registrar em outro projeto
+        (ex.: "registre isso como melhoria do Dante"), use brain_capturar_em_outro_projeto com o nome do destino,
+        diga em qual espaço/projeto o item será salvo e que o contexto ativo continua o mesmo. Com destino ambíguo ou
+        não encontrado, mostre as opções e pergunte; nunca escolha por ele nem troque o projeto ativo.
         Atualize candidatos pendentes com brain_corrigir_candidato e revisão esperada.
         Para atualizar conhecimento existente, use brain_atualizar_conhecimento com ID e revisão retornados pela consulta,
         conteúdo, natureza e justificativa. A operação prepara correção no mesmo ID com histórico; não cria outro ativo.

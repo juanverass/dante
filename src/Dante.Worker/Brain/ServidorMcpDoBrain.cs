@@ -48,6 +48,11 @@ public static class ServidorMcpDoBrain
         if (correcao) { p["id"] = Id(); p["revisao"] = Revisao(); }
         return p;
     }
+    private static JsonObject CapturaEmOutroProjeto()
+    {
+        var p = Captura(); p["projeto"] = Texto(200); p["espaco"] = Texto(200);
+        return p;
+    }
     public static readonly IReadOnlyList<Ferramenta> Ferramentas =
     [
         new("brain_obter_escopo", "Espaço/projeto autorizado da sessão. Não altera escopo.", true, false, new(), []),
@@ -55,6 +60,7 @@ public static class ServidorMcpDoBrain
             new() { ["texto"] = TextoDaBusca(), ["natureza"] = EnumCampo<Dante.Domain.CapturaDeConhecimento.NaturezaDoConteudo>(), ["tipo"] = EnumCampo<Dante.Domain.Conhecimentos.TipoDeConhecimento>(), ["tags"] = Tags(), ["limite"] = Limite(), ["deslocamento"] = Deslocamento() }, ["texto"]),
         new("brain_mostrar_origem", "Proveniência de candidato ou conhecimento permitido. " + ContratoDoBrainParaAgentes.RegraDaConfirmacao, true, false, new() { ["id"] = Id(), ["origem"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("candidato", "conhecimento") } }, ["id", "origem"]),
         new("brain_capturar_conhecimento", "Cria um único candidato pendente. Preserve título/conteúdo/tags e o tipo semântico informado. Use natureza ConclusaoDoAgente para conclusões do agente: permanecem inferidas, nunca ditas pelo usuário.", false, false, Captura(), ["conteudo", "natureza", "justificativa"]),
+        new("brain_capturar_em_outro_projeto", "Cria um candidato pendente em OUTRO projeto do próprio usuário, sem trocar o espaço/projeto ativo. Use quando o usuário indicar destino explícito (ex.: registre isso como melhoria do Dante). Informe projeto e, se ele disser, espaco, pelo nome como o usuário falou; nunca peça GUID. Nome único: cria o candidato no destino e prepara a consolidação, que exige confirmar no Telegram. Ambíguo, parcial ou inexistente: nada é gravado e a resposta traz opções para o usuário escolher. Mesmos campos e regras de brain_capturar_conhecimento.", false, false, CapturaEmOutroProjeto(), ["projeto", "conteudo", "natureza", "justificativa"]),
         new("brain_atualizar_conhecimento", "PREPARA correção do conhecimento existente, sem criar outro ativo. Exige revisão e confirmação Telegram; tipo opcional: preserve o atual quando omitido; a correção não herda a confirmação anterior.", false, true, Captura(true), ["id", "revisao", "conteudo", "natureza", "justificativa"]),
         new("brain_consolidar_duplicatas", "PREPARA consolidação explícita: conserva o destino, incorpora proveniências e substitui duplicatas. Exige confirmar no Telegram e revisões de todos os alvos.", false, true,
             new() { ["id"] = Id(), ["revisao"] = Revisao(), ["duplicatas"] = new JsonObject { ["type"] = "array", ["minItems"] = 1, ["maxItems"] = 20,
