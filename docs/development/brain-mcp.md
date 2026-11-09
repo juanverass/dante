@@ -62,6 +62,7 @@ recusa o canal anterior. Reinício do Worker não restaura capacidades.
 | brain_buscar_conhecimento | Busca lexical/híbrida com texto, tipo, tags e paginação |
 | brain_mostrar_origem | Proveniência e histórico autorizado de candidato/conhecimento |
 | brain_capturar_conhecimento | Um candidato por chamada; título, conteúdo, tags, tipo, natureza, sensibilidade e justificativa |
+| brain_capturar_em_outro_projeto | Um candidato em outro projeto do usuário pelo nome (`projeto`, `espaco` opcional), sem trocar o contexto ativo; prepara a consolidação para confirmar no Telegram |
 | brain_listar_candidatos | Pendentes com IDs e revisões, filtros opcionais por tags e texto, sem pedir GUID ao usuário |
 | brain_atualizar_conhecimento | Prepara correção auditada no mesmo ID, revisão esperada e confirmação Telegram |
 | brain_consolidar_duplicatas | Prepara consolidação de 1–20 duplicatas explícitas em um destino, com revisões de todos |
@@ -320,6 +321,26 @@ conteúdo cria outro registro, preservando a proveniência e os metadados de cad
 `possivelDuplicidade` e `duplicidades` apenas apontam as fontes visíveis com o mesmo hash.
 Na busca, a evidência aparece como `FonteBruta`, rotulada como autoria do agente, e o
 filtro `tags` também alcança fontes com todas as tags pedidas.
+
+## Captura em outro projeto (#223)
+
+O projeto ativo e o destino do conhecimento podem divergir. `brain_capturar_em_outro_projeto` recebe o
+destino pelo nome, como o usuário falou (por exemplo, "melhoria do Dante" → `projeto: "Dante"`):
+
+- a resolução considera só os espaços do próprio usuário e os projetos desses espaços. A comparação
+  ignora maiúsculas, acentos e pontuação, então `Dante` corresponde a `D.A.N.T.E.`;
+- se houver um único nome igual, o candidato é criado no destino, com autorização própria do destino,
+  e a consolidação é proposta para `confirmar`/`cancelar` no Telegram. Para `ConclusaoDoAgente`, a
+  resposta pede autorização para registrar e o conteúdo continua `Inferido`;
+- se o nome for igual em mais de um destino (`ambiguo`), só parcialmente igual (`confirmacao_necessaria`)
+  ou não existir (`nao_encontrado`), nada é gravado e a resposta traz as opções para o usuário escolher;
+- se o destino for o próprio contexto ativo, a ferramenta recusa e indica `brain_capturar_conhecimento`;
+- o acesso da sessão e a seleção do Telegram não mudam. A confirmação revalida que o contexto ativo
+  continua o mesmo e que o destino continua acessível;
+- a proveniência do candidato acrescenta `percebido-em:<idEspaco>/<idProjeto|sem-projeto>` do contexto
+  ativo em que a observação surgiu;
+- sensibilidade, origem literal de `DitoPeloUsuario` e detecção de credenciais seguem as mesmas regras
+  da captura comum.
 
 ## Limites e validação
 

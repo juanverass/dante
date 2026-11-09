@@ -58,6 +58,8 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 ValidarOrigem(dto, mensagem);
                 var salvo = await captura.CapturarAsync(dto, ct);
                 return new { candidato = Resumir(salvo), possivelDuplicidade = salvo.Revisao > 1 || salvo.Estado != EstadoDoCandidato.Pendente, confirmado = false };
+            case "brain_capturar_em_outro_projeto":
+                return await CapturarEmOutroProjetoAsync();
             case "brain_corrigir_candidato":
                 var anterior = await CandidatoAsync();
                 if (anterior.Estado != EstadoDoCandidato.Pendente || anterior.Revisao != Inteiro(args, "revisao")) throw ErroDoBrainMcp.Revisao();
@@ -267,6 +269,70 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                     $"{prova.Origem};{prova.ReferenciaDaFonte}", snapshot?.ExpiraEm, ct);
             default: throw ErroDoBrainMcp.Entrada();
         }
+        // #223: destino explícito diferente do contexto ativo. O acesso da sessão e a seleção do Telegram não mudam;
+        // o destino é resolvido só entre espaços do próprio usuário e opera com autorização própria, fail-closed.
+        async Task<object> CapturarEmOutroProjetoAsync()
+        {
+            var nomeDoEspaco = args.TryGetProperty("espaco", out _) ? Texto(args, "espaco", 200) : null;
+            var resolucao = await ResolverDestinoAsync(escopo, Texto(args, "projeto", 200), nomeDoEspaco, ct);
+            var contextoAtivo = new { espaco = escopo.Espaco, projeto = escopo.Projeto };
+            if (resolucao.Destino is not { } destino)
+                return new { destinoResolvido = false, motivo = resolucao.Motivo, opcoes = resolucao.Opcoes, contextoAtivo, capturado = false,
+                    instrucao = resolucao.Motivo == "nao_encontrado"
+                        ? "Nenhum projeto seu corresponde ao destino informado. Nada foi registrado. Pergunte ao usuário o projeto de destino; não escolha por ele."
+                        : "O destino não é inequívoco. Nada foi registrado. Mostre as opções ao usuário e repita a chamada com espaco e projeto exatamente como ele escolher; não escolha por ele." };
+            var alvo = destino.Acesso;
+            if (alvo.IdEspacoDeConhecimento == acesso.IdEspacoDeConhecimento && alvo.IdProjeto == acesso.IdProjeto)
+                throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheDestinoAtivo);
+            var provaDaFonte = ProvaDaFonte(prova, mensagem, args);
+            // Contexto em que a observação surgiu, por IDs verificáveis; nomes podem mudar depois.
+            provaDaFonte = provaDaFonte with { Origem = $"{provaDaFonte.Origem};percebido-em:{acesso.IdEspacoDeConhecimento}/{acesso.IdProjeto?.ToString() ?? "sem-projeto"}" };
+            var dtoDestino = Captura(args, alvo, provaDaFonte);
+            ValidarOrigem(dtoDestino, mensagem);
+            CandidatoDeConhecimentoDto salvoNoDestino;
+            await using (var escopoDoDestino = scopes.CreateAsyncScope())
+            {
+                var sp = escopoDoDestino.ServiceProvider;
+                sp.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(escopo.Identidade, alvo);
+                try { await sp.GetRequiredService<LeituraDoBrainAppService>().ValidarAcessoAsync(alvo, ct); }
+                catch (UnauthorizedAccessException) { throw ErroDoBrainMcp.NaoEncontrado(); }
+                salvoNoDestino = await sp.GetRequiredService<ICapturaDeConhecimentoAppService>().CapturarAsync(dtoDestino, ct);
+            }
+            var pendente = salvoNoDestino.Estado == EstadoDoCandidato.Pendente;
+            if (pendente)
+                Propor(async (confirmacao, cancelamento) =>
+                {
+                    // O contexto ativo precisa continuar o mesmo; o destino é revalidado com a sua própria autorização.
+                    await RevalidarEscopoAsync(confirmacao, cancelamento);
+                    await using var confirmScope = scopes.CreateAsyncScope(); var services = confirmScope.ServiceProvider;
+                    services.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(escopo.Identidade, alvo);
+                    try { await services.GetRequiredService<LeituraDoBrainAppService>().ValidarAcessoAsync(alvo, cancelamento); }
+                    catch (UnauthorizedAccessException) { throw ErroDoBrainMcp.EscopoMudou(); }
+                    var app = services.GetRequiredService<ICapturaDeConhecimentoAppService>();
+                    CandidatoDeConhecimentoDto atual;
+                    try { atual = await app.ObterCandidatoAsync(alvo.IdEspacoDeConhecimento, alvo.IdProjeto, salvoNoDestino.Id, cancelamento); }
+                    catch (ArgumentException) { throw ErroDoBrainMcp.NaoEncontrado(); }
+                    if (atual.Estado != EstadoDoCandidato.Pendente || atual.Revisao != salvoNoDestino.Revisao) throw ErroDoBrainMcp.Revisao();
+                    var id = await app.ConfirmarAsync(alvo.IdEspacoDeConhecimento, alvo.IdProjeto, atual.Id, atual.Revisao,
+                        Prova(confirmacao, alvo.IdUsuario, escopo.Conversa, sessao, agente), cancelamento);
+                    var consolidado = await services.GetRequiredService<IConhecimentoAppService>().ObterPorIdAsync(id, cancelamento);
+                    var estado = consolidado?.Status == StatusDoConhecimento.Confirmado ? "confirmado" : "registrado como inferido, não confirmado";
+                    return $"Candidato consolidado em {destino.Espaco} / {destino.Projeto}: {estado}. " +
+                        $"O contexto ativo continua {escopo.Espaco} / {escopo.Projeto ?? "sem projeto"}.";
+                });
+            var conclusao = dtoDestino.Natureza == NaturezaDoConteudo.ConclusaoDoAgente;
+            return new
+            {
+                destinoResolvido = true, destino = new { espaco = destino.Espaco, projeto = destino.Projeto }, contextoAtivo,
+                candidato = Resumir(salvoNoDestino), possivelDuplicidade = salvoNoDestino.Revisao > 1 || !pendente, capturado = true,
+                aguardandoConfirmacao = pendente && !conclusao, aguardandoAutorizacaoDeRegistro = pendente && conclusao,
+                instrucao = (pendente
+                    ? $"Informe que o item será salvo em {destino.Espaco} / {destino.Projeto} e que o contexto ativo continua {escopo.Espaco} / {escopo.Projeto ?? "sem projeto"}. " +
+                      (conclusao ? "Peça autorização para registrar; o conteúdo continuará Inferido. Para autorizar ele envia confirmar no Telegram (ou cancelar). "
+                                 : "Para consolidar ele envia confirmar no Telegram (ou cancelar). ") + "Nada foi consolidado ainda."
+                    : "Já existe registro equivalente no destino; nenhuma proposta nova foi criada.") + " Não troque o contexto ativo."
+            };
+        }
         void Propor(Func<TelegramMessage, CancellationToken, Task<string>> executar)
         {
             try { registro.Propor(mensagem, sessao, executar); }
@@ -334,6 +400,47 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             catch (ArgumentException) { return false; }
         }
     }
+    private sealed record DestinoDaCaptura(AcessoAoBrain Acesso, string Espaco, string Projeto);
+    private sealed record ResolucaoDoDestino(DestinoDaCaptura? Destino, string? Motivo, object[] Opcoes);
+    // #223: igualdade de nome sem maiúsculas, acentos ou pontuação ("Dante" = "D.A.N.T.E."). Correspondência só parcial
+    // vira opção a confirmar, nunca escolha silenciosa. Busca apenas nos espaços do próprio usuário.
+    private async Task<ResolucaoDoDestino> ResolverDestinoAsync(TelegramBrain.EscopoBrainDaSessao escopo, string projeto, string? espaco, CancellationToken ct)
+    {
+        var alvoProjeto = NomeComparavel(projeto); var alvoEspaco = espaco is null ? null : NomeComparavel(espaco);
+        if (alvoProjeto.Length == 0 || alvoEspaco is { Length: 0 }) throw ErroDoBrainMcp.Entrada();
+        IReadOnlyList<Dante.Application.EspacosDeConhecimento.EspacoDeConhecimentoDto> espacos;
+        await using (var raiz = scopes.CreateAsyncScope())
+        {
+            raiz.ServiceProvider.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(escopo.Identidade);
+            espacos = await raiz.ServiceProvider.GetRequiredService<Dante.Application.EspacosDeConhecimento.IEspacoDeConhecimentoAppService>()
+                .PesquisarAsync(new(escopo.Identidade.IdUsuario, Limite: 100), ct);
+        }
+        var exatos = new List<DestinoDaCaptura>(); var parciais = new List<DestinoDaCaptura>();
+        foreach (var e in espacos.Where(e => e.IdUsuario == escopo.Identidade.IdUsuario))
+        {
+            var nomeEspaco = NomeComparavel(e.Nome);
+            var espacoExato = alvoEspaco is null || nomeEspaco == alvoEspaco;
+            if (!espacoExato && !nomeEspaco.Contains(alvoEspaco!, StringComparison.Ordinal) && !alvoEspaco!.Contains(nomeEspaco, StringComparison.Ordinal)) continue;
+            var acessoDoEspaco = escopo.Acesso with { IdEspacoDeConhecimento = e.Id, IdProjeto = null };
+            await using var operacao = scopes.CreateAsyncScope();
+            operacao.ServiceProvider.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(escopo.Identidade, acessoDoEspaco);
+            var projetos = await operacao.ServiceProvider.GetRequiredService<Dante.Application.Projetos.IProjetoAppService>()
+                .PesquisarAsync(new(e.Id, Limite: 100), ct);
+            foreach (var p in projetos.Where(p => p.IdEspacoDeConhecimento == e.Id))
+            {
+                var nomeProjeto = NomeComparavel(p.Nome);
+                var item = new DestinoDaCaptura(acessoDoEspaco with { IdProjeto = p.Id }, e.Nome, p.Nome);
+                if (espacoExato && nomeProjeto == alvoProjeto) exatos.Add(item);
+                else if (nomeProjeto.Contains(alvoProjeto, StringComparison.Ordinal) || alvoProjeto.Contains(nomeProjeto, StringComparison.Ordinal)) parciais.Add(item);
+            }
+        }
+        static object Opcao(DestinoDaCaptura d) => new { espaco = d.Espaco, projeto = d.Projeto };
+        if (exatos.Count == 1) return new(exatos[0], null, []);
+        if (exatos.Count > 1) return new(null, "ambiguo", exatos.Select(Opcao).ToArray());
+        return parciais.Count > 0 ? new(null, "confirmacao_necessaria", parciais.Select(Opcao).ToArray()) : new(null, "nao_encontrado", []);
+    }
+    private static string NomeComparavel(string nome) =>
+        new(nome.Normalize(System.Text.NormalizationForm.FormD).Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
     private static string AtualizarTitulo(string? dados, string titulo)
     {
         var objeto = dados is null ? new JsonObject() : JsonNode.Parse(dados) as JsonObject ??
