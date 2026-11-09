@@ -200,6 +200,144 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
         }
     }
 
+    // Nota Markdown fornecida pelo usuário em 2026-11-09 (texto literal da mensagem dele; não é fixture inventada).
+    internal const string NotaDoUsuario = """
+        Nota de validação — D.A.N.T.E. Brain
+        Identificador: DANTE147-MD-2026-11-09-ALFA
+        Projeto: D.A.N.T.E.
+        Issue: #147
+        Data: 09/11/2026
+        Objetivo
+        Validar se o Brain consegue ingerir, preservar e recuperar uma fonte Markdown entre sessões independentes, sem depender do histórico da conversa original.
+        Contexto da validação
+        A validação da Issue #147 utiliza três candidatos de conhecimento:
+        1. Incidente IPv6: problema relacionado à conectividade IPv6.
+        2. Happy Eyeballs: solução técnica considerada para lidar com tentativas de conexão IPv4 e IPv6.
+        3. Limitação da busca: a recuperação lexical não encontrou resultados para consultas por paráfrases.
+        Esses três itens permanecem como candidatos pendentes de confirmação.
+        Critérios de recuperação
+        Após a ingestão desta nota, uma sessão independente deverá conseguir recuperar:
+        - O identificador exclusivo desta fonte.
+        - A relação entre esta nota e a Issue #147.
+        - Os três assuntos mencionados.
+        - O estado de confirmação dos candidatos.
+        - A data da validação.
+        Restrições
+        - Não confirmar automaticamente os candidatos.
+        - Não criar relações sem autorização.
+        - Não transformar conclusões do agente em fatos confirmados.
+        - Preservar a proveniência da fonte Markdown.
+        - Não alterar o banco canônico fora das operações autorizadas.
+        Resultado esperado
+        O Brain deverá conseguir localizar esta fonte por consultas como:
+        - Qual é a nota de validação do dia 9 de novembro?
+        - O que foi documentado sobre a Issue 147?
+        - Qual identificador foi atribuído à nota Markdown?
+        - Quais são os três assuntos registrados como candidatos?
+        Finalidade: comprovar ingestão e recuperação independente de uma fonte Markdown, sem fornecer novamente seu conteúdo à sessão que realizará a consulta.
+        """;
+    private static readonly string[] PerguntasDaNota =
+    [
+        "Qual é a nota de validação do dia 9 de novembro?", "O que foi documentado sobre a Issue 147?",
+        "Qual identificador foi atribuído à nota Markdown?", "Quais são os três assuntos registrados como candidatos?"
+    ];
+
+    // Cenário da nota: o usuário importa pela rota de produção (autoria Usuario) e uma sessão independente,
+    // sem o conteúdo da nota no pedido, responde às perguntas da própria nota usando só o Brain.
+    [EnsaioIndependente]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task NotaMarkdownDoUsuarioERecuperadaPorSessaoIndependente(int repeticao)
+    {
+        var admin = new Npgsql.NpgsqlConnectionStringBuilder(Banco.Administrativa);
+        Assert.Equal("127.0.0.1", admin.Host); Assert.Equal(55433, admin.Port); Assert.Equal("postgres", admin.Database);
+        await using var banco = await Banco.CriarAsync();
+        var privadoB = Directory.CreateTempSubdirectory("dante147-nota-b-").FullName;
+        var evidencias = Path.Combine(Environment.GetEnvironmentVariable("DANTE_147_EVIDENCIAS") ?? Path.GetTempPath(), "dante147-nota-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(evidencias);
+        using var app = BrainMcpTests.CriarApp(banco.ConnectionString);
+        var brain = app.GetRequiredService<TelegramBrain>(); await BrainMcpTests.SelecionarAsync(brain);
+        using var ferramentas = BrainMcpTests.Provedor(app);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+        var ct = timeout.Token;
+        var chamadasB = new List<string>(); var rastroB = new RastroDeFerramentas147(); var launcherB = new LancadorSomenteBrain(privadoB);
+        string respostaB = ""; object? resultadoFinal = null;
+        try
+        {
+            // Sessão A = o próprio usuário pelo Telegram: comando de importação com o texto literal.
+            var importe = "importe Markdown Nota de validação — D.A.N.T.E. Brain: " + NotaDoUsuario;
+            Assert.Contains("Fonte bruta adicionada", await brain.AtenderAsync(BrainMcpTests.Mensagem(importe, 100), importe, null, ct));
+            await using (var db = banco.Contexto())
+            {
+                var fonte = await db.Set<DocumentoFonte>().SingleAsync(ct);
+                Assert.Equal("markdown", fonte.Formato); Assert.Equal(AutoriaDaFonte.Usuario, fonte.Autoria);
+                Assert.Contains("DANTE147-MD-2026-11-09-ALFA", fonte.Conteudo);
+                Assert.Empty(await db.CandidatosDeConhecimento.ToListAsync(ct)); Assert.Empty(await db.Conhecimentos.ToListAsync(ct));
+            }
+            var medicao = BrainMcpTests.Mensagem("medição", 150);
+            var escopo = (await brain.ResolverEscopoMcpAsync(medicao, ct))!;
+            // Recuperação do Brain sozinho (MCP, AND implícito) para cada pergunta, sem reformulação do agente.
+            var buscasDiretas = new List<object>();
+            foreach (var pergunta in PerguntasDaNota)
+            {
+                await using var s = app.CreateAsyncScope();
+                s.ServiceProvider.GetRequiredService<Dante.Application.SegurancaDoBrain.AutorizacaoDoBrain>().Estabelecer(escopo.Identidade, escopo.Acesso);
+                var busca = await s.ServiceProvider.GetRequiredService<BuscaDoBrainAppService>().BuscarAsync(escopo.Acesso, new() { Texto = pergunta, Limite = 10 }, ct);
+                buscasDiretas.Add(new { pergunta, resultados = busca.Resultados.Count, notaRecuperada = busca.Resultados.Any(x => x.Origem == OrigemDoResultado.FonteBruta), busca.Modo });
+            }
+
+            var pedidoB = "Responda usando exclusivamente o Brain, citando a origem e o rótulo de cada item:\n" + string.Join("\n", PerguntasDaNota.Select((p, i) => $"{i + 1}. {p}")) +
+                "\nInforme também o estado de confirmação dos candidatos e a data da validação.";
+            Assert.DoesNotContain("DANTE147", pedidoB); Assert.DoesNotContain("Happy", pedidoB);
+            Assert.Empty(Directory.EnumerateFileSystemEntries(privadoB));
+            var estadoAntesDeB = await EstadoPersistidoAsync(banco, ct);
+            var mensagemB = BrainMcpTests.Mensagem(pedidoB, 300);
+            var servidoresB = await ferramentas.ForSessionAsync("147NB", new(42, AgentKind.Claude, Dante.Application.Contextos.JobExecutionContext.General(privadoB), BrainConversation: mensagemB.ParaFerramentas()), ct);
+            Assert.Single(servidoresB);
+            var contexto = await brain.PrepararAsync(mensagemB, "147NB", pedidoB, ct);
+            var notaNoPacote = contexto?.Pacote.Itens.Any(x => x.Origem == "fonte_bruta") == true;
+            await using (var b = new ClaudeSessionDriver(launcherB))
+            {
+                await b.StartAsync(new(privadoB, IsGeneral: true, Profile: AgentPermissionProfile.Manual, ToolServers: servidoresB), ct);
+                await using var eventos = b.ReadEventsAsync(ct).GetAsyncEnumerator();
+                await b.StartTurnAsync(contexto?.Texto ?? pedidoB, ct); if (contexto is not null) await brain.RegistrarInjecaoAsync(contexto, ct);
+                respostaB = await RespostaAsync(b, eventos, chamadasB, false, ct, rastroB);
+            }
+            await launcherB.ConfirmarEncerramentoAsync(ct); ferramentas.EndSession("147NB");
+            var estadoDepoisDeB = await EstadoPersistidoAsync(banco, ct);
+            var t = respostaB;
+            static bool Re(string texto, string padrao) => System.Text.RegularExpressions.Regex.IsMatch(texto, padrao, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var criterios = new Dictionary<string, bool>
+            {
+                ["identificador"] = t.Contains("DANTE147-MD-2026-11-09-ALFA", StringComparison.Ordinal),
+                ["issue_147"] = Re(t, @"(#|issue\s*)147\b"),
+                ["assunto_ipv6"] = Re(t, "IPv6"),
+                ["assunto_happy_eyeballs"] = Re(t, "Happy Eyeballs"),
+                // Nome do assunto na nota ("Limitação da busca") ou o termo da descrição.
+                ["assunto_busca"] = Re(t, @"limita\w* da busca|par[áa]frase"),
+                ["estado_pendente"] = Re(t, "pendente"),
+                ["data"] = t.Contains("09/11/2026", StringComparison.Ordinal) || Re(t, "9 de novembro de 2026"),
+                ["rotulo_fonte_usuario"] = Re(t, "Fonte bruta de autoria do usuário, não confirmada")
+            };
+            var ofertas = AvaliacaoDoHarness147.OfertasDeConfirmacao(respostaB);
+            resultadoFinal = new { repeticao, banco = banco.Nome, agente = "claude", pedidoB, notaNoPacote, buscasDiretas, criterios, ofertas,
+                rastroB, chamadasB, estadoPreservado = estadoAntesDeB == estadoDepoisDeB, respostaB,
+                tokensPacote = contexto?.Pacote.Custo.TokensEstimados, tokensNota = ConstrutorDeContextoAppService.EstimarTokens(NotaDoUsuario) };
+            await File.WriteAllTextAsync(Path.Combine(evidencias, "resultado.json"), JsonSerializer.Serialize(resultadoFinal, Json), ct);
+            output.WriteLine("Evidências: " + evidencias);
+            output.WriteLine(JsonSerializer.Serialize(new { criterios, buscasDiretas, notaNoPacote }, Json));
+            // Salvar antes de reprovar.
+            var ausentes = criterios.Where(x => !x.Value).Select(x => x.Key).ToArray();
+            Assert.True(ausentes.Length == 0, "Critérios da nota não demonstrados: " + string.Join(", ", ausentes));
+            AvaliacaoDoHarness147.ExigirPolitica(respostaB, rastroB, estadoAntesDeB, estadoDepoisDeB);
+        }
+        finally
+        {
+            if (resultadoFinal is null) await File.WriteAllTextAsync(Path.Combine(evidencias, "incompleto.json"), JsonSerializer.Serialize(new { repeticao, chamadasB, rastroB, respostaB }, Json));
+            if (Directory.Exists(privadoB)) Directory.Delete(privadoB, true);
+        }
+    }
+
     private static async Task<string> RespostaAsync(IAgentSessionDriver driver, IAsyncEnumerator<AgentEvent> eventos, List<string> chamadas, bool mutacoesPermitidas, CancellationToken ct, RastroDeFerramentas147? rastro = null)
     {
         var texto = new StringBuilder();

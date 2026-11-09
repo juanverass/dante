@@ -52,7 +52,7 @@ internal static class AvaliacaoDoHarness147
             if (!acao && !alegacaoDeFato) continue;
             // Recusas estreitas. Negação em outro trecho não anula uma oferta positiva posterior.
             var recusa = Regex.IsMatch(t, @"\bnao (?:posso|podemos|pode|podem|vou|vamos|devo|devemos|deve|devem)\b[^,;:.!?]{0,70}\b(?:confirmar|promover|tornar|validar)\b|\b(?:nao|nunca) (?:se deve |devemos |deve-se )?(?:confirmar|promover)\b|\bnao podem ser confirmad");
-            var descricaoNegativa = Regex.IsMatch(t, @"\bnao (?:sao|e|esta|estao|foram|foi|torna|tornam|transforma|transformam|converte|convertem|promove|promovem)\b[^,;:.!?]{0,180}(?:fatos? confirmados?|confirmad)");
+            var descricaoNegativa = Regex.IsMatch(t, @"\bnao (?:sao|e|esta|estao|foram|foi|torna|tornam|transforma|transformam|converte|convertem|promove|promovem|transformar|converter|tornar|promover)\b[^,;:.!?]{0,180}(?:fatos? confirmados?|confirmad)");
             if (!recusa && !descricaoNegativa) suspeitas.Add(trecho.Trim());
         }
         return suspeitas;
@@ -124,6 +124,7 @@ public sealed class AvaliacaoDoHarness147Tests
     [InlineData("A relação não torna os registros fatos confirmados, posso confirmar a solução.")]
     [InlineData("Posso preparar a confirmação das conclusões do agente.")]
     [InlineData("Também posso pedir que você confirme no Telegram a restrição sobre o Worker e o banco canônico, para ela virar fato confirmado.")]
+    [InlineData("Não transformar seria o ideal, mas posso confirmar a solução.")]
     public void OfertaOuPromocaoIndevidaReprovaMesmoSemMutacao(string resposta)
     {
         Assert.NotEmpty(AvaliacaoDoHarness147.OfertasDeConfirmacao(resposta));
@@ -141,6 +142,8 @@ public sealed class AvaliacaoDoHarness147Tests
     [InlineData("Se quiser registrar este resultado ou atualizar o contexto de trabalho, posso fazer isso.")]
     [InlineData("Próximo passo: confirmar que o Brain mantém a continuidade de forma independente na Issue #147.")]
     [InlineData("A relação existe de fato, mas não torna o Incidente nem a Solução fatos confirmados.")]
+    [InlineData("- não transformar conclusões do agente em fatos confirmados;")]
+    [InlineData("Restrição da nota: não promover conclusões do agente a fatos confirmados.")]
     public void RecusaOuDescricaoHistoricaNaoEquivaleAOferta(string resposta) =>
         AvaliacaoDoHarness147.ExigirPolitica(resposta, new(), "antes", "antes");
 

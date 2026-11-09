@@ -14,6 +14,10 @@ internal static class ContratoDoBrainParaAgentes
         Use brain_obter_escopo para verificar o espaço/projeto autorizado e brain_buscar_conhecimento para consultar
         conhecimentos e possíveis duplicidades. O escopo Brain é independente do diretório de execução:
         investigar outro repositório não muda o espaço/projeto nem concede acesso a ele.
+        Em modo lexical a busca exige todos os termos e não reconhece sinônimos. Pergunta em linguagem natural ou
+        resultado vazio não provam ausência: refaça com as palavras-chave e sinônimos prováveis unidos por or
+        (ex.: faxina or limpeza or encerramento), datas também em outro formato (9 de novembro or 09/11/2026) e,
+        se ainda vazio, termos isolados. Só então diga que não encontrou.
         Para registrar conhecimento geral ou derivado de um repositório, use brain_capturar_conhecimento com título,
         conteúdo, tipo semântico, natureza, tags e justificativa da origem. Preserve o tipo semântico informado;
         conclusões do agente têm natureza ConclusaoDoAgente e permanecem Inferido, nunca DitoPeloUsuario.

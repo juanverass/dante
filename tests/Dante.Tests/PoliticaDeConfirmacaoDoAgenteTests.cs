@@ -23,6 +23,7 @@ public sealed class PoliticaDeConfirmacaoDoAgenteTests
         // #147: perdas observadas no E2E real (identificador da Issue no snapshot e rótulo parafraseado).
         Assert.Contains("preserve os identificadores verificáveis", contrato);
         Assert.Contains("mostre junto de cada item o rótulo retornado", contrato);
+        Assert.Contains("refaça com as palavras-chave e sinônimos prováveis unidos por or", contrato);
         // O mesmo contrato de conversa é usado por Claude e Codex; sem depender da frase específica do cenário.
         Assert.Contains(contrato, Dante.Worker.Sessions.ContratoDaConversaParaAgentes.ParaSessao([]));
         using var saida = new StringWriter();
