@@ -746,6 +746,16 @@ busca híbrida, limites e comportamento de execução foram preservados. Hífen 
 pelo parser, mas a seleção por pontuação atual não garante exclusão do termo negado;
 a ressalva está documentada e testada, sem alteração dos índices.
 
+A #147 acrescenta uma segunda tentativa apenas na busca explícita lexical vazia,
+com famílias limitadas de limpeza/encerramento e subprocessos. Preserva todas as
+âncoras de cada alternativa, filtros, revalidação e paginação; não complementa
+resultado já encontrado nem reformula operadores, negações, ID ou consultas do
+Context Builder. Sem família reconhecida, fora dos limites ou sem correspondência,
+mantém a abstenção. Não equipara subordinados a processos. A explicação identifica
+a expansão, sem embeddings ou mudanças de índice/configuração. Corpus congelado,
+negativas, precisão/Recall@5 e latência têm ensaio reproduzível; isso não conclui
+o GO/NO-GO nem a medição real de tokens da #147. Detalhes no guia MCP.
+
 O snapshot aceita `ids_decisoes_confirmadas` opcional pelo MCP (#256): lista completa
 substitui, `[]` limpa e omissão preserva. Até 20 entradas, deduplicadas pelo domínio;
 IDs devem apontar para decisões confirmadas, válidas, no mesmo escopo e compatíveis

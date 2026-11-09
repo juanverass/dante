@@ -1,0 +1,32 @@
+{
+  "versao":1,
+  "descricao":"Verificação adicional fixada antes de observar as alternativas. Não substitui nem altera os conjuntos históricos; verifica transferência das regras limitadas e preservação das âncoras.",
+  "corpus":[
+    {"key":"cozinha","text":"A limpeza da cozinha remove resíduos das superfícies.","type":0,"tags":[]},
+    {"key":"lentes","text":"A higienização das lentes do telescópio exige cuidados com o revestimento.","type":0,"tags":[]},
+    {"key":"inventario","text":"A finalização do inventário exige conferência dos volumes.","type":0,"tags":[]},
+    {"key":"backup","text":"O término do backup só ocorre depois da verificação das cópias.","type":0,"tags":[]},
+    {"key":"filhos","text":"O encerramento dos processos filhos só ocorre depois de liberar a memória.","type":0,"tags":[]},
+    {"key":"descendentes","text":"A limpeza dos processos descendentes deve esperar o grupo vazio.","type":0,"tags":[]},
+    {"key":"rh","text":"Os subordinados participam do encerramento do trimestre.","type":0,"tags":[]},
+    {"key":"juridico","text":"O encerramento dos processos judiciais exige sentença.","type":0,"tags":[]}
+  ],
+  "queries":[
+    {"id":"T01","category":"sinonimo","text":"limpar cozinha","relevant":["cozinha"]},
+    {"id":"T02","category":"sinonimo","text":"faxina lentes","relevant":["lentes"]},
+    {"id":"T03","category":"sinonimo","text":"higienizar cozinha","relevant":["cozinha"]},
+    {"id":"T04","category":"sinonimo","text":"encerramento inventário","relevant":["inventario"]},
+    {"id":"T05","category":"sinonimo","text":"finalizar backup","relevant":["backup"]},
+    {"id":"T06","category":"sinonimo","text":"término inventário","relevant":["inventario"]},
+    {"id":"T07","category":"parafrase","text":"encerrar subprocessos","relevant":["filhos"]},
+    {"id":"T08","category":"parafrase","text":"limpar processos descendentes","relevant":["descendentes"]},
+    {"id":"T09","category":"sem-correspondencia","text":"faxina dos subordinados","relevant":[]},
+    {"id":"T10","category":"sem-correspondencia","text":"faxina da marinha","relevant":[]},
+    {"id":"T11","category":"sem-correspondencia","text":"encerramento subprocessos judiciais","relevant":[]},
+    {"id":"T12","category":"sem-correspondencia","text":"limpar lentes infravermelhas","relevant":[]},
+    {"id":"T13","category":"sem-correspondencia","text":"finalização inventário fiscal","relevant":[]},
+    {"id":"T14","category":"sem-correspondencia","text":"término backup criptografado","relevant":[]},
+    {"id":"T15","category":"sem-correspondencia","text":"faxina processos eleitorais","relevant":[]},
+    {"id":"T16","category":"sem-correspondencia","text":"como limpar processos de fermentação?","relevant":[]}
+  ]
+}

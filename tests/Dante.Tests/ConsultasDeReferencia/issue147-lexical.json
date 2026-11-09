@@ -1,0 +1,258 @@
+{
+  "base": "7ba7eb1",
+  "source_artifact": "dante147-1b4caf1375db4cb1af804947e573abdf/resultado.json",
+  "corpus": [
+    {
+      "key": "solucao",
+      "text": "Solução do PR #283 (merge 146a0fe40ea3137707f490e01df8c1219afdaa71): a contenção Linux de agentes usa escopos systemd e cgroups v2; o Completion só reporta sucesso quando o processo raiz foi encerrado e o grupo (cgroup) está vazio, garantindo a limpeza dos descendentes. Referência pública: docs/development/contencao-de-agentes.md na revisão do merge.\nIdentificador exclusivo do ensaio: verificacao14742d701918a6e4498a9f1f5ea5533bdd5",
+      "type": 7,
+      "tags": [
+        "teste-147"
+      ]
+    },
+    {
+      "key": "decisao",
+      "text": "O Brain deve permanecer em modo lexical.",
+      "type": 1,
+      "tags": [
+        "teste-147"
+      ]
+    },
+    {
+      "key": "incidente",
+      "text": "No caso real do PR #283 (merge 146a0fe40ea3137707f490e01df8c1219afdaa71), o Completion podia sinalizar término antes de confirmar a limpeza dos processos descendentes do agente. Risco: processos órfãos sobrevivendo ao fim declarado da execução, comprometendo a confiabilidade do D.A.N.T.E.\nIdentificador exclusivo do ensaio: verificacao14742d701918a6e4498a9f1f5ea5533bdd5",
+      "type": 6,
+      "tags": [
+        "teste-147"
+      ]
+    },
+    {
+      "key": "faxina-domestica",
+      "text": "A faxina da cozinha exige limpeza das superfícies e descarte de resíduos.",
+      "type": 0,
+      "tags": []
+    },
+    {
+      "key": "subordinados-rh",
+      "text": "Os subordinados da equipe participam da avaliação de desempenho e da reunião de encerramento do trimestre.",
+      "type": 0,
+      "tags": []
+    },
+    {
+      "key": "processo-juridico",
+      "text": "O encerramento dos processos judiciais depende do trânsito em julgado.",
+      "type": 0,
+      "tags": []
+    },
+    {
+      "key": "linux-arquivos",
+      "text": "A limpeza de arquivos temporários no Linux libera espaço em disco.",
+      "type": 0,
+      "tags": []
+    },
+    {
+      "key": "ipv6",
+      "text": "Happy Eyeballs intercala as tentativas de conexão IPv4 e IPv6 para evitar bloqueio na conectividade.",
+      "type": 0,
+      "tags": []
+    }
+  ],
+  "queries": [
+    {
+      "id": "q01",
+      "category": "literal",
+      "text": "Completion",
+      "relevant": [
+        "incidente",
+        "solucao"
+      ],
+      "rewrite": "Completion"
+    },
+    {
+      "id": "q02",
+      "category": "literal",
+      "text": "limpeza dos processos descendentes",
+      "relevant": [
+        "incidente",
+        "solucao"
+      ],
+      "rewrite": "limpeza dos processos descendentes"
+    },
+    {
+      "id": "q03",
+      "category": "literal",
+      "text": "escopos systemd cgroups",
+      "relevant": [
+        "solucao"
+      ],
+      "rewrite": "escopos systemd cgroups"
+    },
+    {
+      "id": "q04",
+      "category": "literal",
+      "text": "grupo vazio",
+      "relevant": [
+        "solucao"
+      ],
+      "rewrite": "grupo vazio"
+    },
+    {
+      "id": "q05",
+      "category": "parafrase",
+      "text": "encerramento dos subprocessos",
+      "relevant": [
+        "incidente",
+        "solucao"
+      ],
+      "rewrite": "limpeza processos descendentes or término processos descendentes"
+    },
+    {
+      "id": "q06",
+      "category": "parafrase",
+      "text": "faxina dos subordinados",
+      "relevant": [
+        "incidente",
+        "solucao"
+      ],
+      "rewrite": "limpeza processos descendentes or término processos descendentes"
+    },
+    {
+      "id": "q07",
+      "category": "parafrase",
+      "text": "finalização das tarefas filhas",
+      "relevant": [
+        "incidente",
+        "solucao"
+      ],
+      "rewrite": "limpeza processos descendentes or término processos descendentes"
+    },
+    {
+      "id": "q08",
+      "category": "parafrase",
+      "text": "término dos processos descendentes",
+      "relevant": [
+        "incidente",
+        "solucao"
+      ],
+      "rewrite": "término processos descendentes or limpeza processos descendentes"
+    },
+    {
+      "id": "q09",
+      "category": "vocabulario",
+      "text": "processos descendentes",
+      "relevant": [
+        "incidente",
+        "solucao"
+      ],
+      "rewrite": "processos descendentes"
+    },
+    {
+      "id": "q10",
+      "category": "vocabulario",
+      "text": "limpar processo descendente",
+      "relevant": [
+        "incidente",
+        "solucao"
+      ],
+      "rewrite": "limpar processo descendente"
+    },
+    {
+      "id": "q11",
+      "category": "vocabulario",
+      "text": "cgroup vazio",
+      "relevant": [
+        "solucao"
+      ],
+      "rewrite": "cgroup vazio"
+    },
+    {
+      "id": "q12",
+      "category": "vocabulario",
+      "text": "processos órfãos",
+      "relevant": [
+        "incidente"
+      ],
+      "rewrite": "processos órfãos"
+    },
+    {
+      "id": "q13",
+      "category": "equivalencia-semantica",
+      "text": "Como garantir que nenhum filho continue rodando depois que o agente terminou?",
+      "relevant": [
+        "incidente",
+        "solucao"
+      ],
+      "rewrite": "processos descendentes or processos órfãos"
+    },
+    {
+      "id": "q14",
+      "category": "equivalencia-semantica",
+      "text": "Quando é seguro declarar concluída a execução no Linux?",
+      "relevant": [
+        "solucao"
+      ],
+      "rewrite": "Completion systemd or grupo vazio"
+    },
+    {
+      "id": "q15",
+      "category": "equivalencia-semantica",
+      "text": "O sucesso deve esperar que a árvore de execução esteja vazia?",
+      "relevant": [
+        "solucao"
+      ],
+      "rewrite": "grupo vazio or cgroup vazio"
+    },
+    {
+      "id": "q16",
+      "category": "equivalencia-semantica",
+      "text": "Evitar que tarefas sobrevivam ao fim anunciado",
+      "relevant": [
+        "incidente",
+        "solucao"
+      ],
+      "rewrite": "processos órfãos or processos descendentes"
+    },
+    {
+      "id": "q17",
+      "category": "sem-correspondencia",
+      "text": "fotossíntese das orquídeas",
+      "relevant": [],
+      "rewrite": "fotossíntese das orquídeas"
+    },
+    {
+      "id": "q18",
+      "category": "sem-correspondencia",
+      "text": "encerramento dos processos de fermentação",
+      "relevant": [],
+      "rewrite": "encerramento dos processos de fermentação"
+    },
+    {
+      "id": "q19",
+      "category": "sem-correspondencia",
+      "text": "limpeza de lentes do telescópio",
+      "relevant": [],
+      "rewrite": "limpeza de lentes do telescópio"
+    },
+    {
+      "id": "q20",
+      "category": "sem-correspondencia",
+      "text": "grupo sanguíneo vazio no cadastro",
+      "relevant": [],
+      "rewrite": "grupo sanguíneo vazio no cadastro"
+    },
+    {
+      "id": "q21",
+      "category": "sem-correspondencia",
+      "text": "processos de fabricação de cerâmica",
+      "relevant": [],
+      "rewrite": "processos de fabricação de cerâmica"
+    },
+    {
+      "id": "q22",
+      "category": "sem-correspondencia",
+      "text": "subordinados da marinha medieval",
+      "relevant": [],
+      "rewrite": "subordinados da marinha medieval"
+    }
+  ]
+}

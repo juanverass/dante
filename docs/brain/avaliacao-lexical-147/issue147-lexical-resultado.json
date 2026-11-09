@@ -1,0 +1,2091 @@
+{
+  "arquivo": "issue147-lexical.json",
+  "baseline": {
+    "modo": "baseline",
+    "recall5": 0.46875,
+    "precisao": 1,
+    "tp": 11,
+    "fp": 0,
+    "fn": 15,
+    "semCorrespondencia": 6,
+    "negativasComResultado": 0,
+    "p50Ms": 7.9085,
+    "p95Ms": 15.4132,
+    "amostras": 110
+  },
+  "expansao": {
+    "modo": "expansao",
+    "recall5": 0.59375,
+    "precisao": 1,
+    "tp": 15,
+    "fp": 0,
+    "fn": 11,
+    "semCorrespondencia": 6,
+    "negativasComResultado": 0,
+    "p50Ms": 8.4239,
+    "p95Ms": 22.805,
+    "amostras": 110
+  },
+  "alternativas": [
+    {
+      "modo": "or",
+      "recall5": 0.8125,
+      "precisao": 0.4,
+      "tp": 20,
+      "fp": 30,
+      "fn": 6,
+      "semCorrespondencia": 6,
+      "negativasComResultado": 5,
+      "p50Ms": 8.7596,
+      "p95Ms": 14.8079,
+      "amostras": 110
+    },
+    {
+      "modo": "and-normalizado",
+      "recall5": 0.46875,
+      "precisao": 1,
+      "tp": 11,
+      "fp": 0,
+      "fn": 15,
+      "semCorrespondencia": 6,
+      "negativasComResultado": 0,
+      "p50Ms": 9.2885,
+      "p95Ms": 21.8055,
+      "amostras": 110
+    },
+    {
+      "modo": "or-cobertura",
+      "recall5": 0.5625,
+      "precisao": 0.875,
+      "tp": 14,
+      "fp": 2,
+      "fn": 12,
+      "semCorrespondencia": 6,
+      "negativasComResultado": 1,
+      "p50Ms": 11.628,
+      "p95Ms": 22.1707,
+      "amostras": 110
+    }
+  ],
+  "rows": [
+    {
+      "Id": "q01",
+      "Categoria": "literal",
+      "Consulta": "Completion",
+      "Modo": "baseline",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        31.4625,
+        13.1714,
+        8.9961,
+        9.7012,
+        9.3106
+      ]
+    },
+    {
+      "Id": "q01",
+      "Categoria": "literal",
+      "Consulta": "Completion",
+      "Modo": "or",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        9.166,
+        8.7292,
+        8.7197,
+        11.719,
+        8.5587
+      ]
+    },
+    {
+      "Id": "q01",
+      "Categoria": "literal",
+      "Consulta": "Completion",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        8.4986,
+        21.914,
+        11.8688,
+        9.0969,
+        21.8055
+      ]
+    },
+    {
+      "Id": "q01",
+      "Categoria": "literal",
+      "Consulta": "Completion",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        12.7308,
+        38.3039,
+        11.5647,
+        11.4177,
+        22.1707
+      ]
+    },
+    {
+      "Id": "q01",
+      "Categoria": "literal",
+      "Consulta": "Completion",
+      "Modo": "expansao",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        8.6801,
+        9.3178,
+        26.138,
+        8.978,
+        8.7166
+      ]
+    },
+    {
+      "Id": "q02",
+      "Categoria": "literal",
+      "Consulta": "limpeza dos processos descendentes",
+      "Modo": "baseline",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        8.5294,
+        8.3514,
+        8.5381,
+        8.7675,
+        9.1097
+      ]
+    },
+    {
+      "Id": "q02",
+      "Categoria": "literal",
+      "Consulta": "limpeza dos processos descendentes",
+      "Modo": "or",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao",
+        "processo-juridico",
+        "faxina-domestica",
+        "linux-arquivos"
+      ],
+      "Ms": [
+        9.8543,
+        9.2596,
+        11.4173,
+        9.6546,
+        9.5163
+      ]
+    },
+    {
+      "Id": "q02",
+      "Categoria": "literal",
+      "Consulta": "limpeza dos processos descendentes",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        18.541,
+        9.1942,
+        8.931,
+        26.7232,
+        43.1585
+      ]
+    },
+    {
+      "Id": "q02",
+      "Categoria": "literal",
+      "Consulta": "limpeza dos processos descendentes",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        13.9811,
+        24.8353,
+        12.4983,
+        12.5047,
+        12.7702
+      ]
+    },
+    {
+      "Id": "q02",
+      "Categoria": "literal",
+      "Consulta": "limpeza dos processos descendentes",
+      "Modo": "expansao",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        8.1695,
+        8.1671,
+        8.172,
+        8.1803,
+        8.1438
+      ]
+    },
+    {
+      "Id": "q03",
+      "Categoria": "literal",
+      "Consulta": "escopos systemd cgroups",
+      "Modo": "baseline",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        7.561,
+        8.0101,
+        7.9454,
+        7.7885,
+        7.8748
+      ]
+    },
+    {
+      "Id": "q03",
+      "Categoria": "literal",
+      "Consulta": "escopos systemd cgroups",
+      "Modo": "or",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        7.8408,
+        7.8597,
+        7.9331,
+        7.6788,
+        7.6823
+      ]
+    },
+    {
+      "Id": "q03",
+      "Categoria": "literal",
+      "Consulta": "escopos systemd cgroups",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        26.6975,
+        8.151,
+        7.7245,
+        7.7942,
+        8.0863
+      ]
+    },
+    {
+      "Id": "q03",
+      "Categoria": "literal",
+      "Consulta": "escopos systemd cgroups",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        10.4915,
+        10.1451,
+        10.1716,
+        10.351,
+        11.004
+      ]
+    },
+    {
+      "Id": "q03",
+      "Categoria": "literal",
+      "Consulta": "escopos systemd cgroups",
+      "Modo": "expansao",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        8.6321,
+        14.8245,
+        8.664,
+        8.3484,
+        11.453
+      ]
+    },
+    {
+      "Id": "q04",
+      "Categoria": "literal",
+      "Consulta": "grupo vazio",
+      "Modo": "baseline",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        10.179,
+        8.3647,
+        15.4132,
+        8.8441,
+        25.9949
+      ]
+    },
+    {
+      "Id": "q04",
+      "Categoria": "literal",
+      "Consulta": "grupo vazio",
+      "Modo": "or",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        84.1257,
+        15.8539,
+        8.9766,
+        8.2,
+        7.8512
+      ]
+    },
+    {
+      "Id": "q04",
+      "Categoria": "literal",
+      "Consulta": "grupo vazio",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        7.6999,
+        7.8038,
+        7.8883,
+        7.8223,
+        7.7447
+      ]
+    },
+    {
+      "Id": "q04",
+      "Categoria": "literal",
+      "Consulta": "grupo vazio",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        10.3457,
+        10.4615,
+        10.7835,
+        15.5635,
+        24.3047
+      ]
+    },
+    {
+      "Id": "q04",
+      "Categoria": "literal",
+      "Consulta": "grupo vazio",
+      "Modo": "expansao",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        8.5106,
+        8.8954,
+        8.8783,
+        9.3146,
+        8.7271
+      ]
+    },
+    {
+      "Id": "q05",
+      "Categoria": "parafrase",
+      "Consulta": "encerramento dos subprocessos",
+      "Modo": "baseline",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        8.2868,
+        21.4158,
+        8.677,
+        77.4818,
+        8.0134
+      ]
+    },
+    {
+      "Id": "q05",
+      "Categoria": "parafrase",
+      "Consulta": "encerramento dos subprocessos",
+      "Modo": "or",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "processo-juridico",
+        "solucao",
+        "subordinados-rh"
+      ],
+      "Ms": [
+        21.303,
+        9.2899,
+        8.9851,
+        9.0295,
+        9.0211
+      ]
+    },
+    {
+      "Id": "q05",
+      "Categoria": "parafrase",
+      "Consulta": "encerramento dos subprocessos",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        9.196,
+        19.0378,
+        9.9727,
+        9.883,
+        9.3577
+      ]
+    },
+    {
+      "Id": "q05",
+      "Categoria": "parafrase",
+      "Consulta": "encerramento dos subprocessos",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        33.9544,
+        12.1929,
+        16.7151,
+        12.9608,
+        26.6526
+      ]
+    },
+    {
+      "Id": "q05",
+      "Categoria": "parafrase",
+      "Consulta": "encerramento dos subprocessos",
+      "Modo": "expansao",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        13.9305,
+        27.3686,
+        35.1829,
+        15.3933,
+        26.432
+      ]
+    },
+    {
+      "Id": "q06",
+      "Categoria": "parafrase",
+      "Consulta": "faxina dos subordinados",
+      "Modo": "baseline",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        8.057,
+        7.8645,
+        7.7009,
+        7.9312,
+        7.5616
+      ]
+    },
+    {
+      "Id": "q06",
+      "Categoria": "parafrase",
+      "Consulta": "faxina dos subordinados",
+      "Modo": "or",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "faxina-domestica",
+        "subordinados-rh"
+      ],
+      "Ms": [
+        19.5266,
+        8.6237,
+        8.2331,
+        8.2305,
+        8.3942
+      ]
+    },
+    {
+      "Id": "q06",
+      "Categoria": "parafrase",
+      "Consulta": "faxina dos subordinados",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        9.2908,
+        30.307,
+        9.5606,
+        10.3907,
+        10.3548
+      ]
+    },
+    {
+      "Id": "q06",
+      "Categoria": "parafrase",
+      "Consulta": "faxina dos subordinados",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        14.0283,
+        11.5998,
+        12.3546,
+        13.9841,
+        15.0366
+      ]
+    },
+    {
+      "Id": "q06",
+      "Categoria": "parafrase",
+      "Consulta": "faxina dos subordinados",
+      "Modo": "expansao",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        22.805,
+        10.4907,
+        33.2704,
+        21.6475,
+        10.4799
+      ]
+    },
+    {
+      "Id": "q07",
+      "Categoria": "parafrase",
+      "Consulta": "finaliza\u00E7\u00E3o das tarefas filhas",
+      "Modo": "baseline",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        7.8682,
+        8.1632,
+        26.8832,
+        8.3126,
+        7.753
+      ]
+    },
+    {
+      "Id": "q07",
+      "Categoria": "parafrase",
+      "Consulta": "finaliza\u00E7\u00E3o das tarefas filhas",
+      "Modo": "or",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        8.1885,
+        7.5512,
+        33.9829,
+        7.9192,
+        8.0365
+      ]
+    },
+    {
+      "Id": "q07",
+      "Categoria": "parafrase",
+      "Consulta": "finaliza\u00E7\u00E3o das tarefas filhas",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        9.6503,
+        9.6751,
+        9.2885,
+        9.3736,
+        10.9008
+      ]
+    },
+    {
+      "Id": "q07",
+      "Categoria": "parafrase",
+      "Consulta": "finaliza\u00E7\u00E3o das tarefas filhas",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        9.2395,
+        9.0097,
+        8.8843,
+        9.6754,
+        11.8714
+      ]
+    },
+    {
+      "Id": "q07",
+      "Categoria": "parafrase",
+      "Consulta": "finaliza\u00E7\u00E3o das tarefas filhas",
+      "Modo": "expansao",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        11.5871,
+        12.5031,
+        10.6371,
+        10.3959,
+        11.0187
+      ]
+    },
+    {
+      "Id": "q08",
+      "Categoria": "parafrase",
+      "Consulta": "t\u00E9rmino dos processos descendentes",
+      "Modo": "baseline",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente"
+      ],
+      "Ms": [
+        8.8833,
+        8.7072,
+        8.3737,
+        10.4497,
+        8.3535
+      ]
+    },
+    {
+      "Id": "q08",
+      "Categoria": "parafrase",
+      "Consulta": "t\u00E9rmino dos processos descendentes",
+      "Modo": "or",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao",
+        "processo-juridico"
+      ],
+      "Ms": [
+        8.8015,
+        11.446,
+        9.5927,
+        11.0727,
+        9.065
+      ]
+    },
+    {
+      "Id": "q08",
+      "Categoria": "parafrase",
+      "Consulta": "t\u00E9rmino dos processos descendentes",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente"
+      ],
+      "Ms": [
+        8.649,
+        9.7108,
+        9.0005,
+        8.6896,
+        8.8121
+      ]
+    },
+    {
+      "Id": "q08",
+      "Categoria": "parafrase",
+      "Consulta": "t\u00E9rmino dos processos descendentes",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        14.7438,
+        13.0675,
+        15.7274,
+        14.7597,
+        12.2219
+      ]
+    },
+    {
+      "Id": "q08",
+      "Categoria": "parafrase",
+      "Consulta": "t\u00E9rmino dos processos descendentes",
+      "Modo": "expansao",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente"
+      ],
+      "Ms": [
+        9.2071,
+        8.8308,
+        9.7561,
+        8.4239,
+        8.0121
+      ]
+    },
+    {
+      "Id": "q09",
+      "Categoria": "vocabulario",
+      "Consulta": "processos descendentes",
+      "Modo": "baseline",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        8.2576,
+        9.984,
+        8.1657,
+        7.934,
+        7.9002
+      ]
+    },
+    {
+      "Id": "q09",
+      "Categoria": "vocabulario",
+      "Consulta": "processos descendentes",
+      "Modo": "or",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao",
+        "processo-juridico"
+      ],
+      "Ms": [
+        8.5477,
+        10.4281,
+        8.5406,
+        9.2219,
+        9.5096
+      ]
+    },
+    {
+      "Id": "q09",
+      "Categoria": "vocabulario",
+      "Consulta": "processos descendentes",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        8.9547,
+        10.0364,
+        8.2412,
+        8.0978,
+        8.0535
+      ]
+    },
+    {
+      "Id": "q09",
+      "Categoria": "vocabulario",
+      "Consulta": "processos descendentes",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        12.7331,
+        12.0411,
+        12.183,
+        12.3085,
+        13.1076
+      ]
+    },
+    {
+      "Id": "q09",
+      "Categoria": "vocabulario",
+      "Consulta": "processos descendentes",
+      "Modo": "expansao",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        8.5112,
+        8.2387,
+        8.4432,
+        8.2246,
+        8.3602
+      ]
+    },
+    {
+      "Id": "q10",
+      "Categoria": "vocabulario",
+      "Consulta": "limpar processo descendente",
+      "Modo": "baseline",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        7.6565,
+        7.2864,
+        7.5816,
+        7.9085,
+        8.3662
+      ]
+    },
+    {
+      "Id": "q10",
+      "Categoria": "vocabulario",
+      "Consulta": "limpar processo descendente",
+      "Modo": "or",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao",
+        "processo-juridico"
+      ],
+      "Ms": [
+        9.067,
+        11.4156,
+        10.5976,
+        9,
+        9.2147
+      ]
+    },
+    {
+      "Id": "q10",
+      "Categoria": "vocabulario",
+      "Consulta": "limpar processo descendente",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        11.0411,
+        11.7633,
+        10.3988,
+        9.8388,
+        9.5345
+      ]
+    },
+    {
+      "Id": "q10",
+      "Categoria": "vocabulario",
+      "Consulta": "limpar processo descendente",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        12.4691,
+        11.6163,
+        10.9703,
+        10.9415,
+        10.8485
+      ]
+    },
+    {
+      "Id": "q10",
+      "Categoria": "vocabulario",
+      "Consulta": "limpar processo descendente",
+      "Modo": "expansao",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao"
+      ],
+      "Ms": [
+        9.8792,
+        10.0232,
+        10.0402,
+        9.9875,
+        12.0621
+      ]
+    },
+    {
+      "Id": "q11",
+      "Categoria": "vocabulario",
+      "Consulta": "cgroup vazio",
+      "Modo": "baseline",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        7.6444,
+        7.2792,
+        7.2265,
+        7.251,
+        7.5175
+      ]
+    },
+    {
+      "Id": "q11",
+      "Categoria": "vocabulario",
+      "Consulta": "cgroup vazio",
+      "Modo": "or",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        7.2739,
+        7.8329,
+        8.0754,
+        7.7687,
+        9.215
+      ]
+    },
+    {
+      "Id": "q11",
+      "Categoria": "vocabulario",
+      "Consulta": "cgroup vazio",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        8.4536,
+        8.4043,
+        7.9702,
+        8.1582,
+        9.1899
+      ]
+    },
+    {
+      "Id": "q11",
+      "Categoria": "vocabulario",
+      "Consulta": "cgroup vazio",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        11.0053,
+        11.2309,
+        10.7304,
+        10.7164,
+        10.7536
+      ]
+    },
+    {
+      "Id": "q11",
+      "Categoria": "vocabulario",
+      "Consulta": "cgroup vazio",
+      "Modo": "expansao",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        7.8022,
+        7.6964,
+        7.6293,
+        7.5976,
+        7.2778
+      ]
+    },
+    {
+      "Id": "q12",
+      "Categoria": "vocabulario",
+      "Consulta": "processos \u00F3rf\u00E3os",
+      "Modo": "baseline",
+      "Relevantes": [
+        "incidente"
+      ],
+      "Recuperados": [
+        "incidente"
+      ],
+      "Ms": [
+        7.9052,
+        7.9613,
+        7.9388,
+        8.345,
+        8.2905
+      ]
+    },
+    {
+      "Id": "q12",
+      "Categoria": "vocabulario",
+      "Consulta": "processos \u00F3rf\u00E3os",
+      "Modo": "or",
+      "Relevantes": [
+        "incidente"
+      ],
+      "Recuperados": [
+        "incidente",
+        "processo-juridico",
+        "solucao"
+      ],
+      "Ms": [
+        9.2498,
+        8.9396,
+        8.9108,
+        8.8542,
+        8.5498
+      ]
+    },
+    {
+      "Id": "q12",
+      "Categoria": "vocabulario",
+      "Consulta": "processos \u00F3rf\u00E3os",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "incidente"
+      ],
+      "Recuperados": [
+        "incidente"
+      ],
+      "Ms": [
+        7.479,
+        7.4775,
+        7.4201,
+        7.5452,
+        7.6263
+      ]
+    },
+    {
+      "Id": "q12",
+      "Categoria": "vocabulario",
+      "Consulta": "processos \u00F3rf\u00E3os",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "incidente"
+      ],
+      "Recuperados": [
+        "incidente"
+      ],
+      "Ms": [
+        11.0197,
+        11.1024,
+        10.8677,
+        11.4077,
+        11.1191
+      ]
+    },
+    {
+      "Id": "q12",
+      "Categoria": "vocabulario",
+      "Consulta": "processos \u00F3rf\u00E3os",
+      "Modo": "expansao",
+      "Relevantes": [
+        "incidente"
+      ],
+      "Recuperados": [
+        "incidente"
+      ],
+      "Ms": [
+        7.53,
+        7.3998,
+        8.457,
+        7.4911,
+        7.665
+      ]
+    },
+    {
+      "Id": "q13",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Como garantir que nenhum filho continue rodando depois que o agente terminou?",
+      "Modo": "baseline",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        7.3982,
+        7.1479,
+        7.0083,
+        7.0323,
+        6.9941
+      ]
+    },
+    {
+      "Id": "q13",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Como garantir que nenhum filho continue rodando depois que o agente terminou?",
+      "Modo": "or",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "solucao",
+        "incidente"
+      ],
+      "Ms": [
+        8.2314,
+        8.0211,
+        8.0685,
+        8.3816,
+        8.6604
+      ]
+    },
+    {
+      "Id": "q13",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Como garantir que nenhum filho continue rodando depois que o agente terminou?",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        9.1091,
+        9.0964,
+        9.1116,
+        10.1067,
+        9.4107
+      ]
+    },
+    {
+      "Id": "q13",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Como garantir que nenhum filho continue rodando depois que o agente terminou?",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        11.803,
+        11.1884,
+        12.4521,
+        11.2721,
+        11.3128
+      ]
+    },
+    {
+      "Id": "q13",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Como garantir que nenhum filho continue rodando depois que o agente terminou?",
+      "Modo": "expansao",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        8.14,
+        7.9774,
+        7.8384,
+        7.9527,
+        9.5744
+      ]
+    },
+    {
+      "Id": "q14",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Quando \u00E9 seguro declarar conclu\u00EDda a execu\u00E7\u00E3o no Linux?",
+      "Modo": "baseline",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        8.3562,
+        8.1977,
+        8.1145,
+        8.3528,
+        7.827
+      ]
+    },
+    {
+      "Id": "q14",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Quando \u00E9 seguro declarar conclu\u00EDda a execu\u00E7\u00E3o no Linux?",
+      "Modo": "or",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao",
+        "linux-arquivos"
+      ],
+      "Ms": [
+        8.8625,
+        9.9057,
+        8.9351,
+        8.6425,
+        8.5177
+      ]
+    },
+    {
+      "Id": "q14",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Quando \u00E9 seguro declarar conclu\u00EDda a execu\u00E7\u00E3o no Linux?",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        8.8205,
+        8.7153,
+        8.6897,
+        8.9386,
+        8.7031
+      ]
+    },
+    {
+      "Id": "q14",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Quando \u00E9 seguro declarar conclu\u00EDda a execu\u00E7\u00E3o no Linux?",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        10.9944,
+        11.4479,
+        11.628,
+        11.4046,
+        11.3767
+      ]
+    },
+    {
+      "Id": "q14",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Quando \u00E9 seguro declarar conclu\u00EDda a execu\u00E7\u00E3o no Linux?",
+      "Modo": "expansao",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        7.4411,
+        7.2346,
+        7.7604,
+        8.1215,
+        7.8099
+      ]
+    },
+    {
+      "Id": "q15",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "O sucesso deve esperar que a \u00E1rvore de execu\u00E7\u00E3o esteja vazia?",
+      "Modo": "baseline",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        7.7961,
+        7.4297,
+        7.4741,
+        7.7381,
+        7.9463
+      ]
+    },
+    {
+      "Id": "q15",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "O sucesso deve esperar que a \u00E1rvore de execu\u00E7\u00E3o esteja vazia?",
+      "Modo": "or",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "solucao",
+        "decisao"
+      ],
+      "Ms": [
+        8.9492,
+        8.7567,
+        9.073,
+        10.2164,
+        9.1624
+      ]
+    },
+    {
+      "Id": "q15",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "O sucesso deve esperar que a \u00E1rvore de execu\u00E7\u00E3o esteja vazia?",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        10.0382,
+        9.3397,
+        9.4901,
+        9.3871,
+        9.3121
+      ]
+    },
+    {
+      "Id": "q15",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "O sucesso deve esperar que a \u00E1rvore de execu\u00E7\u00E3o esteja vazia?",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        13.2509,
+        12.2356,
+        11.568,
+        11.7438,
+        13.7192
+      ]
+    },
+    {
+      "Id": "q15",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "O sucesso deve esperar que a \u00E1rvore de execu\u00E7\u00E3o esteja vazia?",
+      "Modo": "expansao",
+      "Relevantes": [
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        8.1567,
+        7.8729,
+        7.8955,
+        7.8981,
+        7.9316
+      ]
+    },
+    {
+      "Id": "q16",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Evitar que tarefas sobrevivam ao fim anunciado",
+      "Modo": "baseline",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        7.6449,
+        8.7166,
+        7.7974,
+        7.7964,
+        7.9092
+      ]
+    },
+    {
+      "Id": "q16",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Evitar que tarefas sobrevivam ao fim anunciado",
+      "Modo": "or",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [
+        "incidente",
+        "ipv6"
+      ],
+      "Ms": [
+        10.3709,
+        8.7017,
+        8.7596,
+        8.9672,
+        8.7028
+      ]
+    },
+    {
+      "Id": "q16",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Evitar que tarefas sobrevivam ao fim anunciado",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        9.6266,
+        10.9971,
+        9.8901,
+        9.6108,
+        9.2216
+      ]
+    },
+    {
+      "Id": "q16",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Evitar que tarefas sobrevivam ao fim anunciado",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        12.6068,
+        11.8642,
+        11.9849,
+        11.4324,
+        12.99
+      ]
+    },
+    {
+      "Id": "q16",
+      "Categoria": "equivalencia-semantica",
+      "Consulta": "Evitar que tarefas sobrevivam ao fim anunciado",
+      "Modo": "expansao",
+      "Relevantes": [
+        "incidente",
+        "solucao"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        9.4959,
+        9.3913,
+        8.6973,
+        7.6164,
+        7.4804
+      ]
+    },
+    {
+      "Id": "q17",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "fotoss\u00EDntese das orqu\u00EDdeas",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.8081,
+        7.1888,
+        7.137,
+        7.699,
+        7.323
+      ]
+    },
+    {
+      "Id": "q17",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "fotoss\u00EDntese das orqu\u00EDdeas",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        7.1973,
+        7.1741,
+        8.4503,
+        7.2763,
+        7.0508
+      ]
+    },
+    {
+      "Id": "q17",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "fotoss\u00EDntese das orqu\u00EDdeas",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.0785,
+        9.2464,
+        8.891,
+        9.9707,
+        9.3232
+      ]
+    },
+    {
+      "Id": "q17",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "fotoss\u00EDntese das orqu\u00EDdeas",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.1031,
+        8.8186,
+        10.13,
+        8.9385,
+        8.6999
+      ]
+    },
+    {
+      "Id": "q17",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "fotoss\u00EDntese das orqu\u00EDdeas",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        7.3953,
+        7.2437,
+        7.2756,
+        8.6058,
+        7.914
+      ]
+    },
+    {
+      "Id": "q18",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "encerramento dos processos de fermenta\u00E7\u00E3o",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        7.4793,
+        7.7063,
+        9.3129,
+        7.4241,
+        7.5214
+      ]
+    },
+    {
+      "Id": "q18",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "encerramento dos processos de fermenta\u00E7\u00E3o",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [
+        "processo-juridico",
+        "incidente",
+        "solucao",
+        "subordinados-rh"
+      ],
+      "Ms": [
+        8.8681,
+        8.7724,
+        8.8304,
+        10.027,
+        9.4468
+      ]
+    },
+    {
+      "Id": "q18",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "encerramento dos processos de fermenta\u00E7\u00E3o",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.4983,
+        9.4,
+        10.22,
+        9.8453,
+        9.5223
+      ]
+    },
+    {
+      "Id": "q18",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "encerramento dos processos de fermenta\u00E7\u00E3o",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [
+        "processo-juridico",
+        "solucao"
+      ],
+      "Ms": [
+        12.0237,
+        13.2274,
+        12.2487,
+        12.5732,
+        12.2526
+      ]
+    },
+    {
+      "Id": "q18",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "encerramento dos processos de fermenta\u00E7\u00E3o",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        10.1066,
+        10.1777,
+        10.3645,
+        11.1128,
+        10.638
+      ]
+    },
+    {
+      "Id": "q19",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "limpeza de lentes do telesc\u00F3pio",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        7.9775,
+        7.9749,
+        7.9167,
+        8.0775,
+        7.5489
+      ]
+    },
+    {
+      "Id": "q19",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "limpeza de lentes do telesc\u00F3pio",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [
+        "incidente",
+        "solucao",
+        "faxina-domestica",
+        "linux-arquivos"
+      ],
+      "Ms": [
+        8.8807,
+        9.0483,
+        14.8079,
+        9.8055,
+        10.4698
+      ]
+    },
+    {
+      "Id": "q19",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "limpeza de lentes do telesc\u00F3pio",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.5488,
+        9.5616,
+        9.6888,
+        9.2173,
+        10.4319
+      ]
+    },
+    {
+      "Id": "q19",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "limpeza de lentes do telesc\u00F3pio",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        12.8155,
+        12.4081,
+        12.8234,
+        11.4884,
+        11.2704
+      ]
+    },
+    {
+      "Id": "q19",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "limpeza de lentes do telesc\u00F3pio",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.0446,
+        8.9837,
+        8.9282,
+        8.913,
+        8.8856
+      ]
+    },
+    {
+      "Id": "q20",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "grupo sangu\u00EDneo vazio no cadastro",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        6.8153,
+        6.7826,
+        6.7579,
+        6.6871,
+        6.8445
+      ]
+    },
+    {
+      "Id": "q20",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "grupo sangu\u00EDneo vazio no cadastro",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [
+        "solucao"
+      ],
+      "Ms": [
+        7.4811,
+        7.6191,
+        7.4712,
+        7.3868,
+        7.5261
+      ]
+    },
+    {
+      "Id": "q20",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "grupo sangu\u00EDneo vazio no cadastro",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.7268,
+        8.5561,
+        8.6806,
+        8.5845,
+        8.7689
+      ]
+    },
+    {
+      "Id": "q20",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "grupo sangu\u00EDneo vazio no cadastro",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.5784,
+        9.6747,
+        9.7943,
+        9.8178,
+        9.8053
+      ]
+    },
+    {
+      "Id": "q20",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "grupo sangu\u00EDneo vazio no cadastro",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        7.0082,
+        7.0059,
+        7.0952,
+        6.9295,
+        7.202
+      ]
+    },
+    {
+      "Id": "q21",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "processos de fabrica\u00E7\u00E3o de cer\u00E2mica",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        7.0228,
+        8.4402,
+        7.3673,
+        7.3353,
+        6.959
+      ]
+    },
+    {
+      "Id": "q21",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "processos de fabrica\u00E7\u00E3o de cer\u00E2mica",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [
+        "incidente",
+        "processo-juridico",
+        "solucao"
+      ],
+      "Ms": [
+        8.5761,
+        8.5468,
+        10.085,
+        8.7214,
+        8.6853
+      ]
+    },
+    {
+      "Id": "q21",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "processos de fabrica\u00E7\u00E3o de cer\u00E2mica",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        11.1069,
+        9.3847,
+        9.2801,
+        10.487,
+        10.0728
+      ]
+    },
+    {
+      "Id": "q21",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "processos de fabrica\u00E7\u00E3o de cer\u00E2mica",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        12.2396,
+        12.4664,
+        14.0792,
+        13.8168,
+        12.6357
+      ]
+    },
+    {
+      "Id": "q21",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "processos de fabrica\u00E7\u00E3o de cer\u00E2mica",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.0831,
+        8.2013,
+        7.3212,
+        7.3518,
+        7.413
+      ]
+    },
+    {
+      "Id": "q22",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "subordinados da marinha medieval",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        7.205,
+        7.0785,
+        7.3815,
+        6.9404,
+        6.9528
+      ]
+    },
+    {
+      "Id": "q22",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "subordinados da marinha medieval",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [
+        "subordinados-rh"
+      ],
+      "Ms": [
+        7.5036,
+        7.4055,
+        7.477,
+        7.3546,
+        7.4451
+      ]
+    },
+    {
+      "Id": "q22",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "subordinados da marinha medieval",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.6837,
+        8.4352,
+        9.0365,
+        9.6201,
+        10.7653
+      ]
+    },
+    {
+      "Id": "q22",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "subordinados da marinha medieval",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        11.0645,
+        10.6093,
+        10.5899,
+        10.6725,
+        12.3342
+      ]
+    },
+    {
+      "Id": "q22",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "subordinados da marinha medieval",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        7.7141,
+        7.8812,
+        7.9566,
+        7.9563,
+        7.5325
+      ]
+    }
+  ]
+}
