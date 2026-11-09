@@ -152,6 +152,27 @@ public sealed class CapturaEmOutroProjetoTests
         await c.AssegurarContextoAtivoAsync(c.Escopo);
     }
 
+    [PostgreSqlFact]
+    public async Task EnumeracaoQueAtingeOLimiteNaoEscolheDestino()
+    {
+        await using var c = await Cenario.FitnessAtivoAsync();
+        // Review do PR #286: a pesquisa não pagina; um homônimo além do limite poderia passar despercebido.
+        var id = c.Escopo.Identidade; var espaco = c.Escopo.Acesso.IdEspacoDeConhecimento;
+        using (var s = c.App.CreateScope())
+        {
+            s.ServiceProvider.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(id, c.Escopo.Acesso with { IdProjeto = null });
+            var projetos = s.ServiceProvider.GetRequiredService<IProjetoAppService>();
+            // Já existem D.A.N.T.E. e Fitness App; completa o limite de 100 projetos no espaço.
+            for (var n = 0; n < ProjetoAppService.LimiteMaximoDaPesquisa - 2; n++)
+                await projetos.AdicionarAsync(new() { IdEspacoDeConhecimento = espaco, Nome = $"Projeto {n:000}" });
+        }
+        using var resposta = await c.OperarAsync("brain_capturar_em_outro_projeto", new { projeto = "Dante", conteudo = Melhoria, natureza = "DitoPeloUsuario", justificativa = "pedido" });
+        Assert.False(resposta.RootElement.GetProperty("destinoResolvido").GetBoolean());
+        Assert.Equal("enumeracao_incompleta", resposta.RootElement.GetProperty("motivo").GetString());
+        await using (var db = c.Banco.Contexto()) Assert.Empty(await db.CandidatosDeConhecimento.ToListAsync());
+        await c.AssegurarContextoAtivoAsync(c.Escopo);
+    }
+
     private sealed class Cenario(Banco banco, ServiceProvider app, TelegramBrain brain, TelegramBrain.EscopoBrainDaSessao escopo) : IAsyncDisposable
     {
         public Banco Banco => banco; public ServiceProvider App => app; public TelegramBrain Brain => brain;

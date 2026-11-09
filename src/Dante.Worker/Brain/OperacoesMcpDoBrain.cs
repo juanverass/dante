@@ -280,6 +280,8 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 return new { destinoResolvido = false, motivo = resolucao.Motivo, opcoes = resolucao.Opcoes, contextoAtivo, capturado = false,
                     instrucao = resolucao.Motivo == "nao_encontrado"
                         ? "Nenhum projeto seu corresponde ao destino informado. Nada foi registrado. Pergunte ao usuário o projeto de destino; não escolha por ele."
+                        : resolucao.Motivo == "enumeracao_incompleta"
+                        ? "Há espaços ou projetos demais para garantir que o destino é único. Nada foi registrado. Peça ao usuário para selecionar o projeto de destino ou registrar a partir dele."
                         : "O destino não é inequívoco. Nada foi registrado. Mostre as opções ao usuário e repita a chamada com espaco e projeto exatamente como ele escolher; não escolha por ele." };
             var alvo = destino.Acesso;
             if (alvo.IdEspacoDeConhecimento == acesso.IdEspacoDeConhecimento && alvo.IdProjeto == acesso.IdProjeto)
@@ -413,8 +415,10 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
         {
             raiz.ServiceProvider.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(escopo.Identidade);
             espacos = await raiz.ServiceProvider.GetRequiredService<Dante.Application.EspacosDeConhecimento.IEspacoDeConhecimentoAppService>()
-                .PesquisarAsync(new(escopo.Identidade.IdUsuario, Limite: 100), ct);
+                .PesquisarAsync(new(escopo.Identidade.IdUsuario, Limite: LimiteDosEspacos), ct);
         }
+        // A pesquisa não pagina: lista que atinge o limite pode esconder um homônimo; sem enumeração completa, nada é escolhido.
+        if (espacos.Count >= LimiteDosEspacos) return new(null, "enumeracao_incompleta", []);
         var exatos = new List<DestinoDaCaptura>(); var parciais = new List<DestinoDaCaptura>();
         foreach (var e in espacos.Where(e => e.IdUsuario == escopo.Identidade.IdUsuario))
         {
@@ -425,7 +429,8 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             await using var operacao = scopes.CreateAsyncScope();
             operacao.ServiceProvider.GetRequiredService<AutorizacaoDoBrain>().Estabelecer(escopo.Identidade, acessoDoEspaco);
             var projetos = await operacao.ServiceProvider.GetRequiredService<Dante.Application.Projetos.IProjetoAppService>()
-                .PesquisarAsync(new(e.Id, Limite: 100), ct);
+                .PesquisarAsync(new(e.Id, Limite: LimiteDosProjetos), ct);
+            if (projetos.Count >= LimiteDosProjetos) return new(null, "enumeracao_incompleta", []);
             foreach (var p in projetos.Where(p => p.IdEspacoDeConhecimento == e.Id))
             {
                 var nomeProjeto = NomeComparavel(p.Nome);
@@ -439,6 +444,8 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
         if (exatos.Count > 1) return new(null, "ambiguo", exatos.Select(Opcao).ToArray());
         return parciais.Count > 0 ? new(null, "confirmacao_necessaria", parciais.Select(Opcao).ToArray()) : new(null, "nao_encontrado", []);
     }
+    private const int LimiteDosEspacos = Dante.Application.EspacosDeConhecimento.EspacoDeConhecimentoAppService.LimiteMaximoDaPesquisa;
+    private const int LimiteDosProjetos = Dante.Application.Projetos.ProjetoAppService.LimiteMaximoDaPesquisa;
     private static string NomeComparavel(string nome) =>
         new(nome.Normalize(System.Text.NormalizationForm.FormD).Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
     private static string AtualizarTitulo(string? dados, string titulo)
