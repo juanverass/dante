@@ -52,6 +52,15 @@ public sealed class PoliticaDeConfirmacaoDoAgenteTests
         using var proposta = JsonDocument.Parse(JsonSerializer.Serialize(await Operar("brain_confirmar_candidato", new { id, revisao = 1 })));
         Assert.Contains("somente registrar a conclusão como Inferido", proposta.RootElement.GetProperty("instrucao").GetString());
         Assert.Contains(ContratoDoBrainParaAgentes.RegraDaConfirmacao, proposta.RootElement.GetProperty("instrucao").GetString());
+        // Review do PR #284: a orientação ao modelo pede autorização de registro, não confirmação do conteúdo.
+        var instrucao = proposta.RootElement.GetProperty("instrucao").GetString()!;
+        Assert.Contains("peça autorização para registrar", instrucao);
+        Assert.Contains("não confirma o conteúdo", instrucao);
+        Assert.DoesNotContain("Ele deve enviar confirmar", instrucao);
+        Assert.True(proposta.RootElement.GetProperty("aguardandoAutorizacaoDeRegistro").GetBoolean());
+        Assert.False(proposta.RootElement.TryGetProperty("aguardandoConfirmacao", out _));
+        Assert.Contains("Inferido", proposta.RootElement.GetProperty("efeitoDaAutorizacao").GetString());
+        Assert.Contains("peça autorização para registrar", ServidorMcpDoBrain.Ferramentas.Single(f => f.Nome == "brain_confirmar_candidato").Descricao);
         await using (var db = a.Banco.Contexto()) Assert.Empty(await db.Conhecimentos.ToListAsync());
         Assert.Contains("permanece inferido", await a.ConfirmarAsync());
         await using (var db = a.Banco.Contexto())

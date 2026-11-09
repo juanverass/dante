@@ -107,12 +107,19 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 });
                 var vinculosDoAlvo = (await captura.ListarVinculosAsync(acesso.IdEspacoDeConhecimento, acesso.IdProjeto, alvo.Id, ct))
                     .Where(v => v.Estado == EstadoDoVinculo.Pendente).Select(ResumirVinculo).ToArray();
+                var avisoDosVinculos = vinculosDoAlvo.Length == 0 ? "" : nome == "brain_confirmar_candidato"
+                    ? " Informe que o vínculo ResolvidoPor pendente só vira relação quando os dois candidatos estiverem consolidados."
+                    : " Informe que descartar cancela o vínculo ResolvidoPor pendente.";
+                // Conclusão do agente: o usuário autoriza o REGISTRO, não confirma o conteúdo (review do PR #284).
+                if (nome == "brain_confirmar_candidato" && alvo.Natureza == NaturezaDoConteudo.ConclusaoDoAgente)
+                    return new { candidato = Resumir(alvo), vinculosPendentes = vinculosDoAlvo, aguardandoAutorizacaoDeRegistro = true,
+                        efeitoDaAutorizacao = "Registra a conclusão do agente como Inferido, com autoria do agente; não confirma o conteúdo.",
+                        instrucao = "Mostre a proposta ao usuário e peça autorização para registrar a conclusão do agente, explicando que o conteúdo continuará Inferido. " +
+                            "Para autorizar o registro ele envia confirmar no Telegram (ou cancelar); essa palavra é apenas o comando operacional e não confirma o conteúdo. " +
+                            "Não chame a autorização de confirmação do conteúdo. Nenhuma consolidação foi aplicada. Essa autorização permite somente registrar a conclusão como Inferido. " +
+                            ContratoDoBrainParaAgentes.RegraDaConfirmacao + avisoDosVinculos };
                 return new { candidato = Resumir(alvo), vinculosPendentes = vinculosDoAlvo, aguardandoConfirmacao = true, instrucao = "Mostre a proposta ao usuário. Ele deve enviar confirmar no Telegram (ou cancelar). Nenhuma consolidação/descarte foi aplicada." +
-                    (nome == "brain_confirmar_candidato" && alvo.Natureza == NaturezaDoConteudo.ConclusaoDoAgente
-                        ? " Essa autorização permite somente registrar a conclusão como Inferido. " + ContratoDoBrainParaAgentes.RegraDaConfirmacao : "") +
-                    (vinculosDoAlvo.Length == 0 ? "" : nome == "brain_confirmar_candidato"
-                        ? " Informe que o vínculo ResolvidoPor pendente só vira relação quando os dois candidatos estiverem consolidados."
-                        : " Informe que descartar cancela o vínculo ResolvidoPor pendente.") };
+                    avisoDosVinculos };
             case "brain_atualizar_conhecimento":
                 var existente = await ConhecimentoAsync(Id(args, "id"));
                 if (existente.Revisao != Inteiro(args, "revisao")) throw ErroDoBrainMcp.Revisao();
