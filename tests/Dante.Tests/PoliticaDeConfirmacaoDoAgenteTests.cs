@@ -20,6 +20,9 @@ public sealed class PoliticaDeConfirmacaoDoAgenteTests
         Assert.Contains("mensagem autenticada como proveniência", contrato); Assert.Contains("DerivadoDe", contrato);
         Assert.Contains("não muda o ID, a origem ou o status do original", contrato);
         Assert.Contains("Um simples \"confirmar\", \"concordo\" ou \"documente isso\" não é nova declaração literal", contrato);
+        // #147: perdas observadas no E2E real (identificador da Issue no snapshot e rótulo parafraseado).
+        Assert.Contains("preserve os identificadores verificáveis", contrato);
+        Assert.Contains("mostre junto de cada item o rótulo retornado", contrato);
         // O mesmo contrato de conversa é usado por Claude e Codex; sem depender da frase específica do cenário.
         Assert.Contains(contrato, Dante.Worker.Sessions.ContratoDaConversaParaAgentes.ParaSessao([]));
         using var saida = new StringWriter();
