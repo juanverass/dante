@@ -82,7 +82,7 @@ public sealed class VinculoEntreCandidatosTests
         var (primeiro, segundo) = incidentePrimeiro ? (inc, sol) : (sol, inc);
         var proposta = Json(await c.OperarAsync("brain_confirmar_candidato", new { id = primeiro.Id, revisao = primeiro.Revisao }));
         Assert.Single(proposta["vinculosPendentes"]!.AsArray());
-        Assert.Contains("aguarda a confirmação do outro candidato", await c.ConfirmarNoTelegramAsync());
+        Assert.Contains("aguarda autorização para registrar o outro candidato", await c.ConfirmarNoTelegramAsync());
         await c.SemRelacaoAsync();
         await using (var db = c.Banco.Contexto())
         {
