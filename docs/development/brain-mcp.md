@@ -206,13 +206,14 @@ mensagem inteira, que também contém instruções e palavras sem relação com 
 
 | Caminho | Preparo e combinação lexical |
 | --- | --- |
-| `brain_buscar_conhecimento` | Preserva o texto, até 2000 caracteres. Termos adjacentes usam AND implícito; `or` indica alternativas; aspas delimitam frase; `-` é aceito, com a ressalva de exclusão descrita abaixo. Usa `websearch_to_tsquery('portuguese', texto)` com parâmetro SQL. |
+| `brain_buscar_conhecimento` | A primeira tentativa preserva o texto, até 2000 caracteres. Termos adjacentes usam AND implícito; `or` indica alternativas; aspas delimitam frase; `-` é aceito, com a ressalva de exclusão descrita abaixo. Usa `websearch_to_tsquery('portuguese', texto)` com parâmetro SQL. Segunda tentativa limitada conforme #147 abaixo. |
 | Contexto automático do Telegram | `TelegramBrain.Termos` extrai tokens de letras/números (3 a 64 caracteres, admitindo `_`, `.` e `-` internos), normaliza caixa, remove palavras vazias da lista local, deduplica e seleciona até 16, unidos por `or`. Depois aplica a mesma função lexical do PostgreSQL. |
 
 Não foi adicionado parâmetro `modo`: OR já é expressável na consulta. Aplicar o
 extrator automático ao MCP transformaria frases e operadores e limitaria
 consultas existentes a 16 termos. Por isso não há normalizador compartilhado nem
-mudança em runtime, ranking ou busca híbrida. O schema descreve a consulta preservada.
+mudança de ranking ou busca híbrida. O schema descreve a primeira consulta preservada
+e a segunda tentativa limitada acrescentada pela #147.
 
 O dicionário português do PostgreSQL aplica suas próprias stopwords e stemming nos
 dois caminhos. A lista local adicional e o limite de 16 são exclusivos do preparo
@@ -221,6 +222,46 @@ original limitada a 2000 caracteres como fallback, preservando o comportamento a
 A ausência de correspondência lexical não prova ausência de conhecimento;
 sinônimos e paráfrases sem lexemas comuns não são garantidos. Em modo híbrido,
 resultados semânticos podem complementar os lexicais, sem alteração nesta entrega.
+
+### Segunda tentativa lexical limitada (#147)
+
+Somente se a busca explícita não encontrar conhecimentos **nem** fontes, o AppService
+pode executar uma segunda consulta lexical. Os resultados de uma primeira tentativa
+não vazia, inclusive sua paginação, permanecem intactos. Não há segunda tentativa
+em consulta por ID, consulta derivada pelo Context Builder (`TextoIntegral`), busca
+com vetor, operadores/aspas/hífen, negações (`não`, `nunca`, `sem`, `exceto`) ou
+pontuação não suportada. Nenhuma configuração operacional é necessária.
+
+O vocabulário é intencionalmente pequeno: limpeza/limpar/faxina/higienização/higienizar;
+encerramento/encerrar/finalização/finalizar/término/terminar; subprocesso(s)/processos
+filhos/processos descendentes. Não é um dicionário semântico geral. **Subordinados não
+é expandido para processos**, pois a expressão é ambígua. As demais âncoras, inclusive
+siglas curtas e números, permanecem em todas as alternativas. Só palavras funcionais
+da lista local são descartadas nessa segunda tentativa, sem alteração do texto indexado.
+
+São aceitos de 2 a 8 termos após o descarte, até 24 alternativas completas em AND,
+unidas por OR, e até 2000 caracteres na consulta gerada. Fora desses limites, permanece
+o resultado vazio da primeira tentativa; não há truncamento de âncoras. Sem família
+reconhecida não há consulta extra. Todas as alternativas preservam os filtros de escopo,
+validade, sensibilidade, tipo, natureza, tags, datas e a janela de paginação; os resultados
+continuam sendo materializados/revalidados pelas mesmas policies, sem alterar índices,
+conteúdo, autoria ou status. A explicação identifica a segunda tentativa; `Modo` continua
+`lexical`. Um resultado vazio continua possível e preferível a inventar equivalência.
+
+`AvaliacaoLexical147Tests` mede a primeira tentativa e a implementação sobre os 22 casos
+congelados e uma verificação adicional em outro corpus. A baseline usa `TextoIntegral`
+para impedir apenas o passo novo; no modo lexical esse campo não altera a consulta SQL.
+Os JSONs de referência anteriores também permanecem inalterados. Execução reproduzível:
+
+```sh
+# DANTE_TEST_POSTGRES deve apontar exclusivamente para PostgreSQL descartável.
+DANTE_147_LEXICAL_EVIDENCIAS=/tmp/resultado-147 dotnet test Dante.sln --filter 'FullyQualifiedName~AvaliacaoLexical147Tests|FullyQualifiedName~ExpansaoLexicalTests'
+```
+
+O relatório separa Recall@5 macro, precisão agregada, TP/FP/FN, negativas e tempos do
+AppService (5 repetições, sem CLI/Telegram). O corpus adicional verifica regras conhecidas,
+não é avaliação cega de paráfrases gerais. Nenhuma contagem por bytes é apresentada como
+tokens reais. Resultados e decisão global GO/NO-GO permanecem na Issue #147.
 
 Caso da #147, conhecimento `704dbde5` sobre integração do Brain ao PostgreSQL, com
 tags `brain` e `postgres` (testado com conteúdo equivalente em banco temporário):

@@ -1,0 +1,1422 @@
+{
+  "arquivo": "issue147-verificacao.json",
+  "baseline": {
+    "modo": "baseline",
+    "recall5": 0,
+    "precisao": null,
+    "tp": 0,
+    "fp": 0,
+    "fn": 8,
+    "semCorrespondencia": 8,
+    "negativasComResultado": 0,
+    "p50Ms": 7.0935,
+    "p95Ms": 8.8566,
+    "amostras": 80
+  },
+  "expansao": {
+    "modo": "expansao",
+    "recall5": 1,
+    "precisao": 1,
+    "tp": 8,
+    "fp": 0,
+    "fn": 0,
+    "semCorrespondencia": 8,
+    "negativasComResultado": 0,
+    "p50Ms": 9.5142,
+    "p95Ms": 12.4708,
+    "amostras": 80
+  },
+  "alternativas": [
+    {
+      "modo": "or",
+      "recall5": 1,
+      "precisao": 0.25806451612903225,
+      "tp": 8,
+      "fp": 23,
+      "fn": 0,
+      "semCorrespondencia": 8,
+      "negativasComResultado": 7,
+      "p50Ms": 8.006,
+      "p95Ms": 8.9369,
+      "amostras": 80
+    },
+    {
+      "modo": "and-normalizado",
+      "recall5": 0,
+      "precisao": null,
+      "tp": 0,
+      "fp": 0,
+      "fn": 8,
+      "semCorrespondencia": 8,
+      "negativasComResultado": 0,
+      "p50Ms": 8.6251,
+      "p95Ms": 11.2271,
+      "amostras": 80
+    },
+    {
+      "modo": "or-cobertura",
+      "recall5": 0.125,
+      "precisao": 0.25,
+      "tp": 1,
+      "fp": 3,
+      "fn": 7,
+      "semCorrespondencia": 8,
+      "negativasComResultado": 3,
+      "p50Ms": 10.5079,
+      "p95Ms": 12.2199,
+      "amostras": 80
+    }
+  ],
+  "rows": [
+    {
+      "Id": "T01",
+      "Categoria": "sinonimo",
+      "Consulta": "limpar cozinha",
+      "Modo": "baseline",
+      "Relevantes": [
+        "cozinha"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        8.8566,
+        15.3475,
+        7.4671,
+        7.1517,
+        7.2314
+      ]
+    },
+    {
+      "Id": "T01",
+      "Categoria": "sinonimo",
+      "Consulta": "limpar cozinha",
+      "Modo": "or",
+      "Relevantes": [
+        "cozinha"
+      ],
+      "Recuperados": [
+        "cozinha"
+      ],
+      "Ms": [
+        7.9164,
+        8.2407,
+        8.3485,
+        8.5817,
+        8.0862
+      ]
+    },
+    {
+      "Id": "T01",
+      "Categoria": "sinonimo",
+      "Consulta": "limpar cozinha",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "cozinha"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        9.3542,
+        12.194,
+        9.8301,
+        11.3869,
+        9.3123
+      ]
+    },
+    {
+      "Id": "T01",
+      "Categoria": "sinonimo",
+      "Consulta": "limpar cozinha",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "cozinha"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        10.538,
+        10.4934,
+        12.6678,
+        10.4527,
+        10.1854
+      ]
+    },
+    {
+      "Id": "T01",
+      "Categoria": "sinonimo",
+      "Consulta": "limpar cozinha",
+      "Modo": "expansao",
+      "Relevantes": [
+        "cozinha"
+      ],
+      "Recuperados": [
+        "cozinha"
+      ],
+      "Ms": [
+        10.5663,
+        12.6465,
+        12.5731,
+        10.0386,
+        9.7065
+      ]
+    },
+    {
+      "Id": "T02",
+      "Categoria": "sinonimo",
+      "Consulta": "faxina lentes",
+      "Modo": "baseline",
+      "Relevantes": [
+        "lentes"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        7.4894,
+        7.5257,
+        7.4679,
+        9.9521,
+        7.5199
+      ]
+    },
+    {
+      "Id": "T02",
+      "Categoria": "sinonimo",
+      "Consulta": "faxina lentes",
+      "Modo": "or",
+      "Relevantes": [
+        "lentes"
+      ],
+      "Recuperados": [
+        "lentes"
+      ],
+      "Ms": [
+        7.676,
+        7.808,
+        7.7494,
+        7.5346,
+        7.8073
+      ]
+    },
+    {
+      "Id": "T02",
+      "Categoria": "sinonimo",
+      "Consulta": "faxina lentes",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "lentes"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        9.573,
+        9.7229,
+        9.483,
+        9.0565,
+        9.2447
+      ]
+    },
+    {
+      "Id": "T02",
+      "Categoria": "sinonimo",
+      "Consulta": "faxina lentes",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "lentes"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        10.5627,
+        10.5055,
+        10.5079,
+        10.4994,
+        10.2359
+      ]
+    },
+    {
+      "Id": "T02",
+      "Categoria": "sinonimo",
+      "Consulta": "faxina lentes",
+      "Modo": "expansao",
+      "Relevantes": [
+        "lentes"
+      ],
+      "Recuperados": [
+        "lentes"
+      ],
+      "Ms": [
+        9.7338,
+        10.2883,
+        10.5401,
+        13.2534,
+        9.8579
+      ]
+    },
+    {
+      "Id": "T03",
+      "Categoria": "sinonimo",
+      "Consulta": "higienizar cozinha",
+      "Modo": "baseline",
+      "Relevantes": [
+        "cozinha"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        7.5075,
+        7.4131,
+        7.2756,
+        8.66,
+        7.358
+      ]
+    },
+    {
+      "Id": "T03",
+      "Categoria": "sinonimo",
+      "Consulta": "higienizar cozinha",
+      "Modo": "or",
+      "Relevantes": [
+        "cozinha"
+      ],
+      "Recuperados": [
+        "cozinha",
+        "lentes"
+      ],
+      "Ms": [
+        8.6861,
+        8.3532,
+        8.4626,
+        8.9369,
+        8.6991
+      ]
+    },
+    {
+      "Id": "T03",
+      "Categoria": "sinonimo",
+      "Consulta": "higienizar cozinha",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "cozinha"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        9.4479,
+        9.1964,
+        11.2271,
+        9.6889,
+        9.3746
+      ]
+    },
+    {
+      "Id": "T03",
+      "Categoria": "sinonimo",
+      "Consulta": "higienizar cozinha",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "cozinha"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        11.3767,
+        10.9701,
+        10.8297,
+        10.9168,
+        10.5885
+      ]
+    },
+    {
+      "Id": "T03",
+      "Categoria": "sinonimo",
+      "Consulta": "higienizar cozinha",
+      "Modo": "expansao",
+      "Relevantes": [
+        "cozinha"
+      ],
+      "Recuperados": [
+        "cozinha"
+      ],
+      "Ms": [
+        12.5638,
+        9.7844,
+        9.6295,
+        9.7514,
+        9.6792
+      ]
+    },
+    {
+      "Id": "T04",
+      "Categoria": "sinonimo",
+      "Consulta": "encerramento invent\u00E1rio",
+      "Modo": "baseline",
+      "Relevantes": [
+        "inventario"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        7.3368,
+        7.1433,
+        7.3089,
+        7.1357,
+        6.9469
+      ]
+    },
+    {
+      "Id": "T04",
+      "Categoria": "sinonimo",
+      "Consulta": "encerramento invent\u00E1rio",
+      "Modo": "or",
+      "Relevantes": [
+        "inventario"
+      ],
+      "Recuperados": [
+        "inventario",
+        "juridico",
+        "filhos",
+        "rh"
+      ],
+      "Ms": [
+        9.8316,
+        8.5885,
+        8.4548,
+        8.8264,
+        8.4502
+      ]
+    },
+    {
+      "Id": "T04",
+      "Categoria": "sinonimo",
+      "Consulta": "encerramento invent\u00E1rio",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "inventario"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        8.5258,
+        8.719,
+        8.7492,
+        9.5218,
+        9.1322
+      ]
+    },
+    {
+      "Id": "T04",
+      "Categoria": "sinonimo",
+      "Consulta": "encerramento invent\u00E1rio",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "inventario"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        11.9182,
+        12.2335,
+        12.2199,
+        12.0962,
+        11.8049
+      ]
+    },
+    {
+      "Id": "T04",
+      "Categoria": "sinonimo",
+      "Consulta": "encerramento invent\u00E1rio",
+      "Modo": "expansao",
+      "Relevantes": [
+        "inventario"
+      ],
+      "Recuperados": [
+        "inventario"
+      ],
+      "Ms": [
+        10.5328,
+        9.7772,
+        9.3948,
+        9.5078,
+        9.5407
+      ]
+    },
+    {
+      "Id": "T05",
+      "Categoria": "sinonimo",
+      "Consulta": "finalizar backup",
+      "Modo": "baseline",
+      "Relevantes": [
+        "backup"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        7.3087,
+        7.0987,
+        7.4051,
+        9.3509,
+        8.174
+      ]
+    },
+    {
+      "Id": "T05",
+      "Categoria": "sinonimo",
+      "Consulta": "finalizar backup",
+      "Modo": "or",
+      "Relevantes": [
+        "backup"
+      ],
+      "Recuperados": [
+        "inventario",
+        "backup"
+      ],
+      "Ms": [
+        8.343,
+        9.3491,
+        8.2256,
+        8.3193,
+        8.4294
+      ]
+    },
+    {
+      "Id": "T05",
+      "Categoria": "sinonimo",
+      "Consulta": "finalizar backup",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "backup"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        9.1893,
+        9.3156,
+        9.2825,
+        8.9962,
+        12.4281
+      ]
+    },
+    {
+      "Id": "T05",
+      "Categoria": "sinonimo",
+      "Consulta": "finalizar backup",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "backup"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        11.9894,
+        13.5539,
+        11.0962,
+        10.8932,
+        10.9213
+      ]
+    },
+    {
+      "Id": "T05",
+      "Categoria": "sinonimo",
+      "Consulta": "finalizar backup",
+      "Modo": "expansao",
+      "Relevantes": [
+        "backup"
+      ],
+      "Recuperados": [
+        "backup"
+      ],
+      "Ms": [
+        9.8931,
+        11.5198,
+        10.423,
+        9.9446,
+        9.9052
+      ]
+    },
+    {
+      "Id": "T06",
+      "Categoria": "sinonimo",
+      "Consulta": "t\u00E9rmino invent\u00E1rio",
+      "Modo": "baseline",
+      "Relevantes": [
+        "inventario"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        7.7264,
+        8.3095,
+        8.808,
+        7.5786,
+        7.2319
+      ]
+    },
+    {
+      "Id": "T06",
+      "Categoria": "sinonimo",
+      "Consulta": "t\u00E9rmino invent\u00E1rio",
+      "Modo": "or",
+      "Relevantes": [
+        "inventario"
+      ],
+      "Recuperados": [
+        "inventario",
+        "backup"
+      ],
+      "Ms": [
+        8.2473,
+        8.1791,
+        8.2577,
+        9.9593,
+        8.3427
+      ]
+    },
+    {
+      "Id": "T06",
+      "Categoria": "sinonimo",
+      "Consulta": "t\u00E9rmino invent\u00E1rio",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "inventario"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        9.3125,
+        9.511,
+        8.8216,
+        8.3773,
+        8.2872
+      ]
+    },
+    {
+      "Id": "T06",
+      "Categoria": "sinonimo",
+      "Consulta": "t\u00E9rmino invent\u00E1rio",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "inventario"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        10.0149,
+        10.2437,
+        10.0057,
+        9.9722,
+        10.0115
+      ]
+    },
+    {
+      "Id": "T06",
+      "Categoria": "sinonimo",
+      "Consulta": "t\u00E9rmino invent\u00E1rio",
+      "Modo": "expansao",
+      "Relevantes": [
+        "inventario"
+      ],
+      "Recuperados": [
+        "inventario"
+      ],
+      "Ms": [
+        9.3688,
+        9.34,
+        9.4096,
+        9.4159,
+        9.2845
+      ]
+    },
+    {
+      "Id": "T07",
+      "Categoria": "parafrase",
+      "Consulta": "encerrar subprocessos",
+      "Modo": "baseline",
+      "Relevantes": [
+        "filhos"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        6.8692,
+        6.8982,
+        6.7918,
+        6.8621,
+        6.8753
+      ]
+    },
+    {
+      "Id": "T07",
+      "Categoria": "parafrase",
+      "Consulta": "encerrar subprocessos",
+      "Modo": "or",
+      "Relevantes": [
+        "filhos"
+      ],
+      "Recuperados": [
+        "juridico",
+        "filhos",
+        "rh"
+      ],
+      "Ms": [
+        8.1547,
+        8.3516,
+        8.3801,
+        8.4785,
+        8.6754
+      ]
+    },
+    {
+      "Id": "T07",
+      "Categoria": "parafrase",
+      "Consulta": "encerrar subprocessos",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "filhos"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        11.4891,
+        8.8477,
+        8.2637,
+        8.5552,
+        8.2295
+      ]
+    },
+    {
+      "Id": "T07",
+      "Categoria": "parafrase",
+      "Consulta": "encerrar subprocessos",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "filhos"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        10.1997,
+        10.5807,
+        10.4769,
+        10.7127,
+        10.9642
+      ]
+    },
+    {
+      "Id": "T07",
+      "Categoria": "parafrase",
+      "Consulta": "encerrar subprocessos",
+      "Modo": "expansao",
+      "Relevantes": [
+        "filhos"
+      ],
+      "Recuperados": [
+        "filhos"
+      ],
+      "Ms": [
+        11.748,
+        12.0224,
+        12.0925,
+        12.4708,
+        12.1288
+      ]
+    },
+    {
+      "Id": "T08",
+      "Categoria": "parafrase",
+      "Consulta": "limpar processos descendentes",
+      "Modo": "baseline",
+      "Relevantes": [
+        "descendentes"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        7.405,
+        6.8583,
+        6.9808,
+        7.2414,
+        6.9462
+      ]
+    },
+    {
+      "Id": "T08",
+      "Categoria": "parafrase",
+      "Consulta": "limpar processos descendentes",
+      "Modo": "or",
+      "Relevantes": [
+        "descendentes"
+      ],
+      "Recuperados": [
+        "descendentes",
+        "juridico",
+        "filhos"
+      ],
+      "Ms": [
+        7.9747,
+        10.3402,
+        8.5512,
+        7.9088,
+        7.8112
+      ]
+    },
+    {
+      "Id": "T08",
+      "Categoria": "parafrase",
+      "Consulta": "limpar processos descendentes",
+      "Modo": "and-normalizado",
+      "Relevantes": [
+        "descendentes"
+      ],
+      "Recuperados": [],
+      "Ms": [
+        8.3751,
+        8.4523,
+        8.3103,
+        8.3004,
+        8.2606
+      ]
+    },
+    {
+      "Id": "T08",
+      "Categoria": "parafrase",
+      "Consulta": "limpar processos descendentes",
+      "Modo": "or-cobertura",
+      "Relevantes": [
+        "descendentes"
+      ],
+      "Recuperados": [
+        "descendentes"
+      ],
+      "Ms": [
+        10.4806,
+        10.7452,
+        10.7753,
+        10.6251,
+        10.6064
+      ]
+    },
+    {
+      "Id": "T08",
+      "Categoria": "parafrase",
+      "Consulta": "limpar processos descendentes",
+      "Modo": "expansao",
+      "Relevantes": [
+        "descendentes"
+      ],
+      "Recuperados": [
+        "descendentes"
+      ],
+      "Ms": [
+        9.4708,
+        9.3604,
+        9.3926,
+        9.7917,
+        9.6996
+      ]
+    },
+    {
+      "Id": "T09",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina dos subordinados",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        7.1124,
+        6.9223,
+        6.8537,
+        6.9222,
+        6.8208
+      ]
+    },
+    {
+      "Id": "T09",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina dos subordinados",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [
+        "rh"
+      ],
+      "Ms": [
+        7.3967,
+        7.3484,
+        7.2046,
+        7.3208,
+        7.3114
+      ]
+    },
+    {
+      "Id": "T09",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina dos subordinados",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.5976,
+        8.5967,
+        8.5929,
+        8.3422,
+        8.6172
+      ]
+    },
+    {
+      "Id": "T09",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina dos subordinados",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.9617,
+        9.851,
+        9.6333,
+        9.7865,
+        11.2031
+      ]
+    },
+    {
+      "Id": "T09",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina dos subordinados",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.8797,
+        8.7889,
+        8.945,
+        8.688,
+        9.0669
+      ]
+    },
+    {
+      "Id": "T10",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina da marinha",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        7.3771,
+        6.9317,
+        7.0022,
+        6.8307,
+        6.7124
+      ]
+    },
+    {
+      "Id": "T10",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina da marinha",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        6.8238,
+        6.7664,
+        6.6925,
+        6.7579,
+        6.6428
+      ]
+    },
+    {
+      "Id": "T10",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina da marinha",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.413,
+        8.5454,
+        9.9413,
+        8.7698,
+        8.6114
+      ]
+    },
+    {
+      "Id": "T10",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina da marinha",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.1488,
+        8.3274,
+        8.1661,
+        8.1764,
+        8.2996
+      ]
+    },
+    {
+      "Id": "T10",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina da marinha",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.8759,
+        9.0424,
+        8.9265,
+        9.0186,
+        9.3036
+      ]
+    },
+    {
+      "Id": "T11",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "encerramento subprocessos judiciais",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        7.0935,
+        6.8647,
+        6.7779,
+        6.6921,
+        6.6729
+      ]
+    },
+    {
+      "Id": "T11",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "encerramento subprocessos judiciais",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [
+        "juridico",
+        "filhos",
+        "rh"
+      ],
+      "Ms": [
+        7.8011,
+        7.7454,
+        8.1273,
+        8.1461,
+        7.9936
+      ]
+    },
+    {
+      "Id": "T11",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "encerramento subprocessos judiciais",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.6874,
+        10.1097,
+        8.665,
+        8.485,
+        8.6625
+      ]
+    },
+    {
+      "Id": "T11",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "encerramento subprocessos judiciais",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [
+        "juridico"
+      ],
+      "Ms": [
+        10.4946,
+        10.4909,
+        10.7382,
+        10.5245,
+        10.7127
+      ]
+    },
+    {
+      "Id": "T11",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "encerramento subprocessos judiciais",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        12.1851,
+        12.3409,
+        12.0295,
+        12.2447,
+        12.3744
+      ]
+    },
+    {
+      "Id": "T12",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "limpar lentes infravermelhas",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        7.3703,
+        6.9736,
+        6.7966,
+        7.0781,
+        7.136
+      ]
+    },
+    {
+      "Id": "T12",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "limpar lentes infravermelhas",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [
+        "lentes"
+      ],
+      "Ms": [
+        7.3043,
+        7.4493,
+        7.1562,
+        7.4102,
+        7.4093
+      ]
+    },
+    {
+      "Id": "T12",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "limpar lentes infravermelhas",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.6363,
+        8.6251,
+        8.5707,
+        8.3494,
+        8.8622
+      ]
+    },
+    {
+      "Id": "T12",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "limpar lentes infravermelhas",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.4604,
+        9.6602,
+        9.6378,
+        9.4441,
+        9.714
+      ]
+    },
+    {
+      "Id": "T12",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "limpar lentes infravermelhas",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.2473,
+        9.0789,
+        9.033,
+        10.8829,
+        9.1724
+      ]
+    },
+    {
+      "Id": "T13",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "finaliza\u00E7\u00E3o invent\u00E1rio fiscal",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        6.8611,
+        6.8379,
+        6.7762,
+        6.7561,
+        6.723
+      ]
+    },
+    {
+      "Id": "T13",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "finaliza\u00E7\u00E3o invent\u00E1rio fiscal",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [
+        "inventario"
+      ],
+      "Ms": [
+        7.1508,
+        7.4868,
+        7.2641,
+        7.1802,
+        7.4565
+      ]
+    },
+    {
+      "Id": "T13",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "finaliza\u00E7\u00E3o invent\u00E1rio fiscal",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.5222,
+        8.5534,
+        8.5178,
+        8.5855,
+        8.3294
+      ]
+    },
+    {
+      "Id": "T13",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "finaliza\u00E7\u00E3o invent\u00E1rio fiscal",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [
+        "inventario"
+      ],
+      "Ms": [
+        9.485,
+        9.7485,
+        9.7302,
+        9.7245,
+        9.5724
+      ]
+    },
+    {
+      "Id": "T13",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "finaliza\u00E7\u00E3o invent\u00E1rio fiscal",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.3302,
+        9.4008,
+        9.8988,
+        9.3436,
+        10.1243
+      ]
+    },
+    {
+      "Id": "T14",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "t\u00E9rmino backup criptografado",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.6285,
+        8.5057,
+        7.1532,
+        6.9318,
+        7.0236
+      ]
+    },
+    {
+      "Id": "T14",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "t\u00E9rmino backup criptografado",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [
+        "backup"
+      ],
+      "Ms": [
+        7.4395,
+        7.215,
+        7.366,
+        7.3965,
+        7.2298
+      ]
+    },
+    {
+      "Id": "T14",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "t\u00E9rmino backup criptografado",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.754,
+        8.5811,
+        8.5844,
+        8.5016,
+        9.3427
+      ]
+    },
+    {
+      "Id": "T14",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "t\u00E9rmino backup criptografado",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [
+        "backup"
+      ],
+      "Ms": [
+        10.1373,
+        9.9473,
+        10.3433,
+        10.1503,
+        12.493
+      ]
+    },
+    {
+      "Id": "T14",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "t\u00E9rmino backup criptografado",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.8725,
+        9.3457,
+        9.3951,
+        9.3721,
+        9.4647
+      ]
+    },
+    {
+      "Id": "T15",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina processos eleitorais",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        6.8456,
+        6.7838,
+        6.78,
+        7.2881,
+        7.1828
+      ]
+    },
+    {
+      "Id": "T15",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina processos eleitorais",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [
+        "juridico",
+        "filhos",
+        "descendentes"
+      ],
+      "Ms": [
+        7.9671,
+        8.2897,
+        8.0562,
+        7.9545,
+        8.2861
+      ]
+    },
+    {
+      "Id": "T15",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina processos eleitorais",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.5305,
+        8.3774,
+        8.3047,
+        8.3413,
+        8.5424
+      ]
+    },
+    {
+      "Id": "T15",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina processos eleitorais",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        11.3651,
+        10.9904,
+        10.9047,
+        10.5933,
+        10.5785
+      ]
+    },
+    {
+      "Id": "T15",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "faxina processos eleitorais",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.0304,
+        9.1748,
+        9.6139,
+        9.1382,
+        8.9622
+      ]
+    },
+    {
+      "Id": "T16",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "como limpar processos de fermenta\u00E7\u00E3o?",
+      "Modo": "baseline",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        6.9905,
+        6.8029,
+        6.9674,
+        7.0806,
+        6.9037
+      ]
+    },
+    {
+      "Id": "T16",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "como limpar processos de fermenta\u00E7\u00E3o?",
+      "Modo": "or",
+      "Relevantes": [],
+      "Recuperados": [
+        "juridico",
+        "filhos",
+        "descendentes"
+      ],
+      "Ms": [
+        8.006,
+        8.0235,
+        8.0609,
+        8.145,
+        8.0753
+      ]
+    },
+    {
+      "Id": "T16",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "como limpar processos de fermenta\u00E7\u00E3o?",
+      "Modo": "and-normalizado",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        8.7003,
+        8.5004,
+        8.3788,
+        8.5032,
+        8.5125
+      ]
+    },
+    {
+      "Id": "T16",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "como limpar processos de fermenta\u00E7\u00E3o?",
+      "Modo": "or-cobertura",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        10.525,
+        10.7757,
+        10.8422,
+        10.7476,
+        10.8591
+      ]
+    },
+    {
+      "Id": "T16",
+      "Categoria": "sem-correspondencia",
+      "Consulta": "como limpar processos de fermenta\u00E7\u00E3o?",
+      "Modo": "expansao",
+      "Relevantes": [],
+      "Recuperados": [],
+      "Ms": [
+        9.2983,
+        9.3779,
+        9.3961,
+        9.22,
+        9.5142
+      ]
+    }
+  ]
+}

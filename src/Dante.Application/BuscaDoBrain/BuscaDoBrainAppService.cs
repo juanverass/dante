@@ -20,6 +20,18 @@ public sealed class BuscaDoBrainAppService(IIndiceDeBusca indice, IGeradorDeEmbe
         var matches = await indice.BuscarAsync(acesso, janela, modelo, vetor, limiar ?? 1, cancellationToken);
         var encontrados = fontes is null ? Array.Empty<ResultadoDaBuscaDto>() :
             (await fontes.BuscarAsync(acesso, janela, modelo, vetor, cancellationToken)).ToArray();
+        // Nunca complementar uma resposta não vazia nem reinterpretar consultas automáticas/por ID/híbridas.
+        // Os mesmos filtros e a mesma janela são usados antes de materializar e revalidar os resultados.
+        var expandida = false;
+        if (vetor is null && filtro.IdConhecimento is null && filtro.TextoIntegral is null && matches.Count == 0 && encontrados.Length == 0 &&
+            ExpansaoLexical.Tentar(filtro.Texto) is { } alternativa)
+        {
+            ProtecaoDeSegredos.GarantirSeguro(alternativa);
+            var segunda = janela with { Texto = alternativa };
+            matches = await indice.BuscarAsync(acesso, segunda, null, null, 1, cancellationToken);
+            encontrados = fontes is null ? [] : (await fontes.BuscarAsync(acesso, segunda, null, null, cancellationToken)).ToArray();
+            expandida = true;
+        }
         var pagina = matches.Select(m => (Id: m.Id, m.Score, Numero: -1, Match: (MatchDaBusca?)m, Fonte: (ResultadoDaBuscaDto?)null))
             .Concat(encontrados.Select(f => (Id: f.Item.Id, f.Score, Numero: f.Fonte!.Numero, Match: (MatchDaBusca?)null, Fonte: (ResultadoDaBuscaDto?)f)))
             .OrderByDescending(x => x.Score).ThenBy(x => x.Id).ThenBy(x => x.Numero).Skip(filtro.Deslocamento).Take(filtro.Limite + 1);
@@ -38,7 +50,8 @@ public sealed class BuscaDoBrainAppService(IIndiceDeBusca indice, IGeradorDeEmbe
                 "Correspondência lexical e proximidade semântica; combinação por ranking." : match.ScoreLexical > 0 ?
                 "Correspondência full-text em conteúdo/tags autorizados." : "Proximidade semântica por distância cosseno."));
         }
-        return new(resultados.Take(filtro.Limite).ToArray(), vetor is null ? "lexical" : "hibrido", resultados.Count > filtro.Limite,
+        return new(resultados.Take(filtro.Limite).Select(r => expandida ? r with
+            { Explicacao = "Segunda tentativa lexical com expansão controlada. " + r.Explicacao } : r).ToArray(), vetor is null ? "lexical" : "hibrido", resultados.Count > filtro.Limite,
             vetor is null ? null : modelo!.Nome + "@" + modelo.Versao);
     }
     public async Task<int> ReindexarAsync(AcessoAoBrain acesso, int limite = 100, bool reconstruir = false, CancellationToken cancellationToken = default)
