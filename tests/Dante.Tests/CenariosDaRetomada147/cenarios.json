@@ -1,0 +1,232 @@
+{
+  "versao": "issue147-cenarios@1",
+  "descricao": "Roteiros pré-registrados da retomada da #147 (Fase 0). Pedidos são roteiro fixo; respostas são do modelo real na execução. Casos citam só texto literal de mensagens de commit integradas (exceto o caso 1, fixture preexistente do harness preservada byte a byte). Placeholders: {markdown} {marcador} {refs} {decisao} {pr} {commit} {titulo} {incidente} {solucao} {ordem}.",
+  "separadorDoHistorico": "\n\n",
+  "decisaoLiteral": "O Brain deve permanecer em modo lexical.",
+  "pedidoPrimeiroCaso": "Execute a análise deste caso real da confiabilidade do D.A.N.T.E. para preparar sua continuidade em outra sessão. Minha decisão literal: O Brain deve permanecer em modo lexical. Registre o Markdown abaixo como evidência bruta no Brain, preservando exatamente o texto. Capture separadamente um Incidente e uma Solucao, natureza ConclusaoDoAgente, com referência fonte:<id>@<revisão> da evidência na justificativa e com o identificador exclusivo no conteúdo. Capture também a minha decisão literal como Decisao/DitoPeloUsuario. Use tags teste-147 e sensibilidade Pessoal em todos os registros deste ensaio para compatibilidade com o snapshot pessoal. Vincule os dois candidatos incidente e solução com brain_vincular_candidatos. Não confirme nada; o operador de teste fará a confirmação na rota de negócio. Apresente seu diagnóstico e os registros preparados. Sem arquivos, transcript ou raciocínio privado na evidência.\n\n{markdown}",
+  "pedidoCasoSeguinte": "Continue nesta sessão a análise de confiabilidade do D.A.N.T.E. com mais este caso real, para a mesma continuidade em outra sessão. Registre o Markdown abaixo como evidência bruta no Brain, preservando exatamente o texto. Capture separadamente um Incidente e uma Solucao, natureza ConclusaoDoAgente, com referência fonte:<id>@<revisão> da evidência na justificativa e com o identificador exclusivo no conteúdo. Use tags teste-147 e sensibilidade Pessoal em todos os registros deste ensaio para compatibilidade com o snapshot pessoal. Vincule os dois candidatos incidente e solução com brain_vincular_candidatos. Não confirme nada; o operador de teste fará a confirmação na rota de negócio. Apresente seu diagnóstico e os registros preparados. Sem arquivos, transcript ou raciocínio privado na evidência.\n\n{markdown}",
+  "pedidoSnapshot": "Consulte o escopo e o contexto atuais e persista o estado operacional da tarefa analisada: objetivo, tarefa, progresso, último resultado e próximo passo. Referencie estes registros existentes, sem copiar o Markdown para o snapshot: {refs}. Decisão confirmada a referenciar em ids_decisoes_confirmadas: {decisao}. Não grave transcript. Informe o identificador do ensaio na resposta final.",
+  "markdownCasoSeguinte": "# Caso real do D.A.N.T.E.: {titulo}\n\nCaso real: PR #{pr}, commit {commit}.\n## Incidente\n{incidente}\n## Solução\n{solucao}\nReferência pública: mensagem do commit {commit} no repositório.\nIdentificador exclusivo do ensaio: {marcador}-c{ordem}",
+  "consultas": {
+    "curto": "Retome a validação de confiabilidade do D.A.N.T.E. Qual problema foi analisado, qual solução foi adotada, qual restrição permanece e qual é o próximo passo? Consulte também as relações e a origem. Separe fonte bruta, fato confirmado e conclusão do agente. Inclua o identificador verificável do ensaio. Use exclusivamente o Brain.",
+    "medio": "Retome a validação de confiabilidade do D.A.N.T.E. Para cada caso real analisado, qual problema foi analisado e qual solução foi adotada? Qual restrição permanece e qual é o próximo passo? Consulte também as relações e a origem. Separe fonte bruta, fato confirmado e conclusão do agente. Inclua os identificadores verificáveis de cada caso do ensaio. Use exclusivamente o Brain.",
+    "longo": "Retome a validação de confiabilidade do D.A.N.T.E. Para cada caso real analisado, qual problema foi analisado e qual solução foi adotada? Qual restrição permanece e qual é o próximo passo? Consulte também as relações e a origem. Separe fonte bruta, fato confirmado e conclusão do agente. Inclua os identificadores verificáveis de cada caso do ensaio. Use exclusivamente o Brain."
+  },
+  "duracoes": {
+    "curto": 1,
+    "medio": 3,
+    "longo": 6
+  },
+  "casos": [
+    {
+      "ordem": 1,
+      "pr": 283,
+      "commit": "146a0fe40ea3137707f490e01df8c1219afdaa71",
+      "titulo": "confirmar limpeza de processos Linux e preservar configuração local",
+      "origemDoTexto": "fixture preexistente do harness E2E (#284), usada nas retomadas medidas em 15/11/2026; incidente e solução não são citação literal do commit",
+      "markdown": "# Validação de confiabilidade do D.A.N.T.E.\n\nCaso real: PR #283, merge 146a0fe40ea3137707f490e01df8c1219afdaa71.\n## Incidente\nCompletion podia sinalizar término antes de confirmar a limpeza dos processos descendentes.\n## Solução\nA contenção Linux usa escopos systemd e cgroups v2; o sucesso exige raiz encerrada e grupo vazio.\n## Limites\nO Worker ativo e o banco canônico devem ser preservados. A busca permanece lexical.\n## Próxima etapa\nValidar a continuidade independente do Brain na Issue #147, sem iniciar a Issue #282.\nReferência pública: docs/development/contencao-de-agentes.md na revisão do merge.\nIdentificador exclusivo do ensaio: {marcador}",
+      "incidente": "Completion podia sinalizar término antes de confirmar a limpeza dos processos descendentes.",
+      "solucao": "A contenção Linux usa escopos systemd e cgroups v2; o sucesso exige raiz encerrada e grupo vazio."
+    },
+    {
+      "ordem": 2,
+      "pr": 285,
+      "commit": "9951c17447bf3fe79332789c6a7c1202d952b201",
+      "titulo": "preservar identificadores e rótulos na retomada",
+      "origemDoTexto": "citação literal da mensagem do commit",
+      "incidente": "O E2E real mostrou duas perdas: a sessão A gravou o próximo passo sem o #147, e a sessão B parafraseou os rótulos de fonte bruta e de conclusão do agente.",
+      "solucao": "O contrato dos agentes passa a exigir os identificadores verificáveis no snapshot e o rótulo retornado junto de cada item."
+    },
+    {
+      "ordem": 3,
+      "pr": 247,
+      "commit": "4d906713fb8574c9175ddf6cdae0858d63ed243e",
+      "titulo": "autenticação SCRAM e limpeza dos bancos temporários",
+      "origemDoTexto": "citação literal da mensagem do commit",
+      "incidente": "Banco.CriarAsync derivava a connection string do banco temporário de uma conexão já aberta; com Persist Security Info=false a senha some e a migration falhava sob SCRAM-SHA-256, deixando o banco abandonado.",
+      "solucao": "Banco usa a string administrativa original e remove o banco se a migration falhar; DROP DATABASE IF EXISTS torna a limpeza repetível."
+    },
+    {
+      "ordem": 4,
+      "pr": 245,
+      "commit": "9ed53b231a2140c16cfe32c643d2662af3ba0757",
+      "titulo": "grants da conta runtime cobrem brain_index",
+      "origemDoTexto": "citação literal da mensagem do commit (solução = assunto do commit)",
+      "incidente": "Os triggers de derivados em brain_index rodam com os privilégios de quem escreve; sem USAGE e SELECT/INSERT/UPDATE/DELETE nesse schema, a primeira captura falhava com permission denied.",
+      "solucao": "grants da conta runtime cobrem brain_index"
+    },
+    {
+      "ordem": 5,
+      "pr": 261,
+      "commit": "5f98cc56c621da45b74c23f0ecf571a533771bd0",
+      "titulo": "proveniência MCP com sessão única entre reinícios",
+      "origemDoTexto": "citação literal da mensagem do commit",
+      "incidente": "S00000N recomeça a cada processo do Worker.",
+      "solucao": "A proveniência MCP passa a gravar sessao:<instância>:<S00000N>, com o mesmo prefixo de instância já usado nas métricas de continuidade."
+    },
+    {
+      "ordem": 6,
+      "pr": 89,
+      "commit": "9039865e2eb227b38c08cc21adbcb37dee23ed67",
+      "titulo": "omitir campos opcionais nulos no sendMessage do Telegram",
+      "origemDoTexto": "citação literal da mensagem do commit",
+      "incidente": "Assim toda resposta de sessão (HTML sem teclado) e todo envio simples (/ping, comandos) falhavam como HttpRequestException não transitório.",
+      "solucao": "O sendMessage agora serializa com WhenWritingNull."
+    }
+  ],
+  "essenciais": {
+    "regra": "Unidade presente quando qualquer alternativa aparece no texto do pacote (bruto ou nos valores JSON decodificados de cada linha). {ref:tipo} é conhecimento:<id>@<rev> do conhecimento do tipo cujo conteúdo contém o identificador do caso; {ref:fonte} é fonte:<id>@<rev> da fonte do caso. Presença é condição necessária, não suficiente; a resposta B é avaliada à parte.",
+    "primeiroCaso": [
+      {
+        "id": "marcador",
+        "qualquerDe": [
+          "{marcador}"
+        ]
+      },
+      {
+        "id": "pr",
+        "qualquerDe": [
+          "PR #283"
+        ]
+      },
+      {
+        "id": "commit",
+        "qualquerDe": [
+          "146a0fe40ea3137707f490e01df8c1219afdaa71"
+        ]
+      },
+      {
+        "id": "incidente",
+        "qualquerDe": [
+          "{incidente}",
+          "{ref:Incidente}"
+        ]
+      },
+      {
+        "id": "solucao",
+        "qualquerDe": [
+          "{solucao}",
+          "{ref:Solucao}"
+        ]
+      },
+      {
+        "id": "restricao_worker_banco",
+        "qualquerDe": [
+          "O Worker ativo e o banco canônico devem ser preservados."
+        ]
+      },
+      {
+        "id": "restricao_lexical",
+        "qualquerDe": [
+          "A busca permanece lexical."
+        ]
+      },
+      {
+        "id": "decisao",
+        "qualquerDe": [
+          "O Brain deve permanecer em modo lexical."
+        ]
+      },
+      {
+        "id": "proximo_passo",
+        "qualquerDe": [
+          "Validar a continuidade independente do Brain na Issue #147"
+        ]
+      },
+      {
+        "id": "documento_publico",
+        "qualquerDe": [
+          "docs/development/contencao-de-agentes.md"
+        ]
+      },
+      {
+        "id": "relacao",
+        "qualquerDe": [
+          "ResolvidoPor"
+        ]
+      },
+      {
+        "id": "ref_decisao",
+        "qualquerDe": [
+          "{ref:Decisao}"
+        ]
+      },
+      {
+        "id": "ref_incidente",
+        "qualquerDe": [
+          "{ref:Incidente}"
+        ]
+      },
+      {
+        "id": "ref_solucao",
+        "qualquerDe": [
+          "{ref:Solucao}"
+        ]
+      },
+      {
+        "id": "ref_fonte",
+        "qualquerDe": [
+          "{ref:fonte}"
+        ]
+      },
+      {
+        "id": "rotulo_confirmado",
+        "qualquerDe": [
+          "Confirmado"
+        ]
+      },
+      {
+        "id": "rotulo_inferido",
+        "qualquerDe": [
+          "Conclusão do agente, não confirmada"
+        ]
+      },
+      {
+        "id": "rotulo_fonte",
+        "qualquerDe": [
+          "Fonte bruta de autoria do agente, não confirmada"
+        ]
+      }
+    ],
+    "casoSeguinte": [
+      {
+        "id": "marcador",
+        "qualquerDe": [
+          "{marcador}-c{ordem}"
+        ]
+      },
+      {
+        "id": "pr",
+        "qualquerDe": [
+          "PR #{pr}"
+        ]
+      },
+      {
+        "id": "commit",
+        "qualquerDe": [
+          "{commit}"
+        ]
+      },
+      {
+        "id": "incidente",
+        "qualquerDe": [
+          "{incidente}",
+          "{ref:Incidente}"
+        ]
+      },
+      {
+        "id": "solucao",
+        "qualquerDe": [
+          "{solucao}",
+          "{ref:Solucao}"
+        ]
+      },
+      {
+        "id": "ref_fonte",
+        "qualquerDe": [
+          "{ref:fonte}"
+        ]
+      }
+    ]
+  }
+}
