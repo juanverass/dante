@@ -76,8 +76,35 @@ unidades no caso 1 e 6 por caso seguinte. Cada unidade é uma lista de alternati
 `conhecimento:<id>@<rev>` / `fonte:<id>@<rev>` resolvidas no estado. A presença é verificada no texto do pacote e nos
 valores JSON decodificados. Presença é condição necessária, não suficiente.
 
-**Essenciais da resposta B:** são os critérios existentes do harness para o caso 1. Para os demais casos, o
-identificador e o número da PR precisam aparecer na resposta.
+**Critérios da resposta B por caso**: ficam em
+[`CenariosDaRetomada147/criterios-resposta-b.json`](../../../tests/Dante.Tests/CenariosDaRetomada147/criterios-resposta-b.json)
+(SHA-256 `f8bf27a2d9bef5c73d5aa5369152693dcfd26c0a38abd47277cae0ea5987b2e2`, fixado em teste). O arquivo é separado de
+`cenarios.json`, cujo hash não muda.
+
+- **Curto:** só os critérios históricos de `AvaliacaoDoHarness147`, inalterados. São eles: incidente, solução,
+  restrição, próximo passo, marcador, as três distinções e as consultas de origem e de relação do caso 1.
+- **Médio e longo, por caso:**
+  - **Atribuição:** a resposta é lida por linha. Uma linha com o identificador exato do caso ou `#<PR>` pertence a esse
+    caso; as linhas seguintes sem âncora continuam nele. Texto escrito sob outro caso não conta.
+  - **Identificação:** o identificador e `#<PR>` do mesmo caso aparecem no mesmo parágrafo.
+  - **Incidente e solução, casos 2–6:** grupos de termos normalizados, todos deriváveis do Markdown do próprio caso.
+    Um teste prova que o texto literal de um caso atende os seus critérios e não os de nenhum outro, então trocar a
+    solução entre casos reprova.
+  - **Incidente e solução, caso 1:** os predicados históricos, aplicados ao texto atribuído ao caso 1.
+  - **Origem e relação, casos 2–6:** o rastro de B precisa ter `brain_mostrar_origem` bem-sucedido com o Id do
+    incidente do caso e a sessão `147A`. Precisa ter também `brain_listar_relacoes` bem-sucedido com os Ids do incidente
+    e da solução do caso. Os Ids vêm do estado.
+- Mencionar só o identificador e o número da PR não basta.
+
+**Gates:** antes de reprovar, o E2E persiste todas as evidências, inclusive `roteiro.json` e
+`criterios-resposta-b.json`. Depois exige, em cada repetição, as três famílias de critérios:
+
+- os critérios históricos;
+- 100% dos critérios por caso;
+- 100% dos essenciais do pacote.
+
+O conjunto de unidades é o exato esperado pela fixture: falta ou sobra de unidade também reprova. A média entre
+repetições não compensa uma repetição reprovada.
 
 **Verificação da execução** (`VerificacaoDaRetomada147`), antes de qualquer uso:
 
@@ -94,8 +121,24 @@ identificador e o número da PR precisam aparecer na resposta.
 - **Pacote coerente:** `pacote.json` e `pacote-texto` são o mesmo pacote; a entrada B é o pacote seguido da consulta
   pré-registrada.
 
-Os testes cobrem as retomadas medidas (0 divergências e 18/18 essenciais) e evidência adulterada. Com manifesto
-regravado de forma coerente, também cobrem confirmação indevida, relação removida e estado de outra execução.
+Os testes cobrem:
+
+- as retomadas medidas: 0 divergências e 18/18 essenciais;
+- evidência adulterada;
+- com manifesto regravado de forma coerente: confirmação indevida, relação removida e estado de outra execução.
+
+**Regressões dos gates** (`RespostaPorCaso147Tests`): um médio sintético coerente com o roteiro passa em todos os
+gates. Cada um destes casos reprova:
+
+- **pacote:** truncar a fonte e o incidente do caso 3, ou retirar apenas o commit do caso 2;
+- **resposta B, solução:**
+  - omitir a solução do caso 3;
+  - pôr a solução do caso 3 no caso 2, ou trocar as soluções entre os dois;
+  - escrever a solução do caso 1 sob o caso 2;
+- **resposta B, identificação:**
+  - dar só identificador e número da PR;
+  - identificar um caso com a PR de outro;
+- **rastro:** faltar a consulta de origem ou de relação de um caso posterior, ou a consulta retornar erro de aplicação.
 
 ## 4. Limitações
 
@@ -109,5 +152,9 @@ regravado de forma coerente, também cobrem confirmação indevida, relação re
 - **O caso 1 não é citação literal:** seu Markdown é a fixture preexistente do harness. Foi mantido para comparabilidade.
 - **Essenciais literais:** os do caso 1 foram verificados contra os pacotes de 15/11. Uma paráfrase do agente nos
   conhecimentos dos casos seguintes só conta pela referência do item, não pelo texto.
+- **Critérios por termos:** os critérios da resposta B por caso são heurísticos (termos normalizados e atribuição por
+  linha). Uma resposta com outra estrutura ou outro vocabulário pode ser reprovada, um falso negativo que é
+  conservador. Termos presentes não provam interpretação correta. Por isso esses critérios se somam aos históricos e
+  aos do pacote, sem substituí-los.
 - **Longo:** o orçamento do bootstrap (2048 tokens estimados, 12 itens) deve truncar o pacote. O critério decisivo passa a
   ser a preservação dos essenciais, conforme o diagnóstico da #147.

@@ -43,6 +43,8 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
         var execucao = ExecucaoDeMedicao147.Iniciar(RaizDeEvidencias147.Validar(RaizDeEvidencias147.Padrao()), RoteiroDaRetomada147.Cenario(duracao), repeticao);
         // O roteiro executado fica na própria execução, com hash no manifesto.
         execucao.GravarTexto("roteiro.json", "roteiro-pre-registrado", File.ReadAllText(RoteiroDaRetomada147.Caminho, new UTF8Encoding(false, true)));
+        var criteriosB = CriteriosDaRespostaB147.Carregar();
+        execucao.GravarTexto(CriteriosDaRespostaB147.NomeDoArquivo, "criterios-pre-registrados", File.ReadAllText(CriteriosDaRespostaB147.Caminho, new UTF8Encoding(false, true)));
         await using var banco = await Banco.CriarAsync();
         var privadoA = Directory.CreateTempSubdirectory("dante147-a-").FullName;
         var privadoB = Directory.CreateTempSubdirectory("dante147-b-").FullName;
@@ -197,30 +199,31 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
             var essenciais = AvaliacaoDoHarness147.AvaliarResposta(respostaB, marcador);
             essenciais["proveniencia_consultada"] = rastroB.ConsultaComprovada("brain_mostrar_origem", incidente.ToString(), brain.Instancia + ":147A");
             essenciais["relacao_consultada"] = rastroB.ConsultaComprovada("brain_listar_relacoes", incidente.ToString(), solucao.ToString());
-            // Casos além do primeiro: identificador exato e número da PR na resposta (regra pré-registrada no roteiro).
-            foreach (var caso in casos.Skip(1))
-            {
-                essenciais[$"c{caso.Ordem}_identificador"] = EstadoExportado147.ContemIdentificador(respostaB, RoteiroDaRetomada147.Identificador(caso.Ordem, marcador));
-                essenciais[$"c{caso.Ordem}_pr"] = respostaB.Contains("#" + caso.Pr, StringComparison.Ordinal);
-            }
-            // Presença das unidades essenciais no pacote: condição necessária, registrada como dado (não substitui a resposta B).
+            // Médio/longo: cada caso avaliado à parte na resposta B (identificação, incidente e solução no texto atribuído ao caso)
+            // e no rastro (origem e relação pelos Ids do próprio caso), pelos critérios pré-registrados. Curto: vazio.
+            var essenciaisPorCaso = RespostaPorCaso147.Avaliar(respostaB, roteiro, criteriosB, duracao, marcador,
+                caso => RespostaPorCaso147.Consultas(rastroB, estadoExportado, caso, marcador, brain.Instancia + ":147A"));
+            // Presença das unidades essenciais no pacote: condição necessária; ausência de qualquer uma reprova a repetição.
             var essenciaisDoPacote = EssenciaisDaRetomada147.AvaliarPacote(contexto.Pacote.TextoParaInjecao, estadoExportado, roteiro, duracao, marcador);
             var ofertasIndevidas = AvaliacaoDoHarness147.OfertasDeConfirmacao(respostaB);
             // Estimativas do produto ficam rotuladas e separadas; não substituem os contadores de uso-real.json.
             var estimativaHistorico = historico.Sum(ConstrutorDeContextoAppService.EstimarTokens);
             var estimativaPacote = contexto.Pacote.Custo.TokensEstimados;
-            resultadoFinal = new { repeticao, duracao, roteiro = roteiro.Versao, marcador, execucao = execucao.Id, banco = banco.Nome, agente = "claude", consultaB,
+            resultadoFinal = new { repeticao, duracao, roteiro = roteiro.Versao, criteriosB = criteriosB.Versao, marcador, execucao = execucao.Id, banco = banco.Nome, agente = "claude", consultaB,
                 encerramentoAConfirmado = true, diretorioARemovidoAntesDeB = true, ferramentasNativasDesabilitadas = true,
                 sessoesA = launcherA.Processos.Select(x => x.ProcessId).ToArray(), sessoesB = launcherB.Processos.Select(x => x.ProcessId).ToArray(),
-                essenciais, essenciaisDoPacote, recuperacoes,
+                essenciais, essenciaisPorCaso, essenciaisDoPacote, recuperacoes,
                 estimativaNaoMedida = new { historicoVisivelA = estimativaHistorico, pacote = estimativaPacote, metodo = "ceil(bytes UTF8 / 3), por mensagem; não é contagem de tokens" },
                 contexto.Pacote, registrosPersistidos, chamadasA, chamadasB, rastroB, ofertasIndevidas,
                 estadoAntesDeB, estadoDepoisDeB, estadoPreservado = estadoAntesDeB == estadoDepoisDeB, historico, respostaB, markdown };
             execucao.GravarJson("resultado.json", "resultado", resultadoFinal);
             output.WriteLine("Evidências: " + execucao.Diretorio);
-            output.WriteLine(JsonSerializer.Serialize(new { essenciais, essenciaisDoPacote, turnos, recuperacoes }, Json));
-            // Salvar antes de reprovar: a coleta completa nunca equivale ao cumprimento dos critérios.
+            output.WriteLine(JsonSerializer.Serialize(new { essenciais, essenciaisPorCaso, essenciaisDoPacote, turnos, recuperacoes }, Json));
+            // Salvar antes de reprovar: a coleta completa nunca equivale ao cumprimento dos critérios. Regra da #147: cada repetição
+            // precisa de 100% dos essenciais — históricos da resposta B, por caso (médio/longo) e no pacote.
             AvaliacaoDoHarness147.ExigirEssenciais(essenciais);
+            RespostaPorCaso147.Exigir(essenciaisPorCaso, RespostaPorCaso147.ChavesEsperadas(roteiro, duracao), "Critérios por caso da resposta B");
+            RespostaPorCaso147.Exigir(essenciaisDoPacote, EssenciaisDaRetomada147.ChavesEsperadas(roteiro, duracao), "Essenciais do pacote");
             AvaliacaoDoHarness147.ExigirPolitica(respostaB, rastroB, estadoAntesDeB, estadoDepoisDeB);
             Assert.All(rastroB.Chamadas, c => Assert.NotNull(c.Sucesso));
         }

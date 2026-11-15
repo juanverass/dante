@@ -141,6 +141,9 @@ internal static class EssenciaisDaRetomada147
         return resultado;
     }
 
+    internal static IReadOnlyList<string> ChavesEsperadas(RoteiroDaRetomada147 roteiro, string duracao) =>
+        roteiro.Casos(duracao).SelectMany(c => roteiro.Essenciais(c.Ordem), (c, u) => $"c{c.Ordem}.{u.Id}").ToArray();
+
     private static void Coletar(JsonElement e, List<string> textos)
     {
         switch (e.ValueKind)
@@ -171,6 +174,9 @@ internal static class VerificacaoDaRetomada147
         // Execuções novas gravam o roteiro usado; ele precisa ser byte a byte o pré-registrado (as de 15/11 são anteriores).
         if (manifesto.Arquivos.Any(a => a.Nome == "roteiro.json") && !File.ReadAllBytes(Path.Combine(diretorio, "roteiro.json")).AsSpan().SequenceEqual(roteiro.Bytes))
             divergencias.Add("roteiro da execução difere do pré-registrado");
+        if (manifesto.Arquivos.Any(a => a.Nome == CriteriosDaRespostaB147.NomeDoArquivo) &&
+            !File.ReadAllBytes(Path.Combine(diretorio, CriteriosDaRespostaB147.NomeDoArquivo)).AsSpan().SequenceEqual(File.ReadAllBytes(CriteriosDaRespostaB147.Caminho)))
+            divergencias.Add("critérios da resposta B da execução diferem dos pré-registrados");
         string Ler(string nome) => File.ReadAllText(Path.Combine(diretorio, nome), new UTF8Encoding(false, true));
         bool Existe(string nome) => manifesto.Arquivos.Any(a => a.Nome == nome);
         using var resultadoJson = JsonDocument.Parse(Ler("resultado.json"));
@@ -276,5 +282,122 @@ internal static class VerificacaoDaRetomada147
         if (!m.Success) return false;
         var colecao = m.Groups[1].Value == "fonte" ? "fontes" : "conhecimentos";
         return estado.Colecao(colecao).Any(x => EstadoExportado147.Str(x, "Id") == m.Groups[2].Value && EstadoExportado147.Int(x, "Revisao") >= int.Parse(m.Groups[3].Value));
+    }
+}
+
+// Critérios por caso da resposta B, pré-registrados em CenariosDaRetomada147/criterios-resposta-b.json (hash fixado em teste),
+// separados de cenarios.json para não alterar o pré-registro dos roteiros. O curto (um caso) segue só os critérios
+// históricos de AvaliacaoDoHarness147, sem mudança.
+internal sealed class CriteriosDaRespostaB147
+{
+    internal const string NomeDoArquivo = "criterios-resposta-b.json";
+    internal static string Caminho => Path.Combine(AppContext.BaseDirectory, "CenariosDaRetomada147", NomeDoArquivo);
+    internal byte[] Bytes { get; }
+    internal string Versao { get; }
+    private readonly Dictionary<int, (string[][] Incidente, string[][] Solucao)> porCaso;
+    private CriteriosDaRespostaB147(byte[] bytes, string versao, Dictionary<int, (string[][], string[][])> porCaso) => (Bytes, Versao, this.porCaso) = (bytes, versao, porCaso);
+
+    internal static CriteriosDaRespostaB147 Carregar(string? caminho = null)
+    {
+        var bytes = File.ReadAllBytes(caminho ?? Caminho);
+        using var d = JsonDocument.Parse(bytes);
+        static string[][] Grupos(JsonElement e) => e.EnumerateArray().Select(g => g.EnumerateArray().Select(t => t.GetString()!).ToArray()).ToArray();
+        var casos = d.RootElement.GetProperty("casos").EnumerateArray().ToDictionary(c => c.GetProperty("ordem").GetInt32(),
+            c => (Grupos(c.GetProperty("incidente")), Grupos(c.GetProperty("solucao"))));
+        return new(bytes, d.RootElement.GetProperty("versao").GetString()!, casos);
+    }
+
+    // Caso sem critério pré-registrado é erro: nunca aprovação por omissão.
+    internal (string[][] Incidente, string[][] Solucao) DoCaso(int ordem) =>
+        porCaso.TryGetValue(ordem, out var c) ? c : throw new KeyNotFoundException("Caso sem critério pré-registrado: " + ordem);
+    internal IReadOnlyCollection<int> Casos => porCaso.Keys;
+
+    // Cada grupo precisa de ao menos um termo no texto normalizado (minúsculas, sem acentos).
+    internal static bool Atende(string texto, string[][] grupos) =>
+        grupos.Length > 0 && grupos.All(g => g.Any(t => AvaliacaoDoHarness147.Normalizar(texto).Contains(t, StringComparison.Ordinal)));
+}
+
+internal static class RespostaPorCaso147
+{
+    internal static bool Ancora(string linha, CasoDaRetomada147 caso, string marcador) =>
+        EstadoExportado147.ContemIdentificador(linha, RoteiroDaRetomada147.Identificador(caso.Ordem, marcador)) || Regex.IsMatch(linha, $@"#{caso.Pr}(?!\d)");
+
+    // Linha com âncora pertence aos casos nela citados; linha sem âncora continua os casos da linha anterior;
+    // texto antes da primeira âncora não pertence a nenhum caso. Assim, conteúdo de um caso escrito sob outro não conta.
+    internal static Dictionary<int, string> TextoPorCaso(string resposta, IReadOnlyList<CasoDaRetomada147> casos, string marcador)
+    {
+        var textos = casos.ToDictionary(c => c.Ordem, _ => new StringBuilder());
+        var atuais = Array.Empty<int>();
+        foreach (var linha in resposta.Split('\n'))
+        {
+            var citados = casos.Where(c => Ancora(linha, c, marcador)).Select(c => c.Ordem).ToArray();
+            if (citados.Length > 0) atuais = citados;
+            foreach (var o in atuais) textos[o].Append(linha).Append('\n');
+        }
+        return textos.ToDictionary(x => x.Key, x => x.Value.ToString());
+    }
+
+    // Identificador exato e #PR do mesmo caso no mesmo parágrafo.
+    internal static bool Identificado(string resposta, CasoDaRetomada147 caso, string marcador) =>
+        Regex.Split(resposta, @"\n\s*\n").Any(p => EstadoExportado147.ContemIdentificador(p, RoteiroDaRetomada147.Identificador(caso.Ordem, marcador))
+            && Regex.IsMatch(p, $@"#{caso.Pr}(?!\d)"));
+
+    // Todas as chaves retornadas são obrigatórias. Curto: vazio (critérios históricos, avaliados à parte).
+    internal static Dictionary<string, bool> Avaliar(string resposta, RoteiroDaRetomada147 roteiro, CriteriosDaRespostaB147 criterios, string duracao,
+        string marcador, Func<CasoDaRetomada147, (bool Origem, bool Relacao)> consultas)
+    {
+        var resultado = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var casos = roteiro.Casos(duracao);
+        if (casos.Count == 1) return resultado;
+        var textos = TextoPorCaso(resposta, casos, marcador);
+        foreach (var caso in casos)
+        {
+            var texto = textos[caso.Ordem];
+            resultado[$"c{caso.Ordem}.identificacao"] = Identificado(resposta, caso, marcador);
+            if (caso.Ordem == 1)
+            {
+                // Predicados históricos do caso 1, agora restritos ao texto atribuído a ele.
+                var historicos = AvaliacaoDoHarness147.AvaliarResposta(texto, marcador);
+                resultado["c1.incidente"] = historicos["incidente"];
+                resultado["c1.solucao"] = historicos["solucao"];
+                continue;
+            }
+            var (incidente, solucao) = criterios.DoCaso(caso.Ordem);
+            resultado[$"c{caso.Ordem}.incidente"] = CriteriosDaRespostaB147.Atende(texto, incidente);
+            resultado[$"c{caso.Ordem}.solucao"] = CriteriosDaRespostaB147.Atende(texto, solucao);
+            var (origem, relacao) = consultas(caso);
+            resultado[$"c{caso.Ordem}.origem_consultada"] = origem;
+            resultado[$"c{caso.Ordem}.relacao_consultada"] = relacao;
+        }
+        return resultado;
+    }
+
+    // Origem e relação de um caso comprovadas no rastro de B pelos Ids do incidente e da solução desse caso no estado.
+    internal static (bool Origem, bool Relacao) Consultas(RastroDeFerramentas147 rastro, EstadoExportado147 estado, CasoDaRetomada147 caso, string marcador, string sessaoA)
+    {
+        var identificador = RoteiroDaRetomada147.Identificador(caso.Ordem, marcador);
+        var inc = estado.ConhecimentosDoCaso(TipoDeConhecimento.Incidente, identificador);
+        var sol = estado.ConhecimentosDoCaso(TipoDeConhecimento.Solucao, identificador);
+        if (inc.Length != 1 || sol.Length != 1) return (false, false);
+        var (idInc, idSol) = (EstadoExportado147.Str(inc[0], "Id"), EstadoExportado147.Str(sol[0], "Id"));
+        return (rastro.ConsultaComprovada("brain_mostrar_origem", idInc, sessaoA), rastro.ConsultaComprovada("brain_listar_relacoes", idInc, idSol));
+    }
+
+    internal static IReadOnlyList<string> ChavesEsperadas(RoteiroDaRetomada147 roteiro, string duracao)
+    {
+        var casos = roteiro.Casos(duracao);
+        if (casos.Count == 1) return [];
+        return casos.SelectMany(c => c.Ordem == 1 ? new[] { "identificacao", "incidente", "solucao" }
+            : ["identificacao", "incidente", "solucao", "origem_consultada", "relacao_consultada"], (c, k) => $"c{c.Ordem}.{k}").ToArray();
+    }
+
+    // Conjunto exato de unidades esperadas (nenhuma faltando, nenhuma a mais) e todas verdadeiras.
+    internal static void Exigir(IReadOnlyDictionary<string, bool> criterios, IReadOnlyList<string> esperadas, string rotulo)
+    {
+        var faltando = esperadas.Where(k => !criterios.ContainsKey(k)).ToArray();
+        var extras = criterios.Keys.Where(k => !esperadas.Contains(k)).ToArray();
+        Assert.True(faltando.Length == 0 && extras.Length == 0, $"{rotulo}: unidades não avaliadas [{string.Join(", ", faltando)}] ou inesperadas [{string.Join(", ", extras)}]");
+        var ausentes = criterios.Where(x => !x.Value).Select(x => x.Key).ToArray();
+        Assert.True(ausentes.Length == 0, rotulo + " não demonstrados: " + string.Join(", ", ausentes));
     }
 }

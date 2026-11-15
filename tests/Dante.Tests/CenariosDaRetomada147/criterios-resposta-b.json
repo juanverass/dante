@@ -1,0 +1,127 @@
+{
+  "versao": "issue147-criterios-resposta-b@1",
+  "descricao": "Critérios por caso da resposta B da retomada da #147, pré-registrados antes de qualquer execução e separados de cenarios.json (cujo hash permanece). O curto (um caso) continua avaliado só pelos critérios históricos de AvaliacaoDoHarness147, inalterados.",
+  "regras": {
+    "atribuicao": "A resposta é lida por linha. Uma linha com âncora de um caso (identificador exato do caso ou #<PR> sem dígito seguinte) pertence a esse caso (ou aos casos nela citados); linhas sem âncora continuam os casos da linha anterior; texto antes da primeira âncora não pertence a nenhum caso.",
+    "identificacao": "Casos 1–6 em médio/longo: identificador exato do caso e #<PR> do mesmo caso no mesmo parágrafo (linhas sem linha em branco entre elas).",
+    "incidente_e_solucao": "Casos 2–6: no texto atribuído ao caso, normalizado (minúsculas, sem acentos), cada grupo precisa de ao menos um termo. Caso 1 em médio/longo: os predicados históricos de incidente e solução de AvaliacaoDoHarness147 aplicados ao texto atribuído ao caso 1.",
+    "origem_e_relacao": "Casos 2–6: o rastro de B precisa de brain_mostrar_origem bem-sucedido cuja saída contenha o Id do incidente do caso e a sessão <instância>:147A, e de brain_listar_relacoes bem-sucedido cuja saída contenha os Ids do incidente e da solução do caso. Caso 1: critérios históricos proveniencia_consultada e relacao_consultada.",
+    "satisfazibilidade": "Todo termo é derivável do Markdown do próprio caso gravado no Brain; o texto literal de incidente/solução de um caso atende seus critérios e não atende os de nenhum outro caso.",
+    "decisao": "Toda unidade avaliada é obrigatória; uma ausente reprova a repetição depois de persistidas as evidências."
+  },
+  "casos": [
+    {
+      "ordem": 2,
+      "incidente": [
+        [
+          "perd",
+          "sem o #147",
+          "sem #147",
+          "omit"
+        ],
+        [
+          "parafrase"
+        ]
+      ],
+      "solucao": [
+        [
+          "contrato"
+        ],
+        [
+          "exig",
+          "obrig"
+        ],
+        [
+          "identificador",
+          "rotulo"
+        ]
+      ]
+    },
+    {
+      "ordem": 3,
+      "incidente": [
+        [
+          "scram"
+        ],
+        [
+          "senha",
+          "persist security info"
+        ]
+      ],
+      "solucao": [
+        [
+          "administrativa"
+        ],
+        [
+          "drop database",
+          "remov",
+          "limp"
+        ]
+      ]
+    },
+    {
+      "ordem": 4,
+      "incidente": [
+        [
+          "permission denied",
+          "permissao negada",
+          "sem permissao",
+          "privilegio"
+        ],
+        [
+          "brain_index",
+          "trigger"
+        ]
+      ],
+      "solucao": [
+        [
+          "grant"
+        ],
+        [
+          "runtime"
+        ]
+      ]
+    },
+    {
+      "ordem": 5,
+      "incidente": [
+        [
+          "s00000n",
+          "s0000"
+        ],
+        [
+          "recomec",
+          "reinici",
+          "cada processo"
+        ]
+      ],
+      "solucao": [
+        [
+          "sessao:"
+        ],
+        [
+          "instancia"
+        ]
+      ]
+    },
+    {
+      "ordem": 6,
+      "incidente": [
+        [
+          "httprequestexception"
+        ],
+        [
+          "resposta de sessao",
+          "envio simples",
+          "/ping",
+          "comando"
+        ]
+      ],
+      "solucao": [
+        [
+          "whenwritingnull"
+        ]
+      ]
+    }
+  ]
+}
