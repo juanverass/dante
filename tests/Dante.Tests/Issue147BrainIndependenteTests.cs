@@ -32,13 +32,13 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
         var admin = new Npgsql.NpgsqlConnectionStringBuilder(Banco.Administrativa);
         // Recusa erro de configuração antes de criar qualquer banco: laboratório conhecido, nunca o canônico.
         Assert.Equal("127.0.0.1", admin.Host); Assert.Equal(55433, admin.Port); Assert.Equal("postgres", admin.Database);
+        // Evidências persistentes fora de /tmp, recusadas antes de criar banco ou iniciar a CLI.
+        var execucao = ExecucaoDeMedicao147.Iniciar(RaizDeEvidencias147.Validar(RaizDeEvidencias147.Padrao()), "retomada", repeticao);
         await using var banco = await Banco.CriarAsync();
         var privadoA = Directory.CreateTempSubdirectory("dante147-a-").FullName;
         var privadoB = Directory.CreateTempSubdirectory("dante147-b-").FullName;
-        var id = Guid.NewGuid().ToString("N");
-        var evidencias = Path.Combine(Environment.GetEnvironmentVariable("DANTE_147_EVIDENCIAS") ?? Path.GetTempPath(), "dante147-" + id);
-        Directory.CreateDirectory(evidencias);
-        var metricas = Path.Combine(evidencias, "metricas.jsonl");
+        // Métricas do produto escritas direto na execução; declaradas com hash no fechamento.
+        var metricas = execucao.Reservar("metricas.jsonl");
         var registro = new RegistroDeMetricasEmArquivo(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["DANTE_BRAIN_METRICS_FILE"] = metricas }).Build());
         using var app = BrainMcpTests.CriarApp(banco.ConnectionString, s => s.AddSingleton<IRegistroDeMetricasDoBrain>(registro));
         var brain = app.GetRequiredService<TelegramBrain>(); await BrainMcpTests.SelecionarAsync(brain);
@@ -47,7 +47,8 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
         var ct = timeout.Token;
         var historico = new List<string>(); var chamadasA = new List<string>(); var chamadasB = new List<string>();
         var rastroB = new RastroDeFerramentas147();
-        var launcherA = new LancadorSomenteBrain(privadoA); var launcherB = new LancadorSomenteBrain(privadoB);
+        var usoA = new CapturaDeUsoClaude147(); var usoB = new CapturaDeUsoClaude147(); var turnos = new List<TurnoMedido147>();
+        var launcherA = new LancadorSomenteBrain(privadoA, usoA); var launcherB = new LancadorSomenteBrain(privadoB, usoB);
         // Caso real da PR #283. O marcador é aleatório e só verifica transferência; não inventa fato do produto.
         var marcador = "verificacao147" + Guid.NewGuid().ToString("N");
         var markdown = "# Validação de confiabilidade do D.A.N.T.E.\n\n" +
@@ -66,7 +67,7 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
             "Vincule os dois candidatos incidente e solução com brain_vincular_candidatos. Não confirme nada; o operador de teste fará a confirmação na rota de negócio. " +
             "Apresente seu diagnóstico e os registros preparados. Sem arquivos, transcript ou raciocínio privado na evidência.\n\n" + markdown;
         string respostaA = "", respostaB = "", respostaSnapshot = "";
-        object? resultadoFinal = null;
+        object? resultadoFinal = null; Exception? falha = null;
         try
         {
             var mensagemA = BrainMcpTests.Mensagem(pedidoA);
@@ -76,8 +77,10 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
             {
                 await a.StartAsync(new(privadoA, IsGeneral: true, Profile: AgentPermissionProfile.Manual, ToolServers: servidoresA), ct);
                 await using var eventos = a.ReadEventsAsync(ct).GetAsyncEnumerator();
-                await a.StartTurnAsync(pedidoA, ct);
-                respostaA = await RespostaAsync(a, eventos, chamadasA, true, ct); historico.Add(pedidoA); historico.Add(respostaA);
+                execucao.GravarTexto("entrada-a1.txt", "entrada-enviada", pedidoA); await a.StartTurnAsync(pedidoA, ct);
+                var turnoA1 = await RespostaAsync(a, eventos, chamadasA, true, ct); respostaA = turnoA1.Texto;
+                turnos.Add(new("A1", usoA.Proximo(), turnoA1.Uso)); execucao.GravarTexto("resposta-a1.txt", "resposta-visivel", respostaA);
+                historico.Add(pedidoA); historico.Add(respostaA);
                 await using (var db = banco.Contexto())
                 {
                     var fonte = await db.Set<DocumentoFonte>().SingleAsync();
@@ -109,8 +112,12 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
                     "Referencie estes registros existentes, sem copiar o Markdown para o snapshot: " + refs + ". Decisão confirmada a referenciar em ids_decisoes_confirmadas: " + decisao + ". Não grave transcript. Informe o identificador do ensaio na resposta final.";
                 var mensagemSnapshot = BrainMcpTests.Mensagem(salvar, 210);
                 ferramentas.BeginTurn("147A", new AgentInput(salvar, []) { BrainConversation = mensagemSnapshot.ParaFerramentas() });
-                await a.StartTurnAsync(salvar, ct); respostaSnapshot = await RespostaAsync(a, eventos, chamadasA, true, ct);
+                execucao.GravarTexto("entrada-a2.txt", "entrada-enviada", salvar); await a.StartTurnAsync(salvar, ct);
+                var turnoA2 = await RespostaAsync(a, eventos, chamadasA, true, ct); respostaSnapshot = turnoA2.Texto;
+                turnos.Add(new("A2", usoA.Proximo(), turnoA2.Uso)); execucao.GravarTexto("resposta-a2.txt", "resposta-visivel", respostaSnapshot);
                 historico.Add(salvar); historico.Add(respostaSnapshot);
+                // Insumo da comparação: somente o histórico visível de A (pedidos e respostas), não o transcript integral.
+                execucao.GravarTexto("historico-visivel.txt", "historico-visivel-nao-integral", string.Join(SeparadorDoHistorico, historico));
             }
             // Dispose de produção aguarda Completion. Confirma sucesso estrito antes de B existir.
             await launcherA.ConfirmarEncerramentoAsync(ct); ferramentas.EndSession("147A");
@@ -124,14 +131,19 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
             Assert.NotNull(contexto); Assert.NotEmpty(contexto.Pacote.Itens);
             Assert.Contains(contexto.Pacote.Itens, x => x.Origem == "snapshot");
             Assert.Contains(contexto.Pacote.Itens, x => x.Origem == "fonte_bruta");
+            GravarPacote(execucao, contexto.Pacote);
+            Assert.True(PacoteInjetado147.Confere(contexto.Texto, contexto.Pacote.TextoParaInjecao), "Texto enviado não começa pelo pacote exportado.");
             await using (var b = new ClaudeSessionDriver(launcherB))
             {
                 await b.StartAsync(new(privadoB, IsGeneral: true, Profile: AgentPermissionProfile.Manual, ToolServers: servidoresB), ct);
                 await using var eventos = b.ReadEventsAsync(ct).GetAsyncEnumerator();
                 // Pedido não contém a resposta. Contexto vem exclusivamente do construtor de produção sob teste.
-                await b.StartTurnAsync(contexto.Texto, ct); await brain.RegistrarInjecaoAsync(contexto, ct);
-                respostaB = await RespostaAsync(b, eventos, chamadasB, false, ct, rastroB);
-                await brain.RegistrarTurnoAsync(contexto.Correlacao, "claude", ConstrutorDeContextoAppService.EstimarTokens(respostaB), AgentTurnOutcome.Completed, null, ct);
+                execucao.GravarTexto("entrada-b.txt", "entrada-enviada", contexto.Texto); await b.StartTurnAsync(contexto.Texto, ct);
+                await brain.RegistrarInjecaoAsync(contexto, ct);
+                var turnoB = await RespostaAsync(b, eventos, chamadasB, false, ct, rastroB); respostaB = turnoB.Texto;
+                turnos.Add(new("B", usoB.Proximo(), turnoB.Uso)); execucao.GravarTexto("resposta-b.txt", "resposta-visivel", respostaB);
+                // Uso reportado pela CLI vai ao registro do produto; antes era null.
+                await brain.RegistrarTurnoAsync(contexto.Correlacao, "claude", ConstrutorDeContextoAppService.EstimarTokens(respostaB), AgentTurnOutcome.Completed, turnoB.Uso, ct);
             }
             await launcherB.ConfirmarEncerramentoAsync(ct); ferramentas.EndSession("147B");
             var estadoDepoisDeB = await EstadoPersistidoAsync(banco, ct);
@@ -174,27 +186,35 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
             essenciais["proveniencia_consultada"] = rastroB.ConsultaComprovada("brain_mostrar_origem", incidente.ToString(), brain.Instancia + ":147A");
             essenciais["relacao_consultada"] = rastroB.ConsultaComprovada("brain_listar_relacoes", incidente.ToString(), solucao.ToString());
             var ofertasIndevidas = AvaliacaoDoHarness147.OfertasDeConfirmacao(respostaB);
-            var tokensHistorico = historico.Sum(ConstrutorDeContextoAppService.EstimarTokens);
-            var tokensPacote = contexto.Pacote.Custo.TokensEstimados;
-            resultadoFinal = new { repeticao, banco = banco.Nome, baseGit = "146a0fe40ea3137707f490e01df8c1219afdaa71", agente = "claude", consultaB = ConsultaB,
+            // Estimativas do produto ficam rotuladas e separadas; não substituem os contadores de uso-real.json.
+            var estimativaHistorico = historico.Sum(ConstrutorDeContextoAppService.EstimarTokens);
+            var estimativaPacote = contexto.Pacote.Custo.TokensEstimados;
+            resultadoFinal = new { repeticao, execucao = execucao.Id, banco = banco.Nome, agente = "claude", consultaB = ConsultaB,
                 encerramentoAConfirmado = true, diretorioARemovidoAntesDeB = true, ferramentasNativasDesabilitadas = true,
                 sessoesA = launcherA.Processos.Select(x => x.ProcessId).ToArray(), sessoesB = launcherB.Processos.Select(x => x.ProcessId).ToArray(),
-                essenciais, recuperacoes, tokensHistoricoVisivelA = tokensHistorico, tokensPacote, razao = (double)tokensPacote / tokensHistorico,
-                estimador = "ceil(bytes UTF8 / 3), por mensagem; histórico = pedidos e respostas visíveis de A, sem uso agregado CLI",
+                essenciais, recuperacoes,
+                estimativaNaoMedida = new { historicoVisivelA = estimativaHistorico, pacote = estimativaPacote, metodo = "ceil(bytes UTF8 / 3), por mensagem; não é contagem de tokens" },
                 contexto.Pacote, registrosPersistidos, chamadasA, chamadasB, rastroB, ofertasIndevidas,
                 estadoAntesDeB, estadoDepoisDeB, estadoPreservado = estadoAntesDeB == estadoDepoisDeB, historico, respostaB, markdown };
-            await File.WriteAllTextAsync(Path.Combine(evidencias, "resultado.json"), JsonSerializer.Serialize(resultadoFinal, Json), ct);
-            output.WriteLine("Evidências: " + evidencias);
-            output.WriteLine(JsonSerializer.Serialize(new { essenciais, tokensHistorico, tokensPacote, recuperacoes }, Json));
+            execucao.GravarJson("resultado.json", "resultado", resultadoFinal);
+            output.WriteLine("Evidências: " + execucao.Diretorio);
+            output.WriteLine(JsonSerializer.Serialize(new { essenciais, turnos, recuperacoes }, Json));
             // Salvar antes de reprovar: a coleta completa nunca equivale ao cumprimento dos critérios.
             AvaliacaoDoHarness147.ExigirEssenciais(essenciais);
             AvaliacaoDoHarness147.ExigirPolitica(respostaB, rastroB, estadoAntesDeB, estadoDepoisDeB);
             Assert.All(rastroB.Chamadas, c => Assert.NotNull(c.Sucesso));
         }
+        catch (Exception e) { falha = e; throw; }
         finally
         {
             // Mesmo uma recusa de permissão é evidência e não autoriza ampliar o perfil da CLI.
-            if (resultadoFinal is null) await File.WriteAllTextAsync(Path.Combine(evidencias, "incompleto.json"), JsonSerializer.Serialize(new { repeticao, chamadasA, chamadasB, rastroB, respostaA, respostaSnapshot, respostaB }, Json));
+            // Falha ao fechar evidências não mascara a falha original do ensaio.
+            try
+            {
+                if (resultadoFinal is null) execucao.GravarJson("incompleto.json", "incompleto", new { repeticao, chamadasA, chamadasB, rastroB, respostaA, respostaSnapshot, respostaB });
+                FecharExecucao(execucao, turnos, new() { ["A"] = usoA, ["B"] = usoB }, resultadoFinal is not null);
+            }
+            catch (Exception fechamento) when (falha is not null) { output.WriteLine("Falha ao fechar evidências: " + fechamento); }
             if (Directory.Exists(privadoA)) Directory.Delete(privadoA, true);
             if (Directory.Exists(privadoB)) Directory.Delete(privadoB, true);
         }
@@ -252,17 +272,17 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
     {
         var admin = new Npgsql.NpgsqlConnectionStringBuilder(Banco.Administrativa);
         Assert.Equal("127.0.0.1", admin.Host); Assert.Equal(55433, admin.Port); Assert.Equal("postgres", admin.Database);
+        var execucao = ExecucaoDeMedicao147.Iniciar(RaizDeEvidencias147.Validar(RaizDeEvidencias147.Padrao()), "nota", repeticao);
         await using var banco = await Banco.CriarAsync();
         var privadoB = Directory.CreateTempSubdirectory("dante147-nota-b-").FullName;
-        var evidencias = Path.Combine(Environment.GetEnvironmentVariable("DANTE_147_EVIDENCIAS") ?? Path.GetTempPath(), "dante147-nota-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(evidencias);
         using var app = BrainMcpTests.CriarApp(banco.ConnectionString);
         var brain = app.GetRequiredService<TelegramBrain>(); await BrainMcpTests.SelecionarAsync(brain);
         using var ferramentas = BrainMcpTests.Provedor(app);
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
         var ct = timeout.Token;
-        var chamadasB = new List<string>(); var rastroB = new RastroDeFerramentas147(); var launcherB = new LancadorSomenteBrain(privadoB);
-        string respostaB = ""; object? resultadoFinal = null;
+        var chamadasB = new List<string>(); var rastroB = new RastroDeFerramentas147();
+        var usoB = new CapturaDeUsoClaude147(); var turnos = new List<TurnoMedido147>(); var launcherB = new LancadorSomenteBrain(privadoB, usoB);
+        string respostaB = ""; object? resultadoFinal = null; Exception? falha = null;
         try
         {
             // Sessão A: ator simulado no papel do usuário envia o comando de importação com o texto da fixture.
@@ -297,12 +317,20 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
             Assert.Single(servidoresB);
             var contexto = await brain.PrepararAsync(mensagemB, "147NB", pedidoB, ct);
             var notaNoPacote = contexto?.Pacote.Itens.Any(x => x.Origem == "fonte_bruta") == true;
+            if (contexto is not null)
+            {
+                GravarPacote(execucao, contexto.Pacote);
+                Assert.True(PacoteInjetado147.Confere(contexto.Texto, contexto.Pacote.TextoParaInjecao), "Texto enviado não começa pelo pacote exportado.");
+            }
             await using (var b = new ClaudeSessionDriver(launcherB))
             {
                 await b.StartAsync(new(privadoB, IsGeneral: true, Profile: AgentPermissionProfile.Manual, ToolServers: servidoresB), ct);
                 await using var eventos = b.ReadEventsAsync(ct).GetAsyncEnumerator();
-                await b.StartTurnAsync(contexto?.Texto ?? pedidoB, ct); if (contexto is not null) await brain.RegistrarInjecaoAsync(contexto, ct);
-                respostaB = await RespostaAsync(b, eventos, chamadasB, false, ct, rastroB);
+                var entradaB = contexto?.Texto ?? pedidoB;
+                execucao.GravarTexto("entrada-b.txt", "entrada-enviada", entradaB); await b.StartTurnAsync(entradaB, ct);
+                if (contexto is not null) await brain.RegistrarInjecaoAsync(contexto, ct);
+                var turnoB = await RespostaAsync(b, eventos, chamadasB, false, ct, rastroB); respostaB = turnoB.Texto;
+                turnos.Add(new("B", usoB.Proximo(), turnoB.Uso)); execucao.GravarTexto("resposta-b.txt", "resposta-visivel", respostaB);
             }
             await launcherB.ConfirmarEncerramentoAsync(ct); ferramentas.EndSession("147NB");
             var estadoDepoisDeB = await EstadoPersistidoAsync(banco, ct);
@@ -321,25 +349,33 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
                 ["rotulo_fonte_usuario"] = Re(t, "Fonte bruta de autoria do usuário, não confirmada")
             };
             var ofertas = AvaliacaoDoHarness147.OfertasDeConfirmacao(respostaB);
-            resultadoFinal = new { repeticao, banco = banco.Nome, agente = "claude", pedidoB, notaNoPacote, buscasDiretas, criterios, ofertas,
+            resultadoFinal = new { repeticao, execucao = execucao.Id, banco = banco.Nome, agente = "claude", pedidoB, notaNoPacote, buscasDiretas, criterios, ofertas,
                 rastroB, chamadasB, estadoPreservado = estadoAntesDeB == estadoDepoisDeB, respostaB,
-                tokensPacote = contexto?.Pacote.Custo.TokensEstimados, tokensNota = ConstrutorDeContextoAppService.EstimarTokens(NotaDoUsuario) };
-            await File.WriteAllTextAsync(Path.Combine(evidencias, "resultado.json"), JsonSerializer.Serialize(resultadoFinal, Json), ct);
-            output.WriteLine("Evidências: " + evidencias);
+                estimativaNaoMedida = new { pacote = contexto?.Pacote.Custo.TokensEstimados, nota = ConstrutorDeContextoAppService.EstimarTokens(NotaDoUsuario), metodo = "ceil(bytes UTF8 / 3); não é contagem de tokens" } };
+            execucao.GravarJson("resultado.json", "resultado", resultadoFinal);
+            output.WriteLine("Evidências: " + execucao.Diretorio);
             output.WriteLine(JsonSerializer.Serialize(new { criterios, buscasDiretas, notaNoPacote }, Json));
             // Salvar antes de reprovar.
             var ausentes = criterios.Where(x => !x.Value).Select(x => x.Key).ToArray();
             Assert.True(ausentes.Length == 0, "Critérios da nota não demonstrados: " + string.Join(", ", ausentes));
             AvaliacaoDoHarness147.ExigirPolitica(respostaB, rastroB, estadoAntesDeB, estadoDepoisDeB);
         }
+        catch (Exception e) { falha = e; throw; }
         finally
         {
-            if (resultadoFinal is null) await File.WriteAllTextAsync(Path.Combine(evidencias, "incompleto.json"), JsonSerializer.Serialize(new { repeticao, chamadasB, rastroB, respostaB }, Json));
+            try
+            {
+                if (resultadoFinal is null) execucao.GravarJson("incompleto.json", "incompleto", new { repeticao, chamadasB, rastroB, respostaB });
+                FecharExecucao(execucao, turnos, new() { ["B"] = usoB }, resultadoFinal is not null);
+            }
+            catch (Exception fechamento) when (falha is not null) { output.WriteLine("Falha ao fechar evidências: " + fechamento); }
             if (Directory.Exists(privadoB)) Directory.Delete(privadoB, true);
         }
     }
 
-    private static async Task<string> RespostaAsync(IAgentSessionDriver driver, IAsyncEnumerator<AgentEvent> eventos, List<string> chamadas, bool mutacoesPermitidas, CancellationToken ct, RastroDeFerramentas147? rastro = null)
+    private readonly record struct Turno147(string Texto, AgentTokenUsage? Uso);
+
+    private static async Task<Turno147> RespostaAsync(IAgentSessionDriver driver, IAsyncEnumerator<AgentEvent> eventos, List<string> chamadas, bool mutacoesPermitidas, CancellationToken ct, RastroDeFerramentas147? rastro = null)
     {
         var texto = new StringBuilder();
         while (await eventos.MoveNextAsync())
@@ -358,10 +394,42 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
                     await driver.RespondAsync(a.UpstreamRequestId, new AgentApprovalResponse(permitida ? AgentApprovalDecision.ApproveOnce : AgentApprovalDecision.Deny), ct); break;
                 case ErrorEvent e: throw new InvalidOperationException(e.Message);
                 case UserInputRequestedEvent: throw new InvalidOperationException("Pedido inesperado de informação para fixture fechada.");
-                case TurnCompletedEvent fim: Assert.Equal(AgentTurnOutcome.Completed, fim.Outcome); return texto.ToString();
+                case TurnCompletedEvent fim: Assert.Equal(AgentTurnOutcome.Completed, fim.Outcome); return new(texto.ToString(), fim.Usage);
             }
         }
         throw new InvalidOperationException("Sessão encerrou antes da conclusão do turno.");
+    }
+
+    internal const string SeparadorDoHistorico = "\n\n";
+
+    // PacoteDeContexto exportado duas vezes: texto exato injetado e estrutura completa (itens, referências, custo estimado).
+    internal static void GravarPacote(ExecucaoDeMedicao147 execucao, PacoteDeContextoDto pacote)
+    {
+        execucao.GravarTexto("pacote-texto-para-injecao.txt", "comparacao-pacote", pacote.TextoParaInjecao);
+        execucao.GravarJson("pacote.json", "pacote", pacote);
+    }
+
+    // Executado também em falha: todos os results observados (inclusive os não associados a um turno concluído),
+    // a sessão de cada CLI e o manifesto. O estado diz se a coleta terminou; Confiavel diz se o turno pode ser usado.
+    internal static string FecharExecucao(ExecucaoDeMedicao147 execucao, IReadOnlyList<TurnoMedido147> turnos,
+        Dictionary<string, CapturaDeUsoClaude147> capturas, bool completa, string? mounts = null)
+    {
+        execucao.GravarJson("uso-real.json", "uso-real", new
+        {
+            fonte = "result do stream-json do Claude Code, campo a campo; ausente = indisponivel; result de erro ou sem chamada = nao-medido",
+            semantica = new
+            {
+                usage = "por turno: soma de todas as chamadas do loop principal do turno; com ferramentas o contexto é recontado em cada chamada (ChamadasNoTurno)",
+                porModeloNoTurno = "model_usage_since_last_result: chamadas desde o result anterior, por modelo, incluindo subagentes/internas",
+                porModeloAcumulado = "modelUsage: total acumulado da sessão; não somar entre turnos",
+                entradaDaPrimeiraChamada = "first_request_input_tokens, campo interno opcional: entrada da primeira chamada do turno",
+                historico = "historico-visivel.txt contém só pedidos e respostas visíveis de A, não o transcript integral"
+            },
+            turnos = turnos.Select(t => new { t.Rotulo, t.Confiavel, t.ConsistenteComDriver, t.Associacao.ResultsPendentes, t.Associacao.FalhasDeLeitura, t.Uso, t.UsoDoDriver }),
+            sessoes = capturas.ToDictionary(c => c.Key, c => new { c.Value.Sessao, c.Value.FalhasDeLeitura, results = c.Value.Turnos })
+        });
+        var (commit, limpa) = RaizDeEvidencias147.EstadoGit();
+        return execucao.Finalizar(completa ? "completo" : "incompleto", commit, limpa, mounts);
     }
 
     private static async Task<string> EstadoPersistidoAsync(Banco banco, CancellationToken ct)
@@ -378,7 +446,7 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
         }, Json);
     }
 
-    private sealed class LancadorSomenteBrain(string diretorio) : IInteractiveAgentProcessLauncher
+    private sealed class LancadorSomenteBrain(string diretorio, CapturaDeUsoClaude147 uso) : IInteractiveAgentProcessLauncher
     {
         public List<InteractiveAgentProcess> Processos { get; } = [];
         public async Task<InteractiveAgentProcess> StartAsync(AgentProcessRequest request, Func<string, string>? redactOutput = null, CancellationToken cancellationToken = default)
@@ -391,7 +459,9 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
             var destino = Path.Combine(config, ".credentials.json");
             if (File.Exists(origem)) { File.Copy(origem, destino, false); if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(destino, UnixFileMode.UserRead | UnixFileMode.UserWrite); }
             var ambiente = new Dictionary<string, string> { ["CLAUDE_CONFIG_DIR"] = config };
-            var processo = await new InteractiveAgentProcessLauncher(new AgentExecutableResolver()).StartAsync(request with { Arguments = args, EnvironmentVariables = ambiente }, redactOutput, cancellationToken);
+            // Observa cada linha bruta (usage/modelo) sem alterá-la; o driver recebe o mesmo texto.
+            Func<string, string> observar = linha => uso.Observar(redactOutput is null ? linha : redactOutput(linha));
+            var processo = await new InteractiveAgentProcessLauncher(new AgentExecutableResolver()).StartAsync(request with { Arguments = args, EnvironmentVariables = ambiente }, observar, cancellationToken);
             Assert.True(processo.ContencaoNativa); Processos.Add(processo); return processo;
         }
         public async Task ConfirmarEncerramentoAsync(CancellationToken ct)

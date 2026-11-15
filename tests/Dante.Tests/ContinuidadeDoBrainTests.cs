@@ -53,6 +53,8 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
         await Eventually(()=>drivers.Created.Count==1&&drivers.Created[0].TurnInputs.Count==1);
         var driver=drivers.Created[0];
         Assert.Equal("[pacote S000001]\n\nMensagem do usuário:\ncomo seguimos?",driver.TurnInputs[0].Text);
+        // A injeção só é registrada depois que a sessão aceitou o turno (#145/#148): espera o próprio registro.
+        Assert.Equal("S000001",await brain.ProximoRegistroAsync());
         Assert.Equal(["S000001"],brain.Registrados);
         await ConcluirTurnoAsync(driver);
 
@@ -66,6 +68,25 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
 
         api.Enqueue(Texto("/status"));
         Assert.Contains("Brain falso para S000001",await api.NextMessageAsync());
+    }
+
+    // Ordem de produção que o teste acima precisa esperar: o turno chega ao driver antes do registro da injeção.
+    // Com o registro retido, o input já é visível e nada foi registrado; liberado, o registro chega sem mais nada.
+    [Fact]
+    public async Task RegistroDaInjecaoAconteceDepoisDeASessaoAceitarOTurno()
+    {
+        var liberar=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var brain=new ContinuidadeFalsa{SegurarRegistro=liberar.Task,InputsNoDriver=()=>drivers.Created.Sum(d=>d.TurnInputs.Count)};
+        await IniciarAsync(continuidade:brain);
+        api.Enqueue(Texto("como seguimos?"));
+        await Eventually(()=>drivers.Created.Count==1&&drivers.Created[0].TurnInputs.Count==1);
+        await brain.RegistroIniciado.WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal(1,brain.InputsAoIniciarRegistro);
+        Assert.Empty(brain.Registrados);
+        liberar.SetResult();
+        Assert.Equal("S000001",await brain.ProximoRegistroAsync());
+        Assert.Equal(["S000001"],brain.Registrados);
+        await ConcluirTurnoAsync(drivers.Created[0]);
     }
 
     [Fact]
@@ -317,16 +338,33 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
 
     private sealed class ContinuidadeFalsa:IContinuidadeDoBrain
     {
+        // Chamado pelo polling e lido pelo teste: listas sob lock e um canal que sinaliza cada registro concluído.
+        private readonly Lock gate=new();
+        private readonly List<string> registrados=[],reiniciados=[];
+        private readonly Channel<string> registros=Channel.CreateUnbounded<string>();
+        private readonly TaskCompletionSource registroIniciado=new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool SemPacote{get;init;}
-        public List<string> Registrados{get;}=[];
-        public List<string> Reiniciados{get;}=[];
+        public Task? SegurarRegistro{get;init;}
+        public Task RegistroIniciado=>registroIniciado.Task;
+        public Func<int>? InputsNoDriver{get;init;}
+        public int? InputsAoIniciarRegistro{get;private set;}
+        public IReadOnlyList<string> Registrados{get{lock(gate)return registrados.ToArray();}}
+        public IReadOnlyList<string> Reiniciados{get{lock(gate)return reiniciados.ToArray();}}
+        public async Task<string> ProximoRegistroAsync()=>await registros.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(15));
         public bool Configurado=>true;
         public Task<ContextoParaTurno?> PrepararAsync(TelegramMessage mensagem,string idSessao,string texto,CancellationToken cancellationToken=default)=>
             Task.FromResult(SemPacote?null:new ContextoParaTurno(idSessao,"escopo",$"[pacote {idSessao}]\n\nMensagem do usuário:\n{texto}",
                 new PacoteDeContextoDto(Guid.NewGuid(),"",[],[],new(0,0,0,0,2048),false),true,new()));
-        public Task RegistrarInjecaoAsync(ContextoParaTurno contexto,CancellationToken cancellationToken=default){Registrados.Add(contexto.IdSessao);return Task.CompletedTask;}
+        public async Task RegistrarInjecaoAsync(ContextoParaTurno contexto,CancellationToken cancellationToken=default)
+        {
+            InputsAoIniciarRegistro=InputsNoDriver?.Invoke();
+            registroIniciado.TrySetResult();
+            if(SegurarRegistro is not null)await SegurarRegistro.WaitAsync(cancellationToken);
+            lock(gate)registrados.Add(contexto.IdSessao);
+            registros.Writer.TryWrite(contexto.IdSessao);
+        }
         public Task RegistrarTurnoAsync(string? correlacao,string agente,int tokensDaResposta,AgentTurnOutcome resultado,AgentTokenUsage? uso,CancellationToken cancellationToken=default)=>Task.CompletedTask;
-        public void ReiniciarSessao(string idSessao)=>Reiniciados.Add(idSessao);
+        public void ReiniciarSessao(string idSessao){lock(gate)reiniciados.Add(idSessao);}
         public string? EscopoSelecionado(TelegramMessage mensagem)=>"escopo";
         public string? DescreverStatus(TelegramMessage mensagem,string? idSessao)=>$"Brain falso para {idSessao}";
     }
