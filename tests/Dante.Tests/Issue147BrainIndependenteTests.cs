@@ -21,19 +21,30 @@ namespace Dante.Tests;
 // CLI real, somente Brain descartável. Resultados negativos de qualidade são dados, não asserts invertidos.
 public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
 {
-    private const string ConsultaB = "Retome a validação de confiabilidade do D.A.N.T.E. Qual problema foi analisado, qual solução foi adotada, qual restrição permanece e qual é o próximo passo? Consulte também as relações e a origem. Separe fonte bruta, fato confirmado e conclusão do agente. Inclua o identificador verificável do ensaio. Use exclusivamente o Brain.";
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
+    // Curto (2 turnos de A) reproduz o roteiro das retomadas medidas em 15/11; médio (6) e longo (12) acrescentam casos
+    // reais da fixture pré-registrada CenariosDaRetomada147/cenarios.json. Cada execução tem banco, histórico e estado próprios.
     [EnsaioIndependente]
-    [InlineData(1)]
-    [InlineData(2)]
-    public async Task SessaoIndependenteRetomaCasoRealSomentePeloBrain(int repeticao)
+    [InlineData("curto", 1)]
+    [InlineData("curto", 2)]
+    [InlineData("medio", 1)]
+    [InlineData("medio", 2)]
+    [InlineData("longo", 1)]
+    [InlineData("longo", 2)]
+    public async Task SessaoIndependenteRetomaCasoRealSomentePeloBrain(string duracao, int repeticao)
     {
         var admin = new Npgsql.NpgsqlConnectionStringBuilder(Banco.Administrativa);
         // Recusa erro de configuração antes de criar qualquer banco: laboratório conhecido, nunca o canônico.
         Assert.Equal("127.0.0.1", admin.Host); Assert.Equal(55433, admin.Port); Assert.Equal("postgres", admin.Database);
+        var roteiro = RoteiroDaRetomada147.Carregar();
+        var casos = roteiro.Casos(duracao); var consultaB = roteiro.ConsultaB(duracao);
         // Evidências persistentes fora de /tmp, recusadas antes de criar banco ou iniciar a CLI.
-        var execucao = ExecucaoDeMedicao147.Iniciar(RaizDeEvidencias147.Validar(RaizDeEvidencias147.Padrao()), "retomada", repeticao);
+        var execucao = ExecucaoDeMedicao147.Iniciar(RaizDeEvidencias147.Validar(RaizDeEvidencias147.Padrao()), RoteiroDaRetomada147.Cenario(duracao), repeticao);
+        // O roteiro executado fica na própria execução, com hash no manifesto.
+        execucao.GravarTexto("roteiro.json", "roteiro-pre-registrado", File.ReadAllText(RoteiroDaRetomada147.Caminho, new UTF8Encoding(false, true)));
+        var criteriosB = CriteriosDaRespostaB147.Carregar();
+        execucao.GravarTexto(CriteriosDaRespostaB147.NomeDoArquivo, "criterios-pre-registrados", File.ReadAllText(CriteriosDaRespostaB147.Caminho, new UTF8Encoding(false, true)));
         await using var banco = await Banco.CriarAsync();
         var privadoA = Directory.CreateTempSubdirectory("dante147-a-").FullName;
         var privadoB = Directory.CreateTempSubdirectory("dante147-b-").FullName;
@@ -43,79 +54,75 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
         using var app = BrainMcpTests.CriarApp(banco.ConnectionString, s => s.AddSingleton<IRegistroDeMetricasDoBrain>(registro));
         var brain = app.GetRequiredService<TelegramBrain>(); await BrainMcpTests.SelecionarAsync(brain);
         using var ferramentas = BrainMcpTests.Provedor(app);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(12));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(12 + 6 * (casos.Count - 1)));
         var ct = timeout.Token;
         var historico = new List<string>(); var chamadasA = new List<string>(); var chamadasB = new List<string>();
         var rastroB = new RastroDeFerramentas147();
         var usoA = new CapturaDeUsoClaude147(); var usoB = new CapturaDeUsoClaude147(); var turnos = new List<TurnoMedido147>();
         var launcherA = new LancadorSomenteBrain(privadoA, usoA); var launcherB = new LancadorSomenteBrain(privadoB, usoB);
-        // Caso real da PR #283. O marcador é aleatório e só verifica transferência; não inventa fato do produto.
+        // Casos reais (PRs integradas). O marcador é aleatório e só verifica transferência; não inventa fato do produto.
         var marcador = "verificacao147" + Guid.NewGuid().ToString("N");
-        var markdown = "# Validação de confiabilidade do D.A.N.T.E.\n\n" +
-            "Caso real: PR #283, merge 146a0fe40ea3137707f490e01df8c1219afdaa71.\n" +
-            "## Incidente\nCompletion podia sinalizar término antes de confirmar a limpeza dos processos descendentes.\n" +
-            "## Solução\nA contenção Linux usa escopos systemd e cgroups v2; o sucesso exige raiz encerrada e grupo vazio.\n" +
-            "## Limites\nO Worker ativo e o banco canônico devem ser preservados. A busca permanece lexical.\n" +
-            "## Próxima etapa\nValidar a continuidade independente do Brain na Issue #147, sem iniciar a Issue #282.\n" +
-            "Referência pública: docs/development/contencao-de-agentes.md na revisão do merge.\n" +
-            "Identificador exclusivo do ensaio: " + marcador;
-        var pedidoA = "Execute a análise deste caso real da confiabilidade do D.A.N.T.E. para preparar sua continuidade em outra sessão. " +
-            "Minha decisão literal: O Brain deve permanecer em modo lexical. " +
-            "Registre o Markdown abaixo como evidência bruta no Brain, preservando exatamente o texto. " +
-            "Capture separadamente um Incidente e uma Solucao, natureza ConclusaoDoAgente, com referência fonte:<id>@<revisão> da evidência na justificativa e com o identificador exclusivo no conteúdo. " +
-            "Capture também a minha decisão literal como Decisao/DitoPeloUsuario. Use tags teste-147 e sensibilidade Pessoal em todos os registros deste ensaio para compatibilidade com o snapshot pessoal. " +
-            "Vincule os dois candidatos incidente e solução com brain_vincular_candidatos. Não confirme nada; o operador de teste fará a confirmação na rota de negócio. " +
-            "Apresente seu diagnóstico e os registros preparados. Sem arquivos, transcript ou raciocínio privado na evidência.\n\n" + markdown;
+        var markdown = roteiro.Markdown(casos[0], marcador);
         string respostaA = "", respostaB = "", respostaSnapshot = "";
         object? resultadoFinal = null; Exception? falha = null;
         try
         {
-            var mensagemA = BrainMcpTests.Mensagem(pedidoA);
+            var mensagemA = BrainMcpTests.Mensagem(roteiro.PedidoDoCaso(casos[0], marcador));
             var servidoresA = await ferramentas.ForSessionAsync("147A", new(42, AgentKind.Claude, Dante.Application.Contextos.JobExecutionContext.General(privadoA), BrainConversation: mensagemA.ParaFerramentas()), ct);
             Assert.Single(servidoresA);
             await using (var a = new ClaudeSessionDriver(launcherA))
             {
                 await a.StartAsync(new(privadoA, IsGeneral: true, Profile: AgentPermissionProfile.Manual, ToolServers: servidoresA), ct);
                 await using var eventos = a.ReadEventsAsync(ct).GetAsyncEnumerator();
-                execucao.GravarTexto("entrada-a1.txt", "entrada-enviada", pedidoA); await a.StartTurnAsync(pedidoA, ct);
-                var turnoA1 = await RespostaAsync(a, eventos, chamadasA, true, ct); respostaA = turnoA1.Texto;
-                turnos.Add(new("A1", usoA.Proximo(), turnoA1.Uso)); execucao.GravarTexto("resposta-a1.txt", "resposta-visivel", respostaA);
-                historico.Add(pedidoA); historico.Add(respostaA);
-                await using (var db = banco.Contexto())
+                for (var i = 0; i < casos.Count; i++)
                 {
-                    var fonte = await db.Set<DocumentoFonte>().SingleAsync();
-                    Assert.Equal(markdown, fonte.Conteudo); Assert.Equal("markdown", fonte.Formato); Assert.Equal(AutoriaDaFonte.Agente, fonte.Autoria);
-                    Assert.Contains(brain.Instancia + ":147A", fonte.Proveniencia);
-                    var candidatos = await db.CandidatosDeConhecimento.ToListAsync(); Assert.Equal(3, candidatos.Count);
-                    Assert.Equal(2, candidatos.Count(x => x.Natureza == NaturezaDoConteudo.ConclusaoDoAgente));
-                    Assert.All(candidatos.Where(x => x.Natureza == NaturezaDoConteudo.ConclusaoDoAgente), x => Assert.Contains(fonte.Id.ToString(), x.Justificativa));
-                    Assert.Empty(await db.Conhecimentos.ToListAsync());
+                    var caso = casos[i]; var (nPedido, nSnapshot) = (2 * i + 1, 2 * i + 2);
+                    // Ids de mensagem do caso 1 iguais aos das retomadas medidas; os demais casos em faixas próprias.
+                    var desloc = 100 * i;
+                    var pedido = roteiro.PedidoDoCaso(caso, marcador); var md = roteiro.Markdown(caso, marcador);
+                    if (i > 0) ferramentas.BeginTurn("147A", new AgentInput(pedido, []) { BrainConversation = BrainMcpTests.Mensagem(pedido, 123 + desloc).ParaFerramentas() });
+                    execucao.GravarTexto($"entrada-a{nPedido}.txt", "entrada-enviada", pedido); await a.StartTurnAsync(pedido, ct);
+                    var turnoPedido = await RespostaAsync(a, eventos, chamadasA, true, ct); respostaA = turnoPedido.Texto;
+                    turnos.Add(new($"A{nPedido}", usoA.Proximo(), turnoPedido.Uso)); execucao.GravarTexto($"resposta-a{nPedido}.txt", "resposta-visivel", respostaA);
+                    historico.Add(pedido); historico.Add(respostaA);
+                    var pendentes = i == 0 ? 3 : 2;
+                    await using (var db = banco.Contexto())
+                    {
+                        var fontes = await db.Set<DocumentoFonte>().ToListAsync(ct); Assert.Equal(i + 1, fontes.Count);
+                        var fonte = Assert.Single(fontes, x => x.Conteudo == md);
+                        Assert.Equal("markdown", fonte.Formato); Assert.Equal(AutoriaDaFonte.Agente, fonte.Autoria);
+                        Assert.Contains(brain.Instancia + ":147A", fonte.Proveniencia);
+                        var candidatos = await db.CandidatosDeConhecimento.ToListAsync(ct); Assert.Equal(3 + 2 * i, candidatos.Count);
+                        var doCaso = candidatos.Where(x => x.Natureza == NaturezaDoConteudo.ConclusaoDoAgente && x.Justificativa?.Contains(fonte.Id.ToString()) == true).ToArray();
+                        Assert.Equal(2, doCaso.Length);
+                        Assert.Equal(i == 0 ? 0 : 1 + 2 * i, await db.Conhecimentos.CountAsync(ct));
+                    }
+                    // Operador simulado, negócio real. Aprovação da CLI acima não consolida candidatos.
+                    for (var n = 0; n < pendentes; n++)
+                    {
+                        Assert.Contains("Candidatos pendentes", await brain.AtenderAsync(BrainMcpTests.Mensagem("listar candidatos", 200 + desloc + n * 2), "listar candidatos"));
+                        Assert.Contains("consolidado", await brain.AtenderAsync(BrainMcpTests.Mensagem("confirmar primeira", 201 + desloc + n * 2), "confirmar primeira"));
+                    }
+                    string refs; Guid decisao;
+                    await using (var db = banco.Contexto())
+                    {
+                        var conhecimentos = await db.Conhecimentos.ToListAsync(ct); Assert.Equal(3 + 2 * i, conhecimentos.Count);
+                        Assert.All(conhecimentos.Where(x => x.NaturezaDeOrigem == NaturezaDoConteudo.ConclusaoDoAgente), x => Assert.Equal(StatusDoConhecimento.Inferido, x.Status));
+                        decisao = Assert.Single(conhecimentos, x => x.Tipo == TipoDeConhecimento.Decisao && x.Status == StatusDoConhecimento.Confirmado).Id;
+                        var relacoes = await db.RelacoesDeConhecimento.ToListAsync(ct); Assert.Equal(i + 1, relacoes.Count);
+                        Assert.All(relacoes, r => Assert.Equal(Dante.Domain.RelacoesDeConhecimento.TipoDeRelacao.ResolvidoPor, r.Tipo));
+                        var fontes = await db.Set<DocumentoFonte>().ToListAsync(ct);
+                        // Para um caso, idêntico ao roteiro de 15/11: conhecimentos e depois a fonte.
+                        refs = string.Join(", ", conhecimentos.Select(x => $"conhecimento:{x.Id}@{x.Revisao}").Concat(fontes.Select(f => $"fonte:{f.Id}@{f.Revisao}")));
+                    }
+                    var salvar = roteiro.PedidoDoSnapshot(refs, decisao);
+                    var mensagemSnapshot = BrainMcpTests.Mensagem(salvar, 210 + desloc);
+                    ferramentas.BeginTurn("147A", new AgentInput(salvar, []) { BrainConversation = mensagemSnapshot.ParaFerramentas() });
+                    execucao.GravarTexto($"entrada-a{nSnapshot}.txt", "entrada-enviada", salvar); await a.StartTurnAsync(salvar, ct);
+                    var turnoSnapshot = await RespostaAsync(a, eventos, chamadasA, true, ct); respostaSnapshot = turnoSnapshot.Texto;
+                    turnos.Add(new($"A{nSnapshot}", usoA.Proximo(), turnoSnapshot.Uso)); execucao.GravarTexto($"resposta-a{nSnapshot}.txt", "resposta-visivel", respostaSnapshot);
+                    historico.Add(salvar); historico.Add(respostaSnapshot);
                 }
-                // Operador simulado, negócio real. Aprovação da CLI acima não consolida candidatos.
-                for (var n = 0; n < 3; n++)
-                {
-                    Assert.Contains("Candidatos pendentes", await brain.AtenderAsync(BrainMcpTests.Mensagem("listar candidatos", 200 + n * 2), "listar candidatos"));
-                    Assert.Contains("consolidado", await brain.AtenderAsync(BrainMcpTests.Mensagem("confirmar primeira", 201 + n * 2), "confirmar primeira"));
-                }
-                string refs; Guid decisao;
-                await using (var db = banco.Contexto())
-                {
-                    var conhecimentos = await db.Conhecimentos.ToListAsync(); Assert.Equal(3, conhecimentos.Count);
-                    Assert.All(conhecimentos.Where(x => x.NaturezaDeOrigem == NaturezaDoConteudo.ConclusaoDoAgente), x => Assert.Equal(StatusDoConhecimento.Inferido, x.Status));
-                    decisao = Assert.Single(conhecimentos, x => x.Tipo == TipoDeConhecimento.Decisao && x.Status == StatusDoConhecimento.Confirmado).Id;
-                    var relacao = await db.RelacoesDeConhecimento.SingleAsync();
-                    Assert.Equal(Dante.Domain.RelacoesDeConhecimento.TipoDeRelacao.ResolvidoPor, relacao.Tipo);
-                    var fonte = await db.Set<DocumentoFonte>().SingleAsync();
-                    refs = string.Join(", ", conhecimentos.Select(x => $"conhecimento:{x.Id}@{x.Revisao}").Append($"fonte:{fonte.Id}@{fonte.Revisao}"));
-                }
-                var salvar = "Consulte o escopo e o contexto atuais e persista o estado operacional da tarefa analisada: objetivo, tarefa, progresso, último resultado e próximo passo. " +
-                    "Referencie estes registros existentes, sem copiar o Markdown para o snapshot: " + refs + ". Decisão confirmada a referenciar em ids_decisoes_confirmadas: " + decisao + ". Não grave transcript. Informe o identificador do ensaio na resposta final.";
-                var mensagemSnapshot = BrainMcpTests.Mensagem(salvar, 210);
-                ferramentas.BeginTurn("147A", new AgentInput(salvar, []) { BrainConversation = mensagemSnapshot.ParaFerramentas() });
-                execucao.GravarTexto("entrada-a2.txt", "entrada-enviada", salvar); await a.StartTurnAsync(salvar, ct);
-                var turnoA2 = await RespostaAsync(a, eventos, chamadasA, true, ct); respostaSnapshot = turnoA2.Texto;
-                turnos.Add(new("A2", usoA.Proximo(), turnoA2.Uso)); execucao.GravarTexto("resposta-a2.txt", "resposta-visivel", respostaSnapshot);
-                historico.Add(salvar); historico.Add(respostaSnapshot);
                 // Insumo da comparação: somente o histórico visível de A (pedidos e respostas), não o transcript integral.
                 execucao.GravarTexto("historico-visivel.txt", "historico-visivel-nao-integral", string.Join(SeparadorDoHistorico, historico));
             }
@@ -124,10 +131,10 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
             Directory.Delete(privadoA, true); Assert.False(Directory.Exists(privadoA));
             Assert.Empty(Directory.EnumerateFileSystemEntries(privadoB));
             var estadoAntesDeB = await EstadoPersistidoAsync(banco, ct);
-            var mensagemB = BrainMcpTests.Mensagem(ConsultaB, 300);
+            var mensagemB = BrainMcpTests.Mensagem(consultaB, 300);
             var servidoresB = await ferramentas.ForSessionAsync("147B", new(42, AgentKind.Claude, Dante.Application.Contextos.JobExecutionContext.General(privadoB), BrainConversation: mensagemB.ParaFerramentas()), ct);
             Assert.Single(servidoresB);
-            var contexto = await brain.PrepararAsync(mensagemB, "147B", ConsultaB, ct);
+            var contexto = await brain.PrepararAsync(mensagemB, "147B", consultaB, ct);
             Assert.NotNull(contexto); Assert.NotEmpty(contexto.Pacote.Itens);
             Assert.Contains(contexto.Pacote.Itens, x => x.Origem == "snapshot");
             Assert.Contains(contexto.Pacote.Itens, x => x.Origem == "fonte_bruta");
@@ -155,23 +162,30 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
             var recuperacoes = new List<object>();
             object registrosPersistidos;
             Guid incidente; Guid solucao;
+            // Critérios do estado (um caso = fonte literal, incidente/solução inferidos e ResolvidoPor; uma decisão confirmada)
+            // conferidos pelo mesmo verificador usado nas evidências.
+            var estadoExportado = new EstadoExportado147(estadoAntesDeB);
+            var divergenciasDoEstado = new List<string>();
+            VerificacaoDaRetomada147.VerificarEstado(estadoExportado, roteiro, casos, marcador, divergenciasDoEstado);
+            Assert.True(divergenciasDoEstado.Count == 0, "Estado diverge do roteiro: " + string.Join("; ", divergenciasDoEstado));
             await using (var db = banco.Contexto())
             {
                 var fontes = await db.Set<DocumentoFonte>().ToListAsync(ct);
                 var conhecimentos = await db.Conhecimentos.ToListAsync(ct);
                 var relacoes = await db.RelacoesDeConhecimento.ToListAsync(ct);
                 var snapshots = await db.Set<Dante.Domain.ContextosDeTrabalho.ContextoDeTrabalho>().ToListAsync(ct);
-                incidente = Assert.Single(conhecimentos, x => x.Tipo == TipoDeConhecimento.Incidente).Id;
-                solucao = Assert.Single(conhecimentos, x => x.Tipo == TipoDeConhecimento.Solucao).Id;
-                Assert.Equal(incidente, Assert.Single(relacoes).IdOrigem); Assert.Equal(solucao, Assert.Single(relacoes).IdDestino);
+                // Caso 1: o mesmo par das retomadas medidas, identificado pelo marcador exato.
+                incidente = Assert.Single(conhecimentos, x => x.Tipo == TipoDeConhecimento.Incidente && EstadoExportado147.ContemIdentificador(x.Conteudo ?? "", marcador)).Id;
+                solucao = Assert.Single(conhecimentos, x => x.Tipo == TipoDeConhecimento.Solucao && EstadoExportado147.ContemIdentificador(x.Conteudo ?? "", marcador)).Id;
+                Assert.Single(relacoes, r => r.IdOrigem == incidente && r.IdDestino == solucao);
                 Assert.All(conhecimentos.Where(x => x.NaturezaDeOrigem == NaturezaDoConteudo.ConclusaoDoAgente), x =>
                 { Assert.Equal(StatusDoConhecimento.Inferido, x.Status); Assert.False(x.PodeSerConfirmado); });
                 var confirmada = Assert.Single(conhecimentos, x => x.Tipo == TipoDeConhecimento.Decisao);
                 Assert.Equal(StatusDoConhecimento.Confirmado, confirmada.Status); Assert.True(confirmada.PodeSerConfirmado);
-                Assert.Equal("O Brain deve permanecer em modo lexical.", confirmada.Conteudo);
+                Assert.Equal(roteiro.DecisaoLiteral, confirmada.Conteudo);
                 var snapshot = Assert.Single(snapshots);
                 Assert.Contains(confirmada.Id, snapshot.Dados.IdsDecisoesConfirmadas);
-                Assert.Contains($"fonte:{Assert.Single(fontes).Id}@{Assert.Single(fontes).Revisao}", snapshot.Dados.Referencias);
+                Assert.All(fontes, f => Assert.Contains($"fonte:{f.Id}@{f.Revisao}", snapshot.Dados.Referencias));
                 registrosPersistidos = new { fontes, conhecimentos, relacoes, snapshots };
             }
             foreach (var consulta in consultas)
@@ -185,22 +199,31 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
             var essenciais = AvaliacaoDoHarness147.AvaliarResposta(respostaB, marcador);
             essenciais["proveniencia_consultada"] = rastroB.ConsultaComprovada("brain_mostrar_origem", incidente.ToString(), brain.Instancia + ":147A");
             essenciais["relacao_consultada"] = rastroB.ConsultaComprovada("brain_listar_relacoes", incidente.ToString(), solucao.ToString());
+            // Médio/longo: cada caso avaliado à parte na resposta B (identificação, incidente e solução no texto atribuído ao caso)
+            // e no rastro (origem e relação pelos Ids do próprio caso), pelos critérios pré-registrados. Curto: vazio.
+            var essenciaisPorCaso = RespostaPorCaso147.Avaliar(respostaB, roteiro, criteriosB, duracao, marcador,
+                caso => RespostaPorCaso147.Consultas(rastroB, estadoExportado, caso, marcador, brain.Instancia + ":147A"));
+            // Presença das unidades essenciais no pacote: condição necessária; ausência de qualquer uma reprova a repetição.
+            var essenciaisDoPacote = EssenciaisDaRetomada147.AvaliarPacote(contexto.Pacote.TextoParaInjecao, estadoExportado, roteiro, duracao, marcador);
             var ofertasIndevidas = AvaliacaoDoHarness147.OfertasDeConfirmacao(respostaB);
             // Estimativas do produto ficam rotuladas e separadas; não substituem os contadores de uso-real.json.
             var estimativaHistorico = historico.Sum(ConstrutorDeContextoAppService.EstimarTokens);
             var estimativaPacote = contexto.Pacote.Custo.TokensEstimados;
-            resultadoFinal = new { repeticao, execucao = execucao.Id, banco = banco.Nome, agente = "claude", consultaB = ConsultaB,
+            resultadoFinal = new { repeticao, duracao, roteiro = roteiro.Versao, criteriosB = criteriosB.Versao, marcador, execucao = execucao.Id, banco = banco.Nome, agente = "claude", consultaB,
                 encerramentoAConfirmado = true, diretorioARemovidoAntesDeB = true, ferramentasNativasDesabilitadas = true,
                 sessoesA = launcherA.Processos.Select(x => x.ProcessId).ToArray(), sessoesB = launcherB.Processos.Select(x => x.ProcessId).ToArray(),
-                essenciais, recuperacoes,
+                essenciais, essenciaisPorCaso, essenciaisDoPacote, recuperacoes,
                 estimativaNaoMedida = new { historicoVisivelA = estimativaHistorico, pacote = estimativaPacote, metodo = "ceil(bytes UTF8 / 3), por mensagem; não é contagem de tokens" },
                 contexto.Pacote, registrosPersistidos, chamadasA, chamadasB, rastroB, ofertasIndevidas,
                 estadoAntesDeB, estadoDepoisDeB, estadoPreservado = estadoAntesDeB == estadoDepoisDeB, historico, respostaB, markdown };
             execucao.GravarJson("resultado.json", "resultado", resultadoFinal);
             output.WriteLine("Evidências: " + execucao.Diretorio);
-            output.WriteLine(JsonSerializer.Serialize(new { essenciais, turnos, recuperacoes }, Json));
-            // Salvar antes de reprovar: a coleta completa nunca equivale ao cumprimento dos critérios.
+            output.WriteLine(JsonSerializer.Serialize(new { essenciais, essenciaisPorCaso, essenciaisDoPacote, turnos, recuperacoes }, Json));
+            // Salvar antes de reprovar: a coleta completa nunca equivale ao cumprimento dos critérios. Regra da #147: cada repetição
+            // precisa de 100% dos essenciais — históricos da resposta B, por caso (médio/longo) e no pacote.
             AvaliacaoDoHarness147.ExigirEssenciais(essenciais);
+            RespostaPorCaso147.Exigir(essenciaisPorCaso, RespostaPorCaso147.ChavesEsperadas(roteiro, duracao), "Critérios por caso da resposta B");
+            RespostaPorCaso147.Exigir(essenciaisDoPacote, EssenciaisDaRetomada147.ChavesEsperadas(roteiro, duracao), "Essenciais do pacote");
             AvaliacaoDoHarness147.ExigirPolitica(respostaB, rastroB, estadoAntesDeB, estadoDepoisDeB);
             Assert.All(rastroB.Chamadas, c => Assert.NotNull(c.Sucesso));
         }
@@ -211,7 +234,7 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
             // Falha ao fechar evidências não mascara a falha original do ensaio.
             try
             {
-                if (resultadoFinal is null) execucao.GravarJson("incompleto.json", "incompleto", new { repeticao, chamadasA, chamadasB, rastroB, respostaA, respostaSnapshot, respostaB });
+                if (resultadoFinal is null) execucao.GravarJson("incompleto.json", "incompleto", new { repeticao, duracao, chamadasA, chamadasB, rastroB, respostaA, respostaSnapshot, respostaB });
                 FecharExecucao(execucao, turnos, new() { ["A"] = usoA, ["B"] = usoB }, resultadoFinal is not null);
             }
             catch (Exception fechamento) when (falha is not null) { output.WriteLine("Falha ao fechar evidências: " + fechamento); }
@@ -432,18 +455,11 @@ public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
         return execucao.Finalizar(completa ? "completo" : "incompleto", commit, limpa, mounts);
     }
 
+    // Serialização única do estado, compartilhada com a restauração (RestauracaoDoBrain147) para a prova byte a byte.
     private static async Task<string> EstadoPersistidoAsync(Banco banco, CancellationToken ct)
     {
         await using var db = banco.Contexto();
-        return JsonSerializer.Serialize(new
-        {
-            fontes = (await db.Set<DocumentoFonte>().AsNoTracking().ToListAsync(ct)).OrderBy(x => x.Id),
-            conhecimentos = (await db.Conhecimentos.AsNoTracking().ToListAsync(ct)).OrderBy(x => x.Id),
-            candidatos = (await db.CandidatosDeConhecimento.AsNoTracking().ToListAsync(ct)).OrderBy(x => x.Id),
-            vinculos = (await db.Set<VinculoEntreCandidatos>().AsNoTracking().ToListAsync(ct)).OrderBy(x => x.Id),
-            relacoes = (await db.RelacoesDeConhecimento.AsNoTracking().ToListAsync(ct)).OrderBy(x => x.Id),
-            snapshots = (await db.Set<Dante.Domain.ContextosDeTrabalho.ContextoDeTrabalho>().AsNoTracking().ToListAsync(ct)).OrderBy(x => x.Id)
-        }, Json);
+        return await RestauracaoDoBrain147.EstadoPersistidoAsync(db, ct);
     }
 
     private sealed class LancadorSomenteBrain(string diretorio, CapturaDeUsoClaude147 uso) : IInteractiveAgentProcessLauncher
