@@ -34,6 +34,8 @@ public static class ErrosDoBrainMcp
     public const string DetalheIdDeConhecimento = "O ID é de um conhecimento; esta ferramenta aceita somente candidato. Use brain_mostrar_origem com origem conhecimento.";
     public const string DetalheTiposDaRelacao = "Os tipos dos itens não correspondem à relação: ResolvidoPor exige Incidente → Solucao; ProduziuAprendizado exige Solucao → Aprendizado.";
     public const string DetalheTiposDoVinculo = "O vínculo ResolvidoPor exige candidato Incidente em incidente e candidato Solucao em solucao.";
+    public const string DetalheFundamento = "Fundamento inválido: fonte no formato fonte:<id>@<rev>; citacao com linhas inteiras, copiadas literalmente da revisão atual, únicas nela, dentro de um trecho indexado (até 1600 caracteres) e contidas literalmente no conteúdo.";
+    public const string DetalheFundamentoEmOutroProjeto = "fundamento só é aceito para fontes do projeto ativo; capture no destino sem fundamento.";
     public const string DetalheDestinoAtivo = "O destino informado é o contexto ativo; use brain_capturar_conhecimento.";
     public const string DetalheEntradaGrande = "Pedido excede o limite de 32 mil caracteres; reduza os argumentos.";
     public const string DetalheEntradaAbortada = "Pedido excede o limite e não terminou dentro do descarte permitido; canal encerrado. Inicie nova sessão.";

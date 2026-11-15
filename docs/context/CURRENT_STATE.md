@@ -525,7 +525,12 @@ construção e confirmação de injeção são etapas distintas. Não usa transc
 Formato compacto (#147): JSON por linha sem nulos/ID duplicado, snapshot com campos
 nomeados (deduplicação só por igualdade normalizada), relações entre itens e fonte bruta
 omitida só com prova de consolidação por trecho e cobertura contínua do documento; redução estimada offline de ~17–21% nas retomadas medidas, sem atingir o critério
-de razão ≤ 0,5 da #147 (NO-GO).
+de razão ≤ 0,5 da #147 (NO-GO). Evolução da captura (#147, AD-64): cabeçalho enxuto e
+título em chave própria (C1, −66 B nos pacotes restaurados); captura com `fundamento`
+grava proveniência por trecho (intervalo e hash do texto citado), e a prova aceita a
+união de intervalos por linha; snapshot com Progresso/UltimoResultado opcionais, citando o
+já registrado por referência tipada. Estimativa offline do caso curto montado pelo
+contrato novo: razão ≈ 0,51–0,53, ainda acima de 0,5; a #147 segue NO-GO.
 A integração às sessões da conversa natural é a #145; [contrato](../development/context-builder.md).
 
 ## Brain por conversa natural (#157)

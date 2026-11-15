@@ -38,19 +38,30 @@ public static class ServidorMcpDoBrain
         campo["description"] = "Primeira consulta preservada, até 2000 caracteres. Na busca lexical em português: AND implícito entre termos, or para alternativas, aspas para frase; hífen é aceito, mas não garante exclusão na seleção atual por pontuação. Stopwords são do PostgreSQL; não há corte em 16 termos na primeira tentativa. Se vazia, consulta simples pode receber segunda tentativa com expansão controlada de limpeza/encerramento/subprocessos, mantendo âncoras; operadores e negações não são reformulados. Diferente do contexto automático do Telegram, que extrai até 16 termos e combina por OR.";
         return campo;
     }
+    // Snapshot sem recontagem (#147): "" limpa o campo; omitir preserva o valor atual.
+    private static JsonObject TextoOpcional(int maximo) => new() { ["type"] = "string", ["maxLength"] = maximo,
+        ["description"] = "Só o que ainda não está em conhecimento, candidato ou fonte; o já registrado vai como referência tipada em referencias. \"\" limpa; omitir preserva." };
     private static JsonObject Tags() => new() { ["type"] = "array", ["maxItems"] = 50, ["items"] = Texto(100) };
     private static JsonObject Captura(bool correcao = false)
     {
         var p = new JsonObject { ["titulo"] = Texto(300), ["conteudo"] = Texto(10_000), ["tags"] = Tags(),
             ["tipo"] = EnumCampo<Dante.Domain.Conhecimentos.TipoDeConhecimento>(),
             ["natureza"] = EnumCampo<Dante.Domain.CapturaDeConhecimento.NaturezaDoConteudo>(Dante.Domain.CapturaDeConhecimento.NaturezaDoConteudo.Desconhecida),
-            ["sensibilidade"] = EnumCampo<Dante.Domain.Conhecimentos.Sensibilidade>(), ["justificativa"] = Texto(2000) };
+            ["sensibilidade"] = EnumCampo<Dante.Domain.Conhecimentos.Sensibilidade>(), ["justificativa"] = Texto(2000), ["fundamento"] = Fundamento() };
         if (correcao) { p["id"] = Id(); p["revisao"] = Revisao(); }
         return p;
     }
+    // Proveniência por trecho (#147): a fonte do projeto ativo e as linhas exatas que fundamentam o conteúdo.
+    private static JsonObject Fundamento() => new()
+    {
+        ["type"] = "object", ["additionalProperties"] = false, ["required"] = new JsonArray("fonte", "citacao"),
+        ["description"] = "Opcional. Fonte bruta do projeto ativo que fundamenta o conteúdo: o servidor grava referência, intervalo e hash do trecho citado. " +
+            "citacao são linhas inteiras copiadas literalmente da revisão atual, únicas nela, até 1600 caracteres, e o conteúdo precisa contê-las literalmente.",
+        ["properties"] = new JsonObject { ["fonte"] = Campo("string", "fonte:<id>@<rev> retornada por brain_registrar_evidencia ou pela busca."), ["citacao"] = Texto(1600) }
+    };
     private static JsonObject CapturaEmOutroProjeto()
     {
-        var p = Captura(); p["projeto"] = Texto(200); p["espaco"] = Texto(200);
+        var p = Captura(); p.Remove("fundamento"); p["projeto"] = Texto(200); p["espaco"] = Texto(200);
         return p;
     }
     public static readonly IReadOnlyList<Ferramenta> Ferramentas =
@@ -82,11 +93,11 @@ public static class ServidorMcpDoBrain
                 ["justificativa"] = Texto(Dante.Domain.DocumentosFonte.DocumentoFonte.TamanhoMaximoDaJustificativa) }, ["titulo", "conteudo"]),
         new("brain_obter_contexto_de_trabalho", "Snapshot operacional atual, distinto de conhecimento.", true, false, new(), []),
         new("brain_atualizar_contexto_de_trabalho", "Atualiza snapshot operacional com revisão esperada. Decisões do usuário devem ser referenciadas em ids_decisoes_confirmadas, não afirmadas em texto livre: use IDs de conhecimentos Decisao já confirmados no Telegram, válidos e permitidos no mesmo escopo. A lista informada substitui a anterior; [] limpa; omitir preserva. Não armazena transcript nem raciocínio privado e não cria Conhecimento.", false, true,
-            new() { ["revisao"] = Revisao(), ["objetivo"] = Texto(2000), ["tarefa"] = Texto(2000), ["progresso"] = Texto(2000), ["ultimo_resultado"] = Texto(2000),
+            new() { ["revisao"] = Revisao(), ["objetivo"] = Texto(2000), ["tarefa"] = Texto(2000), ["progresso"] = TextoOpcional(2000), ["ultimo_resultado"] = TextoOpcional(2000),
                 ["ids_decisoes_confirmadas"] = new JsonObject { ["type"] = "array", ["maxItems"] = 20,
                     ["items"] = new JsonObject { ["type"] = "string", ["format"] = "uuid", ["maxLength"] = 40 },
                     ["description"] = "Lista completa de até 20 IDs de decisões confirmadas, válidas, do escopo e compatíveis com a sessão e a sensibilidade do snapshot. Duplicatas são deduplicadas ao salvar. [] remove todas; omitir mantém a lista atual. IDs vêm da busca de conhecimentos, nunca do usuário nem de candidatos." },
-                ["referencias"] = Tags(), ["pendencias"] = Tags(), ["proximos_passos"] = Tags() }, ["revisao", "objetivo", "tarefa", "progresso", "ultimo_resultado"])
+                ["referencias"] = Tags(), ["pendencias"] = Tags(), ["proximos_passos"] = Tags() }, ["revisao", "objetivo", "tarefa"])
     ];
     public static IReadOnlyList<string> FerramentasDeLeitura => Ferramentas.Where(x => x.Leitura).Select(x => x.Nome).ToArray();
     public static JsonObject Lista() => new() { ["tools"] = new JsonArray(Ferramentas.Select(f => (JsonNode)new JsonObject

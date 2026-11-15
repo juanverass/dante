@@ -152,8 +152,8 @@ a referência correspondente atualizada. `IdsDecisoesConfirmadas` continua sujei
 
 `brain_atualizar_contexto_de_trabalho` aceita o campo opcional
 `ids_decisoes_confirmadas`, uma lista de IDs de **conhecimentos** obtidos pela busca.
-Não use ID de candidato nem peça GUID ao usuário. Os demais campos obrigatórios e a
-revisão esperada continuam iguais. A lista tem semântica de substituição completa:
+Não use ID de candidato nem peça GUID ao usuário. Objetivo, tarefa e a revisão esperada
+continuam obrigatórios; desde a #147, `progresso` e `ultimo_resultado` são opcionais (veja abaixo). A lista tem semântica de substituição completa:
 
 - Campo omitido: conserva a lista atual (ou vazia no primeiro snapshot).
 - Lista informada: substitui as referências anteriores; para remover somente uma,
@@ -593,3 +593,23 @@ pacote permanecem os mesmos. A serialização dos campos/rótulos novos é conta
 antes da seleção: mais metadados podem reduzir o conteúdo que cabe no mesmo orçamento.
 Regras de autorização e redação de conteúdo sensível permanecem aplicadas em todos
 os canais; nada autoriza acesso ao banco canônico para testes.
+
+## Proveniência por trecho e snapshot sem recontagem (#147)
+
+`brain_capturar_conhecimento`, `brain_corrigir_candidato` e `brain_atualizar_conhecimento`
+aceitam `fundamento` opcional: `{ "fonte": "fonte:<id>@<rev>", "citacao": "<linhas exatas>" }`.
+A fonte é do projeto ativo (`brain_capturar_em_outro_projeto` não oferece o campo). O
+servidor resolve a citação pela Application (`FundamentarAsync`) e grava referência,
+intervalo, hash do documento e hash do texto citado; a referência da mensagem que pediu a
+captura vai para a `Origem`. Citação que não seja linhas inteiras, únicas, dentro de uma
+parte indexada e contidas literalmente no conteúdo é `entrada_invalida` com detalhe fixo;
+revisão diferente é `revisao_desatualizada`; fonte inexistente ou fora do escopo é
+`nao_encontrado_ou_nao_autorizado`. Quando os conhecimentos fundamentados cobrem todas as
+linhas da fonte e estão no mesmo pacote, o contexto omite a íntegra e mantém `Ref`,
+`Titulo`, `Rotulo` e `ConsolidadaEm`; senão a fonte segue integral.
+
+Em `brain_atualizar_contexto_de_trabalho`, `progresso` e `ultimo_resultado` registram só o
+que ainda não está em conhecimento, candidato ou fonte; o já registrado vai em
+`referencias` como `conhecimento:<id>@<rev>` (ou candidato/fonte). Omitir o campo preserva
+o valor atual; `""` o limpa. O contexto não remove texto do snapshot por semelhança: a
+deduplicação continua só por igualdade normalizada.

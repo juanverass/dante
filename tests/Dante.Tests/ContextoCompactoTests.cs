@@ -60,7 +60,7 @@ public sealed class ContextoCompactoTests
     public void SensibilidadeUniformeVaiAoCabecalhoEMistaFicaPorItem()
     {
         var uniforme = Selecionar([Conhecimento("um"), Conhecimento("dois")]);
-        Assert.Contains("Sensibilidade=Pessoal em todos os itens.", uniforme.TextoParaInjecao.Split('\n')[1]);
+        Assert.Contains("Sensibilidade=Pessoal em todos.", uniforme.TextoParaInjecao.Split('\n')[1]);
         Assert.All(Linhas(uniforme), l => Assert.False(l.TryGetProperty("Sensibilidade", out _)));
         var confidencial = Conhecimento("dois") with { Sensibilidade = Sensibilidade.Confidencial };
         var mista = Selecionar([Conhecimento("um"), confidencial]);
@@ -422,7 +422,7 @@ public sealed class ContextoCompactoTests
     {
         var linhas = pacote.TextoParaInjecao.Split('\n');
         Assert.StartsWith(FormatoDeContexto.Aviso, pacote.TextoParaInjecao);
-        Assert.StartsWith("Um JSON por linha;", linhas[1]); Assert.Equal("", linhas[^1]);
+        Assert.StartsWith("Um JSON por linha:", linhas[1]); Assert.Equal("", linhas[^1]);
         var itens = linhas[2..^1].Select(l => JsonDocument.Parse(l).RootElement).ToArray();
         Assert.Equal(pacote.Itens.Count, itens.Length);
         Assert.All(itens, l => Assert.All(l.EnumerateObject(), p => Assert.Contains(p.Name, Chaves)));

@@ -23,14 +23,27 @@ com quebras de linha, aspas, U+2028/2029/0085 escapados, então não abrem linha
 chave. `Ref` (`origem:id@revisão` ou a URI do trecho) substitui ID/revisão/origem;
 proveniência diferente vai em `Fonte`. Campos nulos são omitidos; `Natureza` só aparece
 quando diverge de `NaturezaDeOrigem`; `Sensibilidade` vai ao cabeçalho quando uniforme e
-menor assim. `Rotulo` está sempre presente. O snapshot usa campos nomeados (Objetivo,
+menor assim. `Rotulo` está sempre presente. O cabeçalho é o enxuto da C1 (mesmas regras,
+298 B com sensibilidade uniforme, antes 340 B). Quando `DadosEstruturados` de um
+conhecimento é exclusivamente `{"titulo": "<texto>"}`, o título vai na chave `Titulo` e
+`Conteudo` fica só com o corpo; só o JSON persistido decide, e conteúdo que imite esse
+sufixo continua em `Conteudo`. Seleção, deduplicação e prova seguem sobre o texto inteiro.
+Relação por posição (`@n`, A4) foi avaliada e não adotada: a posição muda entre pacotes
+da mesma conversa (refresh, orçamento) e não é usável em ferramentas; a economia seria
+de ~10 B. O snapshot usa campos nomeados (Objetivo,
 Tarefa, Progresso, UltimoResultado, Referencias, Pendencias, ProximosPassos). Relações
 registradas entre conhecimentos do pacote entram em `Relacoes` se couberem no orçamento.
 
 Fonte bruta inteira só tem a íntegra omitida com prova: os trechos indexados da revisão
-cobrem o documento de forma contínua, de 0 até o fim, e cada um está contido num
-conhecimento selecionado no mesmo pacote cuja proveniência registrada é exatamente a
-referência do trecho (id, revisão, parte, hash). A cobertura usa a unidade de offset do
+cobrem o documento de forma contínua, de 0 até o fim, e cada ponto de código não branco
+do documento está num intervalo citado por um conhecimento selecionado no mesmo pacote.
+Um conhecimento conta só pela proveniência registrada (`ReferenciaDeTrecho`): mesma fonte,
+mesma revisão, parte existente com a mesma referência base (id, revisão, parte, hash do
+documento); sem intervalo, cita a parte inteira (legado de `GerarCandidatoAsync`); com
+`&inicio=&fim=&sha256=`, o intervalo fica dentro da parte, começa e termina em fronteira
+de linha e o SHA-256 do texto citado confere. Em ambos os casos o conteúdo do conhecimento
+contém o texto citado (normalizado). Só espaço em branco pode ficar fora da união. A
+cobertura usa a unidade de offset do
 índice (`inicio` em caracteres do PostgreSQL, isto é, code points): o documento é
 remontado pela união dos intervalos `[inicio, inicio + comprimento)`, cada trecho começa
 em ou antes do fim já coberto, a sobreposição coincide e o remontado é igual à fonte.

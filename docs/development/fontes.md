@@ -58,3 +58,17 @@ que classifica a evidência como conclusão do agente (AD-59 I9), inferida mesmo
 confirmação. A migration 20261103205445 acrescenta os metadados com valores neutros
 (null/vazio) para fontes existentes; importação natural/CLI e a unicidade
 (espaço, projeto, origem) não mudam. Não há edição nem remoção de evidências pelo MCP.
+
+## Proveniência por trecho na captura (#147)
+
+`DocumentoFonteAppService.FundamentarAsync` fundamenta uma captura em linhas exatas da
+revisão vigente de uma fonte do escopo: a citação são linhas inteiras, ocorre uma única
+vez, cabe numa parte indexada e está literalmente (normalizada) no conteúdo capturado. O
+servidor grava na proveniência do candidato `ReferenciaDaFonte` =
+`brain://fonte/<id>/revisao/<rev>/parte/<n>?hash=<hash do documento>&inicio=<a>&fim=<b>&sha256=<hash do texto citado>`
+(posições em code points do documento, terminador de linha incluído), `RevisaoDaFonte` =
+hash do documento e `TrechoDaFonte` = texto citado exato. Só a forma canônica é lida.
+Fonte inexistente, removida, de outro escopo ou acima da classificação permitida responde
+como inexistente; revisão diferente é conflito de revisão. Não há migration: os campos
+de proveniência já existiam, e conhecimentos antigos (proveniência de conversa ou de parte
+inteira) continuam válidos e mantêm a fonte integral quando não provam cobertura.

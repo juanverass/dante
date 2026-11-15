@@ -37,7 +37,10 @@ public sealed class ContextoDeTrabalho : EntidadeBase
         if (!Enum.IsDefined(sensibilidade) || idResponsavel == Guid.Empty || string.IsNullOrWhiteSpace(origem) || origem.Length > 200 ||
             instante == default || instante < AtualizadoEm || expiraEm <= instante) throw new ArgumentException("Classificação/origem/validade inválida.");
         var textos = new[] { dados.Objetivo, dados.Tarefa, dados.Progresso, dados.UltimoResultado };
-        if (textos.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 2000) ||
+        // Objetivo e tarefa são obrigatórios. Progresso e último resultado podem ficar vazios (#147): registram só o que
+        // ainda não está em conhecimento, candidato ou fonte, e o já registrado entra como referência tipada.
+        if (string.IsNullOrWhiteSpace(dados.Objetivo) || string.IsNullOrWhiteSpace(dados.Tarefa) || dados.Progresso is null || dados.UltimoResultado is null ||
+            textos.Any(x => x.Length > 2000) ||
             dados.IdsDecisoesConfirmadas.Count > 20 || dados.IdsDecisoesConfirmadas.Any(x => x == Guid.Empty))
             throw new ArgumentException("Campos operacionais excedem os limites.");
         var listas = new[] { dados.Referencias, dados.Pendencias, dados.ProximosPassos };

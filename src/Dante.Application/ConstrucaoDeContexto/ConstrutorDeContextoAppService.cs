@@ -88,7 +88,11 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
             if(dto.ConteudoProtegido || referencia is not null && (ProtecaoDeSegredos.ContemSegredo(k.Conteudo)||ProtecaoDeSegredos.ContemSegredo(k.DadosEstruturados)))
             {if(referencia is not null)registros.Add(ResolucaoDeReferenciasDeContexto.Descartar(referencia,ResolucaoDeReferenciasDeContexto.Indisponivel));continue;}
             var conteudo=ProtecaoDeSegredos.Redigir(string.Join("\n",new[]{dto.Conteudo,dto.DadosEstruturados}.Where(x=>!string.IsNullOrWhiteSpace(x))))!;
-            var m=motivos[k.Id];candidatos.Add(new($"conhecimento:{k.Id:D}",k.Id,k.Revisao,"conhecimento",k.Tipo,k.Status,k.Sensibilidade,conteudo,referencia?.Chave??dto.ReferenciaDaFonte,m.Motivo,m.Score,0,NaturezaDeOrigem:k.NaturezaDeOrigem,Natureza:k.Natureza,Referenciado:referencia is not null,ReferenciaDaFonte:dto.ReferenciaDaFonte));
+            // Título em chave própria só se a redação por partes reproduz exatamente o conteúdo redigido inteiro.
+            var titulo=FormatoDeContexto.TituloExclusivo(dto.DadosEstruturados) is { } t && !string.IsNullOrWhiteSpace(dto.Conteudo) &&
+                ProtecaoDeSegredos.Redigir(dto.Conteudo)+"\n"+ProtecaoDeSegredos.Redigir(dto.DadosEstruturados)==conteudo?ProtecaoDeSegredos.Redigir(t):null;
+            var m=motivos[k.Id];candidatos.Add(new($"conhecimento:{k.Id:D}",k.Id,k.Revisao,"conhecimento",k.Tipo,k.Status,k.Sensibilidade,conteudo,referencia?.Chave??dto.ReferenciaDaFonte,m.Motivo,m.Score,0,NaturezaDeOrigem:k.NaturezaDeOrigem,Natureza:k.Natureza,Referenciado:referencia is not null,ReferenciaDaFonte:dto.ReferenciaDaFonte,
+                Titulo:titulo,CorpoSemTitulo:titulo is null?null:ProtecaoDeSegredos.Redigir(dto.Conteudo)));
         }
         foreach(var r in brutas)
         {

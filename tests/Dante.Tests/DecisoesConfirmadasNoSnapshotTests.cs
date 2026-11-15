@@ -24,7 +24,8 @@ public sealed class DecisoesConfirmadasNoSnapshotTests
     public void SchemaAnunciaListaOpcionalDeIdsSemMudarCamposAnteriores()
     {
         var ferramenta = ServidorMcpDoBrain.Ferramentas.Single(x => x.Nome == "brain_atualizar_contexto_de_trabalho");
-        Assert.Equal(["revisao", "objetivo", "tarefa", "progresso", "ultimo_resultado"], ferramenta.Obrigatorios);
+        // #147 (snapshot sem recontagem): progresso e ultimo_resultado deixaram de ser obrigatórios; omitir preserva o atual.
+        Assert.Equal(["revisao", "objetivo", "tarefa"], ferramenta.Obrigatorios);
         var campo = ferramenta.Propriedades["ids_decisoes_confirmadas"]!;
         Assert.Equal("array", campo["type"]!.GetValue<string>()); Assert.Equal(20, campo["maxItems"]!.GetValue<int>());
         Assert.Equal("string", campo["items"]!["type"]!.GetValue<string>()); Assert.Equal("uuid", campo["items"]!["format"]!.GetValue<string>());
