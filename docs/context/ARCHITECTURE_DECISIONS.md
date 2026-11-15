@@ -2266,3 +2266,42 @@ Consequências: conhecimentos antigos continuam válidos e mantêm a fonte integ
 a fonte só compensa quando os conhecimentos citam as linhas em vez de parafraseá-las; a
 duplicação deixa de existir, não é escondida. Limite: um intervalo contíguo por conhecimento.
 
+
+## AD-65 — Legenda do pacote: rótulo repetido, cobertura implícita e fonte omitida por chave (#147)
+
+Status: proposta em PR, aguardando revisão independente; a #147 permanece NO-GO.
+
+Contexto: depois da AD-64, o pacote repetia metadados fixos por item. O rótulo "Conclusão do agente, não confirmada"
+saía em cada conclusão, a lista `ConsolidadaEm` repetia `Ref`s presentes no mesmo pacote e cada fonte omitida trazia
+~165 B de explicação em `Conteudo`.
+
+Decisão: só formas sem perda, cada uma com a regra declarada no cabeçalho.
+
+* **Rótulo (O1):** o rótulo repetido vai uma vez ao cabeçalho (`Rotulo ausente = Rotulos[...]: {json}`), indexado
+  pelos campos visíveis do próprio item que o determinam:
+  - `Status/NaturezaDeOrigem[/Natureza]` para conhecimentos;
+  - `fonte/AutoriaDaFonte` para fontes;
+  - a origem para snapshot e candidato.
+
+  A legenda entra só quando o texto fica menor; senão, cada item mantém o rótulo.
+* **Fonte omitida (O3):** a omissão passa a ser a chave `Omitida:true` sem `Conteudo`, e a explicação vai uma vez ao
+  cabeçalho. Chave é metadado escrito só pelo formatador, então conteúdo de fonte não imita a omissão.
+* **Cobertura (O2):** `ConsolidadaEm` só sai quando a cobertura é exatamente o conjunto de todos os conhecimentos do
+  pacote; o cabeçalho declara "Sem ConsolidadaEm: todos os conhecimentos deste pacote". Com qualquer outro
+  conhecimento no pacote (p. ex. uma Decisão) ou com duas fontes omitidas, a lista fica explícita. Remover a lista em
+  todos os casos foi rejeitado: o leitor deixaria de saber quais conhecimentos cobrem qual fonte.
+* **Seleção e orçamento inalterados:** a estimativa continua na forma extensa; o plano de forma só escolhe, entre
+  formas equivalentes, a mais curta.
+
+Consequências:
+
+* a economia depende da forma do pacote, sobre os mesmos estados restaurados:
+  - −268 B (−7,5%) no pacote real da validação do fundamento (4 conclusões, fonte coberta);
+  - −16 B (−0,5%) no curto do roteiro `@2`;
+  - −3,3% no médio e −5,3% no longo;
+  - 0 B nas retomadas de 15/11.
+* não muda nenhum essencial;
+* não muda o teto de 12 itens nem a seleção. As fontes que a seleção descarta pelo orçamento continuam descartadas,
+  porque a seleção as custa na forma integral; esse é um limite registrado e fica fora daqui;
+* o contrato dos agentes pede o rótulo junto de cada item; com a legenda, o agente precisa resolvê-lo pelo cabeçalho.
+  É um risco de paráfrase a observar no E2E.
