@@ -237,6 +237,7 @@ internal static class FakeClaude
                             Send(new JsonObject
                             {
                                 ["type"] = "result", ["subtype"] = "success", ["is_error"] = false, ["result"] = "usage",
+                                ["num_turns"] = 1, ["duration_api_ms"] = 5,
                                 ["usage"] = new JsonObject
                                 {
                                     ["input_tokens"] = 12, ["cache_creation_input_tokens"] = 100,

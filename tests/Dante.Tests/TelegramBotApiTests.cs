@@ -262,11 +262,43 @@ public sealed class TelegramBotApiTests
         Assert.False(body.TryGetProperty("reply_markup", out _));
     }
 
+    // The active turn also keeps "typing" visible (sendChatAction, started by the first event of the turn on the thread
+    // pool). Whether it is sent before the turn completes depends on scheduling, so the reply is checked among the
+    // sendMessage requests and everything else must be that typing action.
     [Fact]
     public async Task OrdinarySessionReplyReachesTelegramAsHtmlWithoutKeyboard()
     {
+        var (telegram, delivery, session, http) = ActiveSessionDelivery();
+        using var _ = http;
+        foreach (var evt in OrdinaryReply(session))
+            await delivery.PublishAsync(session, evt, default);
+
+        await AssertSingleHtmlReplyAsync(telegram, delivery, session);
+    }
+
+    // Regression: forces the interleaving that made the test above flaky under load — typing reaches Telegram before
+    // the turn completes — and the reply is still exactly one HTML sendMessage without keyboard.
+    [Fact]
+    public async Task OrdinarySessionReplyIsOneHtmlMessageEvenWhenTypingIsSentFirst()
+    {
+        var (telegram, delivery, session, http) = ActiveSessionDelivery();
+        using var _ = http;
+        var events = OrdinaryReply(session);
+        await delivery.PublishAsync(session, events[0], default);
+        await telegram.FirstChatAction.WaitAsync(TimeSpan.FromSeconds(10));
+        foreach (var evt in events[1..])
+            await delivery.PublishAsync(session, evt, default);
+
+        await AssertSingleHtmlReplyAsync(telegram, delivery, session);
+        Assert.Contains(telegram.Requests, r => r.Method == "sendChatAction");
+        // The former Assert.Single over every request fails in exactly this interleaving.
+        Assert.True(telegram.Accepted.Count > 1);
+    }
+
+    private static (BotApiLikeHandler, TelegramDeliveryService, AgentSessionSnapshot, HttpClient) ActiveSessionDelivery()
+    {
         var telegram = new BotApiLikeHandler();
-        using var http = new HttpClient(telegram);
+        var http = new HttpClient(telegram);
         var api = new TelegramBotApi(http, Options.Create(new TelegramOptions { BotToken = "test" }));
         var delivery = new TelegramDeliveryService(api, NullLogger<TelegramDeliveryService>.Instance)
             { PartInterval = TimeSpan.Zero };
@@ -275,24 +307,35 @@ public sealed class TelegramBotApiTests
             AgentSessionState.Running, "T000001", 0, [], true, DateTimeOffset.UtcNow, null, null);
         delivery.RegisterSession(session.Id, 123, -123, false);
         delivery.SetActiveSession(123, session.Id);
+        return (telegram, delivery, session, http);
+    }
 
-        foreach (AgentEvent evt in new AgentEvent[]
-                 {
-                     new MessageDeltaEvent("item", "Estou bem, "),
-                     new MessageCompletedEvent("item", "Estou bem, e você? <tudo> & 'certo'"),
-                     new TurnCompletedEvent(AgentTurnOutcome.Completed)
-                 })
-            await delivery.PublishAsync(session, evt with { SessionId = session.Id, TurnId = "T000001" }, default);
+    private static AgentEvent[] OrdinaryReply(AgentSessionSnapshot session) => new AgentEvent[]
+        {
+            new MessageDeltaEvent("item", "Estou bem, "),
+            new MessageCompletedEvent("item", "Estou bem, e você? <tudo> & 'certo'"),
+            new TurnCompletedEvent(AgentTurnOutcome.Completed)
+        }.Select(evt => evt with { SessionId = session.Id, TurnId = "T000001" }).ToArray();
 
+    private static async Task AssertSingleHtmlReplyAsync(BotApiLikeHandler telegram, TelegramDeliveryService delivery,
+        AgentSessionSnapshot session)
+    {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         while (delivery.Get(session.Id, 123)?.State == TelegramDeliveryState.Pending)
             await Task.Delay(10, deadline.Token);
         Assert.Equal(TelegramDeliveryState.Delivered, delivery.Get(session.Id, 123)!.State);
-        var body = Assert.Single(telegram.Accepted);
+        var requests = telegram.Requests.ToArray();
+        var body = Assert.Single(requests, r => r.Method == "sendMessage").Body;
         Assert.Equal("HTML", body.GetProperty("parse_mode").GetString());
         Assert.False(body.TryGetProperty("reply_markup", out _));
         Assert.Equal("Estou bem, e voc&#234;? &lt;tudo&gt; &amp; &#39;certo&#39;\n",
             body.GetProperty("text").GetString());
+        Assert.All(requests.Where(r => r.Method != "sendMessage"), r =>
+        {
+            Assert.Equal("sendChatAction", r.Method);
+            Assert.Equal("typing", r.Body.GetProperty("action").GetString());
+            Assert.Equal(-123, r.Body.GetProperty("chat_id").GetInt64());
+        });
     }
 
     [Theory]
@@ -353,6 +396,9 @@ public sealed class TelegramBotApiTests
     private sealed class BotApiLikeHandler : HttpMessageHandler
     {
         public readonly ConcurrentQueue<JsonElement> Accepted = new();
+        public readonly ConcurrentQueue<(string Method, JsonElement Body)> Requests = new();
+        private readonly TaskCompletionSource firstChatAction = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task FirstChatAction => firstChatAction.Task;
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
@@ -370,6 +416,9 @@ public sealed class TelegramBotApiTests
                     Content = new StringContent(JsonSerializer.Serialize(new { ok = false, error_code = 400, description = error }))
                 };
             Accepted.Enqueue(body);
+            var method = request.RequestUri!.AbsolutePath[(request.RequestUri.AbsolutePath.LastIndexOf('/') + 1)..];
+            Requests.Enqueue((method, body));
+            if (method == "sendChatAction") firstChatAction.TrySetResult();
             return new HttpResponseMessage(HttpStatusCode.OK)
                 { Content = new StringContent("""{"ok":true,"result":{"message_id":5}}""") };
         }

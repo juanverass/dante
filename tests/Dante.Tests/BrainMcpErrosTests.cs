@@ -303,21 +303,26 @@ public sealed class BrainMcpErrosTests
             System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.CurrentUserOnly);
         await pipe.ConnectAsync(5000);
         using var leitor = new StreamReader(pipe, System.Text.Encoding.UTF8, false, 4096, true);
-        using var escritor = new StreamWriter(pipe, new System.Text.UTF8Encoding(false), 65536, true) { AutoFlush = false };
         async Task<JsonObject> Resposta() => JsonNode.Parse((await leitor.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(30)))!)!.AsObject();
-        // Excedente que termina: entrada_invalida e o canal continua.
-        await escritor.WriteLineAsync(new string('x', ServidorMcpDoBrain.MaximoEntrada + 5_000)); await escritor.FlushAsync();
-        Assert.Equal(ErrosDoBrainMcp.DetalheEntradaGrande, Corpo(await Resposta())["detalhe"]!.GetValue<string>());
-        await escritor.WriteLineAsync(JsonSerializer.Serialize(new { nome = "brain_obter_escopo", argumentos = new { } })); await escritor.FlushAsync();
-        Assert.False((await Resposta())["isError"]!.GetValue<bool>());
+        // O StreamWriter só vive enquanto o canal está aberto: seu Dispose sempre faz Flush no pipe, que lança "Pipe is
+        // broken" se uma escrita já encontrou o canal encerrado (o que a fase final provoca de propósito).
+        using (var escritor = new StreamWriter(pipe, new System.Text.UTF8Encoding(false), 65536, true) { AutoFlush = false })
+        {
+            // Excedente que termina: entrada_invalida e o canal continua.
+            await escritor.WriteLineAsync(new string('x', ServidorMcpDoBrain.MaximoEntrada + 5_000)); await escritor.FlushAsync();
+            Assert.Equal(ErrosDoBrainMcp.DetalheEntradaGrande, Corpo(await Resposta())["detalhe"]!.GetValue<string>());
+            await escritor.WriteLineAsync(JsonSerializer.Serialize(new { nome = "brain_obter_escopo", argumentos = new { } })); await escritor.FlushAsync();
+            Assert.False((await Resposta())["isError"]!.GetValue<bool>());
+        }
         // Excedente que não termina: o Worker para de ler ao passar do descarte máximo, responde e encerra o canal.
+        // Bytes direto no pipe, sem buffer: nada fica pendente para um Flush depois do encerramento.
         var envio = Task.Run(async () =>
         {
             try
             {
-                var bloco = new string('x', 64 * 1024);
+                var bloco = System.Text.Encoding.ASCII.GetBytes(new string('x', 64 * 1024));
                 for (var enviados = 0; enviados <= ServidorMcpDoBrain.MaximoEntrada + ServidorMcpDoBrain.MaximoDescarte + bloco.Length; enviados += bloco.Length)
-                { await escritor.WriteAsync(bloco); await escritor.FlushAsync(); }
+                    await pipe.WriteAsync(bloco);
             }
             catch (IOException) { } // o Worker encerrou o pipe no meio do envio
         });
@@ -327,6 +332,13 @@ public sealed class BrainMcpErrosTests
         // Canal encerrado pelo Worker: fim da leitura ou reset (o Worker fecha com bytes do cliente ainda não lidos).
         try { Assert.Null(await leitor.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(30))); } catch (IOException) { }
         await envio.WaitAsync(TimeSpan.FromSeconds(30));
+        // Regressão da corrida no descarte: escreve até o canal recusar, deixando o pipe sempre "Broken" como no pior caso.
+        // O fim do teste não pode depender de o envio ter ou não encontrado o canal já encerrado.
+        var recusado = false;
+        var mais = new byte[64 * 1024];
+        for (var i = 0; i < 1024 && !recusado; i++)
+            try { await pipe.WriteAsync(mais); } catch (IOException) { recusado = true; }
+        Assert.True(recusado, "O Worker não encerrou o canal para escrita.");
     }
 
     [PostgreSqlFact]
