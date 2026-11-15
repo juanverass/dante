@@ -84,20 +84,25 @@ public sealed class RoteiroComFundamento147Tests(ITestOutputHelper output)
         Assert.True(consolidacao.Divergencias.Count == 0, "Consolidação: " + string.Join("; ", consolidacao.Divergencias));
         Assert.All(consolidacao.Casos, c => Assert.True(c.TrechosIntegros, $"caso {c.Ordem}: trechos"));
         Assert.Equal(m.Texto, m.TextoDaSegundaSessao); // continuidade: outra sessão, mesmo Brain, mesmo pacote
-        // Relações: todo par incidente/solução selecionado no pacote traz o ResolvidoPor do próprio caso.
-        var linhas = Linhas(m.Texto);
+        // Relações: relação presente aponta sempre a solução do próprio caso. Relação só entra se couber no orçamento
+        // (contrato do construtor), então no médio e no longo um par sem relação é dado registrado, não falha; no curto,
+        // longe do orçamento, a relação é exigida.
+        var linhas = Linhas(m.Texto); var semRelacao = new List<int>();
         foreach (var caso in casos)
         {
             var id = RoteiroDaRetomada147.Identificador(caso.Ordem, Marcador);
             var inc = EstadoExportado147.Ref("conhecimento", m.Estado.ConhecimentosDoCaso(Dante.Domain.Conhecimentos.TipoDeConhecimento.Incidente, id).Single());
             var sol = EstadoExportado147.Ref("conhecimento", m.Estado.ConhecimentosDoCaso(Dante.Domain.Conhecimentos.TipoDeConhecimento.Solucao, id).Single());
-            if (linhas.TryGetValue(inc, out var li) && linhas.ContainsKey(sol))
-                Assert.Contains("ResolvidoPor " + sol, li.GetProperty("Relacoes").EnumerateArray().Select(x => x.GetString()));
+            if (!linhas.TryGetValue(inc, out var li) || !linhas.ContainsKey(sol)) continue;
+            var relacoes = li.TryGetProperty("Relacoes", out var r) ? r.EnumerateArray().Select(x => x.GetString()!).ToArray() : [];
+            Assert.All(relacoes, x => Assert.Equal("ResolvidoPor " + sol, x));
+            if (relacoes.Length == 0) semRelacao.Add(caso.Ordem);
         }
+        if (duracao == "curto") Assert.Empty(semRelacao);
         var ausentes = m.Essenciais.Where(x => !x.Value).Select(x => x.Key).ToArray();
         Assert.Equal(roteiro.TotalDeEssenciais(duracao), m.Essenciais.Count);
         output.WriteLine($"{duracao}: {Encoding.UTF8.GetByteCount(m.Texto)} B, {m.Itens} itens, estimativa do produto {m.TokensEstimados} tokens (não medida); " +
-            $"essenciais {m.Essenciais.Count - ausentes.Length}/{m.Essenciais.Count}; ausentes [{string.Join(", ", ausentes)}]; " +
+            $"essenciais {m.Essenciais.Count - ausentes.Length}/{m.Essenciais.Count}; ausentes [{string.Join(", ", ausentes)}]; pares sem relação por orçamento [{string.Join(", ", semRelacao)}]; " +
             $"fontes {string.Join(", ", consolidacao.Casos.Select(c => $"c{c.Ordem}={c.Situacao}"))}; sha256 {Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(m.Texto)))}");
         output.WriteLine(m.Texto);
         if (duracao == "curto")

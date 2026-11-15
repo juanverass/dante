@@ -121,9 +121,12 @@ desta PR; não são medições.
 |---|---:|---:|---:|---|
 | curto | 3.109 B | 5 | 18/18 | c1 omitida com prova |
 | médio | 5.731 B | 9 | 28/30 (faltam `c1/c2.ref_fonte`) | c3 omitida com prova; c1 e c2 fora do pacote |
-| longo | 6.105 B | 10 | 35/48 | nenhuma; o caso 2 e o incidente do caso 4 ficam fora |
+| longo | 5.668–6.131 B | 9–10 | 32–38/48 (varia entre montagens) | nenhuma |
 
-No médio e no longo, a seleção do bootstrap (2048 tokens estimados) descarta fontes que seriam omitidas. O curto
+No médio e no longo, a seleção do bootstrap (2048 tokens estimados) descarta fontes que seriam omitidas. No longo, o
+resultado depende do desempate da seleção pela chave (GUID), que muda a cada montagem: em cinco montagens deu de 32 a
+38/48. Uma relação também só entra se couber no orçamento, então no médio e no longo um par incidente/solução sem
+`Relacoes` é registrado como dado; no curto, a relação é exigida. O curto
 exige 100%. O médio e o longo ficam registrados como dado, sem ajuste de critério: o E2E real continua exigindo 100% em
 cada repetição.
 
