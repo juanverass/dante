@@ -14,6 +14,9 @@ namespace Dante.Tests;
 // - fonte omitida sem cobertura comprovada é divergência (perda de informação); fonte integral com cobertura comprovada
 //   também é, porque o @2 existe para exercitar a omissão; conteúdo da fonte que não seja nem a íntegra nem o marcador de
 //   omissão é divergência (fonte parcial apresentada como completa ou como omitida).
+// Duas formas de omissão são aceitas, porque a legenda do pacote pode evoluir: o valor marcador em Conteudo (formato
+// da #289) ou a chave Omitida=true sem Conteudo; nesta, ConsolidadaEm ausente significa "todos os conhecimentos do
+// pacote", e esse conjunto precisa ser exatamente o que cobre a fonte.
 internal static class ConsolidacaoDaRetomada147
 {
     internal enum SituacaoDaFonte { Ausente, Integral, Omitida }
@@ -24,6 +27,7 @@ internal static class ConsolidacaoDaRetomada147
     {
         var divergencias = new List<string>(); var resultado = new List<Caso>();
         var linhas = LinhasPorRef(textoDoPacote, divergencias);
+        var conhecimentosDoPacote = linhas.Keys.Where(r => r.StartsWith("conhecimento:", StringComparison.Ordinal)).ToArray();
         foreach (var caso in casos)
         {
             var fontes = estado.FontesDoCaso(roteiro, caso, marcador);
@@ -47,16 +51,18 @@ internal static class ConsolidacaoDaRetomada147
             if (linhas.TryGetValue(refFonte, out var linha))
             {
                 var conteudo = linha.TryGetProperty("Conteudo", out var c) ? c.GetString() : null;
-                situacao = conteudo == documento ? SituacaoDaFonte.Integral : SituacaoDaFonte.Omitida;
-                if (situacao == SituacaoDaFonte.Omitida && conteudo != FormatoDeContexto.Omitido)
+                var chaveOmitida = linha.TryGetProperty("Omitida", out var o) && o.ValueKind == JsonValueKind.True;
+                situacao = conteudo == documento && !chaveOmitida ? SituacaoDaFonte.Integral : SituacaoDaFonte.Omitida;
+                if (situacao == SituacaoDaFonte.Omitida && !(chaveOmitida ? conteudo is null : conteudo == FormatoDeContexto.Omitido))
                     divergencias.Add($"caso {caso.Ordem}: conteúdo da fonte não é a íntegra nem o marcador de omissão");
                 if (situacao == SituacaoDaFonte.Omitida && !comprovada)
                     divergencias.Add($"caso {caso.Ordem}: fonte omitida sem cobertura comprovada (trechos íntegros={integros}, selecionados={selecionados})");
                 if (situacao == SituacaoDaFonte.Integral && comprovada)
                     divergencias.Add($"caso {caso.Ordem}: cobertura comprovada, mas a fonte seguiu integral");
                 // Quando presente, ConsolidadaEm aponta exatamente os dois conhecimentos que cobrem a revisão.
-                if (situacao == SituacaoDaFonte.Omitida && linha.TryGetProperty("ConsolidadaEm", out var em) &&
-                    !em.EnumerateArray().Select(x => x.GetString()).Order().SequenceEqual(refs.Order()))
+                var consolidadaEm = linha.TryGetProperty("ConsolidadaEm", out var em) ? em.EnumerateArray().Select(x => x.GetString()!).ToArray()
+                    : chaveOmitida ? conhecimentosDoPacote : null;
+                if (situacao == SituacaoDaFonte.Omitida && consolidadaEm is not null && !consolidadaEm.Order(StringComparer.Ordinal).SequenceEqual(refs.Order(StringComparer.Ordinal)))
                     divergencias.Add($"caso {caso.Ordem}: ConsolidadaEm difere dos conhecimentos que cobrem a fonte");
             }
             resultado.Add(new(caso.Ordem, refFonte, integros, comprovada, situacao));

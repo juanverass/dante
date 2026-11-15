@@ -147,6 +147,12 @@ public sealed class RoteiroComFundamento147Tests(ITestOutputHelper output)
         Assert.Contains("não é a íntegra nem o marcador", Divergencias(TrocarFonte(o => { o["Conteudo"] = roteiro.Citacoes(casos[0], Marcador).Incidente; return o; })));
         // 4. ConsolidadaEm sem um dos conhecimentos que cobrem a fonte.
         Assert.Contains("ConsolidadaEm difere", Divergencias(TrocarFonte(o => { o["ConsolidadaEm"] = new JsonArray(JsonValue.Create(sol)); return o; })));
+        // Forma por chave (Omitida=true, sem Conteudo): aceita com a lista correta; recusada com Conteudo junto ou sem lista
+        // quando "todos os conhecimentos do pacote" inclui a Decisão, que não cobre a fonte.
+        JsonObject PorChave(JsonObject o) { o.Remove("Conteudo"); o["Omitida"] = true; return o; }
+        Assert.Equal("", Divergencias(TrocarFonte(PorChave)));
+        Assert.Contains("não é a íntegra nem o marcador", Divergencias(TrocarFonte(o => { PorChave(o); o["Conteudo"] = "x"; return o; })));
+        Assert.Contains("ConsolidadaEm difere", Divergencias(TrocarFonte(o => { PorChave(o); o.Remove("ConsolidadaEm"); return o; })));
         // 5. Trecho adulterado no estado (sha256 do intervalo): a cobertura deixa de estar comprovada.
         var json = m.EstadoJson; var refAtual = Regex147.ShaDoTrecho().Matches(json).Select(x => x.Groups[1].Value).First();
         var adulterado = new EstadoExportado147(json.Replace(refAtual, new string('0', 64), StringComparison.Ordinal));
