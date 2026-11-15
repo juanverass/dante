@@ -23,6 +23,10 @@ internal sealed partial class RoteiroDaRetomada147
     private RoteiroDaRetomada147(JsonElement raiz, byte[] bytes) => (this.raiz, Bytes) = (raiz, bytes);
 
     internal static string Caminho => Path.Combine(AppContext.BaseDirectory, "CenariosDaRetomada147", NomeDoArquivo);
+    // issue147-cenarios@2: mesmos casos, consultas, durações e essenciais do @1 (que segue como pré-registro das execuções
+    // de 15/11); os pedidos capturam Incidente e Solucao pelo campo fundamento (#292) e o snapshot não reconta registros.
+    internal const string NomeDoArquivoComFundamento = "cenarios-fundamento.json";
+    internal static string CaminhoComFundamento => Path.Combine(AppContext.BaseDirectory, "CenariosDaRetomada147", NomeDoArquivoComFundamento);
     internal static RoteiroDaRetomada147 Carregar(string? caminho = null)
     {
         var bytes = File.ReadAllBytes(caminho ?? Caminho);
@@ -62,6 +66,21 @@ internal sealed partial class RoteiroDaRetomada147
         var padrao = "^" + Regex.Escape(Texto("pedidoSnapshot")).Replace(@"\{refs}", "(?<refs>.+?)").Replace(@"\{decisao}", "(?<decisao>[0-9a-f-]{36})") + "$";
         var m = Regex.Match(entrada, padrao, RegexOptions.Singleline);
         return m.Success ? (m.Groups["refs"].Value, m.Groups["decisao"].Value) : null;
+    }
+
+    internal bool ComFundamento => raiz.TryGetProperty("captura", out var c) && c.GetString() == "fundamento";
+    // Total pré-registrado por duração (só no @2); a avaliação exige exatamente essas chaves.
+    internal int TotalDeEssenciais(string duracao) => raiz.GetProperty("totaisDeEssenciais").GetProperty(duracao).GetInt32();
+
+    // Citações pré-registradas do @2: o Incidente vai da primeira linha até a anterior a inicioDaSolucao; a Solucao, dali
+    // até o fim. Juntas (com o terminador da linha do incidente) são o documento inteiro, sem lacuna nem sobreposição.
+    internal (string Incidente, string Solucao) Citacoes(CasoDaRetomada147 caso, string marcador)
+    {
+        if (!ComFundamento) throw new InvalidOperationException("Roteiro sem captura por fundamento: " + Versao);
+        var md = Markdown(caso, marcador); var linha = "\n" + Texto("inicioDaSolucao") + "\n";
+        var limite = md.IndexOf(linha, StringComparison.Ordinal);
+        if (limite <= 0 || md.IndexOf(linha, limite + 1, StringComparison.Ordinal) >= 0) throw new InvalidDataException($"caso {caso.Ordem}: início da solução ausente ou repetido");
+        return (md[..limite], md[(limite + 1)..]);
     }
 
     internal IReadOnlyList<UnidadeEssencial147> Essenciais(int ordem) => raiz.GetProperty("essenciais").GetProperty(ordem == 1 ? "primeiroCaso" : "casoSeguinte")
@@ -230,6 +249,9 @@ internal static class VerificacaoDaRetomada147
         var entradaB = Ler("entrada-b.txt");
         if (!PacoteInjetado147.Confere(entradaB, texto) || !entradaB.EndsWith("Mensagem do usuário:\n" + consulta, StringComparison.Ordinal))
             divergencias.Add("entrada B não é pacote + consulta pré-registrada");
+        // @2: omissão da fonte só com cobertura comprovada pelos trechos pré-registrados.
+        if (roteiro.ComFundamento)
+            divergencias.AddRange(ConsolidacaoDaRetomada147.Verificar(texto, estado, roteiro, casos, marcador).Divergencias.Select(x => "consolidacao: " + x));
         return new(manifesto.Id, duracao, marcador, divergencias, EssenciaisDaRetomada147.AvaliarPacote(texto, estado, roteiro, duracao, marcador));
     }
 

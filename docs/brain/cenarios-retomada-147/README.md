@@ -69,6 +69,64 @@ atualização do snapshot com as referências de todos os registros.
 O E2E `SessaoIndependenteRetomaCasoRealSomentePeloBrain(duracao, repeticao)` segue o roteiro em 6 combinações
 (3 durações × 2 repetições). Ele continua opt-in (`DANTE_LIVE_BRAIN_MCP=1`) e grava `roteiro.json` na execução.
 
+### 2.1 Roteiro com fundamento (`issue147-cenarios@2`)
+
+O `@1` não usa o campo `fundamento` da #292: pede a referência da evidência na justificativa. Assim a proveniência
+sai da conversa e a omissão condicional da fonte (#289/#292) nunca é exercitada. Por isso a medição de eficiência usa
+[`CenariosDaRetomada147/cenarios-fundamento.json`](../../../tests/Dante.Tests/CenariosDaRetomada147/cenarios-fundamento.json),
+de SHA-256 `e4161af239b8d0f707f48876dcbf6f5f7a99f17e9f98cbbd96346f6c0fe7effe`. O hash é fixado em
+`RoteiroComFundamento147Tests` e publicado na #147.
+
+O `@1` continua intacto, com o mesmo hash, como pré-registro das retomadas de 15/11. A verificação delas segue
+usando o `@1`.
+
+**O que é igual ao `@1`** (um teste compara JSON a JSON): casos, Markdown, consultas B, durações, decisão literal,
+separador e essenciais.
+
+**O que muda:**
+- **Captura do Incidente e da Solucao:**
+  - é feita com `fundamento = { fonte: fonte:<id>@<rev>, citacao }`;
+  - as citações são pré-registradas: o Incidente vai da primeira linha do documento até a linha do incidente; a Solucao,
+    da linha `## Solução` (`inicioDaSolucao`) até a última linha;
+  - os dois trechos cobrem o documento inteiro, sem lacuna nem sobreposição;
+  - o conteúdo de cada candidato contém as linhas que ele cita, e o do Incidente termina com a linha do identificador;
+  - o servidor calcula intervalos e hashes.
+- **Decisão do usuário:** segue `Decisao/DitoPeloUsuario`, sem fundamento.
+- **Snapshot:** referencia os registros sem recontá-los em `progresso`/`ultimo_resultado`, que podem ser omitidos
+  (contrato da #292).
+- **Essenciais pré-registrados por cenário** (`totaisDeEssenciais`): curto 18, médio 30, longo 48. O E2E exige
+  exatamente esse conjunto.
+
+**Consolidação condicional**
+([`ConsolidacaoDaRetomada147`](../../../tests/Dante.Tests/ConsolidacaoDaRetomada147.cs)) é conferida de forma
+independente do produto, só pelo estado exportado e pelo texto do pacote. Por caso:
+
+- **Trechos íntegros:** o Incidente e a Solucao têm a referência canônica de trecho da própria fonte e revisão, com o
+  hash do documento e exatamente o intervalo pré-registrado. O sha256 e o `TrechoDaFonte` são iguais ao texto do
+  intervalo, e o conteúdo contém esse trecho.
+- **Cobertura comprovada:** os dois trechos são íntegros e os dois conhecimentos estão no pacote.
+- **Divergências:**
+  - fonte omitida sem cobertura comprovada;
+  - fonte integral com cobertura comprovada;
+  - conteúdo que não é nem a íntegra nem o marcador de omissão;
+  - `ConsolidadaEm` diferente dos dois conhecimentos.
+
+O E2E (`@2`) e `VerificacaoDaRetomada147` exigem zero divergências.
+
+**Montagem offline** (`RoteiroComFundamento147Tests`, sem CLI e sem medição): aplica os pedidos do `@2` à letra pelos
+serviços de produção e reconstrói o pacote pela chamada da sessão B. Os pacotes e as estimativas abaixo são do código
+desta PR; não são medições.
+
+| Duração | Pacote | Itens | Essenciais | Fontes no pacote |
+|---|---:|---:|---:|---|
+| curto | 3.109 B | 5 | 18/18 | c1 omitida com prova |
+| médio | 5.731 B | 9 | 28/30 (faltam `c1/c2.ref_fonte`) | c3 omitida com prova; c1 e c2 fora do pacote |
+| longo | 6.105 B | 10 | 35/48 | nenhuma; o caso 2 e o incidente do caso 4 ficam fora |
+
+No médio e no longo, a seleção do bootstrap (2048 tokens estimados) descarta fontes que seriam omitidas. O curto
+exige 100%. O médio e o longo ficam registrados como dado, sem ajuste de critério: o E2E real continua exigindo 100% em
+cada repetição.
+
 ## 3. Essenciais e integridade
 
 **Essenciais do pacote** ([`EssenciaisDaRetomada147`](../../../tests/Dante.Tests/CenariosDaRetomada147.cs)): 18
@@ -142,7 +200,9 @@ gates. Cada um destes casos reprova:
 
 ## 4. Limitações
 
-- **Médio e longo ainda não têm dados:** só existem roteiro e verificação. Histórico, estado e pacote nascem na primeira
+- **Montagem offline não é o agente real:** ela mostra o que o `@2` produz se cumprido à letra. A captura, os títulos e
+  o snapshot do modelo real podem divergir, e só o E2E autorizado decide.
+- **Médio e longo ainda não têm dados reais:** só existem roteiro, verificação e montagem offline. Histórico, estado e pacote nascem na primeira
   execução autorizada do E2E; só então podem ser verificados e medidos.
 - **O curto restaurado reproduz o estado antes de B, não o banco inteiro:**
   - espaço e projeto não estavam no export e foram recriados com os mesmos Ids e nomes;
