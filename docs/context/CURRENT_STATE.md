@@ -522,6 +522,10 @@ expansão controlada de relações, snapshot ativo, rerank, deduplicação e or�
 itens/tokens estimados. Exclui obsoletos, Secret e conflitos abertos, inclusive quando
 a outra ponta é protegida. IDs/revisões/origens e motivos de descarte são rastreáveis;
 construção e confirmação de injeção são etapas distintas. Não usa transcript completo.
+Formato compacto (#147): JSON por linha sem nulos/ID duplicado, snapshot com campos
+nomeados (deduplicação só por igualdade normalizada), relações entre itens e fonte bruta
+omitida só com prova de consolidação por trecho e cobertura contínua do documento; redução estimada offline de ~17–21% nas retomadas medidas, sem atingir o critério
+de razão ≤ 0,5 da #147 (NO-GO).
 A integração às sessões da conversa natural é a #145; [contrato](../development/context-builder.md).
 
 ## Brain por conversa natural (#157)

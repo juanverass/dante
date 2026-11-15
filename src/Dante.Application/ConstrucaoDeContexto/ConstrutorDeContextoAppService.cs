@@ -63,7 +63,7 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
             fronteira=proximas.ToArray();
         }
         var elegiveis=await qualidade.FiltrarElegiveisParaContextoAsync(automatico,motivos.Keys.ToArray(),DateTimeOffset.UtcNow,cancellationToken);
-        var camposDoSnapshot=new List<string>();
+        var camposDoSnapshot=new List<CampoDoSnapshot>();
         var candidatos=new List<ItemDeContextoDto>();
         var presentes=pedido.FragmentosJaPresentes.Append(pedido.Mensagem).Select(Normalizar).ToArray();
         foreach(var id in motivos.Keys.Except(elegiveis.Select(x=>x.Id)))
@@ -88,7 +88,7 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
             if(dto.ConteudoProtegido || referencia is not null && (ProtecaoDeSegredos.ContemSegredo(k.Conteudo)||ProtecaoDeSegredos.ContemSegredo(k.DadosEstruturados)))
             {if(referencia is not null)registros.Add(ResolucaoDeReferenciasDeContexto.Descartar(referencia,ResolucaoDeReferenciasDeContexto.Indisponivel));continue;}
             var conteudo=ProtecaoDeSegredos.Redigir(string.Join("\n",new[]{dto.Conteudo,dto.DadosEstruturados}.Where(x=>!string.IsNullOrWhiteSpace(x))))!;
-            var m=motivos[k.Id];candidatos.Add(new($"conhecimento:{k.Id:D}",k.Id,k.Revisao,"conhecimento",k.Tipo,k.Status,k.Sensibilidade,conteudo,referencia?.Chave??dto.ReferenciaDaFonte,m.Motivo,m.Score,0,NaturezaDeOrigem:k.NaturezaDeOrigem,Natureza:k.Natureza,Referenciado:referencia is not null));
+            var m=motivos[k.Id];candidatos.Add(new($"conhecimento:{k.Id:D}",k.Id,k.Revisao,"conhecimento",k.Tipo,k.Status,k.Sensibilidade,conteudo,referencia?.Chave??dto.ReferenciaDaFonte,m.Motivo,m.Score,0,NaturezaDeOrigem:k.NaturezaDeOrigem,Natureza:k.Natureza,Referenciado:referencia is not null,ReferenciaDaFonte:dto.ReferenciaDaFonte));
         }
         foreach(var r in brutas)
         {
@@ -102,12 +102,30 @@ public sealed class ConstrutorDeContextoAppService(BuscaDoBrainAppService busca,
         if(snapshot is not null)
         {
             var d=snapshot.Dados;
-            var campos=new[]{d.Objetivo,d.Tarefa,d.Progresso,d.UltimoResultado}.Concat(d.Referencias.Where(r=>ReferenciaTipadaDeContexto.Ler(r) is null)).Concat(d.Pendencias).Concat(d.ProximosPassos)
-                .Where(x=>!string.IsNullOrWhiteSpace(x)).Select(x=>ProtecaoDeSegredos.Redigir(x)!).Where(x=>!Coberto(x,presentes)).Distinct(StringComparer.Ordinal);
+            // Campos nomeados (#147): o papel de cada frase (objetivo, pendência, próximo passo) chega ao agente.
+            var campos=new (string Campo,string? Texto)[]{("Objetivo",d.Objetivo),("Tarefa",d.Tarefa),("Progresso",d.Progresso),("UltimoResultado",d.UltimoResultado)}
+                .Concat(d.Referencias.Where(r=>ReferenciaTipadaDeContexto.Ler(r) is null).Select(r=>("Referencias",(string?)r)))
+                .Concat(d.Pendencias.Select(x=>("Pendencias",(string?)x))).Concat(d.ProximosPassos.Select(x=>("ProximosPassos",(string?)x)))
+                .Where(x=>!string.IsNullOrWhiteSpace(x.Item2)).Select(x=>new CampoDoSnapshot(x.Item1,ProtecaoDeSegredos.Redigir(x.Item2)!))
+                .Where(x=>!Coberto(x.Texto,presentes)).Distinct();
             camposDoSnapshot=campos.ToList();
-            var texto=string.Join("\n",camposDoSnapshot);
+            var texto=string.Join("\n",camposDoSnapshot.Select(x=>x.Texto));
             if(texto.Length>0)candidatos.Add(new($"snapshot:{snapshot.Id:D}",snapshot.Id,snapshot.Revisao,"snapshot",null,null,snapshot.Sensibilidade,texto,null,"Snapshot operacional ativo, separado de fatos e do transcript.",0,0));
         }
-        return SelecaoDeContexto.Selecionar(pedido, candidatos, camposDoSnapshot, registros, limitou);
+        var idsDeConhecimento=candidatos.Where(x=>x.Origem=="conhecimento").Select(x=>x.Id).Distinct().ToArray();
+        var entre=new List<RelacaoEntreItens>();
+        // Relações entre candidatos (#147), paginadas nos limites do repositório; acima deles o pacote segue sem elas.
+        if(idsDeConhecimento.Length is > 1 and <= 201)
+        {
+            var conhecidos=idsDeConhecimento.ToHashSet();
+            for(var pagina=0;pagina<5;pagina++)
+            {
+                var janela=await relacoes.ListarVizinhasAsync(automatico.IdEspacoDeConhecimento,automatico.IdProjeto,idsDeConhecimento,101,cancellationToken,pagina*101);
+                foreach(var r in janela)if(conhecidos.Contains(r.IdOrigem) && conhecidos.Contains(r.IdDestino))entre.Add(new(r.IdOrigem,r.IdDestino,r.Tipo));
+                if(janela.Count<101)break;
+            }
+        }
+        var consolidacoes=await ConsolidacaoDeFontes.ProvarAsync(automatico,candidatos,fontes,cancellationToken);
+        return SelecaoDeContexto.Selecionar(pedido, candidatos, camposDoSnapshot, registros, limitou, entre, consolidacoes);
     }
 }

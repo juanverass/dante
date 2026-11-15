@@ -51,7 +51,7 @@ internal static class ResolucaoDeReferenciasDeContexto
                 if (conteudo == "[conteúdo protegido]") { registros.Add(Descartar(r, Indisponivel)); continue; }
                 itens.Add(new($"fonte:{d.Id:D}", d.Id, d.Revisao, "fonte_bruta", null, null, d.Sensibilidade, conteudo, r.Chave,
                     "Referência tipada do snapshot: fonte bruta, exige consolidação para ser fato.", 0.02, 0,
-                    AutoriaDaFonte: d.Autoria, Referenciado: true));
+                    AutoriaDaFonte: d.Autoria, Referenciado: true, Titulo: ProtecaoDeSegredos.Redigir(d.Titulo)));
             }
         }
     }
