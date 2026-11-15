@@ -42,6 +42,23 @@ public sealed partial class Issue147BrainIndependenteTests
         ("proximo_passo", "Pré-registrar o próximo experimento da Issue #147 somente após esta validação.")
     ];
 
+    // Proveniência individual na resposta B: cada conhecimento precisa da própria ReferenciaDaFonte, completa e literal,
+    // depois da própria linha de conteúdo (a ocorrência conta para o item cuja linha é a última antes dela). O
+    // identificador da fonte, comum aos quatro, não substitui referência alguma; referência abreviada, ausente, trocada
+    // entre itens ou repetida em dois itens reprova. Devolve as referências não informadas.
+    internal static string[] OrigensNaoInformadas(string resposta, IReadOnlyList<(string Linha, string Referencia)> itens)
+    {
+        var todas = itens.Select(i => i.Referencia).ToArray();
+        if (itens.Any(i => i.Linha.Length == 0 || i.Referencia.Length == 0) || todas.Distinct(StringComparer.Ordinal).Count() != todas.Length) return todas;
+        static IEnumerable<int> Ocorrencias(string texto, string valor)
+        {
+            for (var p = texto.IndexOf(valor, StringComparison.Ordinal); p >= 0; p = texto.IndexOf(valor, p + 1, StringComparison.Ordinal)) yield return p;
+        }
+        var linhas = itens.SelectMany(i => Ocorrencias(resposta, i.Linha).Select(p => (Fim: p + i.Linha.Length, i.Linha))).OrderBy(x => x.Fim).ToArray();
+        return itens.Where(i => !Ocorrencias(resposta, i.Referencia).Any(p => linhas.LastOrDefault(l => l.Fim <= p).Linha == i.Linha))
+            .Select(i => i.Referencia).ToArray();
+    }
+
     [EnsaioIndependente]
     [InlineData(1)]
     public async Task FundamentoFuncionaComClaudeRealERetomadaIndependente(int repeticao)
@@ -168,7 +185,7 @@ public sealed partial class Issue147BrainIndependenteTests
             // ---------- Sessão B: retomada independente, somente pelo Brain ----------
             Assert.Empty(Directory.EnumerateFileSystemEntries(privadoB));
             var pedidoB = "Retome a validação funcional do fundamento do Brain (Issue #147). Use exclusivamente o Brain. Informe, copiando literalmente dos registros, " +
-                "o incidente, a solução, a restrição e o próximo passo. Para cada um, consulte a origem com brain_mostrar_origem e informe a referência da fonte registrada. " +
+                "o incidente, a solução, a restrição e o próximo passo. Para cada um, consulte a origem com brain_mostrar_origem e informe, logo depois do texto copiado, a referência da fonte registrada completa e literal, sem abreviar. " +
                 "Consulte as relações do incidente com brain_listar_relacoes. Separe fonte bruta, fato confirmado e conclusão do agente e inclua o identificador do ensaio.";
             var mensagemB = BrainMcpTests.Mensagem(pedidoB, 1300);
             var servidoresB = await ferramentas.ForSessionAsync("147FB", new(42, AgentKind.Claude, Dante.Application.Contextos.JobExecutionContext.General(privadoB), BrainConversation: mensagemB.ParaFerramentas()), ct);
@@ -194,8 +211,10 @@ public sealed partial class Issue147BrainIndependenteTests
             foreach (var (papel, linha) in Linhas) Verificar("b_recupera_" + papel, respostaB.Contains(linha, StringComparison.Ordinal));
             Verificar("b_identificador", respostaB.Contains(marcador, StringComparison.Ordinal));
             Verificar("b_origem_consultada", fundamentados.All(k => rastroB.ConsultaComprovada("brain_mostrar_origem", k.Id.ToString(), k.Proveniencia.ReferenciaDaFonte!)));
-            Verificar("b_origem_informada", fundamentados.Count(k => respostaB.Contains(k.Proveniencia.ReferenciaDaFonte!, StringComparison.Ordinal) ||
-                respostaB.Contains($"fonte:{fonte.Id}", StringComparison.OrdinalIgnoreCase)) == 4);
+            var origensB = fundamentados.Select(k => (Linha: Linhas.Where(l => k.Proveniencia.TrechoDaFonte!.Contains(l.Linha, StringComparison.Ordinal))
+                .Select(l => l.Linha).Take(2).ToArray() is [var unica] ? unica : "", Referencia: k.Proveniencia.ReferenciaDaFonte ?? "")).ToArray();
+            var origensNaoInformadas = OrigensNaoInformadas(respostaB, origensB);
+            Verificar("b_origem_informada", fundamentados.Count == 4 && origensNaoInformadas.Length == 0, origensNaoInformadas);
             Verificar("b_relacoes_consultadas", incidente is not null && solucao is not null && rastroB.ConsultaComprovada("brain_listar_relacoes", incidente.Id.ToString(), solucao.Id.ToString()));
             Verificar("b_relacao_informada", respostaB.Contains("ResolvidoPor", StringComparison.Ordinal));
             Verificar("b_somente_leitura", rastroB.Violacoes.Count == 0 && estadoAntesDeB == estadoDepoisDeB, rastroB.Violacoes);
