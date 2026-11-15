@@ -19,7 +19,7 @@ using Xunit.Abstractions;
 namespace Dante.Tests;
 
 // CLI real, somente Brain descartável. Resultados negativos de qualidade são dados, não asserts invertidos.
-public sealed class Issue147BrainIndependenteTests(ITestOutputHelper output)
+public sealed partial class Issue147BrainIndependenteTests(ITestOutputHelper output)
 {
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
