@@ -202,6 +202,7 @@ internal sealed partial class ExecucaoDeMedicao147
     internal const string NomeManifesto = "manifesto.json";
     internal const string NomeSomas = "SHA256SUMS";
     internal const string NomeIndice = "indice.jsonl";
+    internal const string NomeMarcador = ".dante-evidencias-147";
     private const UnixFileMode Diretorio0700 = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
     private const UnixFileMode Arquivo0600 = UnixFileMode.UserRead | UnixFileMode.UserWrite;
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -229,14 +230,61 @@ internal sealed partial class ExecucaoDeMedicao147
         if (!NomeValido().IsMatch(cenario)) throw new ArgumentException("Cenário inválido.", nameof(cenario));
         var em = (agora ?? DateTimeOffset.UtcNow).ToUniversalTime();
         var id = $"{em:yyyyMMdd'T'HHmmss'Z'}-{cenario}-r{repeticao}-{Guid.NewGuid().ToString("N")[..12]}";
-        var execucao = new ExecucaoDeMedicao147(Path.GetFullPath(raiz), id, cenario, repeticao, em);
-        CriarPrivado(execucao.raiz);
-        CriarPrivado(Path.Combine(execucao.raiz, "execucoes"));
+        var execucao = new ExecucaoDeMedicao147(Path.TrimEndingDirectorySeparator(Path.GetFullPath(raiz)), id, cenario, repeticao, em);
+        PrepararRaiz(execucao.raiz);
+        var execucoes = Path.Combine(execucao.raiz, "execucoes");
+        if (Existe(execucoes)) ExigirDiretorioPrivado(execucoes);
+        else CriarDiretorioPrivado(execucoes);
         // Diretório novo e exclusivo: uma execução nunca reaproveita outra.
-        if (Directory.Exists(execucao.Diretorio) || File.Exists(execucao.Diretorio)) throw new IOException("Execução já existe: " + id);
-        CriarPrivado(execucao.Diretorio);
+        if (Existe(execucao.Diretorio)) throw new IOException("Execução já existe: " + id);
+        CriarDiretorioPrivado(execucao.Diretorio);
         return execucao;
     }
+
+    // Permissões só mudam por criação: diretório novo nasce 0700 no próprio mkdir (o umask só remove bits).
+    // Nenhum diretório preexistente — raiz, ancestral ou ponto de montagem — recebe chmod. Uma raiz que já existe só é
+    // aceita se for dedicada: marcador próprio, sem link e já 0700; senão é recusada sem nada ser alterado.
+    private static void PrepararRaiz(string raiz)
+    {
+        var marcador = Path.Combine(raiz, NomeMarcador);
+        if (Existe(raiz))
+        {
+            ExigirDiretorioPrivado(raiz);
+            if (EhLink(marcador) || !File.Exists(marcador))
+                throw new IOException($"Raiz de evidências já existe e não é dedicada à #147 (sem {NomeMarcador}); nada foi alterado. Use um diretório novo: {raiz}");
+            return;
+        }
+        var pai = Path.GetDirectoryName(raiz) ?? throw new IOException("Raiz de evidências sem diretório pai: " + raiz);
+        // Ancestrais ausentes são criados com o padrão do sistema; os existentes não são tocados.
+        if (!Existe(pai)) Directory.CreateDirectory(pai);
+        CriarDiretorioPrivado(raiz);
+        var opcoes = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+        if (!OperatingSystem.IsWindows()) opcoes.UnixCreateMode = Arquivo0600;
+        using (var arquivo = new FileStream(marcador, opcoes)) arquivo.Write(Utf8.GetBytes(Versao + "\n"));
+    }
+
+    private static void CriarDiretorioPrivado(string diretorio)
+    {
+        if (OperatingSystem.IsWindows()) { Directory.CreateDirectory(diretorio); return; }
+        Directory.CreateDirectory(diretorio, Diretorio0700);
+        ExigirDiretorioPrivado(diretorio);
+    }
+
+    // Confere, nunca corrige: link, não diretório ou modo diferente de 0700 é recusado como encontrado.
+    private static void ExigirDiretorioPrivado(string diretorio)
+    {
+        if (EhLink(diretorio)) throw new IOException("Diretório de evidências não pode ser link simbólico: " + diretorio);
+        if (!Directory.Exists(diretorio)) throw new IOException("Caminho de evidências não é diretório: " + diretorio);
+        if (!OperatingSystem.IsWindows() && File.GetUnixFileMode(diretorio) != Diretorio0700)
+            throw new IOException($"Diretório de evidências precisa estar com 0700 (encontrado {Convert.ToString((int)File.GetUnixFileMode(diretorio), 8)}); nada foi alterado: {diretorio}");
+    }
+
+    // lstat: o próprio caminho é link, exista ou não o alvo. Nunca segue o link.
+    internal static bool EhLink(string caminho) => new FileInfo(caminho).LinkTarget is not null;
+
+    private static bool Existe(string caminho) => EhLink(caminho) || Directory.Exists(caminho) || File.Exists(caminho);
+
+    private static bool ArquivoRegular(string caminho) => !EhLink(caminho) && File.Exists(caminho);
 
     // Texto exatamente como enviado/recebido: UTF-8 sem BOM, sem normalização de quebras de linha.
     internal ArquivoDeEvidencia147 GravarTexto(string nome, string papel, string conteudo) => Gravar(nome, papel, Utf8.GetBytes(conteudo));
@@ -278,11 +326,13 @@ internal sealed partial class ExecucaoDeMedicao147
     internal string Finalizar(string estado, string? baseGit, bool? arvoreLimpa = null, string? mounts = null)
     {
         if (finalizada) throw new InvalidOperationException("Execução já finalizada.");
+        // Arquivo de terceiro dentro do diretório 0700: lido só se for arquivo regular; link é recusado (nunca seguido
+        // nem alterado). Seu modo não importa para o sigilo e não é mudado.
         foreach (var nome in reservados)
         {
             var caminho = Path.Combine(Diretorio, nome);
+            if (EhLink(caminho)) throw new IOException("Arquivo reservado é link simbólico e foi recusado: " + nome);
             if (!File.Exists(caminho)) continue;
-            Restringir(caminho, Arquivo0600);
             Declarar(nome, "terceiro", File.ReadAllBytes(caminho));
         }
         finalizada = true;
@@ -297,7 +347,9 @@ internal sealed partial class ExecucaoDeMedicao147
         var linha = JsonSerializer.Serialize(new { id = Id, cenario = Cenario, repeticao = Repeticao, estado, manifestoSha256 = hash, criadoEm }) + "\n";
         var opcoes = new FileStreamOptions { Mode = FileMode.Append, Access = FileAccess.Write, Share = FileShare.Read };
         if (!OperatingSystem.IsWindows()) opcoes.UnixCreateMode = Arquivo0600;
-        using (var indice = new FileStream(Path.Combine(raiz, NomeIndice), opcoes))
+        var caminhoIndice = Path.Combine(raiz, NomeIndice);
+        if (EhLink(caminhoIndice) || Directory.Exists(caminhoIndice)) throw new IOException("Índice de evidências não é arquivo regular: " + caminhoIndice);
+        using (var indice = new FileStream(caminhoIndice, opcoes))
         {
             indice.Write(Utf8.GetBytes(linha));
             indice.Flush(true);
@@ -305,61 +357,90 @@ internal sealed partial class ExecucaoDeMedicao147
         return hash;
     }
 
-    internal static ManifestoDeExecucao147 LerManifesto(string diretorio) =>
-        JsonSerializer.Deserialize<ManifestoDeExecucao147>(File.ReadAllBytes(Path.Combine(diretorio, NomeManifesto)), Json)
-        ?? throw new InvalidDataException("Manifesto vazio.");
+    internal static ManifestoDeExecucao147 LerManifesto(string diretorio)
+    {
+        var caminho = Path.Combine(diretorio, NomeManifesto);
+        if (EhLink(diretorio) || EhLink(caminho)) throw new IOException("Link simbólico recusado na leitura do manifesto: " + caminho);
+        return JsonSerializer.Deserialize<ManifestoDeExecucao147>(File.ReadAllBytes(caminho), Json) ?? throw new InvalidDataException("Manifesto vazio.");
+    }
 
     // Recalcula tudo a partir do disco: arquivo ausente, alterado, não declarado, subdiretório, nome inválido no
-    // manifesto (nunca segue caminho fora da execução) e SHA256SUMS divergente.
+    // manifesto e SHA256SUMS divergente. Nenhum link é seguido: diretório, manifesto, SHA256SUMS ou arquivo declarado
+    // que seja link é reportado antes de qualquer leitura.
     internal static VerificacaoDeExecucao147 Verificar(string diretorio)
     {
+        var id = Path.GetFileName(Path.TrimEndingDirectorySeparator(diretorio));
+        if (EhLink(diretorio)) return new(id, ["link recusado: diretorio da execucao"]);
+        if (EhLink(Path.Combine(diretorio, NomeManifesto))) return new(id, ["link recusado: " + NomeManifesto]);
         ManifestoDeExecucao147 manifesto;
         try { manifesto = LerManifesto(diretorio); }
         catch (Exception e) when (e is IOException or JsonException or InvalidDataException or UnauthorizedAccessException)
-        { return new(Path.GetFileName(diretorio), ["manifesto ilegivel: " + e.GetType().Name]); }
+        { return new(id, ["manifesto ilegivel: " + e.GetType().Name]); }
         var divergencias = new List<string>();
-        if (manifesto.Id != Path.GetFileName(Path.TrimEndingDirectorySeparator(diretorio))) divergencias.Add("id diverge do diretorio");
+        if (manifesto.Id != id) divergencias.Add("id diverge do diretorio");
         foreach (var a in manifesto.Arquivos)
         {
             if (!NomeValido().IsMatch(a.Nome) || a.Nome is NomeManifesto or NomeSomas) { divergencias.Add("nome invalido: " + a.Nome); continue; }
             var caminho = Path.Combine(diretorio, a.Nome);
-            if (!File.Exists(caminho) || new FileInfo(caminho).LinkTarget is not null) { divergencias.Add("ausente: " + a.Nome); continue; }
+            if (EhLink(caminho)) { divergencias.Add("link recusado: " + a.Nome); continue; }
+            if (!File.Exists(caminho)) { divergencias.Add("ausente: " + a.Nome); continue; }
             var bytes = File.ReadAllBytes(caminho);
             if (bytes.LongLength != a.Bytes || Sha256(bytes) != a.Sha256) divergencias.Add("alterado: " + a.Nome);
         }
         var declarados = manifesto.Arquivos.Select(x => x.Nome).Append(NomeManifesto).Append(NomeSomas).ToHashSet(StringComparer.Ordinal);
-        divergencias.AddRange(Directory.EnumerateFiles(diretorio).Select(Path.GetFileName).Where(n => !declarados.Contains(n!)).Select(n => "nao declarado: " + n));
-        divergencias.AddRange(Directory.EnumerateDirectories(diretorio).Select(d => "subdiretorio nao declarado: " + Path.GetFileName(d)));
+        foreach (var entrada in Directory.EnumerateFileSystemEntries(diretorio))
+        {
+            var nome = Path.GetFileName(entrada);
+            if (declarados.Contains(nome)) continue;
+            divergencias.Add(EhLink(entrada) ? "link nao declarado: " + nome
+                : Directory.Exists(entrada) ? "subdiretorio nao declarado: " + nome : "nao declarado: " + nome);
+        }
         var caminhoSomas = Path.Combine(diretorio, NomeSomas);
-        if (!File.Exists(caminhoSomas) || File.ReadAllText(caminhoSomas, Utf8) != Somas(manifesto)) divergencias.Add("divergente: " + NomeSomas);
+        if (EhLink(caminhoSomas)) divergencias.Add("link recusado: " + NomeSomas);
+        else if (!File.Exists(caminhoSomas) || File.ReadAllText(caminhoSomas, Utf8) != Somas(manifesto)) divergencias.Add("divergente: " + NomeSomas);
         return new(manifesto.Id, divergencias);
     }
 
     // Raiz inteira: cada linha do índice aponta para uma execução cujo manifesto tem aquele hash; cada execução
     // tem exatamente uma linha; execução sem manifesto (processo morto antes do fechamento) é reportada.
+    // Raiz, execucoes, indice.jsonl e diretórios de execução que sejam links são reportados e não são seguidos.
     internal static IReadOnlyList<string> VerificarRaiz(string raiz)
     {
+        if (EhLink(raiz)) return ["link recusado: raiz"];
         var divergencias = new List<string>();
         var execucoes = Path.Combine(raiz, "execucoes");
+        var execucoesSeguras = !EhLink(execucoes);
+        if (!execucoesSeguras) divergencias.Add("link recusado: execucoes");
         var linhas = new Dictionary<string, string>(StringComparer.Ordinal);
         var caminhoIndice = Path.Combine(raiz, NomeIndice);
-        foreach (var (texto, numero) in (File.Exists(caminhoIndice) ? File.ReadAllLines(caminhoIndice, Utf8) : []).Select((l, i) => (l, i + 1)))
+        string[] conteudoIndice = [];
+        if (EhLink(caminhoIndice)) divergencias.Add("link recusado: " + NomeIndice);
+        else if (File.Exists(caminhoIndice)) conteudoIndice = File.ReadAllLines(caminhoIndice, Utf8);
+        foreach (var (texto, numero) in conteudoIndice.Select((l, i) => (l, i + 1)))
         {
             string? id = null, hash = null;
             try { using var doc = JsonDocument.Parse(texto); id = doc.RootElement.GetProperty("id").GetString(); hash = doc.RootElement.GetProperty("manifestoSha256").GetString(); }
             catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException) { }
             if (id is null || hash is null || !IdValido().IsMatch(id)) { divergencias.Add($"indice linha {numero} invalida"); continue; }
             if (!linhas.TryAdd(id, hash)) { divergencias.Add("indice duplicado: " + id); continue; }
-            var manifesto = Path.Combine(execucoes, id, NomeManifesto);
+            if (!execucoesSeguras) continue;
+            var dir = Path.Combine(execucoes, id);
+            var manifesto = Path.Combine(dir, NomeManifesto);
+            if (EhLink(dir) || EhLink(manifesto)) continue; // reportado na varredura dos diretórios
             if (!File.Exists(manifesto)) divergencias.Add("indice sem execucao: " + id);
             else if (Sha256(File.ReadAllBytes(manifesto)) != hash) divergencias.Add("manifesto diverge do indice: " + id);
         }
-        foreach (var dir in Directory.Exists(execucoes) ? Directory.EnumerateDirectories(execucoes) : [])
+        if (!execucoesSeguras || !Directory.Exists(execucoes)) return divergencias;
+        foreach (var entrada in Directory.EnumerateFileSystemEntries(execucoes))
         {
-            var id = Path.GetFileName(dir);
-            if (!File.Exists(Path.Combine(dir, NomeManifesto))) { divergencias.Add("execucao sem manifesto: " + id); continue; }
+            var id = Path.GetFileName(entrada);
+            if (EhLink(entrada)) { divergencias.Add("link recusado: execucao " + id); continue; }
+            if (!Directory.Exists(entrada)) { divergencias.Add("entrada nao declarada em execucoes: " + id); continue; }
+            var manifesto = Path.Combine(entrada, NomeManifesto);
+            if (EhLink(manifesto)) { divergencias.Add(id + ": link recusado: " + NomeManifesto); continue; }
+            if (!File.Exists(manifesto)) { divergencias.Add("execucao sem manifesto: " + id); continue; }
             if (!linhas.ContainsKey(id)) divergencias.Add("execucao fora do indice: " + id);
-            divergencias.AddRange(Verificar(dir).Divergencias.Select(d => id + ": " + d));
+            divergencias.AddRange(Verificar(entrada).Divergencias.Select(d => id + ": " + d));
         }
         return divergencias;
     }
@@ -380,19 +461,6 @@ internal sealed partial class ExecucaoDeMedicao147
             fluxo.Flush(true);
         }
         File.Move(parcial, caminho, overwrite: false);
-    }
-
-    private static void CriarPrivado(string diretorio)
-    {
-        if (new DirectoryInfo(diretorio).LinkTarget is not null) throw new IOException("Diretório de evidências não pode ser link simbólico: " + diretorio);
-        if (OperatingSystem.IsWindows()) Directory.CreateDirectory(diretorio);
-        else Directory.CreateDirectory(diretorio, Diretorio0700);
-        Restringir(diretorio, Diretorio0700);
-    }
-
-    private static void Restringir(string caminho, UnixFileMode modo)
-    {
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(caminho, modo);
     }
 
     [GeneratedRegex("^[a-z0-9][a-z0-9.-]{0,79}$")]
@@ -433,9 +501,28 @@ internal static partial class RaizDeEvidencias147
                 if (Dentro(caminho, p)) throw new InvalidOperationException($"Raiz de evidências da #147 não pode ficar em {p}: {caminho}");
             if (mounts is not null && TipoDoSistemaDeArquivos(caminho, mounts) is { } tipo && SistemasVolateis.Contains(tipo))
                 throw new InvalidOperationException($"Raiz de evidências da #147 está em sistema volátil ({tipo}): {caminho}");
+            // A raiz é um diretório dedicado, nunca um diretório genérico do sistema/usuário nem um ponto de montagem.
+            if (Genericos().Contains(caminho, StringComparer.Ordinal))
+                throw new InvalidOperationException($"Raiz de evidências da #147 não pode ser um diretório genérico: {caminho}");
+            if (mounts is not null && PontosDeMontagem(mounts).Contains(caminho, StringComparer.Ordinal))
+                throw new InvalidOperationException($"Raiz de evidências da #147 não pode ser um ponto de montagem: {caminho}");
         }
         return real;
     }
+
+    private static IEnumerable<string> Genericos()
+    {
+        var home = Path.TrimEndingDirectorySeparator(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        string[] sistema = ["/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib32", "/lib64", "/media", "/mnt", "/opt",
+            "/proc", "/root", "/run", "/sbin", "/snap", "/srv", "/sys", "/usr", "/var", "/tmp"];
+        string[] usuario = [home, Path.Combine(home, ".local"), Path.Combine(home, ".local", "share"), Path.Combine(home, ".config"),
+            Path.Combine(home, ".cache"), Path.Combine(home, ".local", "share", "dante-tests")];
+        return sistema.Concat(usuario).SelectMany(x => new[] { x, CaminhoReal(x) }).Distinct(StringComparer.Ordinal);
+    }
+
+    private static IEnumerable<string> PontosDeMontagem(string mounts) =>
+        mounts.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.Split(' ')).Where(c => c.Length >= 3)
+            .Select(c => Path.TrimEndingDirectorySeparator(Octal().Replace(c[1], m => ((char)Convert.ToInt32(m.Groups[1].Value, 8)).ToString())));
 
     private static IEnumerable<string> Proibidos()
     {

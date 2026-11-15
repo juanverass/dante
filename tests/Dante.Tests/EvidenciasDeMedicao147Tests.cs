@@ -14,9 +14,46 @@ namespace Dante.Tests;
 public sealed class EvidenciasDeMedicao147Tests : IDisposable
 {
     private const string MountsPersistentes = "/dev/nvme0n1p2 / ext4 rw 0 0\n/dev/nvme0n1p3 /srv ext4 rw 0 0\n";
-    private readonly string raiz = Directory.CreateTempSubdirectory("dante147-medicao-teste-").FullName;
+    private const UnixFileMode D700 = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+    private const UnixFileMode F600 = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+    private const UnixFileMode D755 = D700 | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+    // Área do teste; a raiz de evidências é um diretório novo dentro dela, como na primeira execução real.
+    private readonly string area = Directory.CreateTempSubdirectory("dante147-medicao-teste-").FullName;
+    private string raiz => Path.Combine(area, "evidencias");
 
-    public void Dispose() => Directory.Delete(raiz, true);
+    public void Dispose()
+    {
+        // Alvos deixados inacessíveis pelos testes de link voltam a 0700 para a remoção.
+        if (!OperatingSystem.IsWindows())
+            foreach (var d in Directory.EnumerateFileSystemEntries(area, "*", new EnumerationOptions { RecurseSubdirectories = false }))
+                if (!ExecucaoDeMedicao147.EhLink(d)) File.SetUnixFileMode(d, Directory.Exists(d) ? D700 : F600);
+        Directory.Delete(area, true);
+    }
+
+    // Alvo fora da execução, sem permissão de leitura: se a verificação seguisse o link, lançaria ao ler.
+    private string AlvoInacessivel(string nome, bool diretorio)
+    {
+        var alvo = Path.Combine(area, nome);
+        if (diretorio) { Directory.CreateDirectory(alvo); File.WriteAllText(Path.Combine(alvo, "manifesto.json"), "{}"); }
+        else File.WriteAllText(alvo, "fora da execucao");
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(alvo, UnixFileMode.None);
+        return alvo;
+    }
+
+    private static void TrocarPorLink(string caminho, string alvo)
+    {
+        if (Directory.Exists(caminho) && !ExecucaoDeMedicao147.EhLink(caminho)) Directory.Delete(caminho, true); else File.Delete(caminho);
+        File.CreateSymbolicLink(caminho, alvo);
+    }
+
+    private ExecucaoDeMedicao147 ExecucaoFechada(string arquivo = "a.txt")
+    {
+        var execucao = ExecucaoDeMedicao147.Iniciar(raiz, "retomada", 1);
+        execucao.GravarTexto(arquivo, "x", "um");
+        execucao.Finalizar("completo", null, null, MountsPersistentes);
+        Assert.Empty(ExecucaoDeMedicao147.VerificarRaiz(raiz));
+        return execucao;
+    }
 
     private static string Result(string corpo) => "{\"type\":\"result\"," + corpo + "}";
 
@@ -261,8 +298,8 @@ public sealed class EvidenciasDeMedicao147Tests : IDisposable
     [Fact]
     public void ManifestoComCaminhoForaDaExecucaoNaoESeguido()
     {
-        File.WriteAllText(Path.Combine(raiz, "segredo.txt"), "fora");
         var execucao = ExecucaoDeMedicao147.Iniciar(raiz, "retomada", 1);
+        File.WriteAllText(Path.Combine(raiz, "segredo.txt"), "fora");
         execucao.Finalizar("completo", null, null, MountsPersistentes);
         var caminho = Path.Combine(execucao.Diretorio, "manifesto.json");
         var hash = ExecucaoDeMedicao147.Sha256(Encoding.UTF8.GetBytes("fora"));
@@ -314,20 +351,215 @@ public sealed class EvidenciasDeMedicao147Tests : IDisposable
         var execucao = ExecucaoDeMedicao147.Iniciar(nova, "retomada", 1);
         execucao.GravarTexto("a.txt", "x", "um");
         execucao.Finalizar("completo", null, null, MountsPersistentes);
-        const UnixFileMode d700 = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
-        const UnixFileMode f600 = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        foreach (var d in new[] { nova, Path.Combine(nova, "execucoes"), execucao.Diretorio }) Assert.Equal(d700, File.GetUnixFileMode(d));
-        foreach (var f in Directory.EnumerateFiles(execucao.Diretorio).Append(Path.Combine(nova, "indice.jsonl"))) Assert.Equal(f600, File.GetUnixFileMode(f));
+        foreach (var d in new[] { nova, Path.Combine(nova, "execucoes"), execucao.Diretorio }) Assert.Equal(D700, File.GetUnixFileMode(d));
+        foreach (var f in Directory.EnumerateFiles(execucao.Diretorio).Append(Path.Combine(nova, "indice.jsonl")).Append(Path.Combine(nova, ExecucaoDeMedicao147.NomeMarcador)))
+            Assert.Equal(F600, File.GetUnixFileMode(f));
+    }
+
+    // ---------- Permissões: nada preexistente é alterado ----------
+
+    // Diretório que já existe e não foi criado como raiz dedicada (ex.: /srv, um projeto): recusado, modo e conteúdo intactos.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RaizPreexistenteNaoDedicadaERecusadaSemAlterarPermissoes(bool comConteudo)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var existente = Directory.CreateDirectory(Path.Combine(area, "existente")).FullName;
+        if (comConteudo) File.WriteAllText(Path.Combine(existente, "dado.txt"), "do usuario");
+        File.SetUnixFileMode(existente, D755);
+        var antes = Directory.EnumerateFileSystemEntries(existente).Order().ToArray();
+
+        Assert.Throws<IOException>(() => ExecucaoDeMedicao147.Iniciar(existente, "retomada", 1));
+
+        Assert.Equal(D755, File.GetUnixFileMode(existente));
+        Assert.Equal(antes, Directory.EnumerateFileSystemEntries(existente).Order().ToArray());
+    }
+
+    // Ancestrais existentes não recebem chmod; só a raiz criada e o que está dentro dela são privados.
+    [Fact]
+    public void AncestraisExistentesMantemPermissoesEAusentesNaoSaoRestringidos()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var pai = Directory.CreateDirectory(Path.Combine(area, "pai")).FullName;
+        File.SetUnixFileMode(pai, D755);
+        var nova = Path.Combine(pai, "intermediario", "issue-147");
+        ExecucaoDeMedicao147.Iniciar(nova, "retomada", 1).Finalizar("completo", null, null, MountsPersistentes);
+
+        Assert.Equal(D755, File.GetUnixFileMode(pai));
+        Assert.NotEqual(UnixFileMode.None, File.GetUnixFileMode(Path.Combine(pai, "intermediario")) & UnixFileMode.OtherExecute);
+        Assert.Equal(D700, File.GetUnixFileMode(nova));
+    }
+
+    // Raiz dedicada reaproveitada sem chmod; se alguém afrouxou o modo, é recusada e não "consertada".
+    [Fact]
+    public void RaizDedicadaEReutilizadaENuncaCorrigidaPorChmod()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        ExecucaoDeMedicao147.Iniciar(raiz, "retomada", 1).Finalizar("completo", null, null, MountsPersistentes);
+        ExecucaoDeMedicao147.Iniciar(raiz, "retomada", 2).Finalizar("completo", null, null, MountsPersistentes);
+        Assert.Empty(ExecucaoDeMedicao147.VerificarRaiz(raiz));
+        Assert.Equal(D700, File.GetUnixFileMode(raiz));
+
+        File.SetUnixFileMode(raiz, D755);
+        Assert.Throws<IOException>(() => ExecucaoDeMedicao147.Iniciar(raiz, "retomada", 3));
+        Assert.Equal(D755, File.GetUnixFileMode(raiz));
+        File.SetUnixFileMode(raiz, D700);
+        File.SetUnixFileMode(Path.Combine(raiz, "execucoes"), D755);
+        Assert.Throws<IOException>(() => ExecucaoDeMedicao147.Iniciar(raiz, "retomada", 3));
+        Assert.Equal(D755, File.GetUnixFileMode(Path.Combine(raiz, "execucoes")));
+    }
+
+    [Fact]
+    public void MarcadorDaRaizComoLinkERecusado()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        ExecucaoDeMedicao147.Iniciar(raiz, "retomada", 1).Finalizar("completo", null, null, MountsPersistentes);
+        var alvo = AlvoInacessivel("marcador-alheio", diretorio: false);
+        TrocarPorLink(Path.Combine(raiz, ExecucaoDeMedicao147.NomeMarcador), alvo);
+        Assert.Throws<IOException>(() => ExecucaoDeMedicao147.Iniciar(raiz, "retomada", 2));
+    }
+
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/srv")]
+    [InlineData("/mnt")]
+    [InlineData("/home")]
+    [InlineData("/var")]
+    [InlineData("/opt")]
+    public void DiretorioGenericoDoSistemaERecusado(string caminho) =>
+        Assert.Throws<InvalidOperationException>(() => RaizDeEvidencias147.Validar(caminho, MountsPersistentes));
+
+    [Fact]
+    public void DiretorioGenericoDoUsuarioEPontoDeMontagemSaoRecusados()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        foreach (var caminho in new[] { home, Path.Combine(home, ".local"), Path.Combine(home, ".local", "share"), Path.Combine(home, ".cache"),
+                     Path.Combine(home, ".local", "share", "dante-tests") })
+            Assert.Throws<InvalidOperationException>(() => RaizDeEvidencias147.Validar(caminho, MountsPersistentes));
+        var comMontagem = MountsPersistentes + "/dev/sdb1 /srv/dados ext4 rw 0 0\n";
+        Assert.Throws<InvalidOperationException>(() => RaizDeEvidencias147.Validar("/srv/dados", comMontagem));
+        Assert.Equal("/srv/dados/issue-147", RaizDeEvidencias147.Validar("/srv/dados/issue-147", comMontagem));
+    }
+
+    // Arquivo reservado (métricas do produto) plantado como link: recusado, alvo sem chmod e sem leitura.
+    [Fact]
+    public void ArquivoReservadoComoLinkERecusadoSemAlterarOAlvo()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var execucao = ExecucaoDeMedicao147.Iniciar(raiz, "retomada", 1);
+        var alvo = Path.Combine(area, "alvo-metricas");
+        File.WriteAllText(alvo, "de terceiros");
+        File.SetUnixFileMode(alvo, D755 & ~UnixFileMode.UserExecute & ~UnixFileMode.GroupExecute & ~UnixFileMode.OtherExecute);
+        var modo = File.GetUnixFileMode(alvo);
+        File.CreateSymbolicLink(execucao.Reservar("metricas.jsonl"), alvo);
+        Assert.Throws<IOException>(() => execucao.Finalizar("completo", null, null, MountsPersistentes));
+        Assert.Equal(modo, File.GetUnixFileMode(alvo));
+    }
+
+    [Fact]
+    public void IndiceComoLinkNaoRecebeEscrita()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        ExecucaoFechada();
+        var alvo = Path.Combine(area, "indice-alheio");
+        File.WriteAllText(alvo, "intacto");
+        TrocarPorLink(Path.Combine(raiz, "indice.jsonl"), alvo);
+        var outra = ExecucaoDeMedicao147.Iniciar(raiz, "retomada", 2);
+        Assert.Throws<IOException>(() => outra.Finalizar("completo", null, null, MountsPersistentes));
+        Assert.Equal("intacto", File.ReadAllText(alvo));
+    }
+
+    // ---------- Verificação: nenhum caminho de controle é seguido ----------
+
+    [Fact]
+    public void ManifestoComoLinkNaoELido()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var execucao = ExecucaoFechada();
+        TrocarPorLink(Path.Combine(execucao.Diretorio, "manifesto.json"), AlvoInacessivel("manifesto-alheio", diretorio: false));
+        Assert.Equal(["link recusado: manifesto.json"], ExecucaoDeMedicao147.Verificar(execucao.Diretorio).Divergencias);
+        Assert.Throws<IOException>(() => ExecucaoDeMedicao147.LerManifesto(execucao.Diretorio));
+        Assert.Contains(execucao.Id + ": link recusado: manifesto.json", ExecucaoDeMedicao147.VerificarRaiz(raiz));
+    }
+
+    [Fact]
+    public void Sha256sumsComoLinkNaoELido()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var execucao = ExecucaoFechada();
+        TrocarPorLink(Path.Combine(execucao.Diretorio, "SHA256SUMS"), AlvoInacessivel("somas-alheias", diretorio: false));
+        Assert.Contains("link recusado: SHA256SUMS", ExecucaoDeMedicao147.Verificar(execucao.Diretorio).Divergencias);
+    }
+
+    [Fact]
+    public void ArquivoDeclaradoComoLinkNaoELido()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var execucao = ExecucaoFechada();
+        TrocarPorLink(Path.Combine(execucao.Diretorio, "a.txt"), AlvoInacessivel("dado-alheio", diretorio: false));
+        Assert.Equal(["link recusado: a.txt"], ExecucaoDeMedicao147.Verificar(execucao.Diretorio).Divergencias);
+    }
+
+    [Fact]
+    public void LinkNaoDeclaradoNaExecucaoEReportadoSemSeguir()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var execucao = ExecucaoFechada();
+        Directory.CreateSymbolicLink(Path.Combine(execucao.Diretorio, "extra"), AlvoInacessivel("dir-alheio", diretorio: true));
+        Assert.Equal(["link nao declarado: extra"], ExecucaoDeMedicao147.Verificar(execucao.Diretorio).Divergencias);
+    }
+
+    [Fact]
+    public void DiretorioDeExecucaoComoLinkNaoESeguido()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var execucao = ExecucaoFechada();
+        TrocarPorLink(execucao.Diretorio, AlvoInacessivel("execucao-alheia", diretorio: true));
+        Assert.Equal(["link recusado: diretorio da execucao"], ExecucaoDeMedicao147.Verificar(execucao.Diretorio).Divergencias);
+        var divergencias = ExecucaoDeMedicao147.VerificarRaiz(raiz);
+        Assert.Contains("link recusado: execucao " + execucao.Id, divergencias);
+        Assert.DoesNotContain(divergencias, d => d.Contains("manifesto diverge", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DiretorioExecucoesComoLinkNaoESeguidoNaVerificacao()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        ExecucaoFechada();
+        TrocarPorLink(Path.Combine(raiz, "execucoes"), AlvoInacessivel("execucoes-alheias", diretorio: true));
+        Assert.Equal(["link recusado: execucoes"], ExecucaoDeMedicao147.VerificarRaiz(raiz));
+    }
+
+    [Fact]
+    public void IndiceComoLinkNaoELido()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        ExecucaoFechada();
+        TrocarPorLink(Path.Combine(raiz, "indice.jsonl"), AlvoInacessivel("indice-inacessivel", diretorio: false));
+        var divergencias = ExecucaoDeMedicao147.VerificarRaiz(raiz);
+        Assert.Contains("link recusado: indice.jsonl", divergencias);
+    }
+
+    [Fact]
+    public void RaizComoLinkNaoESeguidaNaVerificacao()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var alvo = AlvoInacessivel("raiz-alheia", diretorio: true);
+        var link = Path.Combine(area, "raiz-link");
+        Directory.CreateSymbolicLink(link, alvo);
+        Assert.Equal(["link recusado: raiz"], ExecucaoDeMedicao147.VerificarRaiz(link));
+        Assert.Throws<IOException>(() => ExecucaoDeMedicao147.Iniciar(link, "retomada", 1));
     }
 
     [Fact]
     public void DiretorioDeExecucoesComoLinkSimbolicoERecusado()
     {
         if (OperatingSystem.IsWindows()) return;
-        var alvo = Directory.CreateDirectory(Path.Combine(raiz, "alvo")).FullName;
-        var outra = Directory.CreateDirectory(Path.Combine(raiz, "outra")).FullName;
-        Directory.CreateSymbolicLink(Path.Combine(outra, "execucoes"), alvo);
-        Assert.Throws<IOException>(() => ExecucaoDeMedicao147.Iniciar(outra, "retomada", 1));
+        ExecucaoDeMedicao147.Iniciar(raiz, "retomada", 1).Finalizar("completo", null, null, MountsPersistentes);
+        var alvo = Directory.CreateDirectory(Path.Combine(area, "alvo")).FullName;
+        TrocarPorLink(Path.Combine(raiz, "execucoes"), alvo);
+        Assert.Throws<IOException>(() => ExecucaoDeMedicao147.Iniciar(raiz, "retomada", 2));
         Assert.Empty(Directory.EnumerateFileSystemEntries(alvo));
     }
 
