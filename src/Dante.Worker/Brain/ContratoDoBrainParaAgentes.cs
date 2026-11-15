@@ -67,6 +67,13 @@ internal static class ContratoDoBrainParaAgentes
         Para preservar resultados detalhados de testes e validações, use brain_registrar_evidencia: uma evidência
         Markdown por chamada, com título, tags e justificativa, registrada como fonte bruta com autoria do agente.
         Ela não cria candidato nem confirma conhecimento; cite a referência fonte:<id>@<rev> retornada no snapshot.
+        Ao capturar conhecimento derivado de uma fonte bruta do projeto ativo, informe fundamento com fonte:<id>@<rev> e
+        citacao com as linhas inteiras que o sustentam, copiadas literalmente; o conteúdo precisa conter essas linhas.
+        O servidor grava referência, intervalo e hash do trecho. Só quando conhecimentos fundamentados cobrem todas as
+        linhas da fonte o contexto omite a íntegra, mantendo a referência; senão a fonte segue integral.
+        No snapshot, progresso e ultimo_resultado registram só o que ainda não está em conhecimento, candidato ou fonte;
+        o que já está registrado vai como conhecimento:<id>@<rev> (ou candidato/fonte) em referencias, sem recontar.
+        Não omita o que ainda não foi consolidado. Nesses dois campos, "" limpa e omitir preserva o valor atual.
         Falha, ausência ou revogação das ferramentas significa indisponibilidade da capacidade interna do Brain;
         informe essa limitação sem inventar leitura ou persistência bem-sucedida, sem procurar plugins ou URL externa.
         Respeite autorização, sensibilidade, revisões e confirmação; nunca capture transcript ou raciocínio privado.

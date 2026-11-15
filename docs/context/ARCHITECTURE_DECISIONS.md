@@ -2234,3 +2234,35 @@ nunca fallback automático. A implantação ou migração operacional exige outr
 Não se trata de sandbox contra brokers externos ou código malicioso com privilégios
 do mesmo usuário. Detalhes, dependências e matriz de testes no
 [contrato de contenção](../development/contencao-de-agentes.md).
+
+## AD-64 — Proveniência por trecho na captura e snapshot sem recontagem (#147)
+
+Status: vigente na branch da #147; a #147 permanece NO-GO.
+
+Contexto: a análise de 15/11/2026 mostrou ~67% do pacote como texto citado, com o mesmo
+incidente e solução na fonte, nos conhecimentos e no snapshot. A prova de consolidação
+existente só aceitava um conhecimento por parte indexada contendo a parte inteira, o que a
+captura pelo MCP nunca produzia (a proveniência era só a conversa).
+
+Decisão:
+
+* a proveniência de um conhecimento derivado de fonte usa os campos existentes:
+  `ReferenciaDaFonte` = referência canônica do trecho com intervalo
+  (`…/parte/<n>?hash=<documento>&inicio=<a>&fim=<b>&sha256=<texto citado>`),
+  `RevisaoDaFonte` = hash do documento, `TrechoDaFonte` = texto citado; a relação
+  conhecimento → trecho é essa referência. Sem migration;
+* o servidor, não o agente, resolve a citação (linhas inteiras, única, numa parte, contida
+  literalmente no conteúdo) e calcula intervalo e hashes;
+* a prova de cobertura mantém remontagem contínua, igualdade com a fonte, redação e
+  referência exata, e passa a aceitar a união de intervalos alinhados por linha; só
+  espaço em branco fica fora. Linha cortada, hash, revisão ou conteúdo divergente invalidam;
+* snapshot: Progresso e UltimoResultado podem ficar vazios; o já registrado é citado por
+  referência tipada; omitir no MCP preserva. Deduplicação segue só por igualdade;
+* composição C1: cabeçalho enxuto com as mesmas regras e título em chave própria quando
+  `DadosEstruturados` é só `{"titulo"}`. A4 (relação por posição) rejeitada por
+  instabilidade entre pacotes; A5–A7 fora.
+
+Consequências: conhecimentos antigos continuam válidos e mantêm a fonte integral. Omitir
+a fonte só compensa quando os conhecimentos citam as linhas em vez de parafraseá-las; a
+duplicação deixa de existir, não é escondida. Limite: um intervalo contíguo por conhecimento.
+

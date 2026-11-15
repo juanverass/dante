@@ -54,7 +54,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                 var conhecimento = await ConhecimentoAsync(Id(args, "id"));
                 return new { conhecimento.Id, conhecimento.Tipo, conhecimento.NaturezaDeOrigem, conhecimento.Natureza, conhecimento.Status, conhecimento.Rotulo, conhecimento.Proveniencia, conhecimento.Historico };
             case "brain_capturar_conhecimento":
-                var dto = Captura(args, acesso, ProvaDaFonte(prova, mensagem, args));
+                var dto = await FundamentarAsync(args, acesso, Captura(args, acesso, ProvaDaFonte(prova, mensagem, args)), servicos, ct);
                 ValidarOrigem(dto, mensagem);
                 var salvo = await captura.CapturarAsync(dto, ct);
                 return new { candidato = Resumir(salvo), possivelDuplicidade = salvo.Revisao > 1 || salvo.Estado != EstadoDoCandidato.Pendente, confirmado = false };
@@ -63,7 +63,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             case "brain_corrigir_candidato":
                 var anterior = await CandidatoAsync();
                 if (anterior.Estado != EstadoDoCandidato.Pendente || anterior.Revisao != Inteiro(args, "revisao")) throw ErroDoBrainMcp.Revisao();
-                var correcao = Captura(args, acesso, ProvaDaFonte(prova, mensagem, args)) with
+                var correcao = (await FundamentarAsync(args, acesso, Captura(args, acesso, ProvaDaFonte(prova, mensagem, args)), servicos, ct)) with
                 {
                     Titulo = args.TryGetProperty("titulo", out _) ? Texto(args, "titulo", 300) : anterior.Titulo,
                     Tags = args.TryGetProperty("tags", out _) ? Lista(args, "tags") : anterior.Tags ?? [],
@@ -125,7 +125,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             case "brain_atualizar_conhecimento":
                 var existente = await ConhecimentoAsync(Id(args, "id"));
                 if (existente.Revisao != Inteiro(args, "revisao")) throw ErroDoBrainMcp.Revisao();
-                var novaVersao = Captura(args, acesso, ProvaDaFonte(prova, mensagem, args));
+                var novaVersao = await FundamentarAsync(args, acesso, Captura(args, acesso, ProvaDaFonte(prova, mensagem, args)), servicos, ct);
                 ValidarOrigem(novaVersao, mensagem);
                 var sensibilidadeNova = OpcionalEnum<Sensibilidade>(args, "sensibilidade") ?? existente.Sensibilidade;
                 // O item já é visível ao agente; recusar a redução não revela nada além do que ele leu.
@@ -259,12 +259,16 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
                     // revalida tipo, confirmação, validade e classificação antes de salvar o snapshot.
                     foreach (var idDecisao in idsDecisoes.Distinct()) await ConhecimentoAsync(idDecisao);
                 }
-                GarantirSemCredencial([Texto(args, "objetivo", 2000), Texto(args, "tarefa", 2000), Texto(args, "progresso", 2000), Texto(args, "ultimo_resultado", 2000),
+                // Snapshot sem recontagem (#147): progresso e ultimo_resultado guardam só o que ainda não está registrado;
+                // "" limpa e omitir preserva o valor atual, para que nada se perca por omissão.
+                var progresso = TextoOpcional(args, "progresso", 2000) ?? snapshot?.Dados.Progresso ?? "";
+                var ultimoResultado = TextoOpcional(args, "ultimo_resultado", 2000) ?? snapshot?.Dados.UltimoResultado ?? "";
+                GarantirSemCredencial([Texto(args, "objetivo", 2000), Texto(args, "tarefa", 2000), progresso, ultimoResultado,
                     .. Lista(args, "referencias"), .. Lista(args, "pendencias"), .. Lista(args, "proximos_passos")]);
-                var dados = new DadosDoContexto(Texto(args, "objetivo", 2000), Texto(args, "tarefa", 2000), Texto(args, "progresso", 2000), idsDecisoes,
+                var dados = new DadosDoContexto(Texto(args, "objetivo", 2000), Texto(args, "tarefa", 2000), progresso, idsDecisoes,
                     args.TryGetProperty("referencias", out _) ? Lista(args, "referencias") : snapshot?.Dados.Referencias ?? [],
                     args.TryGetProperty("pendencias", out _) ? Lista(args, "pendencias") : snapshot?.Dados.Pendencias ?? [],
-                    args.TryGetProperty("proximos_passos", out _) ? Lista(args, "proximos_passos") : snapshot?.Dados.ProximosPassos ?? [], Texto(args, "ultimo_resultado", 2000));
+                    args.TryGetProperty("proximos_passos", out _) ? Lista(args, "proximos_passos") : snapshot?.Dados.ProximosPassos ?? [], ultimoResultado);
                 return await contextos.SubstituirAsync(acesso, Inteiro(args, "revisao"), dados, snapshot?.Sensibilidade ?? Sensibilidade.Pessoal,
                     $"{prova.Origem};{prova.ReferenciaDaFonte}", snapshot?.ExpiraEm, ct);
             default: throw ErroDoBrainMcp.Entrada();
@@ -286,6 +290,7 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
             var alvo = destino.Acesso;
             if (alvo.IdEspacoDeConhecimento == acesso.IdEspacoDeConhecimento && alvo.IdProjeto == acesso.IdProjeto)
                 throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheDestinoAtivo);
+            if (args.TryGetProperty("fundamento", out _)) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheFundamentoEmOutroProjeto);
             var provaDaFonte = ProvaDaFonte(prova, mensagem, args);
             // Contexto em que a observação surgiu, por IDs verificáveis; nomes podem mudar depois.
             provaDaFonte = provaDaFonte with { Origem = $"{provaDaFonte.Origem};percebido-em:{acesso.IdEspacoDeConhecimento}/{acesso.IdProjeto?.ToString() ?? "sem-projeto"}" };
@@ -537,6 +542,40 @@ public sealed class OperacoesMcpDoBrain(IServiceScopeFactory scopes, RegistroDeO
     private static int Inteiro(JsonElement a, string campo) => Campo(a, campo, JsonValueKind.Number).TryGetInt32(out var n) && n >= 0 ? n : throw ErroDoBrainMcp.Entrada();
     private static int Limite(JsonElement a) => a.TryGetProperty("limite", out _) ? Inteiro(a, "limite") is > 0 and <= ServidorMcpDoBrain.LimiteMaximo ? Inteiro(a, "limite") : throw ErroDoBrainMcp.Entrada() : ServidorMcpDoBrain.LimitePadrao;
     private static int Deslocamento(JsonElement a) => a.TryGetProperty("deslocamento", out _) ? Inteiro(a, "deslocamento") is <= ServidorMcpDoBrain.DeslocamentoMaximo ? Inteiro(a, "deslocamento") : throw ErroDoBrainMcp.Entrada() : 0;
+    // Ausente → null; presente → string de até maximo caracteres, vazia permitida (só espaços vira vazia).
+    private static string? TextoOpcional(JsonElement a, string campo, int maximo)
+    {
+        if (!a.TryGetProperty(campo, out _)) return null;
+        var texto = Campo(a, campo, JsonValueKind.String).GetString()!;
+        return texto.Length <= maximo ? (string.IsNullOrWhiteSpace(texto) ? "" : texto) : throw ErroDoBrainMcp.Entrada();
+    }
+    // Proveniência por trecho (#147): com fundamento, a referência passa a ser o trecho citado da fonte, resolvido e
+    // verificado pela Application; a referência da mensagem que pediu a captura continua na Origem.
+    private static async Task<CapturaDeConhecimentoDto> FundamentarAsync(JsonElement a, AcessoAoBrain acesso, CapturaDeConhecimentoDto dto,
+        IServiceProvider servicos, CancellationToken ct)
+    {
+        if (!a.TryGetProperty("fundamento", out _)) return dto;
+        var f = Campo(a, "fundamento", JsonValueKind.Object);
+        if (f.EnumerateObject().Any(p => p.Name is not ("fonte" or "citacao"))) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheFundamento);
+        string fonte, citacao;
+        try { fonte = Texto(f, "fonte", 100); citacao = Texto(f, "citacao", 1600); }
+        catch (ErroDoBrainMcp) { throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheFundamento); }
+        var separador = fonte.LastIndexOf('@');
+        if (!fonte.StartsWith("fonte:", StringComparison.Ordinal) || separador < 0 ||
+            !Guid.TryParseExact(fonte[6..separador], "D", out var id) || id == Guid.Empty ||
+            !int.TryParse(fonte[(separador + 1)..], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var revisao) || revisao <= 0)
+            throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheFundamento);
+        FundamentoNaFonteDto fundamento;
+        try { fundamento = await servicos.GetRequiredService<DocumentoFonteAppService>().FundamentarAsync(acesso, id, revisao, citacao, dto.Conteudo, ct); }
+        catch (KeyNotFoundException) { throw ErroDoBrainMcp.NaoEncontrado(); }
+        catch (UnauthorizedAccessException) { throw ErroDoBrainMcp.NaoEncontrado(); }
+        catch (InvalidOperationException) { throw ErroDoBrainMcp.Revisao(); }
+        catch (ArgumentException) { throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheFundamento); }
+        var origem = $"{dto.Proveniencia.Origem};{dto.Proveniencia.ReferenciaDaFonte}";
+        if (origem.Length > 200) throw ErroDoBrainMcp.Entrada(ErrosDoBrainMcp.DetalheFundamento);
+        return dto with { Proveniencia = dto.Proveniencia with { Origem = origem, ReferenciaDaFonte = fundamento.ReferenciaDaFonte,
+            RevisaoDaFonte = fundamento.HashDoDocumento, TrechoDaFonte = fundamento.TrechoDaFonte } };
+    }
     private static string Texto(JsonElement a, string campo, int maximo)
     { var texto = Campo(a, campo, JsonValueKind.String).GetString(); return !string.IsNullOrWhiteSpace(texto) && texto.Length <= maximo ? texto : throw ErroDoBrainMcp.Entrada(); }
     private static string[] Lista(JsonElement a, string campo)

@@ -114,7 +114,7 @@ public sealed class ContinuidadeDoBrainTests : IAsyncDisposable
         api.Enqueue(Texto("qual identidade as entidades usam?"));
         await Eventually(()=>drivers.Created.Count==1&&drivers.Created[0].TurnInputs.Count==1);
         var a=drivers.Created[0];var primeiro=a.TurnInputs[0].Text;
-        Assert.StartsWith("Contexto recuperado do Brain",primeiro);Assert.Contains("Guid gerado pelo domínio",primeiro);Assert.Contains("criar migration de projetos",primeiro);
+        Assert.StartsWith("Contexto do Brain:",primeiro);Assert.Contains("Guid gerado pelo domínio",primeiro);Assert.Contains("criar migration de projetos",primeiro);
         Assert.EndsWith("[fim do contexto do Brain]\n\nMensagem do usuário:\nqual identidade as entidades usam?",primeiro);
         await ConcluirTurnoAsync(a);
 

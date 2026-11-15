@@ -108,6 +108,53 @@ public sealed class DocumentoFonteAppService(IDocumentoFonteRepository fontes, I
             Proveniencia = new() { IdResponsavel = acesso.IdUsuario, Origem = $"documento selecionado;autoria-da-fonte:{fonte.Autoria}", ReferenciaDaFonte = trecho.Referencia,
                 RevisaoDaFonte = trecho.Hash, TrechoDaFonte = trecho.Conteudo } }, cancellationToken);
     }
+    // Proveniência por trecho na captura (#147). O servidor, não quem captura, localiza a citação na revisão vigente e grava
+    // referência, intervalo e hash: a citação são linhas inteiras, ocorre uma única vez, cabe numa parte indexada e está
+    // contida literalmente no conteúdo capturado (comparação normalizada, a mesma da prova de consolidação). Fonte fora do
+    // escopo, removida, protegida ou acima da classificação permitida responde como inexistente.
+    public const string FundamentoInvalido = "A citação precisa ser linhas inteiras, únicas na revisão atual da fonte, dentro de um trecho indexado, e estar literalmente no conteúdo.";
+    public async Task<FundamentoNaFonteDto> FundamentarAsync(AcessoAoBrain acesso, Guid id, int revisao, string citacao, string conteudo,
+        CancellationToken cancellationToken = default)
+    {
+        await leitura.ValidarAcessoAsync(acesso, cancellationToken);
+        var fonte = await fontes.ObterPorIdAsync(id, cancellationToken);
+        if (fonte is null || fonte.Removido || fonte.IdEspacoDeConhecimento != acesso.IdEspacoDeConhecimento || fonte.IdProjeto != acesso.IdProjeto ||
+            fonte.Sensibilidade == Sensibilidade.Secreto && !acesso.PermitirSecreto || fonte.Sensibilidade == Sensibilidade.Confidencial && !acesso.PermitirConfidencial)
+            throw new KeyNotFoundException("Fonte não encontrada.");
+        if (fonte.Revisao != revisao) throw new InvalidOperationException("Revisão da fonte desatualizada.");
+        var texto = fonte.Conteudo;
+        if (string.IsNullOrWhiteSpace(citacao)) throw new ArgumentException(FundamentoInvalido);
+        var posicao = texto.IndexOf(citacao, StringComparison.Ordinal);
+        if (posicao < 0 || texto.IndexOf(citacao, posicao + 1, StringComparison.Ordinal) >= 0 || char.IsLowSurrogate(texto[posicao]))
+            throw new ArgumentException(FundamentoInvalido);
+        var fim = posicao + citacao.Length;
+        // A citação termina em fim de linha; o terminador entra no intervalo para que a próxima linha comece onde esta acaba.
+        if (fim < texto.Length && texto[fim - 1] != '\n')
+        {
+            if (texto[fim] == '\n') fim++;
+            else if (texto[fim] == '\r' && fim + 1 < texto.Length && texto[fim + 1] == '\n') fim += 2;
+            else throw new ArgumentException(FundamentoInvalido);
+        }
+        if (posicao > 0 && texto[posicao - 1] != '\n') throw new ArgumentException(FundamentoInvalido);
+        var runas = texto.EnumerateRunes().ToArray();
+        var a = texto[..posicao].EnumerateRunes().Count(); var b = a + texto[posicao..fim].EnumerateRunes().Count();
+        var citado = texto[posicao..fim];
+        if (!ConstrucaoDeContexto.ConsolidacaoDeFontes.EmFronteiraDeLinha(runas, a, b) ||
+            !ConstrucaoDeContexto.SelecaoDeContexto.Normalizar(conteudo).Contains(ConstrucaoDeContexto.SelecaoDeContexto.Normalizar(citado), StringComparison.Ordinal))
+            throw new ArgumentException(FundamentoInvalido);
+        for (var numero = 0; numero < ConstrucaoDeContexto.ConsolidacaoDeFontes.MaximoDeTrechos; numero++)
+        {
+            var parte = await indice.ObterTrechoAsync(acesso, id, revisao, numero, cancellationToken);
+            if (parte is null) break;
+            var tamanho = parte.Conteudo.EnumerateRunes().Count();
+            if (parte.Inicio > a || b > parte.Inicio + tamanho) continue;
+            // A parte precisa ser o próprio documento naquele intervalo; índice divergente não fundamenta nada.
+            if (string.Concat(parte.Conteudo.EnumerateRunes().Skip(a - parte.Inicio).Take(b - a)) != citado) break;
+            var referencia = new ReferenciaDeTrecho(id, revisao, parte.Numero, parte.Hash, a, b, ReferenciaDeTrecho.HashDoTexto(citado));
+            return new(referencia.Texto, parte.Hash, citado);
+        }
+        throw new ArgumentException(FundamentoInvalido);
+    }
     public async Task ReconstruirAsync(AcessoAoBrain acesso, CancellationToken cancellationToken = default)
     { await leitura.ValidarAcessoAsync(acesso, cancellationToken); await indice.ReconstruirAsync(acesso, cancellationToken); }
     private DocumentoFonteDto ParaDto(DocumentoFonte fonte) => mapper.Mapear<DocumentoFonte, DocumentoFonteDto>(fonte);

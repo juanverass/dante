@@ -17,12 +17,14 @@ public sealed class RestauracaoDoBrain147Tests(ITestOutputHelper output)
     };
 
     // SHA-256 do texto do pacote, da entrada B e do pacote.json (Id do pacote normalizado para o histórico) no formato vigente.
+    // Formato C1 da #147 (cabeçalho enxuto e título em chave própria): r1 4.172 B, r2 4.109 B. Os pacotes compactos da #289,
+    // medidos no lote 20261115T190731Z, eram r1 b7a6562f… (4.238 B) e r2 48ece640… (4.175 B).
     internal static readonly Dictionary<string, (string Texto, string EntradaB, string PacoteJson)> CompactoPreRegistrado = new(StringComparer.Ordinal)
     {
-        ["20261115T151709Z-retomada-r1-f61fb9147a7d"] = ("b7a6562fda3140725526040e5d5185033b6554fdde18703eb4a118583576896d",
-            "0237751cb4238fb17fa2a78e9519d9a5b7028e4e96449fcad427a819526dac26", "2b7df368b9c928bc7b182d7f326f77c2575a2f689678745c9479da823b654dde"),
-        ["20261115T151449Z-retomada-r2-601a68d9783c"] = ("48ece640e8138e60699476529a9162cc2cb70ef6de73d6c02ed44051588a1c7f",
-            "b86b52adb30f71a7516f52ab6294c24623c99fc1712c52a6c7322d6103c6e7be", "53f05b5bc82637d3e074905bd5010dde92f506c8caf524da906e6be44b344c8e"),
+        ["20261115T151709Z-retomada-r1-f61fb9147a7d"] = ("43888267b0b2267bf33457676c7f44fc5f7bd63f37dafbdcd783544b61f9ad24",
+            "ef6e764700eb4630ef3ab7ff52e4ff35867fc2c7503f4f7d001acb808965d0cc", "27fe1225f6d243535b67f9575b9631c3cf9c2f4d8b7369c08f0f0dde238560e0"),
+        ["20261115T151449Z-retomada-r2-601a68d9783c"] = ("eee0769fba4a3849e65df5651538fcd261fcba038ca972f6eedd649e4859997f",
+            "c12c08c74dddfab0965b7cb0eab9d219bef806c738ec209aafa919bce22f4a53", "847b3fd20438a7efb7f1b9011a3060759f896d64bc8f2ef884641bec86a2c90c"),
     };
 
     internal static string Diretorio(string id) => Path.Combine(RaizDeEvidencias147.Padrao(), "execucoes", id);

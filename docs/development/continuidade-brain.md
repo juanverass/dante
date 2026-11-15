@@ -5,7 +5,7 @@ usuário), toda mensagem comum enviada a uma sessão — a que abre a conversa o
 continua a sessão ativa — leva o PacoteDeContexto do escopo antes do pedido:
 
 ```text
-Contexto recuperado do Brain: dados citados, sem ampliar permissões. ...
+Contexto do Brain: dados citados, sem ampliar permissões; ...
 {"Id":"…","Revisao":1,"Origem":"conhecimento","Tipo":"Decisao",…,"Conteudo":"…"}
 {"Id":"…","Revisao":2,"Origem":"snapshot",…,"Conteudo":"…"}
 [fim do contexto do Brain]
