@@ -15,7 +15,7 @@ internal static class SelecaoDeContexto
     {
         var registros=registrosAnteriores.ToList();var inicioDosNovos=registros.Count;
         var presentes=pedido.FragmentosJaPresentes.Append(pedido.Mensagem).Select(Normalizar).ToArray();
-        var selecionados=new List<ItemDeContextoDto>();var tokens=EstimarTokens(FormatoDeContexto.Cabecalho(null));
+        var selecionados=new List<ItemDeContextoDto>();var tokens=EstimarTokens(FormatoDeContexto.Cabecalho(PlanoDoFormato.Extenso));
         var normalizados=new HashSet<string>(StringComparer.Ordinal);
         foreach(var original in candidatos.OrderBy(Prioridade).ThenByDescending(x=>x.Relevancia).ThenBy(x=>x.Chave,StringComparer.Ordinal))
         {
@@ -50,8 +50,8 @@ internal static class SelecaoDeContexto
         for(var i=0;i<selecionados.Count;i++)
             if(selecionados[i].Origem=="fonte_bruta" && consolidacoes?.GetValueOrDefault(selecionados[i].Chave) is { Count: > 0 } cobertura && cobertura.All(chaves.Contains))
                 selecionados[i]=selecionados[i] with{ConsolidadaEm=cobertura.Select(c=>identidades[c]).Distinct(StringComparer.Ordinal).ToArray()};
-        var uniforme=selecionados.Count>1 && selecionados.All(x=>x.Sensibilidade==selecionados[0].Sensibilidade)?selecionados[0].Sensibilidade:(Sensibilidade?)null;
-        if(uniforme is not null && Texto(selecionados,uniforme).Length>=Texto(selecionados,null).Length)uniforme=null;
+        // Forma do texto (sensibilidade uniforme, rótulos na legenda, consolidação implícita): só formas equivalentes e mais curtas.
+        var plano=FormatoDeContexto.Planejar(selecionados);
         // Relações entre itens do próprio pacote, com IDs e revisões verificáveis; entram só se couberem no orçamento.
         var porId=selecionados.Select((x,i)=>(x,i)).Where(p=>p.x.Origem=="conhecimento").GroupBy(p=>p.x.Id).ToDictionary(g=>g.Key,g=>g.First().i);
         foreach(var r in (relacoes??[]).Where(r=>r.IdOrigem!=r.IdDestino).DistinctBy(r=>(r.IdOrigem,r.IdDestino,r.Tipo)).OrderBy(r=>r.IdOrigem).ThenBy(r=>r.IdDestino).ThenBy(r=>r.Tipo))
@@ -59,17 +59,17 @@ internal static class SelecaoDeContexto
             if(!porId.TryGetValue(r.IdOrigem,out var o)||!porId.TryGetValue(r.IdDestino,out var d))continue;
             var origem=selecionados[o];var anterior=origem;
             selecionados[o]=origem with{Relacoes=[..origem.Relacoes??[],$"{r.Tipo} {FormatoDeContexto.Identidade(selecionados[d])}"]};
-            if(EstimarTokens(Texto(selecionados,uniforme))>pedido.OrcamentoDeTokens)selecionados[o]=anterior;
+            if(EstimarTokens(FormatoDeContexto.Texto(selecionados,plano))>pedido.OrcamentoDeTokens)selecionados[o]=anterior;
         }
-        var finais=selecionados.Select(x=>x with{TokensEstimados=EstimarTokens(FormatoDeContexto.Formatar(x,uniforme is null))}).ToArray();
+        // Replanejar só escolhe a forma mais curta dentre as equivalentes: o texto final não passa do conferido acima.
+        plano=FormatoDeContexto.Planejar(selecionados);
+        var finais=selecionados.Select(x=>x with{TokensEstimados=EstimarTokens(FormatoDeContexto.Formatar(x,plano))}).ToArray();
         var porChave=finais.ToDictionary(x=>x.Chave,StringComparer.Ordinal);
         for(var i=inicioDosNovos;i<registros.Count;i++)
             if(registros[i].Estado=="selecionado" && porChave.TryGetValue(registros[i].Chave,out var f))registros[i]=registros[i] with{TokensEstimados=f.TokensEstimados};
-        var textoParaInjecao=Texto(finais,uniforme);
+        var textoParaInjecao=FormatoDeContexto.Texto(finais,plano);
         return new(Guid.NewGuid(),textoParaInjecao,finais,registros.ToArray(),new(EstimarTokens(textoParaInjecao),finais.Length,textoParaInjecao.Length,Encoding.UTF8.GetByteCount(textoParaInjecao),pedido.OrcamentoDeTokens),limitou);
     }
-    private static string Texto(IReadOnlyList<ItemDeContextoDto> itens,Sensibilidade? uniforme)=>
-        FormatoDeContexto.Cabecalho(uniforme)+string.Concat(itens.Select(x=>FormatoDeContexto.Formatar(x,uniforme is null)));
     // Só igualdade após Normalizar prova equivalência: substring não prova ("habilitar X" está contido em
     // "Não habilitar X"). Campo igual a um item selecionado não se repete; papel essencial vira ponteiro verificável
     // para esse item, para o agente saber que aquele texto é o objetivo/pendência/próximo passo. Entrada repetida

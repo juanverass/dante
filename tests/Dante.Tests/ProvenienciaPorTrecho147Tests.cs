@@ -40,9 +40,8 @@ public sealed class ProvenienciaPorTrecho147Tests(ITestOutputHelper output)
         var pacote = Selecionar([f.Item, inc, sol], provas);
         var linha = Linha(pacote, f.Item);
         Assert.Equal($"fonte:{f.Item.Id:D}@1", linha.GetProperty("Ref").GetString());
-        Assert.Equal(FormatoDeContexto.Omitido, linha.GetProperty("Conteudo").GetString());
         Assert.Equal(new[] { $"conhecimento:{inc.Id:D}@1", $"conhecimento:{sol.Id:D}@1" }.Order(StringComparer.Ordinal),
-            linha.GetProperty("ConsolidadaEm").EnumerateArray().Select(x => x.GetString()).Order(StringComparer.Ordinal));
+            ConsolidadaEm(pacote.TextoParaInjecao, linha).Order(StringComparer.Ordinal));
         // Nenhuma linha não vazia da fonte some do pacote: cada uma está literalmente em um conhecimento selecionado.
         foreach (var l in Documento.Split('\n').Where(x => x.Length > 0)) Assert.Contains(l, pacote.TextoParaInjecao);
     }
@@ -358,8 +357,8 @@ public sealed class ProvenienciaPorTrecho147Tests(ITestOutputHelper output)
         var fonteAnterior = Linhas(anterior.Texto).Single(l => l.GetProperty("Ref").GetString()!.StartsWith("fonte:", StringComparison.Ordinal));
         Assert.False(fonteAnterior.TryGetProperty("ConsolidadaEm", out _));
         var fonteNova = Linhas(nova.Texto).Single(l => l.GetProperty("Ref").GetString()!.StartsWith("fonte:", StringComparison.Ordinal));
-        Assert.Equal(FormatoDeContexto.Omitido, fonteNova.GetProperty("Conteudo").GetString());
-        Assert.Equal(2, fonteNova.GetProperty("ConsolidadaEm").GetArrayLength());
+        // A Decisão também está no pacote: a cobertura não é "todos os conhecimentos", então a lista fica explícita.
+        Assert.Equal(2, ConsolidadaEm(nova.Texto, fonteNova).Length); Assert.True(fonteNova.TryGetProperty("ConsolidadaEm", out _));
         var snapshot = Linhas(nova.Texto).Single(l => l.GetProperty("Ref").GetString()!.StartsWith("snapshot:", StringComparison.Ordinal));
         Assert.False(snapshot.TryGetProperty("Progresso", out _)); Assert.False(snapshot.TryGetProperty("UltimoResultado", out _));
         foreach (var campo in new[] { "Objetivo", "Tarefa", "Pendencias", "ProximosPassos" }) Assert.True(snapshot.TryGetProperty(campo, out _), campo);
@@ -379,7 +378,16 @@ public sealed class ProvenienciaPorTrecho147Tests(ITestOutputHelper output)
     }
     private static PacoteDeContextoDto Selecionar(IReadOnlyList<ItemDeContextoDto> itens, IReadOnlyDictionary<string, IReadOnlyList<string>> provas) =>
         SelecaoDeContexto.Selecionar(new() { Mensagem = "pedido", OrcamentoDeTokens = 100000 }, itens, [], [], false, [], provas);
-    private static JsonElement[] Linhas(string texto) => texto.Split('\n').Skip(2).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement).ToArray();
+    private static JsonElement[] Linhas(string texto) => texto.Split('\n').Where(l => l.StartsWith('{')).Select(l => JsonDocument.Parse(l).RootElement).ToArray();
+    // ConsolidadaEm efetiva da linha de uma fonte omitida: a lista explícita ou, sem ela (O2), todos os conhecimentos do
+    // pacote, regra que o cabeçalho declara.
+    internal static string[] ConsolidadaEm(string texto, JsonElement linha)
+    {
+        Assert.True(linha.GetProperty("Omitida").GetBoolean()); Assert.False(linha.TryGetProperty("Conteudo", out _));
+        if (linha.TryGetProperty("ConsolidadaEm", out var lista)) return lista.EnumerateArray().Select(x => x.GetString()!).ToArray();
+        Assert.Contains(FormatoDeContexto.OmitidoImplicito, texto);
+        return Linhas(texto).Select(l => l.GetProperty("Ref").GetString()!).Where(r => r.StartsWith("conhecimento:", StringComparison.Ordinal)).ToArray();
+    }
     private static JsonElement Linha(PacoteDeContextoDto pacote, ItemDeContextoDto item) =>
         Linhas(pacote.TextoParaInjecao)[pacote.Itens.Select((x, i) => (x, i)).Single(p => p.x.Id == item.Id && p.x.Origem == item.Origem).i];
     private static JsonElement Json(object? valor) => JsonSerializer.SerializeToElement(valor);

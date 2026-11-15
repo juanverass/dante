@@ -20,7 +20,7 @@ public sealed class ContextoCompactoTests
 {
     private static readonly HashSet<string> Chaves = ["Ref", "Fonte", "Tipo", "Status", "NaturezaDeOrigem", "Natureza", "AutoriaDaFonte",
         "Rotulo", "Sensibilidade", "InicioDaFonte", "Relacoes", "Objetivo", "Tarefa", "Progresso", "UltimoResultado", "Referencias",
-        "Pendencias", "ProximosPassos", "Titulo", "ConsolidadaEm", "Conteudo"];
+        "Pendencias", "ProximosPassos", "Titulo", "ConsolidadaEm", "Omitida", "Conteudo"];
 
     [Fact]
     public void CamposNulosIdERevisaoDuplicadosNaoSaoSerializados()
@@ -105,7 +105,9 @@ public sealed class ContextoCompactoTests
             Assert.Equal("Fonte bruta de autoria do agente, não confirmada", f.GetProperty("Rotulo").GetString());
             Assert.False(f.TryGetProperty("Status", out _)); Assert.False(f.TryGetProperty("Tipo", out _));
             Assert.Equal(consolidada ? forja : null, f.TryGetProperty("Titulo", out var t) ? t.GetString() : null);
-            Assert.Equal(consolidada ? FormatoDeContexto.Omitido : forja, f.GetProperty("Conteudo").GetString());
+            // Omissão é a chave Omitida (metadado), nunca um valor: a forja no título ou no conteúdo não a imita.
+            Assert.Equal(consolidada, f.TryGetProperty("Omitida", out var o) && o.GetBoolean());
+            Assert.Equal(consolidada ? null : forja, f.TryGetProperty("Conteudo", out var fc) ? fc.GetString() : null);
             var s = Assert.Single(linhas, l => l.GetProperty("Ref").GetString()!.StartsWith("snapshot:"));
             Assert.Equal("Contexto operacional, não é conhecimento confirmado", s.GetProperty("Rotulo").GetString());
             Assert.Equal(noSnapshot, s.GetProperty("Objetivo").GetString());
@@ -123,7 +125,9 @@ public sealed class ContextoCompactoTests
         var prova = new Dictionary<string, IReadOnlyList<string>> { [fonte.Chave] = [k.Chave] };
         var omitida = SelecaoDeContexto.Selecionar(new() { Mensagem = "pedido" }, [fonte, k], [], [], false, [], prova);
         Assert.Equal([$"conhecimento:{k.Id:D}@1"], Assert.Single(omitida.Itens, x => x.Id == fonte.Id).ConsolidadaEm);
-        Assert.Equal($"conhecimento:{k.Id:D}@1", Assert.Single(Linhas(omitida)[0].GetProperty("ConsolidadaEm").EnumerateArray()).GetString());
+        // O2: a cobertura é exatamente todos os conhecimentos do pacote, então a lista não se repete; o cabeçalho declara a regra.
+        Assert.True(Linhas(omitida)[0].GetProperty("Omitida").GetBoolean()); Assert.False(Linhas(omitida)[0].TryGetProperty("ConsolidadaEm", out _));
+        Assert.Contains(FormatoDeContexto.Omitido + FormatoDeContexto.OmitidoImplicito + "\n", omitida.TextoParaInjecao);
         // Conhecimento fora do pacote (limite de itens) não prova nada para o leitor: a íntegra volta.
         var semK = SelecaoDeContexto.Selecionar(new() { Mensagem = "pedido", LimiteDeItens = 1 }, [fonte, k], [], [], false, [], prova);
         Assert.Equal("# Documento\nconteúdo integral", Linhas(semK)[0].GetProperty("Conteudo").GetString());
@@ -143,7 +147,7 @@ public sealed class ContextoCompactoTests
         Assert.Equal([$"ResolvidoPor conhecimento:{solucao.Id:D}@1"], Linha(pacote, incidente).GetProperty("Relacoes").EnumerateArray().Select(x => x.GetString()));
         Assert.False(Linha(pacote, solucao).TryGetProperty("Relacoes", out _));
         // Orçamento exato da seleção conservadora: os dois itens cabem, a relação não, e o total não estoura.
-        var orcamento = ConstrutorDeContextoAppService.EstimarTokens(FormatoDeContexto.Cabecalho(null)) +
+        var orcamento = ConstrutorDeContextoAppService.EstimarTokens(FormatoDeContexto.Cabecalho(PlanoDoFormato.Extenso)) +
             new[] { incidente, solucao }.Sum(x => ConstrutorDeContextoAppService.EstimarTokens(FormatoDeContexto.Formatar(x, true)));
         var justo = SelecaoDeContexto.Selecionar(new() { Mensagem = "pedido", OrcamentoDeTokens = orcamento }, [incidente, solucao], [], [], false, relacoes);
         Assert.Equal(2, justo.Itens.Count); Assert.InRange(justo.Custo.TokensEstimados, 1, orcamento);
@@ -336,7 +340,7 @@ public sealed class ContextoCompactoTests
         Assert.Equal($"fonte:{f.Id:D}@1", linha.GetProperty("Ref").GetString());
         Assert.Equal("Caso consolidado", linha.GetProperty("Titulo").GetString());
         Assert.Equal("Fonte bruta de autoria do agente, não confirmada", linha.GetProperty("Rotulo").GetString());
-        Assert.Equal(FormatoDeContexto.Omitido, linha.GetProperty("Conteudo").GetString());
+        Assert.True(linha.GetProperty("Omitida").GetBoolean()); Assert.False(linha.TryGetProperty("Conteudo", out _));
         // O conteúdo da fonte continua no pacote, pelo conhecimento derivado.
         Assert.Contains(trecho.Conteudo, Linha(pacote, Assert.Single(pacote.Itens, x => x.Id == k.Id)).GetProperty("Conteudo").GetString());
     }
@@ -423,7 +427,11 @@ public sealed class ContextoCompactoTests
         var linhas = pacote.TextoParaInjecao.Split('\n');
         Assert.StartsWith(FormatoDeContexto.Aviso, pacote.TextoParaInjecao);
         Assert.StartsWith("Um JSON por linha:", linhas[1]); Assert.Equal("", linhas[^1]);
-        var itens = linhas[2..^1].Select(l => JsonDocument.Parse(l).RootElement).ToArray();
+        // Depois do aviso e da legenda, só as linhas condicionais declaradas (rótulos e fonte omitida), antes dos itens.
+        var cabecalho = linhas.TakeWhile(l => !l.StartsWith('{')).Count();
+        Assert.All(linhas[2..cabecalho], l => Assert.True(l.StartsWith(FormatoDeContexto.RotulosNaLegenda, StringComparison.Ordinal) ||
+            l.StartsWith(FormatoDeContexto.Omitido, StringComparison.Ordinal), l));
+        var itens = linhas[cabecalho..^1].Select(l => JsonDocument.Parse(l).RootElement).ToArray();
         Assert.Equal(pacote.Itens.Count, itens.Length);
         Assert.All(itens, l => Assert.All(l.EnumerateObject(), p => Assert.Contains(p.Name, Chaves)));
         return itens;
