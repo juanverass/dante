@@ -119,7 +119,7 @@ public sealed class PoliticasDoBrainTests
         var conhecimento = Item("a", "decisão confirmada", status: StatusDoConhecimento.Confirmado);
         var snapshot = Item("snapshot", "decisão confirmada\ntarefa atual", "snapshot");
         var pacote = SelecaoDeContexto.Selecionar(new() { Mensagem = "pedido" }, [conhecimento, snapshot],
-            ["decisão confirmada", "tarefa atual"], [], false);
+            [new("Progresso", "decisão confirmada"), new("Tarefa", "tarefa atual")], [], false);
         Assert.Equal("tarefa atual", Assert.Single(pacote.Itens, x => x.Origem == "snapshot").Conteudo);
         var vazio = Selecionar(new() { Mensagem = "pedido" }, []);
         Assert.Empty(vazio.TextoParaInjecao); Assert.Equal(0, vazio.Custo.TokensEstimados);

@@ -73,7 +73,7 @@ public sealed class ReferenciasTipadasNoContextoTests
         Assert.Equal("fonte_bruta", fonte.Origem); Assert.Null(fonte.Status); Assert.Null(fonte.Tipo);
         Assert.Equal(AutoriaDaFonte.Agente, fonte.AutoriaDaFonte); Assert.Contains("não confirmada", fonte.Rotulo);
         Assert.All(new[] { conhecimento, candidato, fonte }, x => Assert.True(x.Referenciado));
-        Assert.Contains("\"Origem\":\"candidato\"", pacote.TextoParaInjecao);
+        Assert.Contains($"\"Ref\":\"candidato:{p.Id:D}@{p.Revisao}\"", pacote.TextoParaInjecao);
         Assert.Contains(p.Conteudo, pacote.TextoParaInjecao); Assert.Contains(f.Conteudo, pacote.TextoParaInjecao);
     }
 
