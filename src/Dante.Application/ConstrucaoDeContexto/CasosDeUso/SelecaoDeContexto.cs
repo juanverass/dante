@@ -7,7 +7,7 @@ namespace Dante.Application.ConstrucaoDeContexto;
 internal static class SelecaoDeContexto
 {
     internal static int EstimarTokens(string texto)=>(Encoding.UTF8.GetByteCount(texto)+2)/3;
-    // Papéis que a continuidade exige: se a frase já está em outro item, o papel fica como ponteiro para ele.
+    // Papéis que a continuidade exige: se a frase é igual a outro item, o papel fica como ponteiro para ele.
     private static bool Essencial(string campo)=>campo is "Objetivo" or "Pendencias" or "ProximosPassos";
     internal static PacoteDeContextoDto Selecionar(PedidoDeContextoDto pedido, IReadOnlyList<ItemDeContextoDto> candidatos,
         IReadOnlyList<CampoDoSnapshot> camposDoSnapshot, IReadOnlyList<RegistroDeContextoDto> registrosAnteriores, bool limitou,
@@ -28,9 +28,12 @@ internal static class SelecaoDeContexto
             // Estimativa conservadora: sensibilidade por item, sem omissão de fonte; o pós-processamento só reduz ou verifica.
             var item=candidato with{TokensEstimados=EstimarTokens(FormatoDeContexto.Formatar(candidato,true))};
             var normal=Normalizar(item.Conteudo);string? descarte=null;
+            // O snapshot já foi reduzido campo a campo por igualdade; substring aqui descartaria pendências e próximos
+            // passos contidos em frases de sentido oposto. Ele só sai inteiro se for igual ao que já está presente.
+            var snapshot=item.Origem=="snapshot";
             if(pedido.JaInjetados.TryGetValue(item.Chave,out var revisaoInjetada) && revisaoInjetada==item.Revisao)descarte="Já injetado nesta conversa upstream, na mesma revisão.";
-            else if(string.IsNullOrWhiteSpace(normal)||normalizados.Contains(normal)||Coberto(item.Conteudo,presentes) ||
-                selecionados.Any(x=>Normalizar(x.Conteudo).Contains(normal,StringComparison.Ordinal)))descarte="Conteúdo já presente no prompt/resumo/snapshot ou em outro item.";
+            else if(string.IsNullOrWhiteSpace(normal)||normalizados.Contains(normal)||(snapshot?presentes.Contains(normal):Coberto(item.Conteudo,presentes)) ||
+                !snapshot && selecionados.Any(x=>Normalizar(x.Conteudo).Contains(normal,StringComparison.Ordinal)))descarte="Conteúdo já presente no prompt/resumo/snapshot ou em outro item.";
             else if(item.InicioDaFonte is { } inicio && selecionados.Any(x=>x.Origem=="fonte_bruta" && x.Id==item.Id && x.Revisao==item.Revisao &&
                 x.InicioDaFonte<inicio+item.Conteudo.EnumerateRunes().Count() && inicio<x.InicioDaFonte+x.Conteudo.EnumerateRunes().Count()))
                 descarte="Trecho sobreposto a fonte já selecionada.";
@@ -67,20 +70,21 @@ internal static class SelecaoDeContexto
     }
     private static string Texto(IReadOnlyList<ItemDeContextoDto> itens,Sensibilidade? uniforme)=>
         FormatoDeContexto.Cabecalho(uniforme)+string.Concat(itens.Select(x=>FormatoDeContexto.Formatar(x,uniforme is null)));
-    // Campo já contido em item selecionado não se repete. Papel essencial vira ponteiro verificável para o item que
-    // o contém, para o agente saber que aquele texto é o objetivo/pendência/próximo passo. Entrada de lista contida
-    // noutra entrada da mesma lista é frase repetida.
+    // Só igualdade após Normalizar prova equivalência: substring não prova ("habilitar X" está contido em
+    // "Não habilitar X"). Campo igual a um item selecionado não se repete; papel essencial vira ponteiro verificável
+    // para esse item, para o agente saber que aquele texto é o objetivo/pendência/próximo passo. Entrada repetida
+    // igual na mesma lista sai; entradas distintas ficam todas, mesmo que uma esteja contida na outra.
     private static CampoDoSnapshot[] CamposRestantes(IReadOnlyList<CampoDoSnapshot> campos,IReadOnlyList<ItemDeContextoDto> selecionados)
     {
         var textos=selecionados.Select(x=>(Item:x,Texto:Normalizar(x.Conteudo))).ToArray();
-        var restantes=new List<CampoDoSnapshot>();
-        for(var i=0;i<campos.Count;i++)
+        var restantes=new List<CampoDoSnapshot>();var vistos=new HashSet<(string,string)>();
+        foreach(var c in campos)
         {
-            var c=campos[i];var n=Normalizar(c.Texto);
-            if(campos.Where((o,j)=>j!=i && o.Campo==c.Campo).Any(o=>{var m=Normalizar(o.Texto);return m!=n && m.Contains(n,StringComparison.Ordinal);}))continue;
-            var contem=textos.FirstOrDefault(t=>t.Texto.Contains(n,StringComparison.Ordinal)).Item;
-            if(contem is null)restantes.Add(c);
-            else if(Essencial(c.Campo))restantes.Add(c with{Texto=$"[contido em {FormatoDeContexto.Identidade(contem)}]"});
+            var n=Normalizar(c.Texto);
+            if(!vistos.Add((c.Campo,n)))continue;
+            var igual=textos.FirstOrDefault(t=>t.Texto==n).Item;
+            if(igual is null)restantes.Add(c);
+            else if(Essencial(c.Campo))restantes.Add(c with{Texto=$"[contido em {FormatoDeContexto.Identidade(igual)}]"});
         }
         return restantes.ToArray();
     }

@@ -27,16 +27,27 @@ menor assim. `Rotulo` está sempre presente. O snapshot usa campos nomeados (Obj
 Tarefa, Progresso, UltimoResultado, Referencias, Pendencias, ProximosPassos). Relações
 registradas entre conhecimentos do pacote entram em `Relacoes` se couberem no orçamento.
 
-Fonte bruta inteira só tem a íntegra omitida com prova: todos os trechos indexados da
-revisão cobrem o documento e cada um está contido num conhecimento selecionado no mesmo
-pacote cuja proveniência registrada é exatamente a referência do trecho (id, revisão,
-parte, hash). A linha mantém `Ref`, `Titulo`, `Rotulo`, autoria e `ConsolidadaEm`. Sem
-prova, a fonte segue integral; co-ocorrência no snapshot não é prova.
+Fonte bruta inteira só tem a íntegra omitida com prova: os trechos indexados da revisão
+cobrem o documento de forma contínua, de 0 até o fim, e cada um está contido num
+conhecimento selecionado no mesmo pacote cuja proveniência registrada é exatamente a
+referência do trecho (id, revisão, parte, hash). A cobertura usa a unidade de offset do
+índice (`inicio` em caracteres do PostgreSQL, isto é, code points): o documento é
+remontado pela união dos intervalos `[inicio, inicio + comprimento)`, cada trecho começa
+em ou antes do fim já coberto, a sobreposição coincide e o remontado é igual à fonte.
+Primeiro trecho deslocado, lacuna intermediária, sobreposição divergente ou conteúdo além
+do último trecho mantêm a íntegra; o maior fim alcançado não é prova. A linha mantém
+`Ref`, `Titulo`, `Rotulo`, autoria e `ConsolidadaEm`. Sem prova, a fonte segue integral;
+co-ocorrência no snapshot não é prova.
 
 Deduplicação considera ID, conteúdo normalizado, prompt/fragmentos já presentes, campos
-de snapshot e trechos sobrepostos da mesma fonte/revisão. Confirmados têm prioridade
-sobre sua repetição no snapshot; objetivo, pendência e próximo passo repetidos viram
-ponteiro `[contido em <ref>]` para o item que os contém, preservando o papel. Fragmentos
+de snapshot e trechos sobrepostos da mesma fonte/revisão. Nos campos do snapshot, só
+igualdade após normalização (NFC e espaços) prova equivalência; substring não prova
+("habilitar X" está contido em "Não habilitar X"). Confirmados têm prioridade sobre sua
+repetição igual no snapshot: objetivo, pendência e próximo passo iguais a um item
+selecionado viram ponteiro `[contido em <ref>]` para esse item, preservando o papel; os
+demais campos iguais saem. Entrada igual repetida na mesma lista sai; entradas distintas
+ficam todas. O snapshot só é descartado inteiro quando é igual a conteúdo já presente,
+nunca por estar contido em outro item ou no prompt. Fragmentos
 aceitos são limitados e não representam retenção de transcript. Orçamento explícito: 64..32000 tokens estimados e até 100 itens.
 Estimativa neutra: ceil(bytes UTF-8 / 3), incluindo JSON/escaping/cabeçalho; não é contagem
 exata do tokenizer de Claude/Codex nem estimativa de preço. A seleção estima cada item na

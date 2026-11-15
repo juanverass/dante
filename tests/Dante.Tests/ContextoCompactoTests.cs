@@ -153,22 +153,158 @@ public sealed class ContextoCompactoTests
     [Fact]
     public void SnapshotNomeiaCamposEPreservaPapeisEssenciais()
     {
-        var k = Conhecimento("Objetivo repetido no conhecimento; tarefa repetida no conhecimento; pendência repetida") with { Status = StatusDoConhecimento.Confirmado };
+        // Prioridade 2 (confirmados) antes do snapshot (4): os itens iguais aos campos já estão selecionados.
+        var objetivo = Conhecimento("Objetivo repetido  no conhecimento") with { Status = StatusDoConhecimento.Confirmado };
+        var tarefa = Conhecimento("tarefa repetida no conhecimento") with { Status = StatusDoConhecimento.Confirmado };
+        var pendencia = Conhecimento("pendência repetida") with { Status = StatusDoConhecimento.Confirmado };
         var snapshot = new ItemDeContextoDto("snapshot:s", Guid.NewGuid(), 2, "snapshot", null, null, Sensibilidade.Pessoal, "", null, "snapshot", 0, 0);
         var campos = new CampoDoSnapshot[] { new("Objetivo", "Objetivo repetido no conhecimento"), new("Tarefa", "tarefa repetida no conhecimento"),
             new("Progresso", "progresso próprio"), new("UltimoResultado", "resultado próprio"), new("Pendencias", "pendência repetida"),
-            new("Pendencias", "pendência"), new("ProximosPassos", "buscar o marcador") };
-        var pacote = SelecaoDeContexto.Selecionar(new() { Mensagem = "pedido" }, [k, snapshot], campos, [], false);
+            new("Pendencias", "pendência"), new("Pendencias", " pendência "), new("ProximosPassos", "buscar o marcador") };
+        var pacote = SelecaoDeContexto.Selecionar(new() { Mensagem = "pedido" }, [objetivo, tarefa, pendencia, snapshot], campos, [], false);
         var s = Linha(pacote, Assert.Single(pacote.Itens, x => x.Origem == "snapshot"));
         Assert.Equal($"snapshot:{snapshot.Id:D}@2", s.GetProperty("Ref").GetString());
-        Assert.Equal($"[contido em conhecimento:{k.Id:D}@1]", s.GetProperty("Objetivo").GetString());
+        // Igual após normalização de espaços: papel essencial vira ponteiro; campo não essencial sai.
+        Assert.Equal($"[contido em conhecimento:{objetivo.Id:D}@1]", s.GetProperty("Objetivo").GetString());
         Assert.False(s.TryGetProperty("Tarefa", out _));
         Assert.Equal("progresso próprio", s.GetProperty("Progresso").GetString());
         Assert.Equal("resultado próprio", s.GetProperty("UltimoResultado").GetString());
-        // Entrada contida em outra da mesma lista é frase repetida; o papel continua presente pela mais longa.
-        Assert.Equal([$"[contido em conhecimento:{k.Id:D}@1]"], s.GetProperty("Pendencias").EnumerateArray().Select(x => x.GetString()));
+        // "pendência" está contida em "pendência repetida", mas é outra entrada: fica. A repetição igual sai.
+        Assert.Equal([$"[contido em conhecimento:{pendencia.Id:D}@1]", "pendência"], s.GetProperty("Pendencias").EnumerateArray().Select(x => x.GetString()));
         Assert.Equal(["buscar o marcador"], s.GetProperty("ProximosPassos").EnumerateArray().Select(x => x.GetString()));
         Assert.False(s.TryGetProperty("Conteudo", out _));
+    }
+
+    [Fact]
+    public void NegacaoNoConhecimentoNaoApagaNemApontaPapelDeSentidoOposto()
+    {
+        // Revisão do PR #289: "habilitar busca híbrida" é substring de "Não habilitar busca híbrida", e não equivale a ela.
+        var decisao = Conhecimento("Não habilitar busca híbrida") with { Status = StatusDoConhecimento.Confirmado, Tipo = TipoDeConhecimento.Decisao };
+        var proibicao = Conhecimento("Nunca remover a migration antiga do Brain") with { Status = StatusDoConhecimento.Confirmado };
+        var snapshot = new ItemDeContextoDto("snapshot:s", Guid.NewGuid(), 3, "snapshot", null, null, Sensibilidade.Pessoal, "", null, "snapshot", 0, 0);
+        var campos = new CampoDoSnapshot[] { new("Objetivo", "habilitar busca híbrida"), new("Tarefa", "habilitar busca híbrida"),
+            new("Pendencias", "remover a migration antiga do Brain"), new("ProximosPassos", "habilitar busca híbrida") };
+        var pacote = SelecaoDeContexto.Selecionar(new() { Mensagem = "pedido" }, [decisao, proibicao, snapshot], campos, [], false);
+        Assert.DoesNotContain("[contido em", pacote.TextoParaInjecao);
+        var s = Linha(pacote, Assert.Single(pacote.Itens, x => x.Origem == "snapshot"));
+        Assert.Equal("habilitar busca híbrida", s.GetProperty("Objetivo").GetString());
+        Assert.Equal("habilitar busca híbrida", s.GetProperty("Tarefa").GetString());
+        Assert.Equal(["remover a migration antiga do Brain"], s.GetProperty("Pendencias").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(["habilitar busca híbrida"], s.GetProperty("ProximosPassos").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal("Não habilitar busca híbrida", Linha(pacote, decisao).GetProperty("Conteudo").GetString());
+        // Snapshot com um único papel contido no item oposto não é descartado inteiro.
+        var unico = SelecaoDeContexto.Selecionar(new() { Mensagem = "pedido" }, [decisao, snapshot], [new("ProximosPassos", "habilitar busca híbrida")], [], false);
+        Assert.Equal(["habilitar busca híbrida"], Linha(unico, Assert.Single(unico.Itens, x => x.Origem == "snapshot"))
+            .GetProperty("ProximosPassos").EnumerateArray().Select(x => x.GetString()));
+        // Nem pelo pedido/resumo: frase longa contida num fragmento de sentido oposto continua no snapshot.
+        var pedido = new PedidoDeContextoDto { Mensagem = "Não habilitar busca híbrida no módulo de contexto, decidido ontem" };
+        var peloPedido = SelecaoDeContexto.Selecionar(pedido, [snapshot], [new("ProximosPassos", "habilitar busca híbrida no módulo de contexto")], [], false);
+        Assert.Equal(["habilitar busca híbrida no módulo de contexto"], Linha(peloPedido, Assert.Single(peloPedido.Itens))
+            .GetProperty("ProximosPassos").EnumerateArray().Select(x => x.GetString()));
+        // Snapshot igual ao que já está presente continua saindo.
+        var igual = SelecaoDeContexto.Selecionar(new() { Mensagem = "habilitar busca híbrida" }, [snapshot], [new("ProximosPassos", "habilitar  busca híbrida")], [], false);
+        Assert.Empty(igual.Itens);
+    }
+
+    [Fact]
+    public void EntradasDistintasNaMesmaListaPermanecemTodas()
+    {
+        var snapshot = new ItemDeContextoDto("snapshot:s", Guid.NewGuid(), 1, "snapshot", null, null, Sensibilidade.Pessoal, "", null, "snapshot", 0, 0);
+        var campos = new CampoDoSnapshot[] { new("Pendencias", "revisar"), new("Pendencias", "revisar o PR"), new("Pendencias", "não revisar o PR"),
+            new("Pendencias", "revisar o  PR"), new("ProximosPassos", "publicar a nota"), new("ProximosPassos", "não publicar a nota"),
+            new("ProximosPassos", "revisar") };
+        var pacote = SelecaoDeContexto.Selecionar(new() { Mensagem = "pedido" }, [snapshot], campos, [], false);
+        var s = Linha(pacote, Assert.Single(pacote.Itens));
+        Assert.Equal(["revisar", "revisar o PR", "não revisar o PR"], s.GetProperty("Pendencias").EnumerateArray().Select(x => x.GetString()));
+        // A mesma frase em listas diferentes tem papéis diferentes: não é deduplicada entre listas.
+        Assert.Equal(["publicar a nota", "não publicar a nota", "revisar"], s.GetProperty("ProximosPassos").EnumerateArray().Select(x => x.GetString()));
+    }
+
+    // Documento com runas fora do BMP: offset em UTF-16 e offset em code points divergem.
+    private static readonly string Documento = "# Doc\n" + string.Concat(Enumerable.Range(0, 220).Select(i => $"passo {i:D3} 😀 ç. "));
+
+    [Fact]
+    public async Task CoberturaContinuaEmRunasProvaConsolidacao()
+    {
+        var (fonte, indice) = Indice(Documento, Janelas(Documento));
+        var provas = await Provar(fonte, indice);
+        Assert.Equal(indice.Trechos.Count, Assert.Single(provas).Value.Count);
+        Assert.True(indice.Trechos.Count >= 3);
+    }
+
+    [Fact]
+    public async Task PrimeiroTrechoDeslocadoMantemFonteIntegral()
+    {
+        // Todos os trechos alcançam o fim, mas o primeiro começa no offset 1: a primeira runa não está em nenhum conhecimento.
+        var runas = Documento.EnumerateRunes().Select(r => r.ToString()).ToArray();
+        var janelas = Janelas(Documento); janelas[0] = (1, string.Concat(runas[1..1600]));
+        await AssertFonteIntegral(Documento, janelas);
+    }
+
+    [Fact]
+    public async Task LacunaIntermediariaMantemFonteIntegral()
+    {
+        var runas = Documento.EnumerateRunes().Select(r => r.ToString()).ToArray();
+        // [0,1000) e [1200,fim): o maior fim alcança o documento, mas [1000,1200) não está em trecho algum.
+        await AssertFonteIntegral(Documento, [(0, string.Concat(runas[..1000])), (1200, string.Concat(runas[1200..]))]);
+    }
+
+    [Fact]
+    public async Task SobreposicaoDivergenteOuDocumentoAlemDoIndiceMantemFonteIntegral()
+    {
+        var janelas = Janelas(Documento);
+        var divergente = janelas.ToArray(); divergente[1] = (divergente[1].Inicio, "X" + divergente[1].Texto[1..]);
+        await AssertFonteIntegral(Documento, divergente);
+        // Trechos contínuos, mas a fonte tem conteúdo depois do último trecho indexado.
+        await AssertFonteIntegral(Documento + " cauda fora do índice", janelas);
+    }
+
+    [Fact]
+    public async Task OffsetEmUnidadeDiferenteDaDoIndiceNaoProvaCobertura()
+    {
+        // Mesmas janelas, com Inicio em unidades UTF-16 (string.Length) em vez de code points: não é a unidade do índice.
+        var janelas = Janelas(Documento);
+        var utf16 = janelas.Select(j => (Documento.EnumerateRunes().Take(j.Inicio).Sum(r => r.Utf16SequenceLength), j.Texto)).ToArray();
+        Assert.True(utf16[^1].Item1 > janelas[^1].Inicio);
+        await AssertFonteIntegral(Documento, utf16);
+    }
+
+    private static async Task AssertFonteIntegral(string documento, IReadOnlyList<(int Inicio, string Texto)> janelas)
+    {
+        var (fonte, indice) = Indice(documento, janelas);
+        Assert.Empty(await Provar(fonte, indice));
+        var pacote = SelecaoDeContexto.Selecionar(new() { Mensagem = "pedido", OrcamentoDeTokens = 100000 }, [fonte, .. indice.Derivados],
+            [], [], false, [], await Provar(fonte, indice));
+        var item = Assert.Single(pacote.Itens, x => x.Id == fonte.Id);
+        Assert.Null(item.ConsolidadaEm); Assert.Equal(documento, Linha(pacote, item).GetProperty("Conteudo").GetString());
+    }
+    private static Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> Provar(ItemDeContextoDto fonte, IndiceEmMemoria indice) =>
+        ConsolidacaoDeFontes.ProvarAsync(new(Guid.NewGuid(), Guid.NewGuid(), null), [fonte, .. indice.Derivados], indice, CancellationToken.None);
+    // Janelas como as do índice: 1600 code points a cada 1440.
+    private static (int Inicio, string Texto)[] Janelas(string documento)
+    {
+        var runas = documento.EnumerateRunes().Select(r => r.ToString()).ToArray();
+        return Enumerable.Range(0, (runas.Length + 1439) / 1440).Select(n => (n * 1440, string.Concat(runas.Skip(n * 1440).Take(1600)))).ToArray();
+    }
+    private static (ItemDeContextoDto Fonte, IndiceEmMemoria Indice) Indice(string documento, IReadOnlyList<(int Inicio, string Texto)> janelas)
+    {
+        var fonte = Fonte(documento) with { Referenciado = true };
+        var trechos = janelas.Select((j, n) => new TrechoDaFonteDto(fonte.Id, fonte.Revisao, n, j.Inicio, j.Texto, "nota:x", "h" + n)).ToArray();
+        var derivados = trechos.Select(t => Conhecimento(t.Conteudo) with { ReferenciaDaFonte = t.Referencia }).ToArray();
+        return (fonte, new IndiceEmMemoria(trechos, derivados));
+    }
+    private sealed class IndiceEmMemoria(IReadOnlyList<TrechoDaFonteDto> trechos, IReadOnlyList<ItemDeContextoDto> derivados) : IIndiceDeFontes
+    {
+        public IReadOnlyList<TrechoDaFonteDto> Trechos => trechos;
+        public IReadOnlyList<ItemDeContextoDto> Derivados => derivados;
+        public Task<TrechoDaFonteDto?> ObterTrechoAsync(AcessoAoBrain acesso, Guid id, int revisao, int numero, CancellationToken cancellationToken = default) =>
+            Task.FromResult(trechos.FirstOrDefault(t => t.IdDocumento == id && t.Revisao == revisao && t.Numero == numero));
+        public Task<IReadOnlyList<Dante.Application.BuscaDoBrain.ResultadoDaBuscaDto>> BuscarAsync(AcessoAoBrain acesso,
+            Dante.Application.BuscaDoBrain.BuscaDoBrainSearchDto filtro, Dante.Application.BuscaDoBrain.ModeloEmbedding? modelo, float[]? vetor,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task ReconstruirAsync(AcessoAoBrain acesso, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<int> ReindexarAsync(AcessoAoBrain acesso, Dante.Application.BuscaDoBrain.IGeradorDeEmbedding embeddings, int limite,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     [PostgreSqlFact]
@@ -253,9 +389,10 @@ public sealed class ContextoCompactoTests
         var segunda = await outra.ConstruirAsync();
         Assert.Equal(primeira.TextoParaInjecao, segunda.TextoParaInjecao);
         var s = Linha(segunda, Assert.Single(segunda.Itens, x => x.Origem == "snapshot"));
-        // Objetivo e pendência estão no conhecimento referenciado: o papel fica, apontando o item que os contém.
-        Assert.Equal($"[contido em conhecimento:{k.Id:D}@1]", s.GetProperty("Objetivo").GetString());
-        Assert.Equal([$"[contido em conhecimento:{k.Id:D}@1]"], s.GetProperty("Pendencias").EnumerateArray().Select(x => x.GetString()));
+        // Objetivo e pendência são trechos do conhecimento, não iguais a ele: substring não prova equivalência, o texto fica.
+        Assert.Equal($"Decisão do caso {marcador}", s.GetProperty("Objetivo").GetString());
+        Assert.Equal(["preservar o Worker ativo"], s.GetProperty("Pendencias").EnumerateArray().Select(x => x.GetString()));
+        Assert.DoesNotContain("[contido em", segunda.TextoParaInjecao);
         Assert.Contains($"Decisão do caso {marcador}: preservar o Worker ativo", Linha(segunda, Assert.Single(segunda.Itens, x => x.Id == k.Id)).GetProperty("Conteudo").GetString());
         Assert.Equal([$"buscar {marcador}"], s.GetProperty("ProximosPassos").EnumerateArray().Select(x => x.GetString()));
         Assert.Equal("último resultado", s.GetProperty("UltimoResultado").GetString());
