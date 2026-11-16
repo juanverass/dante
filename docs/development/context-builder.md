@@ -23,8 +23,11 @@ com quebras de linha, aspas, U+2028/2029/0085 escapados, então não abrem linha
 chave. `Ref` (`origem:id@revisão` ou a URI do trecho) substitui ID/revisão/origem;
 proveniência diferente vai em `Fonte`. Campos nulos são omitidos; `Natureza` só aparece
 quando diverge de `NaturezaDeOrigem`; `Sensibilidade` vai ao cabeçalho quando uniforme e
-menor assim. `Rotulo` está sempre presente. O cabeçalho é o enxuto da C1 (mesmas regras,
-298 B com sensibilidade uniforme, antes 340 B). Quando `DadosEstruturados` de um
+menor assim. O cabeçalho é o enxuto da C1 (mesmas regras,
+298 B com sensibilidade uniforme, antes 340 B). `Rotulo` vai sempre em cada item, como o contrato dos agentes exige
+(a legenda de rótulos, O1, não foi adotada; AD-65). A explicação da fonte omitida aparece uma vez no cabeçalho, se
+houver fonte omitida; a seleção conta o custo dela e o da forma omitida (AD-65), então o pacote final não passa do
+orçamento. Quando `DadosEstruturados` de um
 conhecimento é exclusivamente `{"titulo": "<texto>"}`, o título vai na chave `Titulo` e
 `Conteudo` fica só com o corpo; só o JSON persistido decide, e conteúdo que imite esse
 sufixo continua em `Conteudo`. Seleção, deduplicação e prova seguem sobre o texto inteiro.
@@ -49,7 +52,10 @@ remontado pela união dos intervalos `[inicio, inicio + comprimento)`, cada trec
 em ou antes do fim já coberto, a sobreposição coincide e o remontado é igual à fonte.
 Primeiro trecho deslocado, lacuna intermediária, sobreposição divergente ou conteúdo além
 do último trecho mantêm a íntegra; o maior fim alcançado não é prova. A linha mantém
-`Ref`, `Titulo`, `Rotulo`, autoria e `ConsolidadaEm`. Sem prova, a fonte segue integral;
+`Ref`, `Titulo`, `Rotulo`, autoria e `ConsolidadaEm`, e troca `Conteudo` pela chave `Omitida:true`
+(chave é metadado; nenhum conteúdo a imita). `ConsolidadaEm` só sai quando a cobertura é exatamente o conjunto de
+todos os conhecimentos do pacote, regra declarada no cabeçalho; com outro conhecimento no pacote ou duas fontes
+omitidas, a lista fica explícita. Sem prova, a fonte segue integral;
 co-ocorrência no snapshot não é prova.
 
 Deduplicação considera ID, conteúdo normalizado, prompt/fragmentos já presentes, campos

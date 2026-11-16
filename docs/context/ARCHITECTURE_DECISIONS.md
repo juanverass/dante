@@ -2266,3 +2266,47 @@ Consequências: conhecimentos antigos continuam válidos e mantêm a fonte integ
 a fonte só compensa quando os conhecimentos citam as linhas em vez de parafraseá-las; a
 duplicação deixa de existir, não é escondida. Limite: um intervalo contíguo por conhecimento.
 
+
+## AD-65 — Legenda do pacote: cobertura implícita e fonte omitida por chave (#147)
+
+Status: proposta em PR (#295), corrigida após a revisão independente; a #147 permanece NO-GO.
+
+Contexto: depois da AD-64, o pacote repetia metadados fixos por item. O rótulo "Conclusão do agente, não confirmada"
+saía em cada conclusão, a lista `ConsolidadaEm` repetia `Ref`s presentes no mesmo pacote e cada fonte omitida trazia
+~165 B de explicação em `Conteudo`.
+
+Decisão: só formas sem perda, cada uma com a regra declarada no cabeçalho.
+
+* **Rótulo (O1) — não adotado:** levar o rótulo repetido ao cabeçalho contradiz `ContratoDoBrainParaAgentes`, que
+  manda mostrar junto de cada item o rótulo retornado, e já houve regressão de rótulos (#285). O rótulo continua em
+  cada linha, e um teste de contrato exige isso junto com Status, NaturezaDeOrigem, Natureza, autoria e
+  sensibilidade. Reabrir O1 exige ensinar a legenda no contrato e validá-la com agente real, com autorização própria.
+* **Fonte omitida (O3):** a omissão passa a ser a chave `Omitida:true` sem `Conteudo`, e a explicação vai uma vez ao
+  cabeçalho. Chave é metadado escrito só pelo formatador, então conteúdo de fonte não imita a omissão.
+* **Cobertura (O2):** `ConsolidadaEm` só sai quando a cobertura é exatamente o conjunto de todos os conhecimentos do
+  pacote; o cabeçalho declara "Sem ConsolidadaEm: todos os conhecimentos deste pacote". Com qualquer outro
+  conhecimento no pacote (p. ex. uma Decisão) ou com duas fontes omitidas, a lista fica explícita. Remover a lista em
+  todos os casos foi rejeitado: o leitor deixaria de saber quais conhecimentos cobrem qual fonte.
+* **Orçamento da fonte omitida:** a seleção custa uma fonte omissível (prova de cobertura com todos os
+  conhecimentos entre os candidatos) pelo maior valor entre a íntegra e a forma omitida com `ConsolidadaEm`
+  explícita. Na primeira fonte omissível admitida, soma também a linha de explicação do cabeçalho (com o sufixo
+  implícito). Numa fonte curta, a forma omitida e a explicação custam mais que a íntegra. Sem essa conta, o pacote
+  final passava do orçamento: 534 tokens estimados para um orçamento de 492, na revisão. O custo admitido é um
+  limite superior do texto final, e as relações entram só se o texto final couber. O plano de forma só escolhe,
+  entre formas equivalentes, a mais curta.
+
+Consequências:
+
+* a economia depende da forma do pacote, sobre os mesmos estados restaurados. Os números medidos antes da
+  revisão incluíam O1; continuam válidos só onde O1 não atuava:
+  - −16 B (−0,5%) no curto do roteiro `@2`;
+  - 0 B nas retomadas de 15/11.
+
+  No fundamento (−268 B), no médio (−3,3%) e no longo (−5,3%), parte da economia vinha de O1 e não vale mais. Para
+  a forma do fundamento (uma fonte coberta por quatro conclusões), o teste determinístico dá −194 B só com O2 e O3.
+  Não houve nova medição.
+* não muda nenhum essencial;
+* não muda o teto de 12 itens. A seleção fica mais conservadora só para a fonte omissível curta. Fontes longas
+  continuam custadas pela íntegra e descartadas pelo orçamento quando não cabem; esse limite está registrado e fica
+  fora daqui;
+* o contrato dos agentes não muda: cada item traz o próprio rótulo.

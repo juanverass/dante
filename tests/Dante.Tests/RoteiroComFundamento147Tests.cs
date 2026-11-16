@@ -146,8 +146,8 @@ public sealed class RoteiroComFundamento147Tests(ITestOutputHelper output)
 
         // 1. Solução fora do pacote com a fonte ainda omitida: omissão sem cobertura comprovada.
         Assert.Contains("fonte omitida sem cobertura comprovada", Divergencias(string.Join('\n', linhas.Where(l => !l.StartsWith("{\"Ref\":\"" + sol + "\"", StringComparison.Ordinal)))));
-        // 2. Cobertura comprovada, mas a fonte integral.
-        Assert.Contains("seguiu integral", Divergencias(TrocarFonte(o => { o["Conteudo"] = EstadoExportado147.Str(fonte, "Conteudo"); return o; })));
+        // 2. Cobertura comprovada, mas a fonte integral (sem a chave Omitida da forma por chave: só a íntegra).
+        Assert.Contains("seguiu integral", Divergencias(TrocarFonte(o => { o.Remove("Omitida"); o["Conteudo"] = EstadoExportado147.Str(fonte, "Conteudo"); return o; })));
         // 3. Fonte parcial no lugar da íntegra ou do marcador.
         Assert.Contains("não é a íntegra nem o marcador", Divergencias(TrocarFonte(o => { o["Conteudo"] = roteiro.Citacoes(casos[0], Marcador).Incidente; return o; })));
         // 4. ConsolidadaEm sem um dos conhecimentos que cobrem a fonte.
