@@ -1140,6 +1140,11 @@ public sealed class SessionRegistry(
         if (configuration.Driver != request.Agent)
             return $"O agente {registered.Descricao} usa {configuration.Driver}, não {request.Agent}.";
         if (!registered.PermitePerfil(request.Profile)) return AboveMaximum(registered, request.Profile);
+        // Modelo e esforço são os da versão congelada: o registro aponta para ela, então o processo também.
+        var selection = request.ModelSelection ?? AgentModelSelection.CliDefault;
+        if (!string.Equals(selection.Model, configuration.Modelo, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(selection.Effort, configuration.Esforco, StringComparison.OrdinalIgnoreCase))
+            return $"Modelo e esforço da sessão diferem da versão {registered.Descricao}; nada foi iniciado.";
         if (!MontagemDaTarefa.ReposPermitidos(configuration, request.Context))
             return MontagemDaTarefa.RecusaDeRepositorio(registered.Handle, configuration, request.Context);
         if (configuration.Limites.ExecucoesSimultaneas is { } limit && sessions.Values.Count(other =>

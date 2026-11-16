@@ -8,13 +8,13 @@ namespace Dante.Worker.Sessions;
 public static class SolicitacaoDaTarefa
 {
     public static SessionStartRequest Para(PlanoDaTarefa plano, long idDoUsuario,
-        IReadOnlyDictionary<string, string>? ambiente = null, AgentModelSelection? modelo = null)
+        IReadOnlyDictionary<string, string>? ambiente = null)
     {
         ArgumentNullException.ThrowIfNull(plano);
         if (!plano.SomenteLeitura) throw new Dante.Domain.Execucoes.EscritaSemWorktreeException();
         var configuracao = plano.Versao.Configuracao;
         return new SessionStartRequest(idDoUsuario, configuracao.Driver, plano.Contexto, ambiente, plano.Perfil,
-            modelo ?? new AgentModelSelection(configuracao.Modelo, configuracao.Esforco),
+            new AgentModelSelection(configuracao.Modelo, configuracao.Esforco),
             RegisteredAgent: new AgenteDaSessao(plano.Handle, plano.Versao, MontagemDaTarefa.AvisoDeLeitura)
             {
                 // Nem /mode session tira a sessão da Tarefa de plan.

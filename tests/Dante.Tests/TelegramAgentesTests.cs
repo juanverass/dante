@@ -128,6 +128,11 @@ public sealed class TelegramAgentesTests : IAsyncDisposable
             JobExecutionContext.General(Path.Combine(root, "general")), Profile: AgentPermissionProfile.Plan,
             RegisteredAgent: new AgenteDaSessao("revisor", versao)));
         Assert.Contains("usa Codex", outroDriver.Error);
+        // Review Codex: o processo usa o modelo e o esforço da versão, nunca outros com o registro da versão.
+        var outroModelo = await sessions.StartAsync(new SessionStartRequest(123, AgentKind.Codex,
+            JobExecutionContext.General(Path.Combine(root, "general")), Profile: AgentPermissionProfile.Plan,
+            ModelSelection: new AgentModelSelection("fake-mini"), RegisteredAgent: new AgenteDaSessao("revisor", versao)));
+        Assert.Contains("diferem da versão", outroModelo.Error);
         Assert.Single(drivers.Created);
     }
 

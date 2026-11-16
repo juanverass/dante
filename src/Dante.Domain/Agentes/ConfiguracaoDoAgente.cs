@@ -146,7 +146,8 @@ public sealed class ConfiguracaoDoAgente
         var lista = (valores ?? []).Distinct().ToArray();
         if (lista.Any(valor => !Enum.IsDefined(valor))) throw new ArgumentOutOfRangeException(parametro, "Valor inválido.");
         Array.Sort(lista);
-        return lista;
+        // Somente leitura de verdade: um consumidor não converte de volta para array e altera a versão congelada.
+        return Array.AsReadOnly(lista);
     }
 
     private static IReadOnlyList<string> NormalizarRepositorios(IEnumerable<string>? valores)
@@ -155,10 +156,10 @@ public sealed class ConfiguracaoDoAgente
             .Distinct(StringComparer.Ordinal).ToArray();
         if (lista.Any(valor => valor != QualquerRepositorio && !FormatoDoAlias.IsMatch(valor)))
             throw new ArgumentException("Repositório inválido: use @alias ou *.", nameof(valores));
-        if (lista.Contains(QualquerRepositorio)) return [QualquerRepositorio];
+        if (lista.Contains(QualquerRepositorio)) return Array.AsReadOnly(new[] { QualquerRepositorio });
         if (lista.Length > MaximoDeRepositorios)
             throw new ArgumentException($"No máximo {MaximoDeRepositorios} repositórios.", nameof(valores));
         Array.Sort(lista, StringComparer.Ordinal);
-        return lista;
+        return Array.AsReadOnly(lista);
     }
 }

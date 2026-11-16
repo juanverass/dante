@@ -141,6 +141,10 @@ public sealed class CadastroDeAgentesAppServiceTests : IDisposable
                      "-----BEGIN OPENSSH PRIVATE KEY-----" })
             Assert.Contains("credencial", (await Assert.ThrowsAsync<ArgumentException>(() => cadastro.CriarAsync(
                 Novo("dev", new ConfiguracaoDoAgenteDto { Driver = AgentKind.Claude, Instrucoes = instrucoes })))).Message);
+        // Review Codex: o handle vai ao prompt e ao ledger, então também passa pela proteção.
+        Assert.Contains("credencial", (await Assert.ThrowsAsync<ArgumentException>(() =>
+            cadastro.CriarAsync(Novo("sk-" + new string('a', 20))))).Message);
+        Assert.Equal(FalhaNaResolucaoDeAgente.HandleInvalido, (await cadastro.ResolverAsync("sk-" + new string('a', 20))).Falha);
         await cadastro.CriarAsync(Novo("dev"));
         await Assert.ThrowsAsync<ArgumentException>(() => cadastro.EditarAsync("dev",
             new AlteracaoDoAgenteDto { Instrucoes = "token: sk-abcdefghijklmnopqrstuvwxyz" }, 1));

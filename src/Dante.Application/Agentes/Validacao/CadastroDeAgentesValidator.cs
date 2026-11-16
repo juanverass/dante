@@ -10,6 +10,8 @@ internal static class CadastroDeAgentesValidator
 {
     internal static string Handle(string? handle)
     {
+        // O handle vai ao prompt (papel do agente) e ao ledger: nunca pode parecer credencial.
+        SemSegredo(handle);
         var normalizado = handle?.Trim().ToLowerInvariant();
         if (normalizado is { Length: > 0 } && normalizado[0] == '@')
             throw new ArgumentException("Handle de agente não usa @: @ é sempre repositório.");

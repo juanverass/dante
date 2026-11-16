@@ -2407,8 +2407,8 @@ Decisão:
   `model=`/`effort=`, modo e, por último, handle registrado. Handle inexistente, desativado, arquivado ou com versão
   cujo hash não confere é recusado sem fallback. Mensagem comum nunca resolve handle.
 * **Sessão congela a versão**: `SessionStartRequest.RegisteredAgent` leva a versão; o `SessionRegistry` recusa,
-  por conta própria, driver diferente, perfil acima do máximo, repositório não concedido e limite de sessões
-  simultâneas; `/mode session` também não passa do máximo. Instruções do agente entram em `ContextInstructions`
+  por conta própria, driver diferente, modelo/esforço diferentes dos da versão, perfil acima do máximo,
+  repositório não concedido e limite de sessões simultâneas; `/mode session` também não passa do máximo. Instruções do agente entram em `ContextInstructions`
   depois do contrato da conversa e do contrato multirrepositório, declaradas como incapazes de revogá-los. Servidores
   de ferramentas são filtrados pelas concessões (desconhecido nunca é concedido); o contexto do Brain injetado no
   turno (AD-46) também depende da concessão `brain`. Modelo e esforço vêm só da versão (override recusado).
@@ -2422,8 +2422,8 @@ Decisão:
   `plan`. O checkout principal nunca recebe escrita de execução nova. O despacho durável pertence à fila da #300:
   até a integração, `DespacharTarefaAsync` (ponto único) responde que a execução durável não está habilitada e nada
   é criado nem executado. Tarefa com agente embutido é recusada (use `/claude`/`/codex`).
-* **Segredos**: o cadastro não tem campo de credencial; instruções, nome e descrição com aparência de segredo
-  (`ProtecaoDeSegredos`) são recusados; o objetivo registrado da tarefa é redigido.
+* **Segredos**: o cadastro não tem campo de credencial; handle, instruções, nome e descrição com aparência de
+  segredo (`ProtecaoDeSegredos`) são recusados; listas da versão são somente leitura também em memória; o objetivo registrado da tarefa é redigido.
 * **Telegram**: `/agentes [todos]`, `/agente criar|ver|editar|nome|descricao|desativar|reativar|arquivar`, `/tarefa`.
   Desativar lista as sessões que seguem ativas (códigos só do próprio usuário).
 

@@ -121,6 +121,23 @@ public sealed class AgentesDominioTests
         Assert.Equal(["*"], Configuracao(repositorios: ["@a", "*"]).Repositorios);
     }
 
+    // Review Codex: as listas de uma versão não voltam a ser arrays mutáveis nas mãos de quem as lê.
+    [Fact]
+    public void ListasDaConfiguracaoEDaVersaoNaoSaoMutaveis()
+    {
+        foreach (var configuracao in new[] { Configuracao(repositorios: ["@dante"]), Configuracao(repositorios: ["*"]) })
+        {
+            Assert.IsNotType<string[]>(configuracao.Repositorios);
+            Assert.IsNotType<CapacidadeDoAgente[]>(configuracao.Capacidades);
+            Assert.IsNotType<FerramentaDoDante[]>(configuracao.Ferramentas);
+            Assert.Throws<NotSupportedException>(() => ((IList<string>)configuracao.Repositorios)[0] = "*");
+        }
+        var versao = Novo().NovaVersao(Configuracao(repositorios: ["@dante"]), 1, Agora);
+        Assert.Throws<NotSupportedException>(() => ((IList<string>)versao.Repositorios)[0] = "*");
+        Assert.Throws<NotSupportedException>(() => ((IList<CapacidadeDoAgente>)versao.Capacidades)[0] = CapacidadeDoAgente.Implementar);
+        Assert.True(versao.Integra);
+    }
+
     [Fact]
     public void InvariantesDaConfiguracaoSaoValidadas()
     {
