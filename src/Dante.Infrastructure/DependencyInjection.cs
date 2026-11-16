@@ -17,6 +17,7 @@ public static class DependencyInjection
         {
             services.AddBanco(connectionString);
             services.AddBrain(configuration);
+            services.AddOrquestracao(connectionString);
         }
 
         services.AddContextos();

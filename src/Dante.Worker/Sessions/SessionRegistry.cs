@@ -1,5 +1,8 @@
 using Dante.Application.Agentes;
 using Dante.Application.Anexos;
+using Dante.Application.Execucoes;
+using Dante.Domain.Execucoes;
+using Dante.Worker.Execucoes;
 using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 
@@ -10,7 +13,9 @@ namespace Dante.Worker.Sessions;
 // and pumps driver events into the AgentSession state machine. Agent, context, permission profile and model are fixed
 // when the session starts: /use, /agent set or /model never reach a running session. Sessions are not jobs (AD-16) and do not
 // survive a Worker restart: stopping the host fails every live session and kills its process. Attachments of a session
-// live in its own directory of the attachment store until the session ends (AD-29).
+// live in its own directory of the attachment store until the session ends (AD-29). With the execution ledger enabled
+// (AD-66), the metadata and the key events of each session are mirrored there and the S… number comes from the
+// database; the runtime stays here, and the mirror never blocks or fails a session.
 public sealed class SessionRegistry(
     IAgentSessionDriverFactory drivers,
     ILogger<SessionRegistry> logger,
@@ -18,7 +23,8 @@ public sealed class SessionRegistry(
     SessionIdGenerator? ids = null,
     TimeSpan? requestTimeout = null,
     AttachmentStore? attachments = null,
-    IAgentToolServers? toolServers = null) : IAsyncDisposable, IDisposable
+    IAgentToolServers? toolServers = null,
+    EspelhoDoLedger? ledger = null) : IAsyncDisposable, IDisposable
 {
     private const int RecentEndedLimit = 20;
     private const string RestartNotice = "Sessões existem só em memória e não sobrevivem ao reinício do Worker.";
@@ -37,6 +43,7 @@ public sealed class SessionRegistry(
         ArgumentNullException.ThrowIfNull(request);
         Entry? entry = null;
         IAgentSessionDriver driver;
+        var reserved = ledger is null ? null : await ledger.ReservarNumeroDeSessaoAsync(cancellationToken);
         lock (gate)
         {
             if (disposed)
@@ -48,10 +55,21 @@ public sealed class SessionRegistry(
             // A mode the agent cannot map is refused before any process starts (#76).
             if (driver.Capabilities.Modes.Contains(request.Profile))
             {
-                var session = new AgentSession(ids.NextSessionId(), request.Agent, request.OwnerUserId,
+                var (id, mirrored) = ids.NextSessionId(reserved);
+                var session = new AgentSession(id, request.Agent, request.OwnerUserId,
                     request.Context, driver.Capabilities, ids, requestTimeout);
-                entry = new Entry(session, driver, request.Profile, request.ModelSelection);
+                entry = new Entry(session, driver, request.Profile, request.ModelSelection)
+                {
+                    LedgerNumber = mirrored ? reserved : null
+                };
                 sessions.Add(session.Id, entry);
+                if (entry.LedgerNumber is { } number)
+                {
+                    var registered = new SessaoRegistradaDto(number, request.Agent, LedgerChannel.Telegram,
+                        request.OwnerUserId, request.Context, request.Profile, request.ModelSelection?.Model,
+                        request.ModelSelection?.Effort, entry.CreatedAtUtc);
+                    ledger!.Registrar($"criação da sessão {id}", (l, token) => l.RegistrarSessaoCriadaAsync(registered, token));
+                }
             }
         }
 
@@ -79,6 +97,12 @@ public sealed class SessionRegistry(
                 cancellationToken);
             entry.ReportedModel = started.Model;
             entry.Session.MarkStarted(started);
+            if (entry.LedgerNumber is { } number)
+            {
+                var (upstream, model, at) = (entry.Session.UpstreamSessionId, started.Model, DateTimeOffset.UtcNow);
+                ledger!.Registrar($"início da sessão {entry.Session.Id}", (l, token) =>
+                    l.RegistrarSessaoIniciadaAsync(number, upstream, model, at, token));
+            }
         }
         catch (Exception exception)
         {
@@ -960,6 +984,9 @@ public sealed class SessionRegistry(
 
     private async Task PublishAsync(Entry entry, AgentEvent agentEvent)
     {
+        if (entry.LedgerNumber is { } number && ProjecaoDeEventosDaSessao.Projetar(number, agentEvent) is { } projected)
+            ledger!.Registrar($"{projected.Tipo} da sessão {entry.Session.Id}", (l, token) =>
+                l.RegistrarEventoDaSessaoAsync(projected, token));
         if (sink is null)
         {
             return;
@@ -1032,6 +1059,18 @@ public sealed class SessionRegistry(
 
             entry.PendingProfile = null;
             entry.EndedAtUtc = DateTimeOffset.UtcNow;
+            if (entry.LedgerNumber is { } number)
+            {
+                // A session failed by the host shutdown was interrupted by the restart, not by the agent.
+                var session = entry.Session;
+                var end = new SessaoEncerradaDto(number, session.State switch
+                {
+                    AgentSessionState.Failed when disposed => EstadoDaSessaoDeAgente.Interrompida,
+                    AgentSessionState.Failed => EstadoDaSessaoDeAgente.Falhou,
+                    _ => EstadoDaSessaoDeAgente.Encerrada
+                }, session.Error, session.UpstreamSessionId, entry.EndedAtUtc.Value);
+                ledger!.Registrar($"fim da sessão {session.Id}", (l, token) => l.RegistrarSessaoEncerradaAsync(end, token));
+            }
             var ended = sessions.Values
                 .Where(candidate => candidate.EndedAtUtc is not null)
                 .OrderByDescending(candidate => candidate.EndedAtUtc)
@@ -1079,6 +1118,8 @@ public sealed class SessionRegistry(
         public string? ReportedModel { get; set; }
         public DateTimeOffset CreatedAtUtc { get; } = DateTimeOffset.UtcNow;
         public DateTimeOffset? EndedAtUtc { get; set; }
+        // Number of the session in the execution ledger; null when not mirrored.
+        public long? LedgerNumber { get; init; }
         public Task? Pump { get; set; }
         public AgentTurnOutcome? LastTurnOutcome { get; set; }
         // Turns that ended since the session started or was cleared: without any, there is nothing to compact (#121).

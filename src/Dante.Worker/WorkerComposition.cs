@@ -1,5 +1,6 @@
 using Dante.Worker.Artifacts;
 using Dante.Worker.Brain;
+using Dante.Worker.Execucoes;
 using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 using Dante.Worker.Planilhas;
@@ -14,6 +15,9 @@ internal static class WorkerComposition
 {
     public static IServiceCollection AddWorker(this IServiceCollection services, IConfiguration configuration)
     {
+        // Ledger de execuções (AD-66): exige banco e a chave própria; a connection string sozinha não o liga. Sem o
+        // espelho, JobRegistry e SessionRegistry seguem só em memória, como antes.
+        if (OrquestracaoHabilitada(configuration)) services.AddSingleton<EspelhoDoLedger>();
         services.AddSingleton<JobRegistry>();
         services.AddSingleton<RegistroDeOperacoesBrain>();
         services.AddSingleton(provider => new TelegramBrain(provider.GetRequiredService<IServiceScopeFactory>(), configuration, provider.GetRequiredService<RegistroDeOperacoesBrain>()));
@@ -51,4 +55,8 @@ internal static class WorkerComposition
         services.AddHostedService<TelegramPollingService>();
         return services;
     }
+
+    internal static bool OrquestracaoHabilitada(IConfiguration configuration) =>
+        bool.TryParse(configuration["Orquestracao:Habilitada"], out var habilitada) && habilitada &&
+        !string.IsNullOrWhiteSpace(configuration.GetConnectionString("Dante"));
 }

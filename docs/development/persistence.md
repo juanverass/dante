@@ -81,6 +81,25 @@ ordem, reaplicação idempotente, health pendente e backup/restore, configure
 [operação local](../brain/LOCAL_STORAGE.md)). Sem essa configuração, os testes de
 PostgreSQL são explicitamente pulados; build não prova aplicação em banco.
 
+## Ledger de execuções (`orquestracao`, AD-66)
+
+O ledger usa o mesmo banco com contexto próprio, `Data/Orquestracao/OrquestracaoDbContext`, sem autorização,
+filtros nem validação de escrita do Brain. Mappings e repositories ficam em `Modulos/Execucoes`; só esse contexto
+os carrega (o `DanteDbContext` os exclui). Migrations e snapshot ficam em `Data/Orquestracao/Migrations`, histórico
+em `orquestracao.__historico_de_migrations`. `UnitOfWorkDaOrquestracao` (porta `IUnitOfWorkDaOrquestracao`) traduz
+conflitos como o `UnitOfWork` do Brain.
+
+```bash
+dotnet ef migrations add NomeDaMudanca --project src/Dante.Infrastructure --context OrquestracaoDbContext \
+  --output-dir Data/Orquestracao/Migrations
+dotnet ef migrations has-pending-model-changes --project src/Dante.Infrastructure --context OrquestracaoDbContext
+dotnet run --project src/Dante.Worker -- --orquestracao migrate
+```
+
+`--brain migrate` nunca toca o schema `orquestracao`, e `--orquestracao migrate` nunca toca o Brain. Aplicar no
+banco canônico do homelab é passo operacional com autorização própria. `LedgerDeExecucoesPostgreSqlTests` cobre
+migration, integridade, `xmin`, sequências e o espelho de jobs/sessões contra `DANTE_TEST_POSTGRES`.
+
 ## Novos mappings e repositories
 
 Cada entidade tem uma `IEntityTypeConfiguration<T>` concreta em `Modulos/<Modulo>`,

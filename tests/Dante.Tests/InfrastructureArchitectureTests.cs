@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Dante.Infrastructure.Data;
@@ -7,17 +8,27 @@ namespace Dante.Tests;
 
 public sealed class InfrastructureArchitectureTests
 {
-    [Fact]
-    public void MigrationsESnapshotPertencemSomenteAInfrastructure()
+    // Cada contexto tem migrations e snapshot próprios, na sua pasta: Brain em Data/Migrations e o ledger de execuções
+    // (AD-66) em Data/Orquestracao/Migrations. Nenhuma migration fica sem contexto.
+    [Theory]
+    [InlineData(typeof(DanteDbContext), 14, "Dante.Infrastructure.Data.Migrations", "Data/Migrations")]
+    [InlineData(typeof(Dante.Infrastructure.Data.Orquestracao.OrquestracaoDbContext), 1,
+        "Dante.Infrastructure.Data.Orquestracao.Migrations", "Data/Orquestracao/Migrations")]
+    public void MigrationsESnapshotPertencemSomenteAInfrastructure(Type contexto, int quantidade, string ns, string pasta)
     {
         var assembly = typeof(DanteDbContext).Assembly;
-        var migrations = assembly.GetTypes().Where(t => !t.IsAbstract && typeof(Migration).IsAssignableFrom(t)).ToArray();
-        Assert.Equal(14, migrations.Length);
-        var snapshot = Assert.Single(assembly.GetTypes(), t => !t.IsAbstract && typeof(ModelSnapshot).IsAssignableFrom(t));
+        var todas = assembly.GetTypes().Where(t => !t.IsAbstract &&
+            (typeof(Migration).IsAssignableFrom(t) || typeof(ModelSnapshot).IsAssignableFrom(t))).ToArray();
+        Assert.All(todas, tipo => Assert.NotNull(tipo.GetCustomAttribute<DbContextAttribute>()));
+        var doContexto = todas.Where(t => t.GetCustomAttribute<DbContextAttribute>()!.ContextType == contexto).ToArray();
+        var migrations = doContexto.Where(t => typeof(Migration).IsAssignableFrom(t)).ToArray();
+        Assert.Equal(quantidade, migrations.Length);
+        var snapshot = Assert.Single(doContexto, t => typeof(ModelSnapshot).IsAssignableFrom(t));
+        var diretorio = Path.Combine([Raiz(), "src", "Dante.Infrastructure", .. pasta.Split('/')]);
         foreach (var tipo in migrations.Append(snapshot))
         {
-            Assert.Equal("Dante.Infrastructure.Data.Migrations", tipo.Namespace);
-            Assert.Single(Directory.EnumerateFiles(Path.Combine(Raiz(), "src", "Dante.Infrastructure", "Data", "Migrations"), "*.cs"),
+            Assert.Equal(ns, tipo.Namespace);
+            Assert.Single(Directory.EnumerateFiles(diretorio, "*.cs"),
                 arquivo => Path.GetFileName(arquivo) == tipo.Name + ".cs" || Path.GetFileName(arquivo).EndsWith("_" + tipo.Name + ".cs", StringComparison.Ordinal));
         }
     }

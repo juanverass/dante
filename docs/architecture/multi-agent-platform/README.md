@@ -2,6 +2,11 @@
 
 > **Status: PROPOSTA para revisão humana.** Nada aqui está aprovado nem implementado. Spike #297, Epic #296.
 > As ADRs propostas ([ADRS_PROPOSTAS](ADRS_PROPOSTAS.md)) não estão em `ARCHITECTURE_DECISIONS.md`.
+>
+> **Atualização (#299):** proposta aprovada (PR #298). A etapa 1 (ledger) foi implementada e a AD-66 registrada em
+> `ARCHITECTURE_DECISIONS.md`, que prevalece sobre este texto. Ajustes da implementação: a tabela de eventos chama-se
+> `eventos` (entidade `EventoDeOrquestracao`) e guarda eventos de execução **e** de sessão; o único tipo de execução
+> é `Avulsa`; agente/versão, raiz/pai, profundidade e unidade de contenção da sessão ficam para as etapas que os usam.
 
 Base: `main` @ `79c1d01` (2026-11-16), lida em código, testes, ADRs e Issues; investigação do concorrente em
 [`docs/research/agentes-chat/`](../../research/agentes-chat/README.md), referenciada e não duplicada.

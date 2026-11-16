@@ -171,7 +171,7 @@ Detalhes de uso: [README](../../README.md).
 
 ## Limitações atuais
 
-- jobs e histórico somente em memória (perdidos ao reiniciar);
+- jobs e sessões vivem em memória e se perdem ao reiniciar; com o ledger ligado (`Orquestracao:Habilitada`, AD-66), o histórico e os códigos `J…`/`S…` persistem, mas o espelho é best-effort e nada é retomado após reinício;
 - `/uso claude` depende do `get_usage` **experimental** do Claude Code (pode mudar a cada versão; formato desconhecido
   vira "CLI sem suporte") e a CLI pode responder com leitura própria de até 1 min, ou até 1 h quando o serviço falha,
   sem informar a idade; contas por API key ou provedor de nuvem não têm cota de assinatura nas duas CLIs (AD-31);
@@ -265,6 +265,9 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
 - **Epic #92 — Mídias no Telegram**: spike #93 (AD-29), recebimento (#94), imagens aos agentes (#95), áudio e vídeo (#96), artefatos (#97) e imagem para LinkedIn (#98) entregues; validação final (#99) pendente.
 - **Epic #114 — Cotas de uso pelo `/uso`**: spike #115 (AD-31, [`docs/spikes/usage-quotas`](../spikes/usage-quotas/README.md)), Codex (#116) e Claude (#117) entregues; aguarda revisão e fechamento humano.
 - **Epic #118 — Limpar e compactar contexto**: o spike #119 comprovou, nas duas CLIs reais, compactação e limpeza no mesmo processo da sessão — Claude por `/compact`/`/clear` no stream-json, Codex por `thread/compact/start` e nova thread — e definiu contrato e regras (AD-32, [`docs/spikes/clear-compact`](../spikes/clear-compact/README.md)); `/clear` (#120) e `/compact` (#121) entregues; aguarda revisão e fechamento humano.
+
+- **Epic #296 — Plataforma multiagente**: proposta aprovada (#297, PR #298); ledger de execuções (#299, AD-66) em
+  revisão. Fila durável e cadastro de agentes dependem dele.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -654,6 +657,16 @@ texto do acesso autenticado ao registro, mantendo os métodos estáticos existen
 Casos puros ficam em CasosDeUso com namespace da feature; os contratos de Contexto
 e Métricas seguem a organização de módulo complexo. Sem alteração de provider,
 limiares, mensagens ou transações; testes isolados cobrem os algoritmos.
+
+## Ledger de execuções (#299, AD-66)
+
+Schema `orquestracao` no PostgreSQL do Brain com `OrquestracaoDbContext` próprio (sem as políticas do Brain):
+execuções, etapas, dependências, eventos-chave com sequência global e registros de sessão, transições validadas no
+domínio e `xmin`. `JobRegistry` e `SessionRegistry` espelham jobs (execução `Avulsa`, código `J…`) e sessões
+(`S…`) quando `Orquestracao:Habilitada=true` e há banco; códigos vêm de sequências e não se repetem após reinício.
+O runtime continua em memória e o espelho nunca bloqueia nem falha job ou sessão. Migration só por
+`--orquestracao migrate`. Desligado por padrão; não ativado no homelab. Sem fila durável, recuperação ou comandos
+de consulta no Telegram ainda.
 
 ## Administração de banco e migrations (#199)
 

@@ -1,3 +1,4 @@
+using Dante.Infrastructure.Banco;
 using Dante.Infrastructure.Brain;
 using Dante.Application;
 using Dante.Infrastructure;
@@ -18,12 +19,20 @@ if (args.FirstOrDefault() == ServidorMcpDePlanilhas.Argumento)
     return;
 }
 
-var builder = Host.CreateApplicationBuilder(args.FirstOrDefault() == "--brain" ? [] : args);
+// Comandos administrativos não repassam argumentos à configuração do host.
+var administrativo = args.FirstOrDefault() is "--brain" or ComandosDoBanco.Orquestracao;
+var builder = Host.CreateApplicationBuilder(administrativo ? [] : args);
 builder.Services.AddApplication().AddInfrastructure(builder.Configuration).AddWorker(builder.Configuration);
 var host = builder.Build();
 if (args.FirstOrDefault() == "--brain")
 {
     Environment.ExitCode = await ComandosDoBrain.ExecutarAsync(host.Services, args);
+    return;
+}
+// Ledger de execuções (AD-66): migration só por comando explícito, nunca na inicialização.
+if (args.FirstOrDefault() == ComandosDoBanco.Orquestracao)
+{
+    Environment.ExitCode = await ComandosDoBanco.ExecutarAsync(host.Services, args);
     return;
 }
 host.Run();

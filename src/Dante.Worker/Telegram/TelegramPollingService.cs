@@ -470,7 +470,7 @@ public sealed partial class TelegramPollingService(
             cancellationToken);
         if (modelSelection is null) return;
         var context = resolution.Context!;
-        var (job, jobToken) = jobs.Create(agent, context, cancellationToken, modelSelection);
+        var (job, jobToken) = await jobs.CreateAsync(agent, context, message.From.Id, cancellationToken, modelSelection);
         // The pending images go with this one-shot and live in the job's directory until it ends (AD-29).
         var images = Adopt(message.From.Id, AttachmentContext(message.From.Id), job.Id, newScope: true);
         if (images is null)

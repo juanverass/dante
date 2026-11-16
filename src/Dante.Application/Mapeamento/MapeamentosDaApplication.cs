@@ -3,6 +3,7 @@ using Dante.Application.Conhecimentos;
 using Dante.Application.ContextosDeTrabalho;
 using Dante.Application.DocumentosFonte;
 using Dante.Application.EspacosDeConhecimento;
+using Dante.Application.Execucoes;
 using Dante.Application.Projetos;
 using Dante.Application.RelacoesDeConhecimento;
 
@@ -21,5 +22,7 @@ internal static class MapeamentosDaApplication
         CandidatoDeConhecimentoMapping.Registrar(configuracao);
         RelacaoDeConhecimentoMapping.Registrar(configuracao);
         DocumentoFonteMapping.Registrar(configuracao);
+        ExecucaoMapping.Registrar(configuracao);
+        SessaoDeAgenteMapping.Registrar(configuracao);
     }
 }

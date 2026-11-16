@@ -1,24 +1,57 @@
 using Dante.Application.Agentes;
+using Dante.Application.Execucoes;
+using Dante.Domain.Execucoes;
+using Dante.Worker.Execucoes;
 
 
 namespace Dante.Worker.Jobs;
 
-public sealed class JobRegistry
+// Runtime of one-shot jobs (AD-06). With the execution ledger enabled (AD-66), each job is also mirrored as an
+// Avulsa execution: the J… number comes from the database sequence and never repeats after a restart. The registry
+// stays the source of the live state; the mirror never blocks or fails a job.
+public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
 {
     private const int RecentCompletedLimit = 20;
     private readonly object gate = new();
     private readonly Dictionary<string, Job> jobs = new(StringComparer.OrdinalIgnoreCase);
-    private long nextId;
+    private long lastNumber;
 
-    // The model is fixed when the job is created (#77); null keeps the CLI default.
+    // The model is fixed when the job is created (#77); null keeps the CLI default. Never mirrored: local counter.
     public (JobSnapshot Snapshot, CancellationToken Token) Create(string agent, JobExecutionContext context,
-        CancellationToken stoppingToken, AgentModelSelection? modelSelection = null)
+        CancellationToken stoppingToken, AgentModelSelection? modelSelection = null) =>
+        Add(agent, context, stoppingToken, modelSelection, null, null);
+
+    // Same as Create, for the user who asked; with the ledger, reserves the number in the database first. A database
+    // that does not answer keeps the legacy behavior: local counter, no mirror.
+    public async Task<(JobSnapshot Snapshot, CancellationToken Token)> CreateAsync(string agent,
+        JobExecutionContext context, long userId, CancellationToken stoppingToken,
+        AgentModelSelection? modelSelection = null)
     {
-        var job = new Job($"J{Interlocked.Increment(ref nextId):D6}", agent, context,
-            CancellationTokenSource.CreateLinkedTokenSource(stoppingToken), modelSelection);
+        var reserved = ledger is null ? null : await ledger.ReservarNumeroDeExecucaoAsync(stoppingToken);
+        return Add(agent, context, stoppingToken, modelSelection, reserved, userId);
+    }
+
+    private (JobSnapshot Snapshot, CancellationToken Token) Add(string agent, JobExecutionContext context,
+        CancellationToken stoppingToken, AgentModelSelection? modelSelection, long? reserved, long? userId)
+    {
         lock (gate)
         {
+            // A reserved number at or below one already used here (the local counter ran while the database was
+            // away) would repeat an id: the job falls back to the counter and is not mirrored.
+            var mirrored = ledger is not null && reserved > lastNumber && userId is not null &&
+                           Enum.TryParse<AgentKind>(agent, true, out _);
+            var number = mirrored ? reserved!.Value : lastNumber + 1;
+            lastNumber = number;
+            var job = new Job(number, $"J{number:D6}", agent, context,
+                CancellationTokenSource.CreateLinkedTokenSource(stoppingToken), modelSelection) { Mirrored = mirrored };
             jobs.Add(job.Id, job);
+            if (mirrored)
+            {
+                var registered = new JobRegistradoDto(number, Enum.Parse<AgentKind>(agent, true),
+                    LedgerChannel.Telegram, userId!.Value, context, modelSelection?.Model, modelSelection?.Effort,
+                    job.CreatedAtUtc);
+                ledger!.Registrar($"criação do job {job.Id}", (l, token) => l.RegistrarJobCriadoAsync(registered, token));
+            }
             return (Snapshot(job), job.Cancellation.Token);
         }
     }
@@ -35,6 +68,11 @@ public sealed class JobRegistry
 
             job.Status = JobStatus.Running;
             job.StartedAtUtc = DateTimeOffset.UtcNow;
+            if (job.Mirrored)
+            {
+                var (number, started) = (job.Number, job.StartedAtUtc.Value);
+                ledger!.Registrar($"início do job {job.Id}", (l, token) => l.RegistrarJobIniciadoAsync(number, started, token));
+            }
             return true;
         }
     }
@@ -71,6 +109,16 @@ public sealed class JobRegistry
             job.FinishedAtUtc = DateTimeOffset.UtcNow;
             job.ExitCode = exitCode;
             job.ErrorMessage = errorMessage;
+            if (job.Mirrored)
+            {
+                var ended = new JobEncerradoDto(job.Number, job.Status switch
+                {
+                    JobStatus.Succeeded => EstadoDaExecucao.Concluida,
+                    JobStatus.Cancelled => EstadoDaExecucao.Cancelada,
+                    _ => EstadoDaExecucao.Falhou
+                }, exitCode, errorMessage, job.FinishedAtUtc.Value);
+                ledger!.Registrar($"fim do job {job.Id}", (l, token) => l.RegistrarJobEncerradoAsync(ended, token));
+            }
             var snapshot = Snapshot(job);
             job.Cancellation.Dispose();
             PruneCompleted();
@@ -107,10 +155,12 @@ public sealed class JobRegistry
         job.CreatedAtUtc, job.StartedAtUtc, job.FinishedAtUtc,
         job.CancellationRequested, job.ExitCode, job.ErrorMessage, job.Context, job.ModelSelection);
 
-    private sealed class Job(string id, string agent, JobExecutionContext context,
+    private sealed class Job(long number, string id, string agent, JobExecutionContext context,
         CancellationTokenSource cancellation, AgentModelSelection? modelSelection)
     {
+        public long Number { get; } = number;
         public string Id { get; } = id;
+        public bool Mirrored { get; init; }
         public string Agent { get; } = agent;
         public JobExecutionContext Context { get; } = context;
         public CancellationTokenSource Cancellation { get; } = cancellation;

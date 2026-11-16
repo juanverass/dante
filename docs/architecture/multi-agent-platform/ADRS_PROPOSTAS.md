@@ -9,6 +9,8 @@
 
 ## AD-66 — Execução persistente como unidade de trabalho; PostgreSQL como fonte de verdade e memória como runtime
 
+> Registrada em `ARCHITECTURE_DECISIONS.md` pela #299 (fase 1a, espelho). O texto vigente é o de lá.
+
 - **Contexto**: jobs (AD-06) e sessões (AD-20) existem só em memória; delegação, aprovação e acompanhamento
   precisam atravessar reinícios. A AD-34 restringiu o banco ao Brain "nesta Epic".
 - **Decisão**: `Execucao` é um terceiro conceito, distinto de sessão (AD-15/16) e de turno. Execuções, etapas,
