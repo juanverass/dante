@@ -17,7 +17,7 @@ internal static class WorkerComposition
     {
         // Ledger de execuções (AD-66): exige banco e a chave própria; a connection string sozinha não o liga. Sem o
         // espelho, JobRegistry e SessionRegistry seguem só em memória, como antes.
-        if (OrquestracaoHabilitada(configuration)) services.AddSingleton<EspelhoDoLedger>();
+        if (OrquestracaoHabilitada(configuration)) services.AddLedgerDeExecucoes();
         services.AddSingleton<JobRegistry>();
         services.AddSingleton<RegistroDeOperacoesBrain>();
         services.AddSingleton(provider => new TelegramBrain(provider.GetRequiredService<IServiceScopeFactory>(), configuration, provider.GetRequiredService<RegistroDeOperacoesBrain>()));
@@ -53,6 +53,14 @@ internal static class WorkerComposition
         services.AddSingleton<ITelegramBotApi, TelegramBotApi>();
         services.AddHostedService<Worker>();
         services.AddHostedService<TelegramPollingService>();
+        return services;
+    }
+
+    // Antes dos demais hosted services: o encerramento do ledger para por último (ordem inversa).
+    internal static IServiceCollection AddLedgerDeExecucoes(this IServiceCollection services)
+    {
+        services.AddSingleton<EspelhoDoLedger>();
+        services.AddHostedService<EncerramentoDoLedger>();
         return services;
     }
 

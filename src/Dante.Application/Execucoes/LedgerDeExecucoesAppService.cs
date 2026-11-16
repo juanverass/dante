@@ -16,11 +16,17 @@ public sealed class LedgerDeExecucoesAppService(
     IUnitOfWorkDaOrquestracao unidade,
     IMapsterTypeAdapter mapper) : ILedgerDeExecucoesAppService
 {
-    public Task<long> ReservarNumeroDeExecucaoAsync(CancellationToken cancellationToken = default) =>
-        execucoes.ReservarNumeroAsync(cancellationToken);
+    public Task<long> ReservarNumeroDeExecucaoAsync(long acimaDe = 0, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(acimaDe);
+        return execucoes.ReservarNumeroAsync(acimaDe, cancellationToken);
+    }
 
-    public Task<long> ReservarNumeroDeSessaoAsync(CancellationToken cancellationToken = default) =>
-        sessoes.ReservarNumeroAsync(cancellationToken);
+    public Task<long> ReservarNumeroDeSessaoAsync(long acimaDe = 0, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(acimaDe);
+        return sessoes.ReservarNumeroAsync(acimaDe, cancellationToken);
+    }
 
     public async Task RegistrarJobCriadoAsync(JobRegistradoDto job, CancellationToken cancellationToken = default)
     {

@@ -9,6 +9,9 @@ public sealed class SessionIdGenerator
 
     public string NextSessionId() => NextSessionId(null).Id;
 
+    // Highest session number given so far; a database reservation must be above it.
+    public long LastSessionNumber => Interlocked.Read(ref nextSession);
+
     // With the execution ledger (AD-66) the number comes from the database sequence. A reserved number at or below
     // one already given here (the counter ran while the database was away) falls back to the counter: never a
     // repeated id. Reserved says whether the reserved number was used.

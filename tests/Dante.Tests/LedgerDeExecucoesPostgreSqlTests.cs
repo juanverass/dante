@@ -305,6 +305,79 @@ public sealed class LedgerDeExecucoesPostgreSqlTests
         Assert.StartsWith("O Worker foi encerrado.", interrompida.MotivoDoFim);
     }
 
+    // Review Codex do PR: no Host.Run o provider já está descartado quando os singletons são descartados; as sessões
+    // interrompidas pelo encerramento precisam ser gravadas no StopAsync, pelo ciclo real do host.
+    [PostgreSqlFact]
+    public async Task EncerramentoDoHostGravaAsSessoesInterrompidasAntesDeDescartarOProvider()
+    {
+        await using var banco = await LedgerAsync();
+        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder([]);
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:Dante"] = banco.ConnectionString });
+        Dante.Worker.WorkerComposition.AddLedgerDeExecucoes(builder.Services);
+        builder.Services.AddApplication().AddInfrastructure(builder.Configuration);
+        var drivers = new FakeSessionDriverFactory();
+        builder.Services.AddSingleton(provider => new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance,
+            ledger: provider.GetRequiredService<EspelhoDoLedger>()));
+        string id;
+        using (var host = builder.Build())
+        {
+            await host.StartAsync();
+            var sessoes = host.Services.GetRequiredService<SessionRegistry>();
+            id = (await sessoes.StartAsync(new SessionStartRequest(1001, Dante.Domain.Agentes.AgentKind.Claude,
+                JobExecutionContext.General("/general")))).Session!.Id;
+            await host.StopAsync();
+        }
+
+        await using var leitura = Provider(banco.ConnectionString);
+        await using var escopo = leitura.CreateAsyncScope();
+        var sessao = (await escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>()
+            .ObterSessaoAsync(long.Parse(id[1..])))!;
+        Assert.Equal(EstadoDaSessaoDeAgente.Interrompida, sessao.Estado);
+        Assert.StartsWith("O Worker foi encerrado.", sessao.MotivoDoFim);
+    }
+
+    // Review Codex do PR: depois de o contador local passar à frente da sequência (banco fora, ou reservas
+    // concluídas fora de ordem), a próxima reserva avança a sequência e o espelho volta a valer.
+    [PostgreSqlFact]
+    public async Task EspelhoVoltaAValerDepoisDeOContadorLocalPassarAFrenteDaSequencia()
+    {
+        await using var banco = await LedgerAsync();
+        await using var provider = Provider(banco.ConnectionString);
+        await using var espelho = Espelho(provider);
+        var jobs = new JobRegistry(espelho);
+        var contexto = JobExecutionContext.General("/general");
+        var (primeiro, _) = await jobs.CreateAsync("Codex", contexto, 1001, CancellationToken.None);
+        // Contador local à frente da sequência, como durante uma indisponibilidade.
+        var locais = Enumerable.Range(0, 3).Select(_ => jobs.Create("Codex", contexto, CancellationToken.None).Snapshot.Id).ToArray();
+        var (depois, _) = await jobs.CreateAsync("Codex", contexto, 1001, CancellationToken.None);
+        var (seguinte, _) = await jobs.CreateAsync("Codex", contexto, 1001, CancellationToken.None);
+        await espelho.DescarregarAsync();
+        var ids = new[] { primeiro.Id }.Concat(locais).Append(depois.Id).Append(seguinte.Id).ToArray();
+        Assert.Equal(ids.Length, ids.Distinct().Count());
+        Assert.True(long.Parse(depois.Id[1..]) > long.Parse(locais[^1][1..]));
+
+        var geradores = new SessionIdGenerator();
+        for (var i = 0; i < 5; i++) geradores.NextSessionId();
+        await using (var sessoes = new SessionRegistry(new FakeSessionDriverFactory(), NullLogger<SessionRegistry>.Instance,
+            ids: geradores, ledger: espelho))
+        {
+            var sessao = (await sessoes.StartAsync(new SessionStartRequest(1001, Dante.Domain.Agentes.AgentKind.Claude, contexto))).Session!;
+            Assert.Equal("S000006", sessao.Id);
+        }
+        await espelho.DescarregarAsync();
+
+        await using var escopo = provider.CreateAsyncScope();
+        var ledger = escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>();
+        foreach (var id in new[] { primeiro.Id, depois.Id, seguinte.Id })
+            Assert.NotNull(await ledger.ObterExecucaoAsync(long.Parse(id[1..])));
+        foreach (var id in locais) Assert.Null(await ledger.ObterExecucaoAsync(long.Parse(id[1..])));
+        Assert.NotNull(await ledger.ObterSessaoAsync(6));
+        // A reconciliação nunca recua a sequência: uma reserva com piso menor continua acima da última.
+        var alta = await ledger.ReservarNumeroDeExecucaoAsync(500);
+        Assert.Equal(501, alta);
+        Assert.Equal(502, await ledger.ReservarNumeroDeExecucaoAsync(10));
+    }
+
     [Fact]
     public async Task BancoIndisponivelMantemJobsESessoesNoComportamentoLegado()
     {

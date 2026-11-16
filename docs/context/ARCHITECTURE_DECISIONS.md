@@ -2346,8 +2346,12 @@ Decisão:
 * **Espelho best-effort (fase 1a)**: `JobRegistry` e `SessionRegistry` recebem um `EspelhoDoLedger` opcional. Só a
   reserva do número espera o banco (prazo de 3 s; após falha, 30 s sem consultar); os registros vão a uma fila em
   memória limitada, gravados em ordem por um único consumidor. Falha de gravação é logada e não afeta job nem
-  sessão; banco indisponível volta ao contador local, sem espelho, e nunca repete um id já usado no processo.
-  O encerramento do host grava as sessões interrompidas (`Interrompida`, não `Falhou`).
+  sessão; banco indisponível volta ao contador local, sem espelho, e nunca repete um id já usado no processo. Cada
+  reserva informa o maior número já usado localmente; a sequência atrás dele é avançada (`setval` com `GREATEST`,
+  nunca recua), e o espelho volta a valer quando o banco retorna.
+* **Encerramento**: o hosted service `EncerramentoDoLedger`, registrado antes dos demais, para por último. No
+  `StopAsync`, depois de o polling esperar os jobs, encerra as sessões vivas (`Interrompida`, não `Falhou`) e grava
+  a fila enquanto o provider ainda cria escopos; o descarte do provider vem depois.
 * **Política de eventos**: só metadados de turnos, ferramentas (tipo, servidor, nome), solicitações (código,
   decisão) e uso de tokens. Nunca deltas, texto de mensagem, saída de processo, descrição de comando ou caminho de
   arquivo. O texto do pedido do job não é registrado.

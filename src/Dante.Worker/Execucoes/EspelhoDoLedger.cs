@@ -37,13 +37,14 @@ public sealed class EspelhoDoLedger : IAsyncDisposable, IDisposable
 
     public DateTimeOffset Agora => relogio.GetUtcNow();
 
-    // Número J…/E… da sequência do banco; nulo quando o banco não respondeu (o chamador usa o contador local).
-    public Task<long?> ReservarNumeroDeExecucaoAsync(CancellationToken cancellationToken) =>
-        ReservarAsync((ledger, token) => ledger.ReservarNumeroDeExecucaoAsync(token), cancellationToken);
+    // Número J…/E… da sequência do banco, acima do maior já usado localmente; nulo quando o banco não respondeu
+    // (o chamador usa o contador local).
+    public Task<long?> ReservarNumeroDeExecucaoAsync(long acimaDe, CancellationToken cancellationToken) =>
+        ReservarAsync((ledger, token) => ledger.ReservarNumeroDeExecucaoAsync(acimaDe, token), cancellationToken);
 
-    // Número S… da sequência do banco; nulo quando o banco não respondeu.
-    public Task<long?> ReservarNumeroDeSessaoAsync(CancellationToken cancellationToken) =>
-        ReservarAsync((ledger, token) => ledger.ReservarNumeroDeSessaoAsync(token), cancellationToken);
+    // Número S… da sequência do banco, acima do maior já usado localmente; nulo quando o banco não respondeu.
+    public Task<long?> ReservarNumeroDeSessaoAsync(long acimaDe, CancellationToken cancellationToken) =>
+        ReservarAsync((ledger, token) => ledger.ReservarNumeroDeSessaoAsync(acimaDe, token), cancellationToken);
 
     // Enfileira sem esperar o banco. A descrição vai para o log em caso de falha; nunca contém dados do usuário.
     public void Registrar(string descricao, Func<ILedgerDeExecucoesAppService, CancellationToken, Task> operacao)

@@ -31,6 +31,7 @@ public sealed class ComposicaoDaOrquestracaoTests
         var services = new ServiceCollection().AddLogging().AddApplication().AddInfrastructure(configuracao)
             .AddWorker(configuracao);
         Assert.DoesNotContain(services, s => s.ServiceType == typeof(EspelhoDoLedger));
+        Assert.DoesNotContain(services, s => s.ImplementationType == typeof(EncerramentoDoLedger));
         Assert.Equal(banco is not null, services.Any(s => s.ServiceType == typeof(OrquestracaoDbContext)));
         Assert.False(WorkerComposition.OrquestracaoHabilitada(configuracao));
     }
@@ -42,6 +43,11 @@ public sealed class ComposicaoDaOrquestracaoTests
         var services = new ServiceCollection().AddLogging().AddApplication().AddInfrastructure(configuracao)
             .AddWorker(configuracao);
         Assert.Single(services, s => s.ServiceType == typeof(EspelhoDoLedger) && s.Lifetime == ServiceLifetime.Singleton);
+        // O encerramento do ledger para por último: registrado antes dos demais hosted services.
+        var hospedados = services.Where(s => s.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService))
+            .Select(s => s.ImplementationType).ToArray();
+        Assert.Equal(typeof(EncerramentoDoLedger), hospedados[0]);
+        Assert.Contains(typeof(Dante.Worker.Telegram.TelegramPollingService), hospedados);
         // Mesmo registro do Worker para SessionRegistry, com driver falso: o grafo real tocaria ~/.dante.
         services.AddSingleton<IAgentSessionDriverFactory, FakeSessionDriverFactory>();
         services.AddSingleton<IAgentSessionEventSink, RecordingSessionSink>();

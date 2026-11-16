@@ -5,7 +5,7 @@ namespace Dante.Application.Execucoes;
 
 public interface ISessaoDeAgenteRepository : IRepository<SessaoDeAgente>
 {
-    // Próximo número da sequência persistente de sessões (código S…).
-    Task<long> ReservarNumeroAsync(CancellationToken cancellationToken = default);
+    // Próximo número da sequência persistente de sessões (código S…), sempre acima de acimaDe.
+    Task<long> ReservarNumeroAsync(long acimaDe = 0, CancellationToken cancellationToken = default);
     Task<SessaoDeAgente?> ObterPorNumeroAsync(long numero, CancellationToken cancellationToken = default);
 }

@@ -27,7 +27,9 @@ public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
         JobExecutionContext context, long userId, CancellationToken stoppingToken,
         AgentModelSelection? modelSelection = null)
     {
-        var reserved = ledger is null ? null : await ledger.ReservarNumeroDeExecucaoAsync(stoppingToken);
+        long used;
+        lock (gate) used = lastNumber;
+        var reserved = ledger is null ? null : await ledger.ReservarNumeroDeExecucaoAsync(used, stoppingToken);
         return Add(agent, context, stoppingToken, modelSelection, reserved, userId);
     }
 
@@ -36,8 +38,9 @@ public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
     {
         lock (gate)
         {
-            // A reserved number at or below one already used here (the local counter ran while the database was
-            // away) would repeat an id: the job falls back to the counter and is not mirrored.
+            // The reservation is above the number used when it was asked; a concurrent create may have used more
+            // since. A number at or below one already used here would repeat an id: the job falls back to the
+            // counter and is not mirrored, and the next reservation moves the sequence past it.
             var mirrored = ledger is not null && reserved > lastNumber && userId is not null &&
                            Enum.TryParse<AgentKind>(agent, true, out _);
             var number = mirrored ? reserved!.Value : lastNumber + 1;

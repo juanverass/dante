@@ -6,8 +6,9 @@ namespace Dante.Application.Execucoes;
 // inexistente vira InvalidOperationException. Nada aqui inicia processo de agente.
 public interface ILedgerDeExecucoesAppService
 {
-    Task<long> ReservarNumeroDeExecucaoAsync(CancellationToken cancellationToken = default);
-    Task<long> ReservarNumeroDeSessaoAsync(CancellationToken cancellationToken = default);
+    // acimaDe: maior número já usado pelo processo; a reserva fica sempre acima dele.
+    Task<long> ReservarNumeroDeExecucaoAsync(long acimaDe = 0, CancellationToken cancellationToken = default);
+    Task<long> ReservarNumeroDeSessaoAsync(long acimaDe = 0, CancellationToken cancellationToken = default);
 
     Task RegistrarJobCriadoAsync(JobRegistradoDto job, CancellationToken cancellationToken = default);
     Task RegistrarJobIniciadoAsync(long numero, DateTimeOffset iniciadoEm, CancellationToken cancellationToken = default);

@@ -8,11 +8,8 @@ namespace Dante.Infrastructure.Modulos.Execucoes;
 
 public sealed class ExecucaoRepository(OrquestracaoDbContext context) : Repository<Execucao>(context), IExecucaoRepository
 {
-    private const string Proximo =
-        $"SELECT nextval('{OrquestracaoDbContext.Schema}.{OrquestracaoDbContext.SequenciaDeExecucoes}') AS \"Value\"";
-
-    public async Task<long> ReservarNumeroAsync(CancellationToken cancellationToken = default) =>
-        await Context.Database.SqlQueryRaw<long>(Proximo).SingleAsync(cancellationToken);
+    public Task<long> ReservarNumeroAsync(long acimaDe = 0, CancellationToken cancellationToken = default) =>
+        SequenciasDoLedger.ReservarAsync(Context, OrquestracaoDbContext.SequenciaDeExecucoes, acimaDe, cancellationToken);
 
     public Task<Execucao?> ObterPorNumeroAsync(long numero, CancellationToken cancellationToken = default) =>
         DbSet.SingleOrDefaultAsync(x => x.Numero == numero, cancellationToken);

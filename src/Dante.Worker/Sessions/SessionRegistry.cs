@@ -43,7 +43,7 @@ public sealed class SessionRegistry(
         ArgumentNullException.ThrowIfNull(request);
         Entry? entry = null;
         IAgentSessionDriver driver;
-        var reserved = ledger is null ? null : await ledger.ReservarNumeroDeSessaoAsync(cancellationToken);
+        var reserved = ledger is null ? null : await ledger.ReservarNumeroDeSessaoAsync(ids.LastSessionNumber, cancellationToken);
         lock (gate)
         {
             if (disposed)

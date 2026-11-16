@@ -9,15 +9,13 @@ namespace Dante.Infrastructure.Modulos.Execucoes;
 public sealed class EventoDeOrquestracaoRepository(OrquestracaoDbContext context)
     : Repository<EventoDeOrquestracao>(context), IEventoDeOrquestracaoRepository
 {
-    private const string Proximo =
-        $"SELECT nextval('{OrquestracaoDbContext.Schema}.{OrquestracaoDbContext.SequenciaDeEventos}') AS \"Value\"";
-
     // A sequência é reservada na ordem em que os eventos são adicionados: o EF ordena os INSERTs de uma mesma tabela
     // pela chave, e o default da coluna daria a eventos da mesma transação uma ordem diferente da lógica.
     public override async Task AdicionarAsync(EventoDeOrquestracao entidade, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(entidade);
-        var sequencia = await Context.Database.SqlQueryRaw<long>(Proximo).SingleAsync(cancellationToken);
+        var sequencia = await SequenciasDoLedger.ReservarAsync(Context, OrquestracaoDbContext.SequenciaDeEventos, 0,
+            cancellationToken);
         await base.AdicionarAsync(entidade, cancellationToken);
         Context.Entry(entidade).Property(evento => evento.Sequencia).CurrentValue = sequencia;
     }
