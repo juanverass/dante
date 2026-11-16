@@ -427,10 +427,9 @@ public sealed class ContextoCompactoTests
         var linhas = pacote.TextoParaInjecao.Split('\n');
         Assert.StartsWith(FormatoDeContexto.Aviso, pacote.TextoParaInjecao);
         Assert.StartsWith("Um JSON por linha:", linhas[1]); Assert.Equal("", linhas[^1]);
-        // Depois do aviso e da legenda, só as linhas condicionais declaradas (rótulos e fonte omitida), antes dos itens.
+        // Depois do aviso e da legenda, só a linha condicional declarada da fonte omitida, antes dos itens.
         var cabecalho = linhas.TakeWhile(l => !l.StartsWith('{')).Count();
-        Assert.All(linhas[2..cabecalho], l => Assert.True(l.StartsWith(FormatoDeContexto.RotulosNaLegenda, StringComparison.Ordinal) ||
-            l.StartsWith(FormatoDeContexto.Omitido, StringComparison.Ordinal), l));
+        Assert.All(linhas[2..cabecalho], l => Assert.StartsWith(FormatoDeContexto.Omitido, l, StringComparison.Ordinal));
         var itens = linhas[cabecalho..^1].Select(l => JsonDocument.Parse(l).RootElement).ToArray();
         Assert.Equal(pacote.Itens.Count, itens.Length);
         Assert.All(itens, l => Assert.All(l.EnumerateObject(), p => Assert.Contains(p.Name, Chaves)));

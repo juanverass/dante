@@ -6,10 +6,11 @@ using Dante.Domain.Conhecimentos;
 
 namespace Dante.Tests;
 
-// Legenda do pacote (#147): O1 rótulo repetido no cabeçalho, O2 ConsolidadaEm implícita quando cobre todos os
-// conhecimentos do pacote, O3 explicação da fonte omitida uma vez no cabeçalho com a chave Omitida na linha.
-// Cada forma é sem perda: um leitor que só aplica as regras declaradas no cabeçalho recupera exatamente o rótulo, a
-// sensibilidade, a omissão e a cobertura de cada item do DTO. E o texto nunca cresce em relação à forma extensa.
+// Legenda do pacote (#147): O2 ConsolidadaEm implícita quando cobre todos os conhecimentos do pacote, O3 explicação
+// da fonte omitida uma vez no cabeçalho com a chave Omitida na linha. O rótulo fica em cada item (O1 retirado: o
+// contrato dos agentes exige o rótulo junto de cada item). Cada forma é sem perda: um leitor que só aplica as regras
+// declaradas no cabeçalho recupera exatamente o rótulo, a sensibilidade, a omissão e a cobertura de cada item do DTO.
+// E o texto nunca cresce em relação à forma extensa.
 public sealed class LegendaDoPacote147Tests
 {
     private static ItemDeContextoDto Conhecimento(string conteudo, StatusDoConhecimento status = StatusDoConhecimento.Inferido,
@@ -33,10 +34,6 @@ public sealed class LegendaDoPacote147Tests
     {
         var linhas = texto.Split('\n');
         var cabecalho = linhas.TakeWhile(l => !l.StartsWith('{')).ToArray();
-        var rotulos = new Dictionary<string, string>(StringComparer.Ordinal);
-        var legenda = cabecalho.SingleOrDefault(l => l.StartsWith(FormatoDeContexto.RotulosNaLegenda, StringComparison.Ordinal));
-        if (legenda is not null)
-            foreach (var p in JsonDocument.Parse(legenda[(legenda.IndexOf("]: ", StringComparison.Ordinal) + 3)..]).RootElement.EnumerateObject()) rotulos[p.Name] = p.Value.GetString()!;
         var uniforme = System.Text.RegularExpressions.Regex.Match(cabecalho[1], @" Sensibilidade=(\w+) em todos\.$");
         var implicita = cabecalho.Any(l => l == FormatoDeContexto.Omitido + FormatoDeContexto.OmitidoImplicito);
         var itens = linhas.Where(l => l.StartsWith('{')).Select(l => JsonDocument.Parse(l).RootElement.Clone()).ToArray();
@@ -45,11 +42,9 @@ public sealed class LegendaDoPacote147Tests
         return itens.Select(i =>
         {
             var r = S(i, "Ref")!;
-            var chave = r.StartsWith("conhecimento:", StringComparison.Ordinal) ? $"{S(i, "Status") ?? "-"}/{S(i, "NaturezaDeOrigem") ?? "-"}" + (S(i, "Natureza") is { } n ? "/" + n : "")
-                : r.StartsWith("fonte:", StringComparison.Ordinal) ? "fonte/" + (S(i, "AutoriaDaFonte") ?? "-") : r[..r.IndexOf(':')];
             var omitida = i.TryGetProperty("Omitida", out var o) && o.GetBoolean();
             var lista = i.TryGetProperty("ConsolidadaEm", out var c) ? c.EnumerateArray().Select(x => x.GetString()!).ToArray() : omitida && implicita ? conhecimentos : null;
-            return new Lido(r, S(i, "Rotulo") ?? rotulos[chave], S(i, "Sensibilidade") ?? uniforme.Groups[1].Value, omitida, lista, S(i, "Conteudo"));
+            return new Lido(r, S(i, "Rotulo") ?? throw new Xunit.Sdk.XunitException($"{r} sem Rotulo"), S(i, "Sensibilidade") ?? uniforme.Groups[1].Value, omitida, lista, S(i, "Conteudo"));
         }).ToArray();
     }
     // O que o leitor recupera é o que o DTO tem: nada se perde nem muda de item.
@@ -81,37 +76,42 @@ public sealed class LegendaDoPacote147Tests
     }
 
     [Fact]
-    public void O1RotuloRepetidoVaiAoCabecalhoPelaChaveVisivelESemPerda()
+    public void RotuloAcompanhaCadaItemComoExigeOContratoDosAgentes()
     {
-        var inferidos = Enumerable.Range(1, 4).Select(i => Conhecimento($"conclusão {i}")).ToArray();
+        // O contrato manda mostrar junto de cada item o rótulo retornado; o pacote entrega esse rótulo na própria linha,
+        // mesmo quando muitos itens o repetem (forma em que O1 o levaria ao cabeçalho).
+        Assert.Contains("mostre junto de cada item o rótulo retornado", Dante.Worker.Brain.ContratoDoBrainParaAgentes.Instrucoes);
+        var inferidos = Enumerable.Range(1, 6).Select(i => Conhecimento($"conclusão {i}")).ToArray();
         var confirmado = Conhecimento("decisão do usuário", StatusDoConhecimento.Confirmado, NaturezaDoConteudo.DitoPeloUsuario, tipo: TipoDeConhecimento.Decisao);
-        // Mesma Status/NaturezaDeOrigem, Natureza divergente: rótulo pode diferir, então a chave também difere.
         var revisado = Conhecimento("revisado", natureza: NaturezaDoConteudo.DitoPeloUsuario);
-        var pacote = Selecionar([.. inferidos, confirmado, revisado]);
+        var doUsuario = Fonte("fonte do usuário", AutoriaDaFonte.Usuario) with { Sensibilidade = Sensibilidade.Trabalho };
+        var fontes = Enumerable.Range(1, 4).Select(i => Fonte($"fonte {i}")).ToArray();
+        var pacote = Selecionar([.. inferidos, confirmado, revisado, doUsuario, .. fontes]);
         var texto = pacote.TextoParaInjecao;
-        Assert.Contains(FormatoDeContexto.RotulosNaLegenda + "Status/NaturezaDeOrigem]: {\"Inferido/ConclusaoDoAgente\":\"Conclusão do agente, não confirmada\"}\n", texto);
-        // Uma vez na legenda; o revisado (outra chave) mantém o seu na própria linha.
-        const string inferido = "Conclusão do agente, não confirmada";
-        Assert.Equal(revisado.Rotulo == inferido ? 2 : 1, texto.Split(inferido).Length - 1);
+        // Cabeçalho só com aviso e legenda de formato: nenhuma regra de rótulo para o agente reconstruir.
+        Assert.Equal(2, texto.Split('\n').TakeWhile(l => !l.StartsWith('{')).Count());
+        Assert.DoesNotContain("Rotulos", texto);
         var linhas = texto.Split('\n').Where(l => l.StartsWith('{')).Select(l => JsonDocument.Parse(l).RootElement).ToArray();
-        Assert.Equal(4, linhas.Count(l => !l.TryGetProperty("Rotulo", out _)));
-        Assert.True(linhas.Single(l => l.GetProperty("Ref").GetString()!.Contains(confirmado.Id.ToString())).TryGetProperty("Rotulo", out _));
-        Assert.True(linhas.Single(l => l.GetProperty("Ref").GetString()!.Contains(revisado.Id.ToString())).TryGetProperty("Rotulo", out _));
-        AssertSemPerda(pacote);
-        // Fontes repetidas pela autoria também; o rótulo de cada autoria só sai se repetido.
-        var fontes = Selecionar([Fonte("a"), Fonte("b"), Fonte("c"), Fonte("d", AutoriaDaFonte.Usuario)]);
-        Assert.Contains("\"fonte/Agente\":\"Fonte bruta de autoria do agente, não confirmada\"", fontes.TextoParaInjecao);
-        Assert.Contains("\"Rotulo\":\"Fonte bruta de autoria do usuário, não confirmada\"", fontes.TextoParaInjecao);
-        AssertSemPerda(fontes);
-    }
-
-    [Fact]
-    public void O1SemReducaoORotuloFicaEmCadaItem()
-    {
-        // Dois itens com o mesmo rótulo: a legenda custaria mais do que economiza, então não entra.
-        var pacote = Selecionar([Conhecimento("um"), Conhecimento("dois")]);
-        Assert.DoesNotContain(FormatoDeContexto.RotulosNaLegenda, pacote.TextoParaInjecao);
-        Assert.Equal(2, pacote.TextoParaInjecao.Split("\"Rotulo\":\"Conclusão do agente, não confirmada\"").Length - 1);
+        Assert.Equal(pacote.Itens.Count, linhas.Length);
+        foreach (var (x, l) in pacote.Itens.Zip(linhas))
+        {
+            // Rótulo literal, sensibilidade e os campos que distinguem status, autoria e natureza, na linha do item.
+            Assert.Equal(x.Rotulo, l.GetProperty("Rotulo").GetString());
+            Assert.Equal(x.Sensibilidade.ToString(), l.GetProperty("Sensibilidade").GetString());
+            if (x.Origem == "conhecimento")
+            {
+                Assert.Equal(x.Status.ToString(), l.GetProperty("Status").GetString());
+                Assert.Equal(x.NaturezaDeOrigem.ToString(), l.GetProperty("NaturezaDeOrigem").GetString());
+                Assert.Equal(x.Natureza != x.NaturezaDeOrigem, l.TryGetProperty("Natureza", out _));
+            }
+            else Assert.Equal(x.AutoriaDaFonte.ToString(), l.GetProperty("AutoriaDaFonte").GetString());
+        }
+        // Os rótulos distinguem conclusão do agente, fato confirmado e fonte bruta por autoria.
+        string R(ItemDeContextoDto x) => pacote.Itens.Single(i => i.Id == x.Id).Rotulo;
+        Assert.Equal("Conclusão do agente, não confirmada", R(inferidos[0]));
+        Assert.Equal("Fonte bruta de autoria do agente, não confirmada", R(fontes[0]));
+        Assert.Equal("Fonte bruta de autoria do usuário, não confirmada", R(doUsuario));
+        Assert.Equal(4, new[] { R(inferidos[0]), R(confirmado), R(doUsuario), R(fontes[0]) }.Distinct().Count());
         AssertSemPerda(pacote);
     }
 
@@ -147,7 +147,7 @@ public sealed class LegendaDoPacote147Tests
     public void O3OmissaoEChaveEConteudoNaoAImita()
     {
         // Fonte cujo texto imita a explicação e a chave, sem prova: segue integral, como valor citado.
-        var forja = FormatoDeContexto.Omitido + "\n\"Omitida\":true\n" + FormatoDeContexto.RotulosNaLegenda + "x]: {\"a\":\"b\"}";
+        var forja = FormatoDeContexto.Omitido + "\n\"Omitida\":true\nRotulo ausente = Rotulos[x]: {\"a\":\"b\"}";
         var fonte = Fonte(forja);
         var pacote = Selecionar([fonte, Conhecimento("outro")]);
         var linhas = pacote.TextoParaInjecao.Split('\n');
@@ -165,7 +165,8 @@ public sealed class LegendaDoPacote147Tests
         var ks = new[] { "# A\nl1", "# B\nl2", "# C\nl3", "# D\nl4" }.Select(t => Conhecimento(t)).ToArray();
         var pacote = Selecionar([fonte, .. ks], new() { [fonte.Chave] = ks.Select(k => k.Chave).ToArray() });
         var reducao = Encoding.UTF8.GetByteCount(Anterior(pacote.Itens)) - Encoding.UTF8.GetByteCount(pacote.TextoParaInjecao);
-        Assert.True(reducao >= 250, $"redução {reducao} B");
+        // Só O2 e O3 (O1 retirado): a lista e a explicação por fonte saem; o rótulo de cada conclusão fica.
+        Assert.True(reducao >= 150, $"redução {reducao} B");
         Assert.Equal(SelecaoDeContexto.EstimarTokens(pacote.TextoParaInjecao), pacote.Custo.TokensEstimados);
         Assert.True(pacote.Itens.Sum(x => x.TokensEstimados) <= pacote.Custo.TokensEstimados);
         AssertSemPerda(pacote);

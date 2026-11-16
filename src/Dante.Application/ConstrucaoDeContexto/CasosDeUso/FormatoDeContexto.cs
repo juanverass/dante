@@ -19,43 +19,20 @@ internal static class FormatoDeContexto
     // são exatamente todos os conhecimentos do pacote (o leitor não precisa de lista para saber quais são).
     internal const string Omitido = "Omitida=true: íntegra fora do pacote; cada trecho da revisão está num conhecimento de ConsolidadaEm, com origem via brain_mostrar_origem.";
     internal const string OmitidoImplicito = " Sem ConsolidadaEm: todos os conhecimentos deste pacote.";
-    // O1: rótulo repetido vai uma vez ao cabeçalho, indexado pelos campos visíveis do próprio item que o determinam.
-    internal const string RotulosNaLegenda = "Rotulo ausente = Rotulos[";
+    // O rótulo fica em cada item: ContratoDoBrainParaAgentes manda mostrar junto de cada item o rótulo retornado. A
+    // legenda de rótulos repetidos (O1) foi retirada da AD-65 até haver validação real de que os agentes a resolvem.
     internal static string Cabecalho(Sensibilidade? uniforme) => Cabecalho(PlanoDoFormato.Extenso with { Uniforme = uniforme });
     internal static string Cabecalho(PlanoDoFormato plano)
     {
         var texto = new StringBuilder(Aviso).Append(Legenda[..^1]);
         if (plano.Uniforme is { } s) texto.Append($" Sensibilidade={s} em todos.");
         texto.Append('\n');
-        if (plano.Rotulos.Count > 0)
-        {
-            var chaves = plano.Rotulos.Keys.ToArray();
-            var formas = new List<string>();
-            if (chaves.Any(c => !c.StartsWith("fonte/", StringComparison.Ordinal) && c.Contains('/')))
-                formas.Add(chaves.Any(c => !c.StartsWith("fonte/", StringComparison.Ordinal) && c.Count(x => x == '/') == 2) ? "Status/NaturezaDeOrigem[/Natureza]" : "Status/NaturezaDeOrigem");
-            if (chaves.Any(c => c.StartsWith("fonte/", StringComparison.Ordinal))) formas.Add("fonte/AutoriaDaFonte");
-            if (chaves.Any(c => !c.Contains('/'))) formas.Add("origem");
-            var buffer = new MemoryStream();
-            using (var w = new Utf8JsonWriter(buffer, Opcoes))
-            { w.WriteStartObject(); foreach (var (chave, rotulo) in plano.Rotulos.OrderBy(x => x.Key, StringComparer.Ordinal)) w.WriteString(chave, rotulo); w.WriteEndObject(); }
-            texto.Append(RotulosNaLegenda).Append(string.Join(" ou ", formas)).Append("]: ").Append(Encoding.UTF8.GetString(buffer.ToArray())).Append('\n');
-        }
         if (plano.ComFonteOmitida) texto.Append(Omitido).Append(plano.ConsolidacaoImplicita.Count > 0 ? OmitidoImplicito : "").Append('\n');
         return SemSeparadoresDeLinha(texto.ToString());
     }
 
-    // Chave do rótulo: os valores visíveis na própria linha que o determinam (Rotular usa NaturezaDeOrigem, Natureza e
-    // Status; RotularFonte, a autoria). Snapshot e candidato têm rótulo fixo pela origem.
-    internal static string ChaveDoRotulo(ItemDeContextoDto x) => x.Origem switch
-    {
-        "conhecimento" => $"{Valor(x.Status)}/{Valor(x.NaturezaDeOrigem)}" + (x.Natureza != x.NaturezaDeOrigem ? "/" + Valor(x.Natureza) : ""),
-        "fonte_bruta" => "fonte/" + Valor(x.AutoriaDaFonte),
-        _ => x.Origem
-    };
-    private static string Valor<T>(T? v) where T : struct, Enum => v?.ToString() ?? "-";
-
-    // Escolhe, entre as formas equivalentes, a de menos bytes: sensibilidade no cabeçalho (quando uniforme) e rótulos
-    // repetidos na legenda são aplicados só se reduzem o texto. Omissão implícita de ConsolidadaEm não tem alternativa.
+    // Escolhe, entre as formas equivalentes, a de menos bytes: sensibilidade no cabeçalho só se uniforme e menor.
+    // Omissão implícita de ConsolidadaEm não tem alternativa; o custo da forma omitida é contado na seleção.
     internal static PlanoDoFormato Planejar(IReadOnlyList<ItemDeContextoDto> itens)
     {
         var conhecimentos = itens.Where(x => x.Origem == "conhecimento").Select(Identidade).ToHashSet(StringComparer.Ordinal);
@@ -64,9 +41,6 @@ internal static class FormatoDeContexto
         var plano = PlanoDoFormato.Extenso with { ConsolidacaoImplicita = implicita, ComFonteOmitida = itens.Any(x => x.ConsolidadaEm is { Count: > 0 }) };
         int Bytes(PlanoDoFormato p) => Encoding.UTF8.GetByteCount(Texto(itens, p));
         if (itens.Count > 1 && itens.All(x => x.Sensibilidade == itens[0].Sensibilidade) && plano with { Uniforme = itens[0].Sensibilidade } is var u && Bytes(u) < Bytes(plano)) plano = u;
-        var repetidos = itens.GroupBy(ChaveDoRotulo, StringComparer.Ordinal).Where(g => g.Count() > 1)
-            .ToDictionary(g => g.Key, g => g.First().Rotulo, StringComparer.Ordinal);
-        if (repetidos.Count > 0 && plano with { Rotulos = repetidos } is var r && Bytes(r) < Bytes(plano)) plano = r;
         return plano;
     }
     internal static string Texto(IReadOnlyList<ItemDeContextoDto> itens, PlanoDoFormato plano) =>
@@ -98,7 +72,7 @@ internal static class FormatoDeContexto
     private static bool Identifica(ItemDeContextoDto x, string referencia) => referencia == Identidade(x) ||
         x.Origem == "fonte_bruta" && referencia.StartsWith($"brain://fonte/{x.Id:D}/revisao/{x.Revisao}/", StringComparison.Ordinal);
 
-    // Forma extensa (estimativa da seleção): rótulo e sensibilidade por item.
+    // Forma extensa (estimativa da seleção): sensibilidade por item.
     internal static string Formatar(ItemDeContextoDto x, bool comSensibilidade) =>
         Formatar(x, comSensibilidade ? PlanoDoFormato.Extenso : PlanoDoFormato.Extenso with { Uniforme = x.Sensibilidade });
     internal static string Formatar(ItemDeContextoDto x, PlanoDoFormato plano)
@@ -113,7 +87,7 @@ internal static class FormatoDeContexto
             Opcional(w, "NaturezaDeOrigem", x.NaturezaDeOrigem?.ToString());
             if (x.Natureza != x.NaturezaDeOrigem) Opcional(w, "Natureza", x.Natureza?.ToString());
             Opcional(w, "AutoriaDaFonte", x.AutoriaDaFonte?.ToString());
-            if (!plano.Rotulos.ContainsKey(ChaveDoRotulo(x))) w.WriteString("Rotulo", x.Rotulo);
+            w.WriteString("Rotulo", x.Rotulo);
             if (plano.Uniforme is null) w.WriteString("Sensibilidade", x.Sensibilidade.ToString());
             if (x.InicioDaFonte is { } inicio) w.WriteNumber("InicioDaFonte", inicio);
             Lista(w, "Relacoes", x.Relacoes);
@@ -148,9 +122,9 @@ internal static class FormatoDeContexto
 }
 
 // Decisões de forma de um pacote, todas sem perda: cada uma tem regra declarada no cabeçalho.
-internal sealed record PlanoDoFormato(Sensibilidade? Uniforme, IReadOnlyDictionary<string, string> Rotulos, IReadOnlySet<string> ConsolidacaoImplicita, bool ComFonteOmitida)
+internal sealed record PlanoDoFormato(Sensibilidade? Uniforme, IReadOnlySet<string> ConsolidacaoImplicita, bool ComFonteOmitida)
 {
-    internal static readonly PlanoDoFormato Extenso = new(null, new Dictionary<string, string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), false);
+    internal static readonly PlanoDoFormato Extenso = new(null, new HashSet<string>(StringComparer.Ordinal), false);
 }
 
 // Campo nomeado do snapshot operacional. Listas (referências, pendências, próximos passos) mantêm cada entrada.
