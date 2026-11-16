@@ -24,7 +24,8 @@ vivo é persistido como se fosse retomável.**
   `AutorizacaoDoBrain`, aplica `FiltrosDoBrain` e `ValidacaoDeEscritaDoBrain`, que não fazem sentido para execuções.
   Reutilizam-se `EntidadeConfiguration` (Guid do domínio + `xmin` como `Versao`), `Repository<T>`, o padrão de
   `UnitOfWork` e o comando administrativo `--brain migrate` estendido (ou `--banco migrate`), sem migração
-  automática no startup (AD-53);
+  automática no startup (AD-53). Aplicar a migration no banco canônico do homelab é passo operacional com
+  autorização própria, como nas migrations do Brain;
 - **sem banco configurado**, o Worker continua exatamente como hoje (jobs e sessões em memória) e os comandos
   multiagente respondem "indisponível sem banco". Mesma postura opcional do Brain (AD-54). Ver ponto de aprovação
   no [README](README.md#pontos-que-precisam-de-aprovação).
@@ -61,18 +62,20 @@ stateDiagram-v2
   EmExecucao --> AguardandoDelegacoes: filhas em andamento
   EmExecucao --> Bloqueada: impedimento que exige humano
   EmExecucao --> Interrompida: Worker morreu / lease perdido
+  EmExecucao --> Pendente: etapa retentável reprogramada (disponivel_em futuro)
   AguardandoAprovacao --> Pendente: aprovada (próximo passo enfileirado)
-  AguardandoAprovacao --> Cancelada: recusada sem alternativa / expirada
+  AguardandoAprovacao --> Cancelada: recusada sem alternativa / expirada / cancelada
   AguardandoEntrada --> Pendente: respondida
+  AguardandoEntrada --> Cancelada
   AguardandoDelegacoes --> Pendente: todas as filhas terminais
+  AguardandoDelegacoes --> Cancelada
   Bloqueada --> Pendente: desbloqueada pelo humano
+  Bloqueada --> Cancelada
   Interrompida --> Pendente: retomada (automática ou confirmada)
   Interrompida --> Cancelada
   EmExecucao --> Concluida
-  EmExecucao --> Falhou
+  EmExecucao --> Falhou: erro permanente ou tentativas esgotadas
   EmExecucao --> Cancelada
-  AguardandoAprovacao --> Cancelada
-  AguardandoDelegacoes --> Cancelada
   Concluida --> [*]
   Falhou --> [*]
   Cancelada --> [*]
@@ -87,7 +90,7 @@ stateDiagram-v2
 | Concluído | `Concluida` |
 | Com falha | `Falhou` |
 | Cancelado | `Cancelada` |
-| Pode ser retomado | `Interrompida` (sempre) e `Falhou` com `Erro.Retentavel = true` |
+| Pode ser retomado | `Interrompida` e `Bloqueada`. `Falhou` é terminal: erro retentável de etapa não chega a falhar a execução (ela volta a `Pendente` com espera); refazer uma execução falha é criar outra que referencia a anterior |
 
 Transições são métodos do domínio (`Execucao.Iniciar`, `AguardarAprovacao`, `Concluir`…) que recusam origem
 inválida, e cada gravação usa `xmin` (AD-43): duas gravações concorrentes resultam em
@@ -137,8 +140,9 @@ sequenceDiagram
 
 Executada uma vez pelo hosted service de recuperação, **antes** de o processador da fila começar:
 
-1. **Parar órfãos**: listar unidades `dante-agent-*.scope` do usuário e parar as que não pertencem ao boot atual
-   (o registro da sessão guarda o nome da unidade). Hoje isso não existe (lacuna do [INVENTARIO](INVENTARIO.md)).
+1. **Parar órfãos**: listar unidades `dante-agent-*.scope` do usuário e parar só as que o ledger registra como de
+   sessão não terminal de boot anterior (o registro da sessão guarda o nome da unidade). Unidade desconhecida do
+   ledger é relatada, não parada. Hoje isso não existe (lacuna do [INVENTARIO](INVENTARIO.md)).
    Em modo compatibilidade (sem scope), matar PIDs registrados cujo horário de início confere (mesma regra da
    AD-17);
 2. **Sessões**: toda `SessaoDeAgente` não terminal de boot anterior → `Interrompida` ("reinício do Worker");
@@ -191,8 +195,9 @@ concluídas e seus resultados, motivo da interrupção e o estado do checkout li
 | Limpeza | Worktree removida (`git worktree remove`) quando a execução termina **e** a branch foi enviada ou o usuário descartou; nunca com alterações não enviadas sem confirmação |
 
 Comandos git que o D.A.N.T.E. passa a executar — conjunto fechado, `ArgumentList`, sem shell, mesmo padrão do
-`LeitorDeCheckoutsGit`: `worktree add`, `worktree remove`, `worktree prune`, `worktree list`. Nada de `push`,
-`merge`, `reset`, `clean` ou `checkout` no checkout principal. Isso complementa a AD-58 e exige a AD-71 proposta.
+`LeitorDeCheckoutsGit`: `worktree add`, `worktree remove`, `worktree prune`, `worktree list`. Nunca `--force`
+(o Git recusa remover worktree com alterações, e essa recusa é a proteção). Nada de `push`, `merge`, `reset`,
+`clean` ou `checkout` no checkout principal. Isso complementa a AD-58 e exige a AD-71 proposta.
 
 ### Pipeline de desenvolvimento como etapas persistentes
 

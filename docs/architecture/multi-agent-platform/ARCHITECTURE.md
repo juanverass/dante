@@ -73,8 +73,8 @@ flowchart TB
 | **WebApi** | Consultas e comandos (via casos de uso → fila), SSE de eventos, autenticação | Execução de agentes, processos |
 
 O legado de sessões continua no Worker (AD-35/38). `ExecutorDeEtapa` fica no Worker porque depende do
-`SessionRegistry`; quando sessões migrarem de camada, ele migra junto. Isso evita mover 2 000 linhas de sessão
-como pré-requisito.
+`SessionRegistry`; quando sessões migrarem de camada, ele migra junto. Isso evita mover as ~4 400 linhas de
+`Worker/Sessions` como pré-requisito.
 
 ## Serviços e interfaces principais (ilustrativos)
 

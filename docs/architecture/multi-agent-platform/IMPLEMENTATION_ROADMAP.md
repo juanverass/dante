@@ -73,10 +73,10 @@ em worktree, com um agente). Grupos começam na 6.
 
 ### 4. Acompanhamento — complexidade baixa/média
 
-- **Objetivo**: `/execucoes`, `/execucao E…` (etapas, sessão, estado, esperando o quê), cancelar/pausar/retomar com motivo, `/aguardando`; seção em `/status`; leitura na WebApi (`GET /execucoes`).
+- **Objetivo**: `/execucoes`, `/execucao E…` (etapas, sessão, estado, esperando o quê), cancelar/pausar/retomar com motivo, `/aguardando`; seção em `/status`. Leitura pela WebApi fica na etapa 10, depois da autenticação.
 - **Dependências**: 1, 2.
 - **Critérios**: toda execução ativa aparece; cancelar encerra processo (AD-17/63) e registra autor e motivo; listas mostram fatos sem conteúdo sensível.
-- **Testes**: consultas por estado, autorização por dono, redaction, contrato HTTP.
+- **Testes**: consultas por estado, autorização por dono, redaction.
 
 ### 5. Worktrees e concorrência — complexidade alta
 
@@ -89,15 +89,15 @@ em worktree, com um agente). Grupos começam na 6.
 
 ### 6. Grupos, roteiro e gate humano — complexidade média/alta
 
-- **Objetivo**: `GrupoDeAgentes`/`VersaoDoGrupo`, invariantes, `/grupo <nome> [@alias] <tarefa>`; roteiro implementar → revisar → corrigir → aprovação; `PedidoDeAprovacao` persistido para o gate; veredito estruturado do revisor.
-- **Dependências**: 3, 5 (e 7 para `entregar_resultado`; alternativa: veredito por arquivo de resultado na worktree até a 7 existir).
+- **Objetivo**: `GrupoDeAgentes`/`VersaoDoGrupo`, invariantes, `/grupo <nome> [@alias] <tarefa>`; roteiro implementar → revisar → corrigir → aprovação; `PedidoDeAprovacao` persistido para o gate; veredito estruturado do revisor por `entregar_resultado`.
+- **Dependências**: 3, 5. O esqueleto do `dante_coordenacao` (servidor MCP + IPC da sessão + gateway mínimo, com `entregar_resultado` e `estado_da_execucao`) nasce na primeira das etapas 6 e 7 a ser implementada; a outra o reutiliza.
 - **Critérios**: mudar o grupo não muda execução iniciada; laço limitado; gate sobrevive a reinício; resultado cita quem fez cada etapa.
 - **Testes**: roteiro por tabela com drivers falsos programados; reinício no meio do gate.
 - **Entregável**: AD-69 (parte de roteiro).
 
 ### 7. Delegação e comunicação — complexidade alta
 
-- **Objetivo**: `Delegacao`, `dante_coordenacao` (`consultar_agente`, `delegar_tarefa`, `estado_da_execucao`, `entregar_resultado`), retorno por novo turno, validações anti-ciclo/profundidade/dedupe/orçamento.
+- **Objetivo**: `Delegacao`, ferramentas `consultar_agente` e `delegar_tarefa` no `dante_coordenacao` (esqueleto da etapa 6 ou criado aqui), retorno por novo turno, validações anti-ciclo/profundidade/dedupe/orçamento.
 - **Dependências**: 2, 3.
 - **Critérios**: autoconsulta, ciclo, profundidade e duplicata recusados com mensagem clara; reinício no meio preserva a delegação; resultado entra como dado não confiável com autor.
 - **Testes**: casos de uso puros; MCP/IPC como `BrainMcpTests`; E2E com duas sessões simuladas; `Live*` opt-in.
@@ -113,7 +113,7 @@ em worktree, com um agente). Grupos começam na 6.
 
 ### 9. Gateway e aprovações com hash — complexidade média
 
-- **Objetivo**: `GatewayDeFerramentas`, catálogo que nega o desconhecido, `PedidoDeAprovacao` com hash/escopo/validade/execução única; Brain e planilhas atrás do gateway sem mudar a experiência; auditoria das approvals da CLI.
+- **Objetivo**: política de aprovação no `GatewayDeFerramentas` (o gateway mínimo já existe desde a 6/7): `PedidoDeAprovacao` com hash/escopo/validade/execução única para ações do D.A.N.T.E., `pedir_aprovacao`; Brain e planilhas atrás do gateway sem mudar a experiência; auditoria das approvals da CLI.
 - **Dependências**: 7.
 - **Critérios**: aprovação não executa chamada diferente, não executa duas vezes, expira, sobrevive a reinício, reconfere concessão revogada.
 - **Testes**: hash canônico, CAS de execução, revogação entre pedido e execução, regressão Brain/planilhas.
@@ -121,7 +121,7 @@ em worktree, com um agente). Grupos começam na 6.
 
 ### 10. Chat web — complexidade alta
 
-- **Objetivo**: autenticação da WebApi, REST de conversas/execuções/aprovações, SSE por sequência, UI mínima.
+- **Objetivo**: autenticação da WebApi, REST de conversas/execuções/aprovações (inclui a leitura de execuções antes prevista na 4), SSE por sequência, UI mínima.
 - **Dependências**: 4, 9.
 - **Critérios**: o que aparece no Telegram aparece na web com o mesmo estado; reconexão sem perda de evento; WebApi nunca inicia processo.
 - **Entregável**: AD-73.

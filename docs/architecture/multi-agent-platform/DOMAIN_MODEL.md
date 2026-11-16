@@ -50,7 +50,7 @@ classDiagram
   class VersaoDoGrupo {
     Numero
     ModoDeCoordenacao
-    IdVersaoCoordenador
+    IdAgenteCoordenador
     Politica
     Roteiro
   }
@@ -134,7 +134,7 @@ classDiagram
   Agente "1" --> "1..*" VersaoDoAgente
   GrupoDeAgentes "1" --> "1..*" VersaoDoGrupo
   VersaoDoGrupo "1" --> "1..*" ParticipanteDoGrupo
-  ParticipanteDoGrupo "*" --> "1" VersaoDoAgente
+  ParticipanteDoGrupo "*" --> "1" Agente
   SessaoDeAgente "*" --> "1" VersaoDoAgente
   Conversa "1" --> "*" Execucao
   Conversa "1" --> "*" SessaoDeAgente
@@ -171,6 +171,7 @@ classDiagram
 | `PerfilPadrao`, `PerfilMaximo` | `VersaoDoAgente` | `AgentPermissionProfile`. A sessão pode restringir, nunca ampliar acima do máximo. `full` continua inexistente (AD-22/24) |
 | `Concessoes` | `VersaoDoAgente` | Servidores de ferramentas do D.A.N.T.E. permitidos (`dante_brain` leitura/escrita, `dante_planilhas`, `dante_coordenacao`) e repositórios permitidos (aliases ou "qualquer") |
 | `PodeEscrever` | `VersaoDoAgente` | Falso → só perfil `plan` e etapas de leitura |
+| `PodeConsultar` | `VersaoDoAgente` | Handles que este agente pode consultar fora de um grupo ([DELEGATION](DELEGATION.md#validações-determinísticas-no-caso-de-uso-antes-de-qualquer-processo)); vazio = nenhum |
 | `LimitesDeAutonomia` | `VersaoDoAgente` | Máx. delegações por execução, profundidade, turnos por etapa, duração por etapa |
 | `LimitesDeConsumo` | `VersaoDoAgente` | Tokens por execução (quando a CLI informa, `AgentTokenUsage`), execuções simultâneas. Custo em dinheiro não se aplica às assinaturas (AD-31) e fica fora |
 | `HashDaConfiguracao` | `VersaoDoAgente` | SHA-256 do JSON canônico da versão; identifica reprodutibilidade |

@@ -59,7 +59,7 @@ sequenceDiagram
 | Ciclos | destinatário não pode estar na cadeia de agentes ativos da raiz até a origem |
 | Recursão ilimitada | `Profundidade ≤ min(política do grupo, limite do agente, global = 3)` |
 | Duplicação | `ChaveDeDeduplicacao` única entre delegações não terminais da mesma raiz; também recusa repassar o que o humano já pediu diretamente ao destinatário na mesma conversa |
-| Explosão de agentes | `DelegacoesMaximas` por raiz e `ParalelismoMaximo` de filhas simultâneas; destinatário precisa ser participante do grupo (execução de grupo) ou estar na lista `PodeConsultar` do agente (execução individual) |
+| Explosão de agentes | `DelegacoesMaximas` por raiz e `ParalelismoMaximo` de filhas simultâneas; destinatário precisa ser participante do grupo (execução de grupo) ou estar em `PodeConsultar` da versão do agente solicitante (execução individual) |
 | Consumo ilimitado | Orçamento da raiz: turnos, duração e tokens (somatório de `AgentTokenUsage` quando a CLI informa); a filha recebe uma fatia; esgotado → `Falhou` com motivo, e a origem é informada |
 | Escalada de permissão | Perfil da filha = mínimo entre o pedido, a versão destinatária e a política; `Tarefa` com escrita exige worktree e, até o gateway existir, só é aceita em roteiro (não em delegação livre) |
 | Sem rastreabilidade | Todo resultado tem autor (versão), execução, etapa e evidências; a consolidação cita `E…` e o agente |
@@ -86,7 +86,9 @@ execução (nunca à conversa comum) e só com as ferramentas que o papel permit
 | `pedir_aprovacao` | conforme política | Pedido de aprovação de negócio, via gateway |
 
 Somente leitura (`estado_da_execucao`) roda sem aprovação; as demais seguem o gateway e a política
-([SECURITY_AND_APPROVALS](SECURITY_AND_APPROVALS.md)).
+([SECURITY_AND_APPROVALS](SECURITY_AND_APPROVALS.md#gateway-de-ferramentas-do-dante)). O servidor nasce com o
+gateway mínimo (identidade, catálogo, concessão, schema, registro) na primeira etapa do roadmap que o expõe;
+`pedir_aprovacao` e a aprovação com hash só entram com a etapa 9.
 
 ## Comunicação: alternativas
 

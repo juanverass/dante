@@ -30,6 +30,15 @@ Base: `main` @ `79c1d01` (2026-11-16), lida em código, testes, ADRs e Issues; i
 8. **Chat é interface**: a WebApi lê o ledger, enfileira comandos e transmite eventos por SSE; nunca executa agente.
 9. **Brain fornece conhecimento; não coordena.** Estado de execução vem do ledger.
 
+## Estrutura documental
+
+| Camada | Onde | Natureza |
+| --- | --- | --- |
+| Pesquisa | [`docs/research/agentes-chat/`](../../research/agentes-chat/README.md) | Referência sobre o concorrente, com marcas de origem **[C]/[O]/[D]/[I]/[R]**. Não decide nada; onde diverge desta proposta, vale a proposta |
+| Proposta | este diretório | Arquitetura do D.A.N.T.E. para a Epic #296, fundamentada no código atual e nas ADs vigentes. **Aguarda aprovação humana** |
+| ADs propostas | [ADRS_PROPOSTAS](ADRS_PROPOSTAS.md) | AD-66 a AD-73 em rascunho. Cada uma entra em [`ARCHITECTURE_DECISIONS.md`](../../context/ARCHITECTURE_DECISIONS.md) só pelo PR da Issue que a implementa |
+| ADs vigentes | [`ARCHITECTURE_DECISIONS.md`](../../context/ARCHITECTURE_DECISIONS.md) | Não alteradas por este spike |
+
 ## Documentos
 
 | Documento | Conteúdo |
@@ -62,6 +71,26 @@ Base: `main` @ `79c1d01` (2026-11-16), lida em código, testes, ADRs e Issues; i
 | Contenção estrita ainda não ativa no serviço do homelab | AD-63 | Paralelismo condicionado à ativação (autorização operacional própria) |
 | #297 sem label `status:*` | backlog.md | Registrado no claim de turno; a correção da label é decisão humana |
 
+## Revisão crítica (rodada 2)
+
+As 12 decisões centrais foram confrontadas de novo com as ADs vigentes e o código. Nenhuma foi revertida; as
+inconsistências encontradas foram corrigidas nos documentos.
+
+| Decisão | Veredito | Ajuste desta rodada |
+| --- | --- | --- |
+| PostgreSQL como requisito | Mantida: o banco já é operado para o Brain; SQLite seria um segundo motor sem `SKIP LOCKED`/`NOTIFY` | Alternativa SQLite registrada em [DURABLE_QUEUE](DURABLE_QUEUE.md#alternativas-comparadas); chave `Orquestracao:Habilitada` separada da connection string |
+| Schema próprio no banco do Brain | Mantida, com DbContext próprio (o do Brain exige `AutorizacaoDoBrain`) | Migration no banco canônico registrada como passo operacional com autorização própria |
+| Agente × sessão × execução | Mantida | Participantes de grupo passam a referenciar o agente; a versão é congelada na execução (antes havia duas versões do texto); `PodeConsultar` entrou no modelo |
+| Persistência e fila | Mantida | Estados: `Falhou` é terminal, erro retentável volta a `Pendente`; cancelamento possível de todo estado de espera |
+| Recuperação após reinício | Mantida | Varredura limitada aos scopes registrados no ledger; unidade desconhecida é relatada, não parada |
+| Worktree obrigatória em execução nova que escreve | Mantida: é o que permite paralelismo sem tocar no checkout do usuário | — |
+| D.A.N.T.E. executando Git de escrita | Mantida e restrita: só `git worktree add/remove/prune/list`, nunca `--force` | `--force` explicitamente proibido (AD-71) |
+| Roteiro fixo antes do coordenador | Mantida | O veredito do revisor deixa de ter alternativa "arquivo na worktree": o esqueleto do `dante_coordenacao` nasce na primeira etapa que o usa |
+| Limites de delegação e concorrência | Mantidos | Global = 1 processo de execução até a contenção estrita (AD-63) estar ativa no serviço; 3 depois |
+| Gateway centralizado | Mantido, entregue em duas partes | Gateway mínimo com o `dante_coordenacao` (etapa 6/7); aprovação com hash na etapa 9. Antes, a delegação citava um gateway que só existiria depois |
+| Aprovações persistentes | Mantidas, coexistindo com as approvals da CLI (AD-22) | — |
+| Autenticação antes do chat web | Mantida | A leitura `GET /execucoes` saiu da etapa 4 e foi para a 10: nenhum endpoint de dados antes da autenticação |
+
 ## Pontos que precisam de aprovação
 
 1. **PostgreSQL como requisito dos recursos multiagente** (sem banco, nada de agentes/grupos/execuções; legado intacto).
@@ -72,9 +101,12 @@ Base: `main` @ `79c1d01` (2026-11-16), lida em código, testes, ADRs e Issues; i
 5. **Roteiro determinístico antes do coordenador LLM.** Recomendado: sim; coordenador só na etapa 8.
 6. **Sintaxe**: handles sem `@`; comandos `/tarefa <handle>`, `/grupo <nome>`, `/session start <handle>`.
 7. **Sem retomada da conversa upstream** na primeira fase (Codex efêmero); continuidade por ledger + Brain.
-8. **Limites padrão**: 3 processos globais, profundidade 2 (máx. 3), 8 delegações por raiz, 2 rodadas de revisão,
-   aprovação do D.A.N.T.E. válida por 24 h (gate de roteiro sem expiração).
+8. **Limites padrão**: 3 processos globais (1 até a contenção estrita da AD-63 estar ativa no serviço), profundidade
+   2 (máx. 3), 8 delegações por raiz, 2 rodadas de revisão, aprovação do D.A.N.T.E. válida por 24 h (gate de
+   roteiro sem expiração).
 9. **Custo por dinheiro fora**; limites por turnos, tempo e tokens informados pela CLI.
-10. **Lista de Issues** do [roadmap](IMPLEMENTATION_ROADMAP.md#issues-filhas-sugeridas-lista-enxuta) e criação só
-    das três primeiras após a aprovação.
+10. **Ordem e lista de Issues** do [roadmap](IMPLEMENTATION_ROADMAP.md#issues-filhas-sugeridas-lista-enxuta):
+    ledger → fila + recuperação → agentes → acompanhamento → **worktrees antes de grupos** (o roteiro implementar →
+    revisar → corrigir escreve código e precisa de worktree) → delegação → coordenador → gateway → chat web. Criação
+    só das três primeiras após a aprovação.
 11. **Autenticação da WebApi** antes do chat web (decisão própria, na etapa 10).

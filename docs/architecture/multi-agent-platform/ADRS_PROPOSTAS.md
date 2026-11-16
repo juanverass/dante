@@ -26,7 +26,8 @@
 - **Decisão**: tabela `trabalhos_da_fila` como outbox transacional; reivindicação por `FOR UPDATE SKIP LOCKED`;
   lease de 60 s com heartbeat de 20 s e *fencing* por `geracao`; `chave_de_deduplicacao` única; backoff;
   `disponivel_em` para timers; `LISTEN/NOTIFY` + polling; nenhuma transação aberta durante a chamada à CLI.
-  Recuperação na inicialização para scopes `dante-agent-*` órfãos, marca etapas interrompidas e aplica a política
+  Recuperação na inicialização para os scopes `dante-agent-*` registrados no ledger como de boot anterior, marca
+  etapas interrompidas e aplica a política
   de retomada (`Automatica`, `ComConfirmacao`, `Nunca`).
 - **Alternativas rejeitadas**: só memória; lease na própria execução; Hangfire/Quartz; broker externo
   ([DURABLE_QUEUE](DURABLE_QUEUE.md#alternativas-comparadas)).
@@ -44,8 +45,9 @@
 
 ## AD-69 — Grupos versionados com coordenação explícita: roteiro determinístico primeiro, coordenador por papel depois
 
-- **Decisão**: `GrupoDeAgentes` + `VersaoDoGrupo` imutável (participantes com papel, responsabilidades e
-  `PodeEscrever`; política; modo `Roteiro` ou `Coordenador`). Roteiro é executado pelo orquestrador (código). O
+- **Decisão**: `GrupoDeAgentes` + `VersaoDoGrupo` imutável (participantes por agente, com papel, responsabilidades e
+  `PodeEscrever`; política; modo `Roteiro` ou `Coordenador`). A versão de cada participante é congelada na criação
+  da execução. Roteiro é executado pelo orquestrador (código). O
   coordenador é um papel atribuído a um agente registrado, com plano estruturado validado pelo orquestrador e
   aprovado pelo humano conforme a política. Nada de coordenador implícito ou permanente.
 - **Consequências**: o pipeline implementar → revisar → corrigir → aprovação vira um roteiro; o Brain não coordena.
@@ -62,7 +64,7 @@
 
 - **Contexto**: a AD-58 determina que o D.A.N.T.E. não executa `git` de escrita e não bloqueia checkouts.
 - **Decisão**: o D.A.N.T.E. passa a executar somente `git worktree add|remove|prune|list` (ArgumentList, sem shell,
-  `core.fsmonitor=false`, prazo), em `~/.dante/worktrees/<alias>/E<n>`, com branch prefixada pelo agente; um
+  `core.fsmonitor=false`, prazo, nunca `--force`), em `~/.dante/worktrees/<alias>/E<n>`, com branch prefixada pelo agente; um
   escritor por worktree; execuções novas nunca escrevem no checkout principal. Push, PR e merge continuam fora:
   push/PR pelo agente (contrato multirrepositório), merge sempre humano.
 - **Relação**: complementa a AD-58 sem substituí-la para os fluxos existentes; altera o limite "worktrees
@@ -75,6 +77,7 @@
   `PedidoDeAprovacao` com hash SHA-256 de ferramenta + parâmetros canônicos + execução, escopo `UmaVez` ou
   `EstaExecucao`, validade, decisor, `executada_em` por CAS e resultado `Incerto` sem repetição automática.
   Ferramentas nativas da CLI continuam governadas por perfil, approvals da AD-22 e contenção AD-63, só auditadas.
+  Entrega em duas partes: gateway mínimo com o `dante_coordenacao`; política de aprovação com hash depois.
 - **Relação**: complementa AD-22 (dois tipos de aprovação coexistem) e AD-55/56 (Brain e planilhas atrás do gateway).
 
 ## AD-73 — WebApi como interface de leitura e comando via fila, com eventos persistidos e SSE

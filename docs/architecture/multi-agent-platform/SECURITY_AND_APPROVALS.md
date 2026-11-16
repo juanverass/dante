@@ -61,6 +61,9 @@ Regras:
   execução, versão do agente e autoridade;
 - **catálogo nega o desconhecido**: ferramenta fora do catálogo do D.A.N.T.E. não é exposta nem executada;
 - **concessão lida a cada chamada** do banco (versão congelada na execução), não do texto do prompt;
+- **entrega em duas partes**: o gateway mínimo (passos 1–4, 6 e registro) nasce com o `dante_coordenacao`; a
+  política de aprovação com hash (passo 5) e a migração de Brain e planilhas entram na etapa 9 do
+  [roadmap](IMPLEMENTATION_ROADMAP.md#9-gateway-e-aprovações-com-hash--complexidade-média);
 - **planilhas e Brain migram para trás do gateway sem mudar comportamento**: hoje suas escritas usam a aprovação
   da CLI (AD-55) ou a confirmação no Telegram (AD-56); a migração mantém essas experiências e acrescenta o registro.
 

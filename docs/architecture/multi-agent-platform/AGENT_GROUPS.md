@@ -20,7 +20,7 @@ public sealed class VersaoDoGrupo : EntidadeBase        // imutável
     public Guid IdGrupo { get; private set; }
     public int Numero { get; private set; }
     public ModoDeCoordenacao Modo { get; private set; }      // Roteiro | Coordenador
-    public Guid? IdVersaoDoCoordenador { get; private set; } // obrigatório no modo Coordenador
+    public Guid? IdAgenteCoordenador { get; private set; }   // obrigatório no modo Coordenador
     public IReadOnlyList<ParticipanteDoGrupo> Participantes { get; private set; } = [];
     public PoliticaDoGrupo Politica { get; private set; } = null!;
     public DefinicaoDeRoteiro? Roteiro { get; private set; } // obrigatório no modo Roteiro
@@ -28,10 +28,10 @@ public sealed class VersaoDoGrupo : EntidadeBase        // imutável
 }
 
 public sealed record ParticipanteDoGrupo(
-    Guid IdVersaoDoAgente,      // fixa a versão: editar o agente exige nova versão do grupo (ou "seguir versão atual", ver abaixo)
+    Guid IdAgente,              // o agente, não a versão: a versão é congelada na criação da execução (abaixo)
     string Papel,               // "implementador", "revisor", "pesquisador"
     string Responsabilidades,   // texto entregue ao coordenador e ao próprio agente
-    bool PodeEscrever);         // ≤ VersaoDoAgente.PodeEscrever
+    bool PodeEscrever);         // ≤ PodeEscrever da versão do agente, reconferido ao criar a execução
 
 public sealed record PoliticaDoGrupo(
     int ParalelismoMaximo,          // etapas simultâneas da mesma execução (padrão 2)
@@ -47,14 +47,15 @@ public sealed record PoliticaDoGrupo(
 
 - toda mudança de coordenador, participante, papel, política ou roteiro cria `VersaoDoGrupo` imutável;
 - execução guarda `IdVersaoDoGrupo`; mudar o grupo **não** altera execuções iniciadas (AD-11/20);
-- participantes guardam a versão do agente. Para não exigir uma versão de grupo a cada ajuste de agente, a opção
-  recomendada é: o grupo referencia o **agente**, e a versão do agente é **resolvida e congelada na criação da
-  execução** (gravada em cada etapa). A reprodução usa as versões gravadas na execução, não as do grupo.
+- participantes referenciam o **agente**, não a versão: ajustar um agente não exige nova versão de cada grupo. A
+  versão de cada participante é **resolvida e congelada na criação da execução** (gravada na execução e em cada
+  etapa), e a reprodução usa as versões gravadas na execução.
 
 ### Invariantes (validação no domínio)
 
 - coordenador é participante do grupo e tem capacidade `planejar`;
-- nenhum participante com `PodeEscrever` acima do que sua versão de agente permite;
+- nenhum participante com `PodeEscrever` acima do que a versão atual do agente permite (validado ao salvar o grupo e
+  de novo ao criar a execução);
 - papéis únicos dentro do grupo quando o roteiro os referencia;
 - roteiro referencia só papéis existentes, forma um DAG e tem limite de rodadas;
 - agente desativado não entra em versão nova; grupo com participante desativado continua listável, mas

@@ -6,6 +6,8 @@ pode ser desligada por configuração até virar padrão. Sem reescrita.
 ## Chave de ativação
 
 `Orquestracao:Habilitada` (padrão `false` até a fase 2 ser validada no homelab) + `ConnectionStrings:Dante`.
+A chave é separada da connection string de propósito: o serviço pode receber o banco para o Brain sem que isso
+ligue a orquestração.
 
 | Banco | Chave | Comportamento |
 | --- | --- | --- |
@@ -84,6 +86,6 @@ chegam como mensagens curtas (etapa iniciada/concluída, pedido de aprovação, 
 | Latência extra do banco no caminho da conversa | Conversa comum não grava por turno no caminho síncrono: o projetor grava eventos em segundo plano, por lote |
 | Banco indisponível no meio de uma sessão | Sessão continua (runtime em memória); eventos ficam num buffer limitado e o usuário é avisado; execuções novas recusam |
 | `SessionRegistry` com mais responsabilidades | Só uma porta nova e opcional; nenhuma regra de orquestração entra nele |
-| Contenção AD-63 ainda não ativa no serviço do homelab | Paralelismo (fase 11 do roadmap) depende de ativar o modo estrito; até lá, limite global = 1 processo de execução por vez além da conversa |
+| Contenção AD-63 ainda não ativa no serviço do homelab | Paralelismo (etapa 5 do roadmap) depende de ativar o modo estrito; até lá, limite global = 1 processo de execução por vez além da conversa |
 | Testes atuais | Toda fase roda a suíte completa; regras novas com testes de domínio, de fila contra `dante-postgres-test` (opt-in, como `PersistenciaTests`) e E2E com `FakeSessionDriver`/`Dante.ProcessProbe` |
 | AD-34 escopo "não migrar estado volátil" | A AD-66 proposta registra a decisão nova explicitamente; a AD-34 não é editada |

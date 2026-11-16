@@ -9,6 +9,7 @@
 | **C. Tabela de trabalhos no PostgreSQL** (outbox transacional, `FOR UPDATE SKIP LOCKED`, lease, dedupe, `disponivel_em`) | Enfileira na mesma transação da mudança de estado; timers e retries duráveis; produtores múltiplos (Worker, WebApi); sem dependência nova | Polling ou `LISTEN/NOTIFY`; exige cuidado para não segurar transação durante a chamada à CLI | **Recomendada** |
 | **D. Biblioteca (Hangfire, Quartz) com storage Postgres** | Pronta | Pacote novo e modelo próprio de jobs que não conhece o estado da execução; opaca para auditoria; o contrato pede não adicionar pacotes sem necessidade | Rejeitada |
 | **E. Broker (RabbitMQ, Redis, NATS)** | Escala | Novo serviço para operar num host único; dupla escrita banco + broker; vetado pela #296 sem necessidade comprovada | Rejeitada |
+| **F. SQLite local para a orquestração** | Sem servidor; não depende do banco do Brain | Segundo motor de banco para operar e fazer backup; sem `SKIP LOCKED` nem `LISTEN/NOTIFY`; escrita concorrente Worker + WebApi limitada; o PostgreSQL já é operado para o Brain | Rejeitada |
 
 ## Modelo recomendado (C)
 
@@ -120,7 +121,7 @@ ADR 0163 do concorrente vale aqui.
 | Erro | Exemplo | Tratamento |
 | --- | --- | --- |
 | Transitório do D.A.N.T.E. | banco indisponível, conflito de concorrência | Backoff 5 s → 10 min, `max_tentativas` padrão 5 |
-| Transitório do provider | limite de plano/uso, CLI sem rede | Etapa `Falhou` com `Retentavel`; reprograma com espera longa; o usuário é avisado (`/uso` dá o contexto, AD-31) |
+| Transitório do provider | limite de plano/uso, CLI sem rede | Etapa `Falhou` com `Retentavel`; a execução volta a `Pendente` e o trabalho é reprogramado com espera longa; o usuário é avisado (`/uso` dá o contexto, AD-31) |
 | Permanente | versão de agente desativada, alias removido, modelo indisponível (AD-25) | `Bloqueada` com motivo; nunca troca silenciosa de agente, modelo ou contexto |
 | Conteúdo | agente não entregou resultado estruturado | uma nova tentativa com instrução; depois `Falhou` |
 
