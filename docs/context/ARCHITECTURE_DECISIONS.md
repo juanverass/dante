@@ -2310,3 +2310,68 @@ Consequências:
   continuam custadas pela íntegra e descartadas pelo orçamento quando não cabem; esse limite está registrado e fica
   fora daqui;
 * o contrato dos agentes não muda: cada item traz o próprio rótulo.
+
+## AD-66 — Ledger de execuções no PostgreSQL; memória continua sendo o runtime (#299)
+
+Status: vigente, fase 1a (espelho) da Epic #296. Proposta aprovada na #297 (PR #298). Não substitui a AD-06: os
+jobs continuam com fonte de verdade em memória enquanto a persistência não for obrigatória (fase 1c). Complementa
+a AD-20 e decide explicitamente o uso do banco fora do Brain, sem editar a AD-34. Desligada por padrão; ativação no
+serviço do homelab e migration no banco canônico exigem autorização operacional própria.
+
+Contexto: jobs (AD-06) e sessões (AD-20) existiam só em memória, com códigos `J…`/`S…` que recomeçavam a cada
+reinício. Fila durável, recuperação, delegação e acompanhamento (Epic #296) precisam de um registro de trabalho que
+atravesse reinícios. O `DanteDbContext` exige `AutorizacaoDoBrain` e aplica `FiltrosDoBrain` e
+`ValidacaoDeEscritaDoBrain`, que não fazem sentido para execuções.
+
+Decisão:
+
+* **Execução** é um terceiro conceito, distinto de sessão (AD-15/16) e de turno. O ledger persiste execuções,
+  etapas, dependências entre etapas, eventos-chave e metadados de sessões de agente, com o vínculo execução → etapa
+  → sessão → turno e a autoridade de origem (canal e usuário). Processos, drivers, fila de turnos, deltas e
+  approvals da CLI continuam em memória.
+* Mesmo PostgreSQL e mesma `ConnectionStrings:Dante` do Brain, **schema `orquestracao`** com histórico de
+  migrations próprio (`orquestracao.__historico_de_migrations`) e **`OrquestracaoDbContext` próprio**, sem as
+  políticas do Brain. Os mappings do ledger vivem em `Modulos/Execucoes` e só esse contexto os carrega;
+  `Repository<T>`, `UnitOfWork`, `EntidadeConfiguration` e `xmin` como `Versao` (AD-43) são reutilizados.
+* **Transições no domínio**: `Execucao`, `EtapaDaExecucao` e `SessaoDeAgente` mudam de estado só por métodos que
+  recusam a origem inválida (`TransicaoInvalidaException`), conforme os diagramas de
+  [PERSISTENCE_AND_EXECUTIONS](../architecture/multi-agent-platform/PERSISTENCE_AND_EXECUTIONS.md#estados). Toda
+  gravação usa `xmin`: duas gravações concorrentes resultam em `ConflitoDeConcorrenciaException`, nunca em
+  sobrescrita.
+* **Códigos por sequência do banco** (`seq_numero_da_execucao`, `seq_numero_da_sessao`): `J…` para o job legado
+  (execução `Avulsa`) e `S…` para sessões, no mesmo formato de hoje, sem repetir após reinício. Eventos têm
+  sequência global (`seq_eventos`) reservada na ordem lógica em que são adicionados.
+* **Integridade no banco**: FKs `Restrict`, dependência e evento ligados à etapa por FK composta com a execução (o
+  banco recusa relação entre execuções diferentes), número e chave de idempotência únicos, check constraints.
+* **Espelho best-effort (fase 1a)**: `JobRegistry` e `SessionRegistry` recebem um `EspelhoDoLedger` opcional. Só a
+  reserva do número espera o banco (prazo de 3 s; após falha, 30 s sem consultar); os registros vão a uma fila em
+  memória limitada, gravados em ordem por um único consumidor. Falha de gravação é logada e não afeta job nem
+  sessão; banco indisponível volta ao contador local, sem espelho, e nunca repete um id já usado no processo. Cada
+  reserva informa o maior número já usado localmente; a sequência atrás dele é avançada até ele, e o espelho volta a
+  valer quando o banco retorna. Reservas de execução e de sessão são serializadas entre conexões por
+  `pg_advisory_xact_lock`, então `nextval` e `setval` nunca se intercalam e a sequência nunca recua. A descarga do
+  encerramento espera espaço na fila cheia em vez de retornar com registros pendentes.
+* **Encerramento**: o hosted service `EncerramentoDoLedger`, registrado antes dos demais, para por último. No
+  `StopAsync`, depois de o polling esperar os jobs, encerra as sessões vivas (`Interrompida`, não `Falhou`) e grava
+  a fila enquanto o provider ainda cria escopos; o descarte do provider vem depois.
+* **Política de eventos**: só metadados de turnos, ferramentas (tipo, servidor, nome), solicitações (código,
+  decisão) e uso de tokens. Nunca deltas, texto de mensagem, saída de processo, descrição de comando ou caminho de
+  arquivo. O texto do pedido do job não é registrado.
+* **Ativação**: `Orquestracao:Habilitada=true` **e** banco configurado. A connection string sozinha não liga o
+  ledger. Sem banco ou com a chave ausente/falsa, o Worker compõe exatamente o legado.
+* **Migrations só por comando explícito**: `--orquestracao migrate`, separado de `--brain migrate`; migrar um nunca
+  cria nem altera o schema do outro. Nenhum host migra na inicialização (AD-53).
+* Execuções novas (`Tarefa`, `Roteiro`...) não existem nesta entrega: o único tipo é `Avulsa`, e nada aqui escreve
+  no checkout principal por uma execução nova.
+
+Consequências:
+
+* com o ledger ligado, o histórico de jobs e sessões sobrevive ao reinício e é consultável por
+  `ILedgerDeExecucoesAppService`; `/status`, `/cancel`, `/session` e os códigos visíveis não mudam;
+* o espelho pode perder registros (fila cheia, banco fora); a fila durável e a recuperação (Issue 2 do roadmap)
+  tornam a gravação transacional e obrigatória;
+* a sequência de eventos é reservada antes do commit: com vários escritores concorrentes, um leitor por sequência
+  poderia ver lacunas temporárias. Hoje há um único escritor (o consumidor do espelho); leitura incremental por
+  sequência (SSE, AD-73) deve tratar isso;
+* agente/versão, raiz/pai, profundidade e unidade de contenção da sessão ainda não são colunas: entram com as
+  entregas que os usam.

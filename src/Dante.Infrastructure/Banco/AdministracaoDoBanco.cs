@@ -2,12 +2,18 @@ using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Dante.Infrastructure.Data;
+using Dante.Infrastructure.Data.Orquestracao;
 namespace Dante.Infrastructure.Banco;
 
 // Operações administrativas explícitas, fora do runtime dos agentes. A conta migradora é escolhida pelo host.
-public sealed class AdministracaoDoBanco(DanteDbContext context)
+public sealed class AdministracaoDoBanco(DanteDbContext context, OrquestracaoDbContext? orquestracao = null)
 {
     public Task MigrarAsync(CancellationToken cancellationToken = default) => context.Database.MigrateAsync(cancellationToken);
+
+    // Schema do ledger (AD-66), com histórico próprio: migrar o Brain nunca cria nem altera o ledger, e vice-versa.
+    public Task MigrarOrquestracaoAsync(CancellationToken cancellationToken = default) =>
+        (orquestracao ?? throw new InvalidOperationException("Ledger de orquestração não configurado."))
+        .Database.MigrateAsync(cancellationToken);
 
     public async Task<bool> VerificarSaudeAsync(CancellationToken cancellationToken = default)
     {

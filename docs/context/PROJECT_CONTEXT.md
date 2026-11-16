@@ -69,8 +69,9 @@ vivo que recebe todos os turnos. O one-shot continua disponível por comando exp
 | `RepositoryRegistry` | `Dante.Infrastructure/Contextos/` | Catálogo persistente de aliases, paths, GitHub e ambiente por repositório. |
 | `AssistantSettingsStore` | `Dante.Infrastructure/Contextos/` | Agente padrão, repositório ativo e modo padrão por usuário, persistidos em `~/.dante/settings.json`. |
 | `GeneralWorkspace` | `Dante.Infrastructure/Contextos/` | Diretório neutro para consultas gerais. |
-| `JobRegistry` | `Jobs/` | Estado, contexto e cancelamento dos jobs, em memória. |
-| `SessionRegistry` | `Sessions/` | Sessões interativas em memória: dono, contexto fixo, sessão ativa por usuário e roteamento de turnos aos drivers. |
+| `JobRegistry` | `Jobs/` | Estado, contexto e cancelamento dos jobs, em memória; com o ledger ligado, espelha cada job como execução (AD-66). |
+| `SessionRegistry` | `Sessions/` | Sessões interativas em memória: dono, contexto fixo, sessão ativa por usuário e roteamento de turnos aos drivers; com o ledger ligado, espelha metadados e eventos-chave (AD-66). |
+| `EspelhoDoLedger` | `Execucoes/` | Fila em memória que grava jobs e sessões no ledger de execuções (`OrquestracaoDbContext`, schema `orquestracao`), sem bloquear o runtime (AD-66). |
 | `ClaudeSessionDriver` / `CodexSessionDriver` | `Sessions/` | Traduzem `stream-json` (Claude) e `app-server` (Codex) para o contrato neutro de eventos. |
 | `InteractiveAgentProcessLauncher` | `Dante.Infrastructure/Agentes/` | Processo interativo sem shell: saída incremental limitada, stdin serializado, parada sem órfãos. |
 | `ClaudeRunner` / `CodexRunner` | `Dante.Infrastructure/Agentes/` | Argumentos fixos de cada CLI por modo. |

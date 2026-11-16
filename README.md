@@ -1112,7 +1112,20 @@ Os estados possíveis são:
 
 O histórico mantém os 20 jobs concluídos mais recentes em memória.
 
-Ele é perdido quando o Worker reinicia.
+Ele é perdido quando o Worker reinicia. Com o ledger de execuções ligado (abaixo), jobs e sessões também ficam
+registrados no PostgreSQL e os códigos `J…`/`S…` não recomeçam após o reinício; `/status` não muda.
+
+### Ledger de execuções (opcional)
+
+Desligado por padrão. Exige o mesmo banco do Brain e uma chave própria:
+
+```bash
+dotnet run --project src/Dante.Worker -- --orquestracao migrate   # conta administrativa; nunca automático
+export Orquestracao__Habilitada=true                               # sem a chave, nada é gravado
+```
+
+A connection string sozinha não liga o ledger. Sem banco, com a chave ausente ou com o banco fora do ar, o Worker
+funciona como antes. Detalhes na [AD-66](docs/context/ARCHITECTURE_DECISIONS.md).
 
 ## Cancelar
 

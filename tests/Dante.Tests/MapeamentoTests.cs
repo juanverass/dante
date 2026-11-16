@@ -106,6 +106,11 @@ public sealed class MapeamentoTests
         AssertRegistrado<Dante.Domain.CapturaDeConhecimento.CandidatoDeConhecimento, Dante.Application.CapturaDeConhecimento.CandidatoDeConhecimentoDto>();
         AssertRegistrado<Dante.Domain.RelacoesDeConhecimento.RelacaoDeConhecimento, Dante.Application.RelacoesDeConhecimento.RelacaoDeConhecimentoDto>();
         AssertRegistrado<Dante.Domain.DocumentosFonte.DocumentoFonte, Dante.Application.DocumentosFonte.DocumentoFonteDto>();
+        AssertRegistrado<Dante.Domain.Execucoes.Execucao, Dante.Application.Execucoes.ExecucaoDto>();
+        AssertRegistrado<Dante.Domain.Execucoes.EtapaDaExecucao, Dante.Application.Execucoes.EtapaDaExecucaoDto>();
+        AssertRegistrado<Dante.Domain.Execucoes.DependenciaDeEtapa, Dante.Application.Execucoes.DependenciaDeEtapaDto>();
+        AssertRegistrado<Dante.Domain.Execucoes.EventoDeOrquestracao, Dante.Application.Execucoes.EventoDeOrquestracaoDto>();
+        AssertRegistrado<Dante.Domain.Execucoes.SessaoDeAgente, Dante.Application.Execucoes.SessaoDeAgenteDto>();
     }
 
     [Fact]
@@ -114,7 +119,7 @@ public sealed class MapeamentoTests
         var mappings = typeof(ConfiguracaoMapeamento).Assembly.GetTypes()
             .Where(t => t.Name.EndsWith("Mapping", StringComparison.Ordinal)).ToArray();
         Assert.Equal(["CandidatoDeConhecimento", "Conhecimento", "ContextoDeTrabalho", "DocumentoFonte",
-            "EspacoDeConhecimento", "Projeto", "RelacaoDeConhecimento"], mappings.Select(t => t.Name[..^"Mapping".Length]).Order());
+            "EspacoDeConhecimento", "Execucao", "Projeto", "RelacaoDeConhecimento", "SessaoDeAgente"], mappings.Select(t => t.Name[..^"Mapping".Length]).Order());
         Assert.All(mappings, t =>
         {
             Assert.True(t.IsAbstract && t.IsSealed && !t.IsPublic, $"{t.Name} deve ser internal static.");

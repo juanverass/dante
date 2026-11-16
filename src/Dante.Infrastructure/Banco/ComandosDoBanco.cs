@@ -3,6 +3,9 @@ namespace Dante.Infrastructure.Banco;
 
 public static class ComandosDoBanco
 {
+    // Prefixo dos comandos do ledger de execuções (AD-66).
+    public const string Orquestracao = "--orquestracao";
+
     public static async Task<int> ExecutarAsync(IServiceProvider services, string[] args, CancellationToken cancellationToken = default)
     {
         try
@@ -13,6 +16,7 @@ public static class ComandosDoBanco
             switch (args)
             {
                 case ["--brain", "migrate"]: await admin.MigrarAsync(cancellationToken); break;
+                case [Orquestracao, "migrate"]: await admin.MigrarOrquestracaoAsync(cancellationToken); break;
                 case ["--brain", "health"]: return await admin.VerificarSaudeAsync(cancellationToken) ? 0 : 1;
                 case ["--brain", "backup", var caminho]: await admin.BackupAsync(caminho, cancellationToken); break;
                 case ["--brain", "restore", var caminho]: await admin.RestaurarAsync(caminho, cancellationToken); break;

@@ -185,6 +185,9 @@ public sealed class CrudBasicoAppServiceTests : IDisposable
                 typeof(IEspacoDeConhecimentoRepository), typeof(Application.Projetos.IProjetoAppService),
                 typeof(IProjetoAppService), typeof(Application.Projetos.IProjetoRepository), typeof(IProjetoRepository),
                 typeof(Application.RelacoesDeConhecimento.IRelacaoDeConhecimentoRepository), typeof(Application.CapturaDeConhecimento.IVinculoEntreCandidatosRepository),
+                typeof(Application.Execucoes.IExecucaoRepository), typeof(Application.Execucoes.IEtapaDaExecucaoRepository),
+                typeof(Application.Execucoes.IDependenciaDeEtapaRepository), typeof(Application.Execucoes.ISessaoDeAgenteRepository),
+                typeof(Application.Execucoes.IEventoDeOrquestracaoRepository),
                 typeof(Application.Projetos.ProjetoAppService), typeof(ProjetoAppService) }.OrderBy(tipo => tipo.Name, StringComparer.Ordinal).ThenBy(tipo => tipo.Namespace, StringComparer.Ordinal),
             verificados.OrderBy(tipo => tipo.Name, StringComparer.Ordinal)
                 .ThenBy(tipo => tipo.Namespace, StringComparer.Ordinal));

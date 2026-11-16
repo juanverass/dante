@@ -37,7 +37,9 @@ public class DanteDbContext(DbContextOptions options, AutorizacaoDoBrain? autori
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.HasDefaultSchema("brain_data");
-        modelBuilder.ApplyConfigurationsFromAssembly(typeof(DanteDbContext).Assembly);
+        // O ledger de orquestração (AD-66) tem contexto próprio no mesmo assembly; suas tabelas não entram no Brain.
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(DanteDbContext).Assembly,
+            tipo => !Orquestracao.OrquestracaoDbContext.PertenceAoLedger(tipo));
         FiltrosDoBrain.Aplicar(modelBuilder, this);
     }
 }
