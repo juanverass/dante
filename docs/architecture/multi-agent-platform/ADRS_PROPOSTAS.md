@@ -65,7 +65,9 @@
 - **Contexto**: a AD-58 determina que o D.A.N.T.E. não executa `git` de escrita e não bloqueia checkouts.
 - **Decisão**: o D.A.N.T.E. passa a executar somente `git worktree add|remove|prune|list` (ArgumentList, sem shell,
   `core.fsmonitor=false`, prazo, nunca `--force`), em `~/.dante/worktrees/<alias>/E<n>`, com branch prefixada pelo agente; um
-  escritor por worktree; execuções novas nunca escrevem no checkout principal. Push, PR e merge continuam fora:
+  escritor por worktree; execuções novas nunca escrevem no checkout principal: etapa de escrita sem worktree reservada
+  é recusada (fail-closed), e antes desta AD ser implementada as execuções novas são somente leitura. Push, PR e
+  merge continuam fora:
   push/PR pelo agente (contrato multirrepositório), merge sempre humano.
 - **Relação**: complementa a AD-58 sem substituí-la para os fluxos existentes; altera o limite "worktrees
   automáticos" de PROJECT_CONTEXT.

@@ -104,7 +104,7 @@ Um agente registrado recebe o papel de coordenador numa versão de grupo. Ele:
 | Pedido | Efeito |
 | --- | --- |
 | `/grupo <nome> [@alias] <tarefa>` | Execução `Roteiro` ou `Coordenada` com a versão atual do grupo |
-| `/tarefa <handle> [@alias] <tarefa>` | Execução `Tarefa` com um agente (primeira versão funciona só com isto) |
+| `/tarefa <handle> [@alias] <tarefa>` | Execução `Tarefa` com um agente (primeira versão funciona só com isto); somente leitura até a etapa 5 do roadmap, com escrita numa worktree depois |
 | `/session start <handle> [@alias]` | Sessão de conversa com um agente registrado (`claude`/`codex` continuam funcionando) |
 | Mensagem comum | Inalterada: turno da sessão ativa (AD-23) |
 

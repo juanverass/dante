@@ -23,7 +23,8 @@ Base: `main` @ `79c1d01` (2026-11-16), lida em código, testes, ADRs e Issues; i
 5. **Delegação é uma linha rastreada**, exposta às CLIs por um servidor MCP `dante_coordenacao` no padrão do
    `dante_brain` (AD-56), com limites determinísticos (anti-ciclo, profundidade, dedupe, orçamento) e resultado como
    dado não confiável com autor.
-6. **Uma worktree por execução de escrita**, um escritor por worktree, leitura em paralelo; o D.A.N.T.E. ganha só
+6. **Uma worktree por execução nova de escrita**, um escritor por worktree, leitura em paralelo. Antes das worktrees,
+   execuções novas são só de leitura. O D.A.N.T.E. ganha só
    `git worktree add/remove/prune/list`. Push/PR pelo agente; merge sempre humano.
 7. **Gateway único para as ferramentas do D.A.N.T.E.** e aprovações persistidas vinculadas a hash, escopo, validade e
    execução única. Ferramentas nativas das CLIs seguem governadas por perfil, approvals da CLI e contenção.
@@ -83,7 +84,7 @@ inconsistências encontradas foram corrigidas nos documentos.
 | Agente × sessão × execução | Mantida | Participantes de grupo passam a referenciar o agente; a versão é congelada na execução (antes havia duas versões do texto); `PodeConsultar` entrou no modelo |
 | Persistência e fila | Mantida | Estados: `Falhou` é terminal, erro retentável volta a `Pendente`; cancelamento possível de todo estado de espera |
 | Recuperação após reinício | Mantida | Varredura limitada aos scopes registrados no ledger; unidade desconhecida é relatada, não parada |
-| Worktree obrigatória em execução nova que escreve | Mantida: é o que permite paralelismo sem tocar no checkout do usuário | — |
+| Worktree obrigatória em execução nova que escreve | Mantida: é o que permite paralelismo sem tocar no checkout do usuário | Rodada 3: o roadmap liberava `/tarefa` com escrita no checkout principal antes da etapa 5. Agora a `/tarefa` é só leitura até a 5, e o executor recusa escrita sem worktree |
 | D.A.N.T.E. executando Git de escrita | Mantida e restrita: só `git worktree add/remove/prune/list`, nunca `--force` | `--force` explicitamente proibido (AD-71) |
 | Roteiro fixo antes do coordenador | Mantida | O veredito do revisor deixa de ter alternativa "arquivo na worktree": o esqueleto do `dante_coordenacao` nasce na primeira etapa que o usa |
 | Limites de delegação e concorrência | Mantidos | Global = 1 processo de execução até a contenção estrita (AD-63) estar ativa no serviço; 3 depois |
@@ -96,7 +97,9 @@ inconsistências encontradas foram corrigidas nos documentos.
 1. **PostgreSQL como requisito dos recursos multiagente** (sem banco, nada de agentes/grupos/execuções; legado intacto).
    Recomendado: sim. Impacto: o banco do Brain passa a ser também operacional; backup cobre o schema novo.
 2. **Mesmo banco, schema `orquestracao` e DbContext próprio** (em vez de banco separado). Recomendado: mesmo banco.
-3. **Execuções novas sempre em worktree; legado continua no checkout principal.** Recomendado: sim.
+3. **Execuções novas nunca escrevem no checkout principal.** Antes das worktrees (etapa 5) são só de leitura; depois,
+   toda escrita delas é numa worktree. O legado (sessão comum, `/claude`, `/codex`, `Avulsa`) continua no checkout
+   principal. Recomendado: sim.
 4. **D.A.N.T.E. passa a executar `git worktree`** (AD-71), mantendo push/PR com o agente e merge humano.
 5. **Roteiro determinístico antes do coordenador LLM.** Recomendado: sim; coordenador só na etapa 8.
 6. **Sintaxe**: handles sem `@`; comandos `/tarefa <handle>`, `/grupo <nome>`, `/session start <handle>`.

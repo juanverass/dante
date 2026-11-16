@@ -239,6 +239,10 @@ cada execução** a partir das preferências atuais do usuário (`/model`, `/eff
 | `Delegada` | ferramenta de delegação | subordinada a uma execução de origem |
 | `Rotina` | agendamento (fase final) | relatório diário |
 
+`Avulsa` é o job legado persistido e mantém o comportamento atual, inclusive no checkout principal. Os demais
+tipos são **execuções novas**: são somente leitura até existirem worktrees (etapa 5 do
+[roadmap](IMPLEMENTATION_ROADMAP.md)) e, depois, toda etapa de escrita delas roda numa worktree reservada.
+
 ### Campos
 
 ```csharp

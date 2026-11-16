@@ -36,7 +36,7 @@ negócio, só `CancellationTokenSource` por execução viva.
 | --- | --- | --- |
 | 2a | Porta `IRegistroDeSessoes` no `SessionRegistry` (implementação nula sem banco); metadados persistidos; códigos `S…` de sequência do banco | Nenhuma mudança visível; contadores não reiniciam |
 | 2b | Recuperação: sessões de boot anterior → `Interrompida`; `/session list` mostra-as como encerradas pelo reinício; varredura de scopes `dante-agent-*` órfãos | Substitui o "não encontrada" da AD-20 por "interrompida pelo reinício" |
-| 2c | `/session start <handle>` com agente registrado | `claude`/`codex` continuam válidos |
+| 2c | `/session start <handle>` com agente registrado | `claude`/`codex` continuam válidos. Sessão interativa não é execução nova: segue no checkout principal com o perfil escolhido (AD-24), como hoje |
 
 Conversa session-first (AD-23), fila/steer (AD-16), clear/compact (AD-32), modo (AD-24) não mudam.
 
@@ -63,8 +63,14 @@ Retomada de conversa upstream (`--resume`, thread não efêmera) fica para spike
 
 ### 6. Worktrees
 
-Só execuções novas (`Tarefa`, `Roteiro`, `Coordenada`, `Delegada` com escrita) usam worktree. Sessões comuns e
-`/claude @repo` continuam no checkout principal. Requer a AD-71 (complemento da AD-58).
+Só execuções novas (`Tarefa`, `Roteiro`, `Coordenada`, `Delegada`, `Rotina`) com escrita usam worktree. Sessões
+comuns, `/claude`, `/codex` e a execução `Avulsa` continuam no checkout principal. Requer a AD-71 (complemento da
+AD-58).
+
+| Fase | Execuções novas com escrita | Execuções novas de leitura |
+| --- | --- | --- |
+| Antes da etapa 5 do roadmap | **Indisponíveis**: `/tarefa` roda com perfil `plan`; etapa de escrita é recusada pelo executor | Disponíveis (`/tarefa` desde a etapa 3), podendo ler o checkout principal |
+| Etapa 5 em diante | Sempre numa worktree reservada; nunca no checkout principal | Inalteradas |
 
 ### 7. Telegram
 

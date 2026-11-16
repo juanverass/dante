@@ -14,7 +14,8 @@ flowchart LR
   I1 --> I3[3 Cadastro de agentes + tarefa individual]
   I1 --> I4[4 Acompanhamento]
   I2 --> I4
-  I2 --> I5[5 Worktrees + concorrência]
+  I2 --> I5[5 Worktrees + concorrência + tarefa com escrita]
+  I3 --> I5
   I3 --> I6[6 Grupos + roteiro + gate humano]
   I5 --> I6
   I2 --> I7[7 Delegação + dante_coordenacao]
@@ -32,12 +33,19 @@ flowchart LR
 | --- | --- |
 | 3 (cadastro) | 2 (fila) — ambos só dependem de 1 |
 | 4 (acompanhamento) | 3 e 5, depois de 2 |
-| 5 (worktrees) | 3 e 4 |
+| 5 (worktrees) | 4; a parte de worktree pode começar junto com a 3, mas a liberação da `/tarefa` com escrita depende dela |
 | 9 (gateway) | 8 (coordenador), depois de 7 |
 | 11 | qualquer etapa após 3, se priorizada |
 
 **Primeira versão útil com um único agente: etapas 1–5** (tarefa persistente, recuperável, acompanhável, isolada
-em worktree, com um agente). Grupos começam na 6.
+em worktree, com um agente). Tarefas individuais de **leitura** existem desde a 3; tarefas que **escrevem** em
+repositório só são liberadas pela 5, junto com as worktrees. Grupos começam na 6.
+
+**Regra transversal**: nenhuma execução nova (`Tarefa`, `Roteiro`, `Coordenada`, `Delegada`, `Rotina`) escreve no
+checkout principal, em nenhuma etapa do roadmap. Antes da 5, toda execução nova é somente leitura; depois, toda
+etapa de escrita exige worktree reservada. Só os fluxos legados (sessão comum, `/claude`, `/codex`, execução
+`Avulsa`) continuam no checkout principal, como hoje
+([PERSISTENCE_AND_EXECUTIONS](PERSISTENCE_AND_EXECUTIONS.md#worktrees-e-concorrência)).
 
 ## Etapas
 
@@ -61,14 +69,14 @@ em worktree, com um agente). Grupos começam na 6.
 - **Testes**: integração Postgres (concorrência real com N tarefas), relógio controlável para lease, `ContencaoNativaTests` estendido para varredura, E2E com `Dante.ProcessProbe` matando o processo.
 - **Entregável**: AD-67; AD-06 marcada substituída no mesmo PR.
 
-### 3. Cadastro de agentes e tarefa individual — complexidade média
+### 3. Cadastro de agentes e tarefa individual de leitura — complexidade média
 
-- **Objetivo**: `Agente`/`VersaoDoAgente`; embutidos `claude`/`codex`; comandos de cadastro; `/session start <handle>`; `/tarefa <handle> [@alias] <texto>` como execução `Tarefa` (até a etapa 5, no checkout principal com reserva exclusiva de escrita por repositório).
+- **Objetivo**: `Agente`/`VersaoDoAgente`; embutidos `claude`/`codex`; comandos de cadastro; `/session start <handle>`; `/tarefa <handle> [@alias] <texto>` como execução `Tarefa` **somente leitura**: perfil efetivo `plan` (AD-24), qualquer que seja o perfil padrão do agente, podendo ler o checkout principal. Tarefa com escrita fica indisponível até a etapa 5; a resposta da `/tarefa` informa que a execução é de leitura.
 - **Camadas**: Domain/Application `Agentes` (CRUD AD-39), `AgentContextResolver` (handle), `SessionRegistry` (versão → opções do driver), `Telegram`.
 - **Dependências**: 1 (2 para `/tarefa` durável).
 - **Riscos**: quebrar precedência AD-27; instruções do agente contradizendo o contrato da conversa.
-- **Critérios**: handle duplicado recusado; editar cria versão; sessão/execução usa a versão congelada; desativar não afeta as ativas e recusa novas; nenhum segredo no cadastro; `/claude`/`/codex`/mensagem comum idênticos.
-- **Testes**: validators, versões, tabela do resolvedor com handles, E2E com driver falso conferindo `ContextInstructions`/perfil/modelo.
+- **Critérios**: handle duplicado recusado; editar cria versão; sessão/execução usa a versão congelada; desativar não afeta as ativas e recusa novas; nenhum segredo no cadastro; `/claude`/`/codex`/mensagem comum idênticos; toda `Tarefa` roda com perfil `plan` e etapas sem `Escrita`; nenhuma etapa com `Escrita` é criada ou executada nesta entrega (o executor recusa, fail-closed).
+- **Testes**: validators, versões, tabela do resolvedor com handles, E2E com driver falso conferindo `ContextInstructions`/perfil/modelo; `/tarefa` com agente de perfil padrão de escrita sai em `plan`; etapa de escrita sem worktree é recusada.
 - **Entregável**: AD-68.
 
 ### 4. Acompanhamento — complexidade baixa/média
@@ -78,13 +86,13 @@ em worktree, com um agente). Grupos começam na 6.
 - **Critérios**: toda execução ativa aparece; cancelar encerra processo (AD-17/63) e registra autor e motivo; listas mostram fatos sem conteúdo sensível.
 - **Testes**: consultas por estado, autorização por dono, redaction.
 
-### 5. Worktrees e concorrência — complexidade alta
+### 5. Worktrees, concorrência e tarefas com escrita — complexidade alta
 
-- **Objetivo**: `ReservaDeWorktree`, `GerenciadorDeWorktreesGit` (conjunto fechado de comandos), um escritor por worktree, limites global/agente/repositório, leitura em paralelo.
+- **Objetivo**: `ReservaDeWorktree`, `GerenciadorDeWorktreesGit` (conjunto fechado de comandos), um escritor por worktree, limites global/agente/repositório, leitura em paralelo; **libera a `/tarefa` com escrita** (perfil efetivo derivado da versão do agente, sempre numa worktree).
 - **Dependências**: 2; contenção AD-63 ativa no serviço (autorização operacional própria).
 - **Riscos**: disco; arquivos ignorados necessários (`.env` locais) ausentes na worktree; interação com vinculados (AD-58).
-- **Critérios**: duas escritas nunca no mesmo checkout; worktree removida só sem alterações não enviadas; limites respeitados sob carga; vinculados ganham worktree própria.
-- **Testes**: integração com repositório Git temporário; concorrência da fila; recusa de comandos fora do conjunto.
+- **Critérios**: duas escritas nunca no mesmo checkout; nenhuma etapa de escrita roda sem reserva de worktree ativa nem com diretório de trabalho no checkout principal (o executor recusa, fail-closed); `/tarefa` com escrita cria worktree e branch próprias; worktree removida só sem alterações não enviadas; limites respeitados sob carga; vinculados ganham worktree própria.
+- **Testes**: integração com repositório Git temporário; concorrência da fila; recusa de comandos fora do conjunto; etapa de escrita apontando para o checkout principal é recusada.
 - **Entregável**: AD-71.
 
 ### 6. Grupos, roteiro e gate humano — complexidade média/alta
@@ -98,8 +106,8 @@ em worktree, com um agente). Grupos começam na 6.
 ### 7. Delegação e comunicação — complexidade alta
 
 - **Objetivo**: `Delegacao`, ferramentas `consultar_agente` e `delegar_tarefa` no `dante_coordenacao` (esqueleto da etapa 6 ou criado aqui), retorno por novo turno, validações anti-ciclo/profundidade/dedupe/orçamento.
-- **Dependências**: 2, 3.
-- **Critérios**: autoconsulta, ciclo, profundidade e duplicata recusados com mensagem clara; reinício no meio preserva a delegação; resultado entra como dado não confiável com autor.
+- **Dependências**: 2, 3. Delegação `Tarefa` com escrita só depois da 5 (worktree) **e** da 9 (aprovação pelo gateway); até lá, só `Consulta` e `Tarefa` de leitura ([DELEGATION](DELEGATION.md#validações-determinísticas-no-caso-de-uso-antes-de-qualquer-processo)).
+- **Critérios**: autoconsulta, ciclo, profundidade e duplicata recusados com mensagem clara; reinício no meio preserva a delegação; resultado entra como dado não confiável com autor; delegação com escrita recusada enquanto não houver worktree e aprovação pelo gateway.
 - **Testes**: casos de uso puros; MCP/IPC como `BrainMcpTests`; E2E com duas sessões simuladas; `Live*` opt-in.
 - **Entregável**: AD-70.
 
@@ -114,8 +122,8 @@ em worktree, com um agente). Grupos começam na 6.
 ### 9. Gateway e aprovações com hash — complexidade média
 
 - **Objetivo**: política de aprovação no `GatewayDeFerramentas` (o gateway mínimo já existe desde a 6/7): `PedidoDeAprovacao` com hash/escopo/validade/execução única para ações do D.A.N.T.E., `pedir_aprovacao`; Brain e planilhas atrás do gateway sem mudar a experiência; auditoria das approvals da CLI.
-- **Dependências**: 7.
-- **Critérios**: aprovação não executa chamada diferente, não executa duas vezes, expira, sobrevive a reinício, reconfere concessão revogada.
+- **Dependências**: 7; 5 para liberar a delegação com escrita.
+- **Critérios**: aprovação não executa chamada diferente, não executa duas vezes, expira, sobrevive a reinício, reconfere concessão revogada; delegação `Tarefa` com escrita passa a ser aceita só com aprovação e worktree.
 - **Testes**: hash canônico, CAS de execução, revogação entre pedido e execução, regressão Brain/planilhas.
 - **Entregável**: AD-72.
 
@@ -129,7 +137,7 @@ em worktree, com um agente). Grupos começam na 6.
 ### 11. MCP por agente, skills e rotinas — complexidade média
 
 - **Objetivo**: concessões de servidores MCP externos por versão de agente com catálogo; skills só para agentes sem repositório; rotinas como execuções com autoridade "rotina".
-- **Dependências**: 2, 3. Candidata a Epic própria depois da 8.
+- **Dependências**: 2, 3; 5 para rotinas que escrevem em repositório. Candidata a Epic própria depois da 8.
 
 ## Issues filhas sugeridas (lista enxuta)
 
@@ -137,9 +145,9 @@ em worktree, com um agente). Grupos começam na 6.
 | --- | --- | --- |
 | 1 | `feat(execucoes): ledger de execuções no PostgreSQL com espelho de jobs e sessões` | aprovação da #297 |
 | 2 | `feat(execucoes): fila durável com lease e recuperação após reinício` | 1 |
-| 3 | `feat(agentes): cadastro versionado de agentes e tarefa individual persistente` | 1 |
+| 3 | `feat(agentes): cadastro versionado de agentes e tarefa individual de leitura` | 1 |
 | 4 | `feat(execucoes): acompanhamento e controle de execuções` | 1, 2 |
-| 5 | `feat(execucoes): worktree por execução de escrita e limites de concorrência` | 2 |
+| 5 | `feat(execucoes): worktree por execução de escrita, limites de concorrência e tarefa com escrita` | 2, 3 |
 | 6 | `feat(grupos): grupos versionados com roteiro determinístico e gate humano` | 3, 5 |
 | 7 | `feat(delegacao): delegação rastreada e comunicação via dante_coordenacao` | 2, 3 |
 | 8 | `feat(grupos): coordenador por papel com plano validado e consolidação` | 6, 7 |
