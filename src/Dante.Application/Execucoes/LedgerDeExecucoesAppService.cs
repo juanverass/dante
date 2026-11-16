@@ -90,7 +90,9 @@ public sealed class LedgerDeExecucoesAppService(
     {
         LedgerDeExecucoesValidator.Validar(sessao);
         var registro = new SessaoDeAgente(sessao.Numero, sessao.Agente, sessao.Canal, sessao.IdDoDono,
-            SerializarContexto(sessao.Contexto), sessao.Perfil, sessao.CriadaEm, sessao.Modelo, sessao.Esforco);
+            SerializarContexto(sessao.Contexto), sessao.Perfil, sessao.CriadaEm, sessao.Modelo, sessao.Esforco,
+            handleDoAgente: sessao.HandleDoAgente, hashDaConfiguracaoDoAgente: sessao.HashDaConfiguracaoDoAgente,
+            idVersaoDoAgente: sessao.IdVersaoDoAgente);
         await sessoes.AdicionarAsync(registro, cancellationToken);
         await eventos.AdicionarAsync(EventoDeOrquestracao.DaSessao(registro, TipoDeEventoDeOrquestracao.SessaoCriada,
             null, Json(new Dictionary<string, string?> { ["agente"] = registro.Agente.ToString() }), sessao.CriadaEm),
@@ -212,7 +214,7 @@ public sealed class LedgerDeExecucoesAppService(
     private static string Json(IReadOnlyDictionary<string, string?> dados) => JsonSerializer.Serialize(dados);
 
     // Contexto congelado (AD-11/58): modo, alias e diretório do principal e dos vinculados, sem ambiente nem segredos.
-    private static string SerializarContexto(JobExecutionContext contexto) => JsonSerializer.Serialize(new
+    internal static string SerializarContexto(JobExecutionContext contexto) => JsonSerializer.Serialize(new
     {
         modo = contexto.Mode.ToString(),
         alias = contexto.RepositoryAlias,

@@ -30,12 +30,24 @@ public sealed class SessaoDeAgente : EntidadeBase
 
     public SessaoDeAgente(long numero, AgentKind agente, string canal, long idDoDono, string contexto,
         AgentPermissionProfile perfil, DateTimeOffset criadaEm, string? modelo = null, string? esforco = null,
-        Guid? idExecucao = null)
+        Guid? idExecucao = null, string? handleDoAgente = null, string? hashDaConfiguracaoDoAgente = null,
+        Guid? idVersaoDoAgente = null)
     {
         if (numero < 1) throw new ArgumentOutOfRangeException(nameof(numero), "Número da sessão deve ser positivo.");
         if (!Enum.IsDefined(agente)) throw new ArgumentOutOfRangeException(nameof(agente), "Agente inválido.");
         if (!Enum.IsDefined(perfil)) throw new ArgumentOutOfRangeException(nameof(perfil), "Perfil inválido.");
         if (idExecucao == Guid.Empty) throw new ArgumentException("Execução inválida.", nameof(idExecucao));
+        if (idVersaoDoAgente == Guid.Empty) throw new ArgumentException("Versão do agente inválida.", nameof(idVersaoDoAgente));
+        // Agente da sessão (AD-68): embutido (claude/codex, sem versão persistida) ou registrado (com a versão exata).
+        if (handleDoAgente is not null && (handleDoAgente.Length is 0 or > Dante.Domain.Agentes.Agente.TamanhoMaximoDoHandle))
+            throw new ArgumentException("Handle inválido.", nameof(handleDoAgente));
+        if (hashDaConfiguracaoDoAgente is not null && hashDaConfiguracaoDoAgente.Length != VersaoDoAgente.TamanhoDoHash)
+            throw new ArgumentException("Hash da configuração inválido.", nameof(hashDaConfiguracaoDoAgente));
+        if (idVersaoDoAgente is not null && handleDoAgente is null)
+            throw new ArgumentException("Versão sem handle do agente.", nameof(handleDoAgente));
+        HandleDoAgente = handleDoAgente;
+        HashDaConfiguracaoDoAgente = hashDaConfiguracaoDoAgente;
+        IdVersaoDoAgente = idVersaoDoAgente;
         Numero = numero;
         Agente = agente;
         Canal = Execucao.TextoObrigatorio(canal, Execucao.TamanhoMaximoDoCanal, nameof(canal));
@@ -64,6 +76,10 @@ public sealed class SessaoDeAgente : EntidadeBase
     public string? IdUpstream { get; private set; }
     // Execução para a qual a sessão foi aberta; nulo na conversa comum.
     public Guid? IdExecucao { get; private set; }
+    // Agente congelado no início (AD-68): handle, hash da configuração e, se registrado, a versão exata.
+    public string? HandleDoAgente { get; private set; }
+    public string? HashDaConfiguracaoDoAgente { get; private set; }
+    public Guid? IdVersaoDoAgente { get; private set; }
     public string? MotivoDoFim { get; private set; }
     public DateTimeOffset CriadaEm { get; private set; }
     public DateTimeOffset? IniciadaEm { get; private set; }

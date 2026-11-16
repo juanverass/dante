@@ -48,6 +48,9 @@ public sealed class EtapaDaExecucao : EntidadeBase
             throw new ArgumentOutOfRangeException(nameof(politicaDeRetomada), "Política de retomada inválida.");
         if (agente is { } valor && !Enum.IsDefined(valor))
             throw new ArgumentOutOfRangeException(nameof(agente), "Agente inválido.");
+        // Fail-closed (AD-68): etapa de escrita de execução nova só existiria com worktree reservada, que esta entrega
+        // não cria. Ela nem nasce; o checkout principal nunca recebe escrita de execução nova.
+        if (escrita && execucao.Nova) throw new EscritaSemWorktreeException();
         IdExecucao = execucao.Id;
         Numero = numero;
         Tipo = tipo;

@@ -120,7 +120,8 @@ public sealed class ValidacaoDeEntradaTests
     {
         var validators = typeof(ValidacaoDeEntrada).Assembly.GetTypes()
             .Where(t => t.Name.EndsWith("Validator", StringComparison.Ordinal) || t == typeof(ValidacaoDeEntrada)).ToArray();
-        Assert.Equal(12, validators.Length);
+        Assert.Equal(13, validators.Length);
+        Assert.Contains(typeof(Dante.Application.Agentes.CadastroDeAgentesValidator), validators);
         Assert.Contains(typeof(Dante.Application.CapturaDeConhecimento.CandidatoDeConhecimentoValidator), validators);
         Assert.Contains(typeof(Dante.Application.Execucoes.LedgerDeExecucoesValidator), validators);
         Assert.All(validators, t =>

@@ -12,9 +12,12 @@ public sealed class OrquestracaoDbContext(DbContextOptions<OrquestracaoDbContext
     public const string SequenciaDeSessoes = "seq_numero_da_sessao";
     public const string SequenciaDeEventos = "seq_eventos";
     private const string NamespaceDosMappings = "Dante.Infrastructure.Modulos.Execucoes";
+    // Cadastro de agentes (AD-68): mesmo schema e mesmo histórico de migrations do ledger.
+    private const string NamespaceDosMappingsDeAgentes = "Dante.Infrastructure.Modulos.Agentes";
 
     // Os mappings do ledger vivem no mesmo assembly do Brain; cada contexto carrega só os seus.
-    internal static bool PertenceAoLedger(Type tipo) => tipo.Namespace == NamespaceDosMappings;
+    internal static bool PertenceAoLedger(Type tipo) =>
+        tipo.Namespace is NamespaceDosMappings or NamespaceDosMappingsDeAgentes;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

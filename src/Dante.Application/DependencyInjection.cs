@@ -18,6 +18,7 @@ public static class DependencyInjection
         services.TryAddSingleton<Dante.Application.SegurancaDoBrain.PoliticaDeSensibilidade>();
         ServicosDoBrain.Registrar(services);
         ServicosDeExecucoes.Registrar(services);
+        ServicosDeAgentes.Registrar(services);
         return services;
     }
 

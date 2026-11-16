@@ -10,7 +10,13 @@ public sealed class ExecucaoDbMapping : EntidadeConfiguration<Execucao>
     public override void Configure(EntityTypeBuilder<Execucao> b)
     {
         base.Configure(b);
-        b.ToTable("execucoes", t => t.HasCheckConstraint("ck_execucoes_numero_positivo", "numero > 0"));
+        b.ToTable("execucoes", t =>
+        {
+            t.HasCheckConstraint("ck_execucoes_numero_positivo", "numero > 0");
+            // Tarefa (AD-68) sempre aponta para a versão exata do agente responsável.
+            t.HasCheckConstraint("ck_execucoes_tarefa_com_versao",
+                $"tipo <> {(int)TipoDeExecucao.Tarefa} OR id_versao_do_agente IS NOT NULL");
+        });
         b.Property(x => x.Numero).HasColumnName("numero");
         b.Property(x => x.Tipo).HasColumnName("tipo");
         b.Property(x => x.Estado).HasColumnName("estado");
@@ -23,8 +29,12 @@ public sealed class ExecucaoDbMapping : EntidadeConfiguration<Execucao>
         b.Property(x => x.CriadaEm).HasColumnName("criada_em");
         b.Property(x => x.IniciadaEm).HasColumnName("iniciada_em");
         b.Property(x => x.EncerradaEm).HasColumnName("encerrada_em");
+        b.Property(x => x.IdVersaoDoAgente).HasColumnName("id_versao_do_agente");
         b.Ignore(x => x.Codigo);
         b.Ignore(x => x.Terminal);
+        b.Ignore(x => x.Nova);
+        b.HasOne<Dante.Domain.Agentes.VersaoDoAgente>().WithMany().HasForeignKey(x => x.IdVersaoDoAgente)
+            .OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => x.Numero).IsUnique();
         b.HasIndex(x => x.Estado);
     }
