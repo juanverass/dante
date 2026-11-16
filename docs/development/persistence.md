@@ -100,6 +100,11 @@ dotnet run --project src/Dante.Worker -- --orquestracao migrate
 banco canônico do homelab é passo operacional com autorização própria. `LedgerDeExecucoesPostgreSqlTests` cobre
 migration, integridade, `xmin`, sequências e o espelho de jobs/sessões contra `DANTE_TEST_POSTGRES`.
 
+O cadastro de agentes (AD-68) usa o mesmo contexto, schema e histórico: mappings e repositories em
+`Modulos/Agentes`, carregados só pelo `OrquestracaoDbContext`. Versões são imutáveis também no banco (triggers da
+migration `CadastroDeAgentes`); `CadastroDeAgentesPostgreSqlTests` cobre persistência, hash, triggers e unicidade do
+handle.
+
 ## Novos mappings e repositories
 
 Cada entidade tem uma `IEntityTypeConfiguration<T>` concreta em `Modulos/<Modulo>`,

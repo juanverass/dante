@@ -2375,3 +2375,69 @@ Consequências:
   sequência (SSE, AD-73) deve tratar isso;
 * agente/versão, raiz/pai, profundidade e unidade de contenção da sessão ainda não são colunas: entram com as
   entregas que os usam.
+
+## AD-68 — Agente registrado e versionado, separado de sessão e execução (#301)
+
+Status: vigente (Epic #296, etapa 3 do roadmap). Proposta aprovada na #297 (PR #298). Complementa AD-24/25/26/27 e
+a AD-66. Depende do mesmo banco e da mesma chave `Orquestracao:Habilitada` do ledger.
+
+Contexto: `AgentKind` é o driver (CLI), não uma identidade. Papéis reutilizáveis (revisor, implementador) precisam
+de configuração própria, reprodutível e com permissões fechadas, sem mudar `/claude`, `/codex` nem a conversa.
+
+Decisão:
+
+* **Agente** (`agentes`): handle único, minúsculo (`[a-z][a-z0-9-]{1,30}`), sem `@` (repositório, AD-27),
+  imutável e nunca reutilizado — nem depois de arquivado; palavras que os comandos já interpretam na posição do
+  agente (`claude`, `codex`, modos, `default`…) são reservadas. Estados `Ativo ⇄ Desativado → Arquivado`; arquivar
+  exige desativado e nenhuma execução ou sessão ativa. Remoção física não existe. Nome e descrição mudam sem versão.
+* **VersaoDoAgente** (`versoes_de_agente`): imutável, `(agente, número)` único. Driver, modelo e esforço (conferidos
+  no catálogo da CLI ao salvar e de novo ao iniciar, AD-25/26), instruções, capacidades declaradas
+  (`implementar|revisar|pesquisar|planejar`, sem conceder nada), perfil padrão e máximo (`plan < manual < auto`;
+  sem escrita ⇒ máximo `plan`; `implementar` exige escrita), concessões de ferramentas do D.A.N.T.E.
+  (`brain`, `planilhas`) e de repositórios (aliases ou `*`; vazio = só o workspace geral; vinculados também precisam
+  de concessão), limites (`ExecucoesSimultaneas` aplicado às sessões; tokens, turnos e minutos por etapa
+  declarados para as entregas que executam etapas). `HashDaConfiguracao` = SHA-256 do JSON canônico (chaves em ordem
+  fixa, listas ordenadas, enums pelo nome, `formato` versionado). Editar cria a próxima versão; editar sem mudança é
+  recusado. Triggers recusam UPDATE/DELETE de versão, troca de handle e DELETE de agente.
+* **Embutidos** `claude`/`codex`: não editáveis e sem linha no banco; a configuração é materializada das
+  preferências do usuário no início de cada sessão (modelo, esforço, modo; máximo `auto`, todas as ferramentas,
+  qualquer repositório — exatamente o que esses caminhos já permitiam). `/claude`, `/codex`, `/agent set`, a
+  conversa e `Avulsa` não mudam.
+* **Resolução (extensão da AD-27)**: `/session start <token>` interpreta, nesta ordem, `claude|codex`, `@alias`,
+  `model=`/`effort=`, modo e, por último, handle registrado. Handle inexistente, desativado, arquivado ou com versão
+  cujo hash não confere é recusado sem fallback. Mensagem comum nunca resolve handle.
+* **Sessão congela a versão**: `SessionStartRequest.RegisteredAgent` leva a versão; o `SessionRegistry` recusa,
+  por conta própria, driver diferente, perfil acima do máximo, repositório não concedido e limite de sessões
+  simultâneas; `/mode session` também não passa do máximo. Instruções do agente entram em `ContextInstructions`
+  depois do contrato da conversa e do contrato multirrepositório, declaradas como incapazes de revogá-los. Servidores
+  de ferramentas são filtrados pelas concessões (desconhecido nunca é concedido); o contexto do Brain injetado no
+  turno (AD-46) também depende da concessão `brain`. Modelo e esforço vêm só da versão (override recusado).
+* **Ledger**: `sessoes_de_agente` ganha `handle_do_agente`, `hash_da_configuracao_do_agente` e
+  `id_versao_do_agente` (FK); embutido registra handle e hash da configuração materializada. `execucoes` ganha
+  `id_versao_do_agente` (FK) e o tipo `Tarefa`, que exige versão (check constraint).
+* **Tarefa somente leitura**: `/tarefa <handle> [@alias] <texto>` monta `PlanoDaTarefa` com perfil efetivo `plan`
+  (qualquer que seja a versão) e uma etapa `TurnoDeAgente` sem `Escrita`, retomada `Automatica`. Fail-closed em três
+  camadas: o domínio recusa criar etapa de escrita em execução nova (`EscritaSemWorktreeException`),
+  `GuardaDeEscrita.Exigir` recusa no executor escrita e perfil diferente de `plan`, e a sessão da tarefa tem teto
+  `plan`. O checkout principal nunca recebe escrita de execução nova. O despacho durável pertence à fila da #300:
+  até a integração, `DespacharTarefaAsync` (ponto único) responde que a execução durável não está habilitada e nada
+  é criado nem executado. Tarefa com agente embutido é recusada (use `/claude`/`/codex`).
+* **Segredos**: o cadastro não tem campo de credencial; instruções, nome e descrição com aparência de segredo
+  (`ProtecaoDeSegredos`) são recusados; o objetivo registrado da tarefa é redigido.
+* **Telegram**: `/agentes [todos]`, `/agente criar|ver|editar|nome|descricao|desativar|reativar|arquivar`, `/tarefa`.
+  Desativar lista as sessões que seguem ativas (códigos só do próprio usuário).
+
+Consequências:
+
+* identidade e permissões de agente viram dados versionados; uma execução antiga aponta para a versão exata;
+* provider continua derivado do driver enquanto só houver CLIs;
+* `PodeConsultar` e limites de delegação ficam para a delegação (etapa 7); `brain` não distingue leitura/escrita;
+* `Avulsa` continua registrando agente/modelo/esforço na etapa, sem hash do embutido (o caminho do job passa pela
+  fila na #300).
+
+Código: `Dante.Domain/Agentes`, `Dante.Application/Agentes`, `Dante.Application/Execucoes/GuardaDeEscrita.cs`,
+`Dante.Infrastructure/Modulos/Agentes`, migration `CadastroDeAgentes`, `Sessions/AgenteDaSessao.cs`,
+`Sessions/SolicitacaoDaTarefa.cs`, `Telegram/TelegramAgentes.cs`, `Telegram/TelegramPollingService.Agentes.cs`.
+Testes: `AgentesDominioTests`, `CadastroDeAgentesAppServiceTests`, `TelegramAgentesTests`,
+`CadastroDeAgentesPostgreSqlTests`.
+

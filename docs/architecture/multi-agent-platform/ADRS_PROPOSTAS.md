@@ -38,6 +38,8 @@
 
 ## AD-68 — Agente registrado e versionado, separado de sessão e execução
 
+> Registrada em `ARCHITECTURE_DECISIONS.md` pela #301. O texto vigente é o de lá.
+
 - **Decisão**: `Agente` (handle imutável sem `@`, estado) + `VersaoDoAgente` imutável (driver, modelo/esforço
   validados pela CLI, instruções, capacidades, perfil padrão e máximo, concessões, limites, hash). Execuções e
   sessões referenciam a versão. `claude` e `codex` são agentes embutidos materializados das preferências do usuário

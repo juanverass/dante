@@ -668,6 +668,17 @@ O runtime continua em memória e o espelho nunca bloqueia nem falha job ou sess�
 `--orquestracao migrate`. Desligado por padrão; não ativado no homelab. Sem fila durável, recuperação ou comandos
 de consulta no Telegram ainda.
 
+## Cadastro de agentes (#301, AD-68)
+
+`Agente` (handle imutável, único e nunca reutilizado; ativo/desativado/arquivado) e `VersaoDoAgente` imutável com
+hash SHA-256 da configuração canônica, no schema `orquestracao` (migration `CadastroDeAgentes`, triggers de
+imutabilidade). `claude`/`codex` continuam embutidos, materializados das preferências. Telegram: `/agentes`,
+`/agente criar|ver|editar|nome|descricao|desativar|reativar|arquivar`, `/session start <handle>` (versão
+congelada; perfil, repositórios, ferramentas e sessões simultâneas limitados pela versão) e `/tarefa <handle>
+[@alias] <texto>`, que valida e monta uma execução `Tarefa` somente leitura (perfil `plan`, sem etapa de escrita),
+mas **ainda não executa**: o despacho durável depende da fila (#300). Exige banco e `Orquestracao:Habilitada`;
+desligado no homelab. Sessões registram handle, hash e versão do agente no ledger.
+
 ## Administração de banco e migrations (#199)
 
 ComandosDoBrain preserva a interface local --brain nos dois hosts e separa
