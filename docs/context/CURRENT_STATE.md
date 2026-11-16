@@ -531,10 +531,11 @@ grava proveniência por trecho (intervalo e hash do texto citado), e a prova ace
 união de intervalos por linha; snapshot com Progresso/UltimoResultado opcionais, citando o
 já registrado por referência tipada. Estimativa offline do caso curto montado pelo
 contrato novo: razão ≈ 0,51–0,53, ainda acima de 0,5; a #147 segue NO-GO.
-Legenda do pacote (#147, AD-65): rótulo repetido, cobertura `ConsolidadaEm` implícita (só quando cobre todos os
-conhecimentos) e omissão da fonte por chave `Omitida`, explicados uma vez no cabeçalho, sem perda. Economia
-sobre os mesmos estados: −7,5% no pacote da validação do fundamento, −0,5% no curto do roteiro com fundamento e
-0 nas retomadas de 15/11. Não é medição de tokens.
+Legenda do pacote (#147, AD-65): cobertura `ConsolidadaEm` implícita (só quando cobre todos os conhecimentos) e
+omissão da fonte por chave `Omitida`, explicadas uma vez no cabeçalho, sem perda. O rótulo fica em cada item,
+como no contrato dos agentes. A seleção conta o custo da forma omitida e da explicação, e o pacote não passa do
+orçamento. Economia sobre os mesmos estados: −0,5% no curto do roteiro com fundamento e 0 nas retomadas de 15/11.
+Não é medição de tokens.
 A integração às sessões da conversa natural é a #145; [contrato](../development/context-builder.md).
 
 ## Brain por conversa natural (#157)
