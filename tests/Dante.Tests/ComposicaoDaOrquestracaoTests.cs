@@ -128,9 +128,11 @@ public sealed class ComposicaoDaOrquestracaoTests
         await using var espelho = new EspelhoDoLedger(provider.GetRequiredService<IServiceScopeFactory>(),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<EspelhoDoLedger>.Instance);
         var liberar = new TaskCompletionSource();
+        var bloqueado = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var gravados = 0;
-        espelho.Registrar("bloqueio", async (_, _) => await liberar.Task);
-        await Task.Delay(100);
+        espelho.Registrar("bloqueio", async (_, _) => { bloqueado.SetResult(); await liberar.Task; });
+        // O consumidor já tirou o bloqueio da fila: a capacidade inteira fica livre para os registros.
+        await bloqueado.Task.WaitAsync(TimeSpan.FromSeconds(10));
         for (var i = 0; i < EspelhoDoLedger.Capacidade; i++)
             espelho.Registrar("registro", (_, _) => { Interlocked.Increment(ref gravados); return Task.CompletedTask; });
 
