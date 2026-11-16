@@ -27,7 +27,7 @@ public sealed partial class UnidadesDeContencaoSystemd : IUnidadesDeContencao
     // Primeira coluna de cada linha; o que não tem o formato exato é ignorado.
     internal static IReadOnlyList<string> Interpretar(string saida) => saida
         .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        .Select(linha => linha.Split(' ', 2)[0].TrimStart('●', '*', ' '))
+        .Select(linha => linha.TrimStart('●', '*', ' ').Split(' ', 2)[0])
         .Where(NomeValido).Distinct(StringComparer.Ordinal).ToArray();
 
     [GeneratedRegex("^dante-agent-[0-9a-f]{32}\\.scope$", RegexOptions.CultureInvariant)]
