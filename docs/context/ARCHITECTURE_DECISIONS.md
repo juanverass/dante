@@ -2406,7 +2406,8 @@ Decisão:
   conclusão da etapa, a transição da execução, os eventos, o próximo trabalho e o fim do trabalho atual são uma única
   transação. Posse perdida → `PosseDoTrabalhoPerdidaException`, nada gravado. Heartbeat recusado (ou sem renovar até o
   lease vencer) cancela a etapa localmente; o heartbeat nunca dorme além do lease, então a CLI não segue rodando depois
-  de a posse poder ter passado a outro processador.
+  de a posse poder ter passado a outro processador, e um prazo local independente (lease menos uma margem) cancela a
+  etapa mesmo que a renovação fique presa no banco.
 * **Nenhuma transação aberta durante a CLI**: reivindicar, renovar e gravar são transações curtas em escopos próprios; o
   executor roda o processo entre elas.
 * **Sinal**: trigger `trg_trabalhos_da_fila_notificar` faz `pg_notify('dante_fila')` no commit de todo trabalho
@@ -2429,7 +2430,7 @@ Decisão:
   `RunJobAsync`, com início e resultado gravados sob posse antes da entrega. Respostas, `/status` e `/cancel`
   inalterados. O pedido continua só em memória: depois de um reinício, job não iniciado é cancelado com aviso e job em
   execução fica `Interrompida`. O trabalho do job registra a origem (`host/boot`): outro processo que não tem o pedido só
-  o cancela se a origem for deste host (boot morto); de outro host, devolve com backoff até esgotar as tentativas. Banco
+  o cancela se a origem for deste host (boot morto); de outro host, devolve sem contar tentativa e nunca cancela. Banco
   indisponível recusa o job ("Fila de execuções indisponível") em vez de rodá-lo
   sem registro.
 * **Contrato para execuções novas** (`Tarefa`, #301): enfileirar com `TrabalhoDaFila.AvancarExecucao` no mesmo

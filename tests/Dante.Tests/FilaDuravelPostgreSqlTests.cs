@@ -580,8 +580,8 @@ public sealed class FilaDuravelPostgreSqlTests
         }
     }
 
-    // Review Codex: um processo que não tem o pedido não cancela um job cuja origem é outro host (dono possivelmente
-    // vivo); devolve com backoff e só cancela quando as tentativas acabam.
+    // Review Codex: um processo que não tem o pedido nunca cancela um job cuja origem é outro host (dono possivelmente
+    // vivo, talvez com o slot ocupado); devolve sem contar tentativa, com espera longa.
     [PostgreSqlFact]
     public async Task JobComOrigemEmOutroHostNaoECanceladoPorQuemNaoTemOPedido()
     {
@@ -596,16 +596,18 @@ public sealed class FilaDuravelPostgreSqlTests
                 "telegram:1:90", origem: Processador("host-produtor"));
         }
         var executor = ExecutorDeTeste.QueConclui(podeExecutar: false);
-        var processador = CriarProcessador(provider, Processador("host-consumidor"), Rapidas, executor);
+        var processador = CriarProcessador(provider, Processador("host-consumidor"),
+            Rapidas with { BackoffMaximo = TimeSpan.FromMinutes(1) }, executor);
         await processador.StartAsync(CancellationToken.None);
         try
         {
-            await Eventually(async () => (await TrabalhoAsync(provider, "telegram:1:90")).Tentativas >= 2);
+            await Eventually(async () => (await TrabalhoAsync(provider, "telegram:1:90")).UltimoErro == "pedido em outro processo");
+            await Task.Delay(500);
+            var trabalho = await TrabalhoAsync(provider, "telegram:1:90");
+            Assert.Equal((EstadoDoTrabalho.Pendente, 0, 1L), (trabalho.Estado, trabalho.Tentativas, trabalho.Geracao));
+            Assert.True(trabalho.DisponivelEm >= DateTimeOffset.UtcNow + TimeSpan.FromSeconds(30));
             Assert.Equal(EstadoDaExecucao.Pendente, (await ExecucaoAsync(provider, job.Numero)).Estado);
-            Assert.Equal("pedido em outro processo", (await TrabalhoAsync(provider, "telegram:1:90")).UltimoErro);
             Assert.Empty(executor.Interrupcoes);
-            // Esgotadas as tentativas, desiste com aviso em vez de girar para sempre.
-            await Eventually(async () => (await ExecucaoAsync(provider, job.Numero)).Estado == EstadoDaExecucao.Cancelada);
         }
         finally
         {

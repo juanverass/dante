@@ -233,12 +233,12 @@ public sealed class ProcessadorDaFila(
         }
         if (!executor.PodeExecutar(alvo))
         {
-            // O pedido pode estar na memória de um processo vivo em outro host: devolve para ele, com backoff; só
-            // cancela quando a origem é deste host (este boot ou um boot morto) ou as tentativas acabaram.
-            if (origem is not null && !identidade.MesmoHost(origem) && trabalho.Tentativas < trabalho.MaximoDeTentativas)
+            // O pedido pode estar na memória de um processo vivo em outro host: devolve para ele sem contar tentativa e
+            // nunca cancela daqui. Só cancela quando a origem é deste host (este boot ou um boot morto, AD-28); um
+            // produtor de outro host que morreu é tratado quando aquele host reinicia.
+            if (origem is not null && !identidade.MesmoHost(origem))
             {
-                await DevolverAsync(trabalho, relogio.GetUtcNow() +
-                    TrabalhoDaFila.Backoff(trabalho.Tentativas, opcoes.BackoffInicial, opcoes.BackoffMaximo), "pedido em outro processo", true);
+                await DevolverAsync(trabalho, relogio.GetUtcNow() + opcoes.BackoffMaximo, "pedido em outro processo", false);
                 logger.LogInformation("Trabalho {IdTrabalho} devolvido: o pedido está em outro processo ({Origem}).", trabalho.Id, origem);
                 return;
             }
@@ -380,18 +380,39 @@ public sealed class ProcessadorDaFila(
 
     // Renova o lease a cada Heartbeat enquanto a etapa roda. Recusa (outra geração, lease vencido) ou falhas até o
     // lease vencer cancelam a posse: o executor encerra o processo e nada mais é gravado por este processador.
+    // Além do laço, um prazo independente (CancelAfter) cancela a posse local antes de o lease vencer: uma renovação
+    // presa no banco não mantém a CLI rodando depois de outro processador poder assumir o trabalho.
     private sealed class Heartbeat
     {
         private readonly CancellationTokenSource parar = new();
+        private readonly CancellationTokenSource perdida;
+        private readonly ProcessadorDaFila processador;
         private readonly Task laco;
+        private readonly CancellationTokenRegistration aviso;
         private int parado;
 
-        internal Heartbeat(ProcessadorDaFila processador, TrabalhoReivindicado trabalho, CancellationTokenSource perdida) =>
-            laco = Task.Run(() => RenovarAsync(processador, trabalho, perdida));
+        internal Heartbeat(ProcessadorDaFila processador, TrabalhoReivindicado trabalho, CancellationTokenSource perdida)
+        {
+            this.processador = processador;
+            this.perdida = perdida;
+            aviso = perdida.Token.Register(() =>
+            {
+                if (Volatile.Read(ref parado) == 1) return;
+                processador.metricas.LeasesPerdidos.Add(1);
+                processador.logger.LogWarning("Posse do trabalho {IdTrabalho} (geração {Geracao}) perdida; a etapa é cancelada localmente.",
+                    trabalho.Id, trabalho.Geracao);
+            });
+            Armar(trabalho.LeaseAte);
+            laco = Task.Run(() => RenovarAsync(trabalho));
+        }
 
         internal async Task PararAsync()
         {
-            if (Interlocked.Exchange(ref parado, 1) == 0) await parar.CancelAsync();
+            if (Interlocked.Exchange(ref parado, 1) == 0)
+            {
+                Desarmar();
+                await parar.CancelAsync();
+            }
             try
             {
                 await laco;
@@ -399,10 +420,37 @@ public sealed class ProcessadorDaFila(
             catch (OperationCanceledException)
             {
             }
+            await aviso.DisposeAsync();
         }
 
-        private async Task RenovarAsync(ProcessadorDaFila processador, TrabalhoReivindicado trabalho,
-            CancellationTokenSource perdida)
+        // Prazo local: o lease menos uma margem (um décimo do lease, no máximo 1 s) para a CLI parar antes de o banco
+        // considerar o trabalho livre.
+        private void Armar(DateTimeOffset leaseAte)
+        {
+            var margem = processador.opcoes.Lease / 10 < TimeSpan.FromSeconds(1) ? processador.opcoes.Lease / 10 : TimeSpan.FromSeconds(1);
+            var prazo = leaseAte - margem - processador.relogio.GetUtcNow();
+            try
+            {
+                if (prazo <= TimeSpan.Zero) perdida.Cancel();
+                else perdida.CancelAfter(prazo);
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+
+        private void Desarmar()
+        {
+            try
+            {
+                perdida.CancelAfter(Timeout.InfiniteTimeSpan);
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+
+        private async Task RenovarAsync(TrabalhoReivindicado trabalho)
         {
             var opcoes = processador.opcoes;
             var leaseAte = trabalho.LeaseAte;
@@ -424,10 +472,11 @@ public sealed class ProcessadorDaFila(
                     {
                         renovado = await processador.EmEscopoAsync(s => s.GetRequiredService<IFilaDeTrabalho>()
                             .RenovarAsync(trabalho.Posse, opcoes.Lease, prazo.Token));
-                        if (renovado)
+                        if (renovado && !perdida.IsCancellationRequested && Volatile.Read(ref parado) == 0)
                         {
                             leaseAte = antes + opcoes.Lease;
                             proxima = opcoes.Heartbeat;
+                            Armar(leaseAte);
                         }
                     }
                     catch (OperationCanceledException) when (parar.IsCancellationRequested)
@@ -443,11 +492,8 @@ public sealed class ProcessadorDaFila(
                             trabalho.Id, exception.GetType().Name, leaseAte);
                     }
                 }
-                if (renovado) continue;
+                if (renovado && !perdida.IsCancellationRequested) continue;
                 if (parar.IsCancellationRequested) return;
-                processador.metricas.LeasesPerdidos.Add(1);
-                processador.logger.LogWarning("Heartbeat recusado: posse do trabalho {IdTrabalho} (geração {Geracao}) perdida; a etapa é cancelada localmente.",
-                    trabalho.Id, trabalho.Geracao);
                 await perdida.CancelAsync();
                 return;
             }
