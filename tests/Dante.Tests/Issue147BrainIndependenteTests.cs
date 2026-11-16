@@ -23,8 +23,10 @@ public sealed partial class Issue147BrainIndependenteTests(ITestOutputHelper out
 {
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
-    // Curto (2 turnos de A) reproduz o roteiro das retomadas medidas em 15/11; médio (6) e longo (12) acrescentam casos
-    // reais da fixture pré-registrada CenariosDaRetomada147/cenarios.json. Cada execução tem banco, histórico e estado próprios.
+    // Curto (2 turnos de A), médio (6) e longo (12) sobre os casos reais da fixture pré-registrada issue147-cenarios@2
+    // (CenariosDaRetomada147/cenarios-fundamento.json): Incidente e Solucao capturados pelo campo fundamento, de modo que a
+    // omissão condicional da fonte (#289/#292) é exercitada. O @1 (cenarios.json) segue só como pré-registro das retomadas
+    // de 15/11. Cada execução tem banco, histórico e estado próprios.
     [EnsaioIndependente]
     [InlineData("curto", 1)]
     [InlineData("curto", 2)]
@@ -37,12 +39,12 @@ public sealed partial class Issue147BrainIndependenteTests(ITestOutputHelper out
         var admin = new Npgsql.NpgsqlConnectionStringBuilder(Banco.Administrativa);
         // Recusa erro de configuração antes de criar qualquer banco: laboratório conhecido, nunca o canônico.
         Assert.Equal("127.0.0.1", admin.Host); Assert.Equal(55433, admin.Port); Assert.Equal("postgres", admin.Database);
-        var roteiro = RoteiroDaRetomada147.Carregar();
+        var roteiro = RoteiroDaRetomada147.Carregar(RoteiroDaRetomada147.CaminhoComFundamento);
         var casos = roteiro.Casos(duracao); var consultaB = roteiro.ConsultaB(duracao);
         // Evidências persistentes fora de /tmp, recusadas antes de criar banco ou iniciar a CLI.
         var execucao = ExecucaoDeMedicao147.Iniciar(RaizDeEvidencias147.Validar(RaizDeEvidencias147.Padrao()), RoteiroDaRetomada147.Cenario(duracao), repeticao);
         // O roteiro executado fica na própria execução, com hash no manifesto.
-        execucao.GravarTexto("roteiro.json", "roteiro-pre-registrado", File.ReadAllText(RoteiroDaRetomada147.Caminho, new UTF8Encoding(false, true)));
+        execucao.GravarTexto("roteiro.json", "roteiro-pre-registrado", File.ReadAllText(RoteiroDaRetomada147.CaminhoComFundamento, new UTF8Encoding(false, true)));
         var criteriosB = CriteriosDaRespostaB147.Carregar();
         execucao.GravarTexto(CriteriosDaRespostaB147.NomeDoArquivo, "criterios-pre-registrados", File.ReadAllText(CriteriosDaRespostaB147.Caminho, new UTF8Encoding(false, true)));
         await using var banco = await Banco.CriarAsync();
@@ -93,7 +95,9 @@ public sealed partial class Issue147BrainIndependenteTests(ITestOutputHelper out
                         Assert.Equal("markdown", fonte.Formato); Assert.Equal(AutoriaDaFonte.Agente, fonte.Autoria);
                         Assert.Contains(brain.Instancia + ":147A", fonte.Proveniencia);
                         var candidatos = await db.CandidatosDeConhecimento.ToListAsync(ct); Assert.Equal(3 + 2 * i, candidatos.Count);
-                        var doCaso = candidatos.Where(x => x.Natureza == NaturezaDoConteudo.ConclusaoDoAgente && x.Justificativa?.Contains(fonte.Id.ToString()) == true).ToArray();
+                        // @2: o vínculo com a evidência é a proveniência por trecho resolvida pelo servidor, não a justificativa.
+                        var doCaso = candidatos.Where(x => x.Natureza == NaturezaDoConteudo.ConclusaoDoAgente &&
+                            Dante.Application.DocumentosFonte.ReferenciaDeTrecho.Ler(x.Proveniencia.ReferenciaDaFonte) is { Inicio: not null } t && t.IdDocumento == fonte.Id && t.Revisao == fonte.Revisao).ToArray();
                         Assert.Equal(2, doCaso.Length);
                         Assert.Equal(i == 0 ? 0 : 1 + 2 * i, await db.Conhecimentos.CountAsync(ct));
                     }
@@ -205,6 +209,8 @@ public sealed partial class Issue147BrainIndependenteTests(ITestOutputHelper out
                 caso => RespostaPorCaso147.Consultas(rastroB, estadoExportado, caso, marcador, brain.Instancia + ":147A"));
             // Presença das unidades essenciais no pacote: condição necessária; ausência de qualquer uma reprova a repetição.
             var essenciaisDoPacote = EssenciaisDaRetomada147.AvaliarPacote(contexto.Pacote.TextoParaInjecao, estadoExportado, roteiro, duracao, marcador);
+            // Consolidação condicional: fonte omitida só com os dois trechos pré-registrados íntegros e selecionados.
+            var consolidacao = ConsolidacaoDaRetomada147.Verificar(contexto.Pacote.TextoParaInjecao, estadoExportado, roteiro, casos, marcador);
             var ofertasIndevidas = AvaliacaoDoHarness147.OfertasDeConfirmacao(respostaB);
             // Estimativas do produto ficam rotuladas e separadas; não substituem os contadores de uso-real.json.
             var estimativaHistorico = historico.Sum(ConstrutorDeContextoAppService.EstimarTokens);
@@ -212,7 +218,7 @@ public sealed partial class Issue147BrainIndependenteTests(ITestOutputHelper out
             resultadoFinal = new { repeticao, duracao, roteiro = roteiro.Versao, criteriosB = criteriosB.Versao, marcador, execucao = execucao.Id, banco = banco.Nome, agente = "claude", consultaB,
                 encerramentoAConfirmado = true, diretorioARemovidoAntesDeB = true, ferramentasNativasDesabilitadas = true,
                 sessoesA = launcherA.Processos.Select(x => x.ProcessId).ToArray(), sessoesB = launcherB.Processos.Select(x => x.ProcessId).ToArray(),
-                essenciais, essenciaisPorCaso, essenciaisDoPacote, recuperacoes,
+                essenciais, essenciaisPorCaso, essenciaisDoPacote, consolidacao, recuperacoes,
                 estimativaNaoMedida = new { historicoVisivelA = estimativaHistorico, pacote = estimativaPacote, metodo = "ceil(bytes UTF8 / 3), por mensagem; não é contagem de tokens" },
                 contexto.Pacote, registrosPersistidos, chamadasA, chamadasB, rastroB, ofertasIndevidas,
                 estadoAntesDeB, estadoDepoisDeB, estadoPreservado = estadoAntesDeB == estadoDepoisDeB, historico, respostaB, markdown };
@@ -224,6 +230,8 @@ public sealed partial class Issue147BrainIndependenteTests(ITestOutputHelper out
             AvaliacaoDoHarness147.ExigirEssenciais(essenciais);
             RespostaPorCaso147.Exigir(essenciaisPorCaso, RespostaPorCaso147.ChavesEsperadas(roteiro, duracao), "Critérios por caso da resposta B");
             RespostaPorCaso147.Exigir(essenciaisDoPacote, EssenciaisDaRetomada147.ChavesEsperadas(roteiro, duracao), "Essenciais do pacote");
+            Assert.Equal(roteiro.TotalDeEssenciais(duracao), essenciaisDoPacote.Count);
+            Assert.True(consolidacao.Divergencias.Count == 0, "Consolidação condicional: " + string.Join("; ", consolidacao.Divergencias));
             AvaliacaoDoHarness147.ExigirPolitica(respostaB, rastroB, estadoAntesDeB, estadoDepoisDeB);
             Assert.All(rastroB.Chamadas, c => Assert.NotNull(c.Sucesso));
         }
