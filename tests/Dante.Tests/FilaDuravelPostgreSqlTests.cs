@@ -580,6 +580,67 @@ public sealed class FilaDuravelPostgreSqlTests
         }
     }
 
+    // Review da integração (PR #304): sem confirmação de que a unidade da sessão não está ativa (listagem indisponível
+    // ou falha ao parar), a sessão continua não terminal e a próxima inicialização tenta de novo; a desconhecida
+    // continua nunca parada.
+    [PostgreSqlTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SessaoSoViraInterrompidaComParadaDaUnidadeConfirmada(bool listagemIndisponivel)
+    {
+        await using var banco = await FilaAsync();
+        var anterior = Processador();
+        var atual = Processador() with { Host = anterior.Host };
+        string U(int i) => $"dante-agent-{new Guid(i, 0, 0, new byte[8]):N}.scope";
+        var unidades = new UnidadesFalsas(U(1), U(2), U(9)) { ListagemFalha = listagemIndisponivel, FalhaAoParar = U(1) };
+        await using var provider = Provider(banco.ConnectionString, unidades: unidades);
+        var semConfirmacao = await SessaoAsync(provider, anterior.Boot, U(1), host: anterior.Host);
+        var parada = await SessaoAsync(provider, anterior.Boot, U(2), host: anterior.Host);
+        var unidadeAusente = await SessaoAsync(provider, anterior.Boot, U(3), host: anterior.Host);
+
+        RelatorioDeRecuperacaoDto relatorio;
+        await using (var escopo = provider.CreateAsyncScope())
+            relatorio = await escopo.ServiceProvider.GetRequiredService<IRecuperacaoDeExecucoesAppService>().RecuperarAsync(atual);
+
+        await using (var escopo = provider.CreateAsyncScope())
+        {
+            var ledger = escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>();
+            // U(1): listagem indisponível ou stop falhou → o processo pode estar vivo; nada muda no ledger.
+            Assert.Equal(EstadoDaSessaoDeAgente.Ativa, (await ledger.ObterSessaoAsync(semConfirmacao))!.Estado);
+            if (listagemIndisponivel)
+            {
+                Assert.True(relatorio.ListagemIndisponivel);
+                Assert.Empty(unidades.Paradas);
+                Assert.Equal((0, 3), (relatorio.SessoesInterrompidas, relatorio.SessoesPendentes));
+                Assert.Equal(EstadoDaSessaoDeAgente.Ativa, (await ledger.ObterSessaoAsync(parada))!.Estado);
+                Assert.Equal(EstadoDaSessaoDeAgente.Ativa, (await ledger.ObterSessaoAsync(unidadeAusente))!.Estado);
+            }
+            else
+            {
+                Assert.Equal([U(1)], relatorio.FalhasAoParar);
+                // U(2) parada agora e U(3) ausente da listagem: confirmadas, viram Interrompida.
+                Assert.Equal([U(2)], unidades.Paradas);
+                Assert.Equal((2, 1), (relatorio.SessoesInterrompidas, relatorio.SessoesPendentes));
+                Assert.Equal(EstadoDaSessaoDeAgente.Interrompida, (await ledger.ObterSessaoAsync(parada))!.Estado);
+                Assert.Equal(EstadoDaSessaoDeAgente.Interrompida, (await ledger.ObterSessaoAsync(unidadeAusente))!.Estado);
+                Assert.Equal([U(9)], relatorio.UnidadesDesconhecidas);
+            }
+            Assert.DoesNotContain(U(9), unidades.Paradas);
+        }
+
+        // Próxima inicialização com o gerenciador respondendo e o stop funcionando: agora a sessão é encerrada.
+        var depois = new UnidadesFalsas(U(1), U(9));
+        await using var outro = Provider(banco.ConnectionString, unidades: depois);
+        await using (var escopo = outro.CreateAsyncScope())
+            relatorio = await escopo.ServiceProvider.GetRequiredService<IRecuperacaoDeExecucoesAppService>()
+                .RecuperarAsync(Processador() with { Host = anterior.Host });
+        Assert.Equal([U(1)], depois.Paradas);
+        Assert.Equal(0, relatorio.SessoesPendentes);
+        await using (var escopo = outro.CreateAsyncScope())
+            Assert.Equal(EstadoDaSessaoDeAgente.Interrompida, (await escopo.ServiceProvider
+                .GetRequiredService<ILedgerDeExecucoesAppService>().ObterSessaoAsync(semConfirmacao))!.Estado);
+    }
+
     // Review Codex: um processo que não tem o pedido nunca cancela um job cuja origem é outro host (dono possivelmente
     // vivo, talvez com o slot ocupado); devolve sem contar tentativa, com espera longa.
     [PostgreSqlFact]
@@ -805,6 +866,7 @@ public sealed class FilaDuravelPostgreSqlTests
     {
         private readonly ConcurrentQueue<string> paradas = new();
         public bool ListagemFalha { get; init; }
+        public string? FalhaAoParar { get; init; }
         public IReadOnlyList<string> Paradas => paradas.ToArray();
 
         public Task<IReadOnlyList<string>> ListarAsync(CancellationToken cancellationToken = default) => ListagemFalha
@@ -813,6 +875,7 @@ public sealed class FilaDuravelPostgreSqlTests
 
         public Task PararAsync(string unidade, CancellationToken cancellationToken = default)
         {
+            if (unidade == FalhaAoParar) return Task.FromException(new IOException("stop falhou"));
             paradas.Enqueue(unidade);
             return Task.CompletedTask;
         }

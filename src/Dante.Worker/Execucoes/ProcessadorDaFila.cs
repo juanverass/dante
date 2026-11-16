@@ -140,9 +140,10 @@ public sealed class ProcessadorDaFila(
                 metricas.UnidadesParadas.Add(relatorio.UnidadesParadas.Count);
                 metricas.UnidadesDesconhecidas.Add(relatorio.UnidadesDesconhecidas.Count);
                 logger.LogInformation(
-                    "Recuperação da fila: {UnidadesParadas} unidade(s) de boot anterior parada(s), {UnidadesDesconhecidas} desconhecida(s) relatada(s) sem parar, {FalhasAoParar} falha(s) ao parar, listagem indisponível: {ListagemIndisponivel}; {SessoesInterrompidas} sessão(ões) interrompida(s); {TrabalhosDevolvidos} trabalho(s) de boot anterior devolvido(s). Boot {Boot}.",
+                    "Recuperação da fila: {UnidadesParadas} unidade(s) de boot anterior parada(s), {UnidadesDesconhecidas} desconhecida(s) relatada(s) sem parar, {FalhasAoParar} falha(s) ao parar, listagem indisponível: {ListagemIndisponivel}; {SessoesInterrompidas} sessão(ões) interrompida(s), {SessoesPendentes} pendente(s) sem confirmação de parada; {TrabalhosDevolvidos} trabalho(s) de boot anterior devolvido(s). Boot {Boot}.",
                     relatorio.UnidadesParadas.Count, relatorio.UnidadesDesconhecidas.Count, relatorio.FalhasAoParar.Count,
-                    relatorio.ListagemIndisponivel, relatorio.SessoesInterrompidas, relatorio.TrabalhosDevolvidos,
+                    relatorio.ListagemIndisponivel, relatorio.SessoesInterrompidas, relatorio.SessoesPendentes,
+                    relatorio.TrabalhosDevolvidos,
                     identidade.Boot);
                 foreach (var unidade in relatorio.UnidadesDesconhecidas)
                     logger.LogWarning("Unidade {Unidade} não registrada no ledger como de um boot anterior: relatada, não parada.",

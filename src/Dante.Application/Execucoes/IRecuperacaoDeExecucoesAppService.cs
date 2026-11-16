@@ -4,7 +4,9 @@ namespace Dante.Application.Execucoes;
 // 1. unidades dante-agent-* registradas no ledger por sessões de um boot anterior do mesmo host são paradas; as desconhecidas do
 //    ledger (ou do boot atual) são só relatadas, nunca paradas;
 // 2. sessões não terminais de um boot anterior do mesmo host viram Interrompida (processo e conversa upstream não são
-//    retomados); sessões de outro host ou sem boot registrado não são tocadas;
+//    retomados) — com unidade registrada, só depois de confirmar que ela não está ativa (ausente da listagem ou parada
+//    agora); sem listagem ou com falha ao parar, ficam pendentes para a próxima inicialização. Sessões de outro host
+//    ou sem boot registrado não são tocadas;
 // 3. trabalhos reivindicados por um boot anterior deste host voltam à fila; ao reivindicá-los, o processador aplica
 //    a política de retomada da etapa interrompida.
 public interface IRecuperacaoDeExecucoesAppService

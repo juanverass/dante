@@ -143,7 +143,9 @@ futura). Conteúdo textual de eventos segue a política de redaction e omissão 
 Registrada como [AD-67](../../context/ARCHITECTURE_DECISIONS.md). Diferenças em relação ao modelo acima: os instantes
 (lease, `disponivel_em`) vêm do relógio do processo, não de `now()`, para serem controláveis nos testes; o estado é
 gravado como inteiro (`EstadoDoTrabalho`); só o tipo `AvancarExecucao` existe por enquanto; a retenção de concluídos
-ainda não foi implementada.
+ainda não foi implementada. Na recuperação, uma sessão de boot anterior com unidade de contenção registrada só vira
+`Interrompida` quando a parada dessa unidade é confirmada (ausente da listagem ou parada agora); sem isso fica pendente
+para a próxima inicialização.
 
 ### Contrato `IFilaDeTrabalho` (Application, `Execucoes/Portas`)
 

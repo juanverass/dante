@@ -2418,7 +2418,10 @@ Decisão:
 * **Recuperação na inicialização**, antes da primeira reivindicação: lista `dante-agent-*.scope` e para **só** as
   unidades que o ledger registra em sessões de um boot anterior **do mesmo host** (`sessoes_de_agente`
   `unidade_de_contencao`, `boot_do_worker` e `maquina_do_worker`, colunas novas); desconhecidas são relatadas e nunca
-  paradas, e sem listagem nada é parado. Sessões não terminais de boot anterior do mesmo host → `Interrompida`; de outro
+  paradas, e sem listagem nada é parado. Sessões não terminais de boot anterior do mesmo host → `Interrompida`; com
+  unidade registrada, só depois de confirmar que ela não está ativa (ausente de uma listagem bem-sucedida ou parada
+  agora) — sem listagem ou com falha ao parar, a sessão continua não terminal (contada como pendente no relatório) e a
+  próxima inicialização tenta de novo. Sessão sem unidade registrada vira `Interrompida` sem essa confirmação. De outro
   host ou sem boot registrado (anteriores à #300), intocadas. Trabalhos reivindicados por outro boot do mesmo host voltam à fila
   sem esperar o lease (o Worker é instância única no host; o fencing protege mesmo que não seja).
 * **Política de retomada** ao reivindicar uma etapa que estava `EmExecucao`: `Automatica` → nova tentativa e execução

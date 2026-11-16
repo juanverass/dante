@@ -58,10 +58,21 @@ public sealed class RecuperacaoDeExecucoesAppService(
         }
 
         var interrompidas = 0;
+        var pendentes = 0;
+        var listadasSet = listadas.ToHashSet(StringComparer.Ordinal);
         foreach (var sessao in await sessoes.ListarNaoTerminaisAsync(cancellationToken))
         {
             // Outro host, o boot atual ou registro sem boot (anterior à #300): pode estar vivo; não é tocado.
             if (!DeBootAnterior(sessao, atual)) continue;
+            // Com unidade registrada, só vira terminal com a confirmação de que ela não está ativa: ausente de uma
+            // listagem bem-sucedida ou parada agora. Sem listagem ou com falha ao parar, o processo pode estar vivo:
+            // a sessão fica como está e a próxima inicialização tenta de novo.
+            if (sessao.UnidadeDeContencao is { } unidadeDaSessao && (listagemIndisponivel ||
+                (listadasSet.Contains(unidadeDaSessao) && !paradas.Contains(unidadeDaSessao, StringComparer.Ordinal))))
+            {
+                pendentes++;
+                continue;
+            }
             var antes = sessao.Estado;
             var agora = fila.Agora;
             sessao.Interromper(MotivoDaSessaoInterrompida, null, agora);
@@ -86,7 +97,7 @@ public sealed class RecuperacaoDeExecucoesAppService(
 
         var devolvidos = await fila.DevolverDeBootsAnterioresAsync(atual, cancellationToken);
         return new RelatorioDeRecuperacaoDto(paradas, desconhecidas, falhas, listagemIndisponivel, interrompidas,
-            devolvidos);
+            devolvidos, pendentes);
     }
 
     // Boot diferente no mesmo host é um processo morto (o Worker é instância única no host, AD-28); em outro host,
