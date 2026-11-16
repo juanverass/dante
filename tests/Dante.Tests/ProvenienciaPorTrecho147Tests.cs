@@ -439,7 +439,7 @@ public sealed class ProvenienciaPorTrecho147Tests(ITestOutputHelper output)
             throw new NotSupportedException();
     }
 
-    private sealed class Cenario(Banco banco, ServiceProvider app, TelegramBrain.EscopoBrainDaSessao escopo) : IAsyncDisposable
+    internal sealed class Cenario(Banco banco, ServiceProvider app, TelegramBrain.EscopoBrainDaSessao escopo) : IAsyncDisposable
     {
         public Banco Banco => banco; public ServiceProvider App => app;
         public AcessoAoBrain Acesso => escopo.Acesso;
