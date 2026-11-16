@@ -12,7 +12,7 @@ public sealed class InfrastructureArchitectureTests
     // (AD-66) em Data/Orquestracao/Migrations. Nenhuma migration fica sem contexto.
     [Theory]
     [InlineData(typeof(DanteDbContext), 14, "Dante.Infrastructure.Data.Migrations", "Data/Migrations")]
-    [InlineData(typeof(Dante.Infrastructure.Data.Orquestracao.OrquestracaoDbContext), 1,
+    [InlineData(typeof(Dante.Infrastructure.Data.Orquestracao.OrquestracaoDbContext), 2,
         "Dante.Infrastructure.Data.Orquestracao.Migrations", "Data/Orquestracao/Migrations")]
     public void MigrationsESnapshotPertencemSomenteAInfrastructure(Type contexto, int quantidade, string ns, string pasta)
     {

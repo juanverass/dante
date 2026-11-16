@@ -338,6 +338,10 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("agente");
 
+                    b.Property<Guid?>("BootDoWorker")
+                        .HasColumnType("uuid")
+                        .HasColumnName("boot_do_worker");
+
                     b.Property<string>("Canal")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -406,6 +410,11 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("perfil");
 
+                    b.Property<string>("UnidadeDeContencao")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("unidade_de_contencao");
+
                     b.Property<uint>("Versao")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -421,9 +430,122 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                     b.HasIndex("Numero")
                         .IsUnique();
 
+                    b.HasIndex("UnidadeDeContencao");
+
                     b.ToTable("sessoes_de_agente", "orquestracao", t =>
                         {
                             t.HasCheckConstraint("ck_sessoes_de_agente_numero_positivo", "numero > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.TrabalhoDaFila", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("BootDoTrabalhador")
+                        .HasColumnType("uuid")
+                        .HasColumnName("boot_do_trabalhador");
+
+                    b.Property<string>("ChaveDeDeduplicacao")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("chave_de_deduplicacao");
+
+                    b.Property<DateTimeOffset>("CriadoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("criado_em");
+
+                    b.Property<string>("Dados")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("dados");
+
+                    b.Property<DateTimeOffset>("DisponivelEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("disponivel_em");
+
+                    b.Property<DateTimeOffset?>("EncerradoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("encerrado_em");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("integer")
+                        .HasColumnName("estado");
+
+                    b.Property<long>("Geracao")
+                        .HasColumnType("bigint")
+                        .HasColumnName("geracao");
+
+                    b.Property<Guid?>("IdEtapa")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_etapa");
+
+                    b.Property<Guid?>("IdExecucao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_execucao");
+
+                    b.Property<DateTimeOffset?>("LeaseAte")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_ate");
+
+                    b.Property<int>("MaximoDeTentativas")
+                        .HasColumnType("integer")
+                        .HasColumnName("maximo_de_tentativas");
+
+                    b.Property<int>("Prioridade")
+                        .HasColumnType("integer")
+                        .HasColumnName("prioridade");
+
+                    b.Property<int>("Tentativas")
+                        .HasColumnType("integer")
+                        .HasColumnName("tentativas");
+
+                    b.Property<int>("Tipo")
+                        .HasColumnType("integer")
+                        .HasColumnName("tipo");
+
+                    b.Property<string>("Trabalhador")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("trabalhador");
+
+                    b.Property<string>("UltimoErro")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("ultimo_erro");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChaveDeDeduplicacao")
+                        .IsUnique();
+
+                    b.HasIndex("IdExecucao");
+
+                    b.HasIndex("LeaseAte")
+                        .HasFilter("estado = 1");
+
+                    b.HasIndex("IdEtapa", "IdExecucao");
+
+                    b.HasIndex("Prioridade", "DisponivelEm")
+                        .HasFilter("estado = 0");
+
+                    b.ToTable("trabalhos_da_fila", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_trabalhos_da_fila_etapa_com_execucao", "id_etapa IS NULL OR id_execucao IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_trabalhos_da_fila_geracao", "geracao >= 0");
+
+                            t.HasCheckConstraint("ck_trabalhos_da_fila_posse", "(estado = 1 AND trabalhador IS NOT NULL AND boot_do_trabalhador IS NOT NULL AND lease_ate IS NOT NULL) OR (estado <> 1 AND lease_ate IS NULL)");
+
+                            t.HasCheckConstraint("ck_trabalhos_da_fila_tentativas", "tentativas >= 0 AND maximo_de_tentativas > 0");
                         });
                 });
 
@@ -488,6 +610,20 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                     b.HasOne("Dante.Domain.Execucoes.Execucao", null)
                         .WithMany()
                         .HasForeignKey("IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.TrabalhoDaFila", b =>
+                {
+                    b.HasOne("Dante.Domain.Execucoes.Execucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Dante.Domain.Execucoes.EtapaDaExecucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdEtapa", "IdExecucao")
+                        .HasPrincipalKey("Id", "IdExecucao")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 #pragma warning restore 612, 618

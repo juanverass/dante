@@ -67,7 +67,7 @@ public sealed class SessionRegistry(
                 {
                     var registered = new SessaoRegistradaDto(number, request.Agent, LedgerChannel.Telegram,
                         request.OwnerUserId, request.Context, request.Profile, request.ModelSelection?.Model,
-                        request.ModelSelection?.Effort, entry.CreatedAtUtc);
+                        request.ModelSelection?.Effort, entry.CreatedAtUtc, ledger!.Identidade?.Boot);
                     ledger!.Registrar($"criação da sessão {id}", (l, token) => l.RegistrarSessaoCriadaAsync(registered, token));
                 }
             }
@@ -100,8 +100,9 @@ public sealed class SessionRegistry(
             if (entry.LedgerNumber is { } number)
             {
                 var (upstream, model, at) = (entry.Session.UpstreamSessionId, started.Model, DateTimeOffset.UtcNow);
+                var unit = started.UnidadeDeContencao;
                 ledger!.Registrar($"início da sessão {entry.Session.Id}", (l, token) =>
-                    l.RegistrarSessaoIniciadaAsync(number, upstream, model, at, token));
+                    l.RegistrarSessaoIniciadaAsync(number, upstream, model, at, token, unit));
             }
         }
         catch (Exception exception)

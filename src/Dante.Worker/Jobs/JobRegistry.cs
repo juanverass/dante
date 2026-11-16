@@ -33,6 +33,29 @@ public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
         return Add(agent, context, stoppingToken, modelSelection, reserved, userId);
     }
 
+    // Highest J… number used by this process (local counter or reservation).
+    public long LastNumber
+    {
+        get { lock (gate) return lastNumber; }
+    }
+
+    // Durable queue (AD-67): the number was reserved in the database and the job is recorded by the queue, in the same
+    // transaction as its work item, so it is never mirrored here. Null when the number is not above the ones already
+    // used (a stale reservation would repeat an id).
+    public (JobSnapshot Snapshot, CancellationToken Token)? CreateQueued(long number, string agent,
+        JobExecutionContext context, CancellationToken stoppingToken, AgentModelSelection? modelSelection = null)
+    {
+        lock (gate)
+        {
+            if (number <= lastNumber) return null;
+            lastNumber = number;
+            var job = new Job(number, $"J{number:D6}", agent, context,
+                CancellationTokenSource.CreateLinkedTokenSource(stoppingToken), modelSelection);
+            jobs.Add(job.Id, job);
+            return (Snapshot(job), job.Cancellation.Token);
+        }
+    }
+
     private (JobSnapshot Snapshot, CancellationToken Token) Add(string agent, JobExecutionContext context,
         CancellationToken stoppingToken, AgentModelSelection? modelSelection, long? reserved, long? userId)
     {

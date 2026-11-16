@@ -17,7 +17,9 @@ public sealed record AgentSessionStartOptions(
 
 // Upstream session id (Claude session_id, Codex thread.id) and the OS id of the process that serves it. Model is the
 // model the CLI reports for the session when it says so at start (Codex thread/start), even without a selection.
-public sealed record AgentSessionStarted(string UpstreamSessionId, int ProcessId, string? Model = null);
+// UnidadeDeContencao: the native containment unit (AD-63 scope) of the process, recorded in the ledger (AD-67).
+public sealed record AgentSessionStarted(string UpstreamSessionId, int ProcessId, string? Model = null,
+    string? UnidadeDeContencao = null);
 
 // An explicit refusal before application is different from an uncertain upstream mode.
 public sealed class AgentModeRejectedException(string message) : Exception(message);

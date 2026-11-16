@@ -8,6 +8,7 @@ namespace Dante.Domain.Execucoes;
 public sealed class SessaoDeAgente : EntidadeBase
 {
     public const int TamanhoMaximoDoUpstream = 200;
+    public const int TamanhoMaximoDaUnidade = 100;
 
     private static readonly IReadOnlyDictionary<EstadoDaSessaoDeAgente, EstadoDaSessaoDeAgente[]> Transicoes =
         new Dictionary<EstadoDaSessaoDeAgente, EstadoDaSessaoDeAgente[]>
@@ -30,12 +31,13 @@ public sealed class SessaoDeAgente : EntidadeBase
 
     public SessaoDeAgente(long numero, AgentKind agente, string canal, long idDoDono, string contexto,
         AgentPermissionProfile perfil, DateTimeOffset criadaEm, string? modelo = null, string? esforco = null,
-        Guid? idExecucao = null)
+        Guid? idExecucao = null, Guid? bootDoWorker = null)
     {
         if (numero < 1) throw new ArgumentOutOfRangeException(nameof(numero), "Número da sessão deve ser positivo.");
         if (!Enum.IsDefined(agente)) throw new ArgumentOutOfRangeException(nameof(agente), "Agente inválido.");
         if (!Enum.IsDefined(perfil)) throw new ArgumentOutOfRangeException(nameof(perfil), "Perfil inválido.");
         if (idExecucao == Guid.Empty) throw new ArgumentException("Execução inválida.", nameof(idExecucao));
+        if (bootDoWorker == Guid.Empty) throw new ArgumentException("Boot inválido.", nameof(bootDoWorker));
         Numero = numero;
         Agente = agente;
         Canal = Execucao.TextoObrigatorio(canal, Execucao.TamanhoMaximoDoCanal, nameof(canal));
@@ -45,6 +47,7 @@ public sealed class SessaoDeAgente : EntidadeBase
         Modelo = Execucao.TextoOpcional(modelo, EtapaDaExecucao.TamanhoMaximoDoModelo);
         Esforco = Execucao.TextoOpcional(esforco, EtapaDaExecucao.TamanhoMaximoDoModelo);
         IdExecucao = idExecucao;
+        BootDoWorker = bootDoWorker;
         CriadaEm = criadaEm;
     }
 
@@ -64,6 +67,10 @@ public sealed class SessaoDeAgente : EntidadeBase
     public string? IdUpstream { get; private set; }
     // Execução para a qual a sessão foi aberta; nulo na conversa comum.
     public Guid? IdExecucao { get; private set; }
+    // Boot do Worker que criou a sessão e unidade de contenção (scope dante-agent-*) do processo dela (AD-67): a
+    // recuperação na inicialização só para unidades registradas aqui por um boot anterior.
+    public Guid? BootDoWorker { get; private set; }
+    public string? UnidadeDeContencao { get; private set; }
     public string? MotivoDoFim { get; private set; }
     public DateTimeOffset CriadaEm { get; private set; }
     public DateTimeOffset? IniciadaEm { get; private set; }
@@ -75,9 +82,14 @@ public sealed class SessaoDeAgente : EntidadeBase
     public static bool PodeTransitar(EstadoDaSessaoDeAgente de, EstadoDaSessaoDeAgente para) =>
         Transicoes[de].Contains(para);
 
-    public void MarcarIniciada(string? idUpstream, string? modeloInformado, DateTimeOffset quando)
+    public void MarcarIniciada(string? idUpstream, string? modeloInformado, DateTimeOffset quando,
+        string? unidadeDeContencao = null)
     {
+        if (unidadeDeContencao is not null && (string.IsNullOrWhiteSpace(unidadeDeContencao) ||
+                                               unidadeDeContencao.Length > TamanhoMaximoDaUnidade))
+            throw new ArgumentException("Unidade de contenção inválida.", nameof(unidadeDeContencao));
         Transitar(EstadoDaSessaoDeAgente.Ativa);
+        UnidadeDeContencao = unidadeDeContencao;
         IdUpstream = Execucao.TextoOpcional(idUpstream, TamanhoMaximoDoUpstream);
         ModeloInformado = Execucao.TextoOpcional(modeloInformado, EtapaDaExecucao.TamanhoMaximoDoModelo);
         IniciadaEm = quando;

@@ -13,4 +13,13 @@ public sealed class SessaoDeAgenteRepository(OrquestracaoDbContext context) : Re
 
     public Task<SessaoDeAgente?> ObterPorNumeroAsync(long numero, CancellationToken cancellationToken = default) =>
         DbSet.SingleOrDefaultAsync(x => x.Numero == numero, cancellationToken);
+
+    public async Task<IReadOnlyList<SessaoDeAgente>> ListarNaoTerminaisAsync(CancellationToken cancellationToken = default) =>
+        await DbSet.Where(x => x.Estado == EstadoDaSessaoDeAgente.Iniciando || x.Estado == EstadoDaSessaoDeAgente.Ativa)
+            .OrderBy(x => x.Numero).ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<SessaoDeAgente>> ListarPorUnidadesDeContencaoAsync(IReadOnlyCollection<string> unidades,
+        CancellationToken cancellationToken = default) =>
+        unidades.Count == 0 ? [] : await DbSet.Where(x => x.UnidadeDeContencao != null && unidades.Contains(x.UnidadeDeContencao))
+            .ToListAsync(cancellationToken);
 }

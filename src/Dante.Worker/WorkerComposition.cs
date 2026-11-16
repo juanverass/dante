@@ -1,3 +1,4 @@
+using Dante.Application.Execucoes;
 using Dante.Worker.Artifacts;
 using Dante.Worker.Brain;
 using Dante.Worker.Execucoes;
@@ -17,7 +18,7 @@ internal static class WorkerComposition
     {
         // Ledger de execuções (AD-66): exige banco e a chave própria; a connection string sozinha não o liga. Sem o
         // espelho, JobRegistry e SessionRegistry seguem só em memória, como antes.
-        if (OrquestracaoHabilitada(configuration)) services.AddLedgerDeExecucoes();
+        if (OrquestracaoHabilitada(configuration)) services.AddLedgerDeExecucoes().AddFilaDuravel(configuration);
         services.AddSingleton<JobRegistry>();
         services.AddSingleton<RegistroDeOperacoesBrain>();
         services.AddSingleton(provider => new TelegramBrain(provider.GetRequiredService<IServiceScopeFactory>(), configuration, provider.GetRequiredService<RegistroDeOperacoesBrain>()));
@@ -63,6 +64,43 @@ internal static class WorkerComposition
         services.AddHostedService<EncerramentoDoLedger>();
         return services;
     }
+
+    // Fila durável e recuperação (AD-67), junto com o ledger. O processador é registrado logo depois do encerramento
+    // do ledger: inicia antes do polling do Telegram (a recuperação vem antes de qualquer reivindicação) e para depois
+    // dele, com o provider ainda vivo para gravar o fim das etapas em andamento.
+    internal static IServiceCollection AddFilaDuravel(this IServiceCollection services, IConfiguration configuration)
+    {
+        var opcoes = OpcoesDaFila(configuration);
+        services.AddSingleton(opcoes);
+        services.AddSingleton(IdentidadeDoProcessador.DoProcessoAtual());
+        services.AddSingleton<SinalDaFila>();
+        services.AddSingleton<MetricasDaFila>();
+        services.AddSingleton<ExecutorDeJobsDaFila>();
+        services.AddSingleton<IExecutorDeEtapa>(provider => provider.GetRequiredService<ExecutorDeJobsDaFila>());
+        services.AddSingleton<ProcessadorDaFila>();
+        services.AddHostedService(provider => provider.GetRequiredService<ProcessadorDaFila>());
+        return services;
+    }
+
+    // Orquestracao:Fila:{LeaseSegundos, HeartbeatSegundos, PollingSegundos, Slots}; ausentes ficam no padrão
+    // (60/20/5 e 1 slot). Valores inválidos impedem a inicialização em vez de virar padrão silencioso.
+    internal static OpcoesDaFila OpcoesDaFila(IConfiguration configuration)
+    {
+        var secao = configuration.GetSection("Orquestracao:Fila");
+        var padrao = new OpcoesDaFila();
+        var opcoes = padrao with
+        {
+            Lease = Segundos(secao["LeaseSegundos"]) ?? padrao.Lease,
+            Heartbeat = Segundos(secao["HeartbeatSegundos"]) ?? padrao.Heartbeat,
+            Polling = Segundos(secao["PollingSegundos"]) ?? padrao.Polling,
+            Slots = secao["Slots"] is { Length: > 0 } slots ? int.Parse(slots, System.Globalization.CultureInfo.InvariantCulture) : padrao.Slots
+        };
+        opcoes.Validar();
+        return opcoes;
+    }
+
+    private static TimeSpan? Segundos(string? valor) => string.IsNullOrWhiteSpace(valor) ? null
+        : TimeSpan.FromSeconds(double.Parse(valor, System.Globalization.CultureInfo.InvariantCulture));
 
     internal static bool OrquestracaoHabilitada(IConfiguration configuration) =>
         bool.TryParse(configuration["Orquestracao:Habilitada"], out var habilitada) && habilitada &&

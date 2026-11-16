@@ -24,6 +24,9 @@ public sealed class OpcoesContencaoAgentes
 // Apenas infraestrutura: o núcleo não conhece cgroups, systemd nem handles Windows.
 internal interface IContencaoDeAgente : IDisposable
 {
+    // Nome da unidade nativa (scope systemd), quando há uma.
+    string? Unidade => null;
+
     Task EncerrarEConfirmarVaziaAsync(CancellationToken cancellationToken);
 }
 

@@ -23,6 +23,8 @@ public sealed class SessaoDeAgenteDbMapping : EntidadeConfiguration<SessaoDeAgen
         b.Property(x => x.ModeloInformado).HasColumnName("modelo_informado").HasMaxLength(EtapaDaExecucao.TamanhoMaximoDoModelo);
         b.Property(x => x.IdUpstream).HasColumnName("id_upstream").HasMaxLength(SessaoDeAgente.TamanhoMaximoDoUpstream);
         b.Property(x => x.IdExecucao).HasColumnName("id_execucao");
+        b.Property(x => x.BootDoWorker).HasColumnName("boot_do_worker");
+        b.Property(x => x.UnidadeDeContencao).HasColumnName("unidade_de_contencao").HasMaxLength(SessaoDeAgente.TamanhoMaximoDaUnidade);
         b.Property(x => x.MotivoDoFim).HasColumnName("motivo_do_fim").HasMaxLength(Execucao.TamanhoMaximoDoTexto);
         b.Property(x => x.CriadaEm).HasColumnName("criada_em");
         b.Property(x => x.IniciadaEm).HasColumnName("iniciada_em");
@@ -32,5 +34,6 @@ public sealed class SessaoDeAgenteDbMapping : EntidadeConfiguration<SessaoDeAgen
         b.HasOne<Execucao>().WithMany().HasForeignKey(x => x.IdExecucao).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => x.Numero).IsUnique();
         b.HasIndex(x => x.Estado);
+        b.HasIndex(x => x.UnidadeDeContencao);
     }
 }
