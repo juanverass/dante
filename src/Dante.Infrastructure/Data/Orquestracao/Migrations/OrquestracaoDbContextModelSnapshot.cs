@@ -387,6 +387,11 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("iniciada_em");
 
+                    b.Property<string>("MaquinaDoWorker")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("maquina_do_worker");
+
                     b.Property<string>("Modelo")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")

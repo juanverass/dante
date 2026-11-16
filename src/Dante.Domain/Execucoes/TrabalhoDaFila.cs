@@ -69,17 +69,20 @@ public sealed class TrabalhoDaFila : EntidadeBase
 
     public bool Terminal => Estado is EstadoDoTrabalho.Concluido or EstadoDoTrabalho.Falhou or EstadoDoTrabalho.Descartado;
 
-    // Trabalho que avança uma etapa de uma execução.
+    // Trabalho que avança uma etapa de uma execução. origem: "host/boot" do processo que enfileirou, quando a execução
+    // depende de algo que só existe na memória dele (o pedido do job legado).
     public static TrabalhoDaFila AvancarExecucao(Execucao execucao, EtapaDaExecucao etapa, string chaveDeDeduplicacao,
-        DateTimeOffset criadoEm, int prioridade = 0, DateTimeOffset? disponivelEm = null)
+        DateTimeOffset criadoEm, int prioridade = 0, DateTimeOffset? disponivelEm = null, string? origem = null)
     {
         ArgumentNullException.ThrowIfNull(execucao);
         ArgumentNullException.ThrowIfNull(etapa);
         if (etapa.IdExecucao != execucao.Id) throw new InvalidOperationException("Etapa de outra execução.");
         if (execucao.Terminal) throw new InvalidOperationException("Execução encerrada não recebe trabalho.");
+        var dados = new Dictionary<string, object> { ["execucao"] = execucao.Codigo, ["etapa"] = etapa.Numero,
+            ["tentativa"] = etapa.Tentativa };
+        if (!string.IsNullOrWhiteSpace(origem)) dados["origem"] = origem;
         return new TrabalhoDaFila(TipoDeTrabalho.AvancarExecucao, chaveDeDeduplicacao, criadoEm, execucao.Id, etapa.Id,
-            $"{{\"execucao\":\"{execucao.Codigo}\",\"etapa\":{etapa.Numero},\"tentativa\":{etapa.Tentativa}}}",
-            prioridade, disponivelEm);
+            System.Text.Json.JsonSerializer.Serialize(dados), prioridade, disponivelEm);
     }
 
     // Backoff exponencial de erro transitório do D.A.N.T.E.: base, 2×base, 4×base… até o teto.

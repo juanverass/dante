@@ -37,8 +37,7 @@ public sealed class RecuperacaoDeExecucoesAppService(
             // Só para o que o ledger registra como de um boot anterior; o resto é relatado.
             var registradas = (await sessoes.ListarPorUnidadesDeContencaoAsync(listadas.ToArray(), cancellationToken))
                 .GroupBy(s => s.UnidadeDeContencao!, StringComparer.Ordinal)
-                .ToDictionary(g => g.Key, g => g.All(s => s.BootDoWorker is { } boot && boot != atual.Boot),
-                    StringComparer.Ordinal);
+                .ToDictionary(g => g.Key, g => g.All(s => DeBootAnterior(s, atual)), StringComparer.Ordinal);
             foreach (var nome in listadas.Distinct(StringComparer.Ordinal))
             {
                 if (!registradas.TryGetValue(nome, out var deBootAnterior) || !deBootAnterior)
@@ -61,7 +60,8 @@ public sealed class RecuperacaoDeExecucoesAppService(
         var interrompidas = 0;
         foreach (var sessao in await sessoes.ListarNaoTerminaisAsync(cancellationToken))
         {
-            if (sessao.BootDoWorker == atual.Boot) continue;
+            // Outro host, o boot atual ou registro sem boot (anterior à #300): pode estar vivo; não é tocado.
+            if (!DeBootAnterior(sessao, atual)) continue;
             var antes = sessao.Estado;
             var agora = fila.Agora;
             sessao.Interromper(MotivoDaSessaoInterrompida, null, agora);
@@ -88,4 +88,10 @@ public sealed class RecuperacaoDeExecucoesAppService(
         return new RelatorioDeRecuperacaoDto(paradas, desconhecidas, falhas, listagemIndisponivel, interrompidas,
             devolvidos);
     }
+
+    // Boot diferente no mesmo host é um processo morto (o Worker é instância única no host, AD-28); em outro host,
+    // boot diferente só indica outro processo, possivelmente vivo.
+    private static bool DeBootAnterior(SessaoDeAgente sessao, IdentidadeDoProcessador atual) =>
+        sessao.BootDoWorker is { } boot && boot != atual.Boot &&
+        string.Equals(sessao.MaquinaDoWorker, atual.Host, StringComparison.Ordinal);
 }

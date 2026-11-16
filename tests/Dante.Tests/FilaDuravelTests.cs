@@ -100,11 +100,15 @@ public sealed class FilaDuravelTests
     {
         var boot = Guid.NewGuid();
         var sessao = new SessaoDeAgente(1, AgentKind.Claude, "telegram", 1, "{}", AgentPermissionProfile.Manual,
-            DateTimeOffset.UtcNow, bootDoWorker: boot);
+            DateTimeOffset.UtcNow, bootDoWorker: boot, maquinaDoWorker: "homelab");
         sessao.MarcarIniciada("u", null, DateTimeOffset.UtcNow, "dante-agent-0123456789abcdef0123456789abcdef.scope");
-        Assert.Equal((boot, "dante-agent-0123456789abcdef0123456789abcdef.scope"), (sessao.BootDoWorker, sessao.UnidadeDeContencao));
+        Assert.Equal((boot, "homelab", "dante-agent-0123456789abcdef0123456789abcdef.scope"),
+            (sessao.BootDoWorker, sessao.MaquinaDoWorker, sessao.UnidadeDeContencao));
         Assert.Throws<ArgumentException>(() => new SessaoDeAgente(1, AgentKind.Claude, "telegram", 1, "{}",
-            AgentPermissionProfile.Manual, DateTimeOffset.UtcNow, bootDoWorker: Guid.Empty));
+            AgentPermissionProfile.Manual, DateTimeOffset.UtcNow, bootDoWorker: Guid.Empty, maquinaDoWorker: "homelab"));
+        // Boot sem host (ou o contrário) não identifica o processo.
+        Assert.Throws<ArgumentException>(() => new SessaoDeAgente(1, AgentKind.Claude, "telegram", 1, "{}",
+            AgentPermissionProfile.Manual, DateTimeOffset.UtcNow, bootDoWorker: boot));
         var outra = new SessaoDeAgente(2, AgentKind.Claude, "telegram", 1, "{}", AgentPermissionProfile.Manual, DateTimeOffset.UtcNow);
         Assert.Throws<ArgumentException>(() => outra.MarcarIniciada("u", null, DateTimeOffset.UtcNow, new string('x', 101)));
         Assert.Equal(EstadoDaSessaoDeAgente.Iniciando, outra.Estado);

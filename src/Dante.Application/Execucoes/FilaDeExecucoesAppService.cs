@@ -20,7 +20,7 @@ public sealed class FilaDeExecucoesAppService(
         "Confira o efeito antes de continuar.";
 
     public async Task<JobNaFilaDto> EnfileirarJobAsync(JobRegistradoDto job, string chaveDeDeduplicacao,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, IdentidadeDoProcessador? origem = null)
     {
         LedgerDeExecucoesValidator.Validar(job);
         ValidarChave(chaveDeDeduplicacao);
@@ -32,8 +32,8 @@ public sealed class FilaDeExecucoesAppService(
             var execucao = await execucoes.ObterPorNumeroAsync(job.Numero, token) ??
                 throw new InvalidOperationException("Execução não registrada no ledger.");
             var etapa = (await etapas.ListarDaExecucaoAsync(execucao.Id, token)).Single(e => e.Numero == 1);
-            await fila.EnfileirarAsync(TrabalhoDaFila.AvancarExecucao(execucao, etapa, chaveDeDeduplicacao, fila.Agora),
-                token);
+            await fila.EnfileirarAsync(TrabalhoDaFila.AvancarExecucao(execucao, etapa, chaveDeDeduplicacao, fila.Agora,
+                origem: origem?.Origem), token);
             await unidade.SalvarAlteracoesAsync(token);
             idExecucao = execucao.Id;
         }, cancellationToken);
@@ -67,7 +67,7 @@ public sealed class FilaDeExecucoesAppService(
         return etapa.Estado switch
         {
             EstadoDaEtapa.Pendente or EstadoDaEtapa.Pronta when execucao.Estado is EstadoDaExecucao.Pendente or
-                EstadoDaExecucao.EmExecucao => new(AcaoDoTrabalho.Executar, alvo, null),
+                EstadoDaExecucao.EmExecucao => new(AcaoDoTrabalho.Executar, alvo, null, Origem(trabalho.Dados)),
             EstadoDaEtapa.EmExecucao => new(AcaoDoTrabalho.Interromper, alvo,
                 "A tentativa anterior estava em execução quando a posse do trabalho se perdeu (reinício do Worker ou lease vencido)."),
             _ => new(AcaoDoTrabalho.Descartar, alvo, "Nada a avançar no estado atual.")
@@ -252,6 +252,22 @@ public sealed class FilaDeExecucoesAppService(
     private static AlvoDoTrabalhoDto Alvo(Execucao execucao, EtapaDaExecucao etapa) => new(execucao.Id, execucao.Numero,
         execucao.Codigo, execucao.Tipo, execucao.Estado, execucao.Canal, execucao.IdDoUsuarioNoCanal, etapa.Id,
         etapa.Numero, etapa.Estado, etapa.Escrita, etapa.PoliticaDeRetomada, etapa.Tentativa);
+
+    private static string? Origem(string? dados)
+    {
+        if (dados is null) return null;
+        try
+        {
+            using var json = JsonDocument.Parse(dados);
+            return json.RootElement.ValueKind == JsonValueKind.Object &&
+                   json.RootElement.TryGetProperty("origem", out var origem) && origem.ValueKind == JsonValueKind.String
+                ? origem.GetString() : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     private static string ChaveDeAvanco(Execucao execucao, EtapaDaExecucao etapa) =>
         $"avancar:{execucao.Id:N}:{etapa.Numero}:{etapa.Tentativa}";

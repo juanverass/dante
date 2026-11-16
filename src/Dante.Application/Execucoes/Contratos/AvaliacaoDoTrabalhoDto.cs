@@ -10,4 +10,6 @@ public enum AcaoDoTrabalho
     Descartar
 }
 
-public sealed record AvaliacaoDoTrabalhoDto(AcaoDoTrabalho Acao, AlvoDoTrabalhoDto? Alvo, string? Motivo);
+// Origem: "host/boot" de quem enfileirou, quando o trabalho a registra.
+public sealed record AvaliacaoDoTrabalhoDto(AcaoDoTrabalho Acao, AlvoDoTrabalhoDto? Alvo, string? Motivo,
+    string? Origem = null);

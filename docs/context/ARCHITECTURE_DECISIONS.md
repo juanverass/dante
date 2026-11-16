@@ -2405,18 +2405,20 @@ Decisão:
   trabalho (`FOR UPDATE`) e confere geração, dono, boot, estado e lease não vencido antes de qualquer escrita; a
   conclusão da etapa, a transição da execução, os eventos, o próximo trabalho e o fim do trabalho atual são uma única
   transação. Posse perdida → `PosseDoTrabalhoPerdidaException`, nada gravado. Heartbeat recusado (ou sem renovar até o
-  lease vencer) cancela a etapa localmente.
+  lease vencer) cancela a etapa localmente; o heartbeat nunca dorme além do lease, então a CLI não segue rodando depois
+  de a posse poder ter passado a outro processador.
 * **Nenhuma transação aberta durante a CLI**: reivindicar, renovar e gravar são transações curtas em escopos próprios; o
   executor roda o processo entre elas.
 * **Sinal**: trigger `trg_trabalhos_da_fila_notificar` faz `pg_notify('dante_fila')` no commit de todo trabalho
   pendente; o processador escuta (`LISTEN`, conexão dedicada que se refaz) e também faz polling, e dorme até o próximo
   `disponivel_em` sem busy loop. Notificação perdida só atrasa.
-* **Backoff** de erro transitório do D.A.N.T.E.: 5 s, 10 s, 20 s… até 10 min, `max_tentativas` 5; esgotadas, a execução
-  falha com motivo.
+* **Backoff** de erro transitório do D.A.N.T.E. e de falha do executor (inclusive depois de iniciar a etapa): 5 s, 10 s,
+  20 s… até 10 min, `max_tentativas` 5; esgotadas, a execução falha com motivo.
 * **Recuperação na inicialização**, antes da primeira reivindicação: lista `dante-agent-*.scope` e para **só** as
-  unidades que o ledger registra em sessões de um boot anterior (`sessoes_de_agente.unidade_de_contencao` e
-  `boot_do_worker`, colunas novas); desconhecidas são relatadas e nunca paradas, e sem listagem nada é parado. Sessões
-  não terminais de boot anterior → `Interrompida`. Trabalhos reivindicados por outro boot do mesmo host voltam à fila
+  unidades que o ledger registra em sessões de um boot anterior **do mesmo host** (`sessoes_de_agente`
+  `unidade_de_contencao`, `boot_do_worker` e `maquina_do_worker`, colunas novas); desconhecidas são relatadas e nunca
+  paradas, e sem listagem nada é parado. Sessões não terminais de boot anterior do mesmo host → `Interrompida`; de outro
+  host ou sem boot registrado (anteriores à #300), intocadas. Trabalhos reivindicados por outro boot do mesmo host voltam à fila
   sem esperar o lease (o Worker é instância única no host; o fencing protege mesmo que não seja).
 * **Política de retomada** ao reivindicar uma etapa que estava `EmExecucao`: `Automatica` → nova tentativa e execução
   `Pendente`; `ComConfirmacao` (escrita; o job legado) → `Interrompida`, só volta por
@@ -2426,7 +2428,9 @@ Decisão:
   gravados antes do "iniciado", chave `telegram:<chat>:<mensagem>`; o processador reivindica e chama o mesmo
   `RunJobAsync`, com início e resultado gravados sob posse antes da entrega. Respostas, `/status` e `/cancel`
   inalterados. O pedido continua só em memória: depois de um reinício, job não iniciado é cancelado com aviso e job em
-  execução fica `Interrompida`. Banco indisponível recusa o job ("Fila de execuções indisponível") em vez de rodá-lo
+  execução fica `Interrompida`. O trabalho do job registra a origem (`host/boot`): outro processo que não tem o pedido só
+  o cancela se a origem for deste host (boot morto); de outro host, devolve com backoff até esgotar as tentativas. Banco
+  indisponível recusa o job ("Fila de execuções indisponível") em vez de rodá-lo
   sem registro.
 * **Contrato para execuções novas** (`Tarefa`, #301): enfileirar com `TrabalhoDaFila.AvancarExecucao` no mesmo
   salvamento da execução e registrar um `IExecutorDeEtapa` para o `TipoDeExecucao` no Worker

@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Dante.Infrastructure.Data.Orquestracao.Migrations
 {
     [DbContext(typeof(OrquestracaoDbContext))]
-    [Migration("20261116192811_FilaDuravel")]
+    [Migration("20261116231942_FilaDuravel")]
     partial class FilaDuravel
     {
         /// <inheritdoc />
@@ -389,6 +389,11 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                     b.Property<DateTimeOffset?>("IniciadaEm")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("iniciada_em");
+
+                    b.Property<string>("MaquinaDoWorker")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("maquina_do_worker");
 
                     b.Property<string>("Modelo")
                         .HasMaxLength(200)

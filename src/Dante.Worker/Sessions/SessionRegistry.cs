@@ -67,7 +67,7 @@ public sealed class SessionRegistry(
                 {
                     var registered = new SessaoRegistradaDto(number, request.Agent, LedgerChannel.Telegram,
                         request.OwnerUserId, request.Context, request.Profile, request.ModelSelection?.Model,
-                        request.ModelSelection?.Effort, entry.CreatedAtUtc, ledger!.Identidade?.Boot);
+                        request.ModelSelection?.Effort, entry.CreatedAtUtc, ledger!.Identidade?.Boot, ledger.Identidade?.Host);
                     ledger!.Registrar($"criação da sessão {id}", (l, token) => l.RegistrarSessaoCriadaAsync(registered, token));
                 }
             }

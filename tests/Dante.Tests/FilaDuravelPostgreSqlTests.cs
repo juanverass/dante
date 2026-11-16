@@ -272,12 +272,14 @@ public sealed class FilaDuravelPostgreSqlTests
         var anterior = Processador();
         var atual = Processador() with { Host = anterior.Host };
         string U(int i) => $"dante-agent-{new Guid(i, 0, 0, new byte[8]):N}.scope";
-        var unidades = new UnidadesFalsas(U(1), U(2), U(3), U(4), U(5), "dante-agent-x.scope");
+        var unidades = new UnidadesFalsas(U(1), U(2), U(3), U(4), U(5), U(6), "dante-agent-x.scope");
         await using var provider = Provider(banco.ConnectionString, unidades: unidades);
-        var viva = await SessaoAsync(provider, anterior.Boot, U(1));
-        var doBootAtual = await SessaoAsync(provider, atual.Boot, U(2));
-        var encerrada = await SessaoAsync(provider, anterior.Boot, U(3), encerrar: true);
+        var viva = await SessaoAsync(provider, anterior.Boot, U(1), host: anterior.Host);
+        var doBootAtual = await SessaoAsync(provider, atual.Boot, U(2), host: atual.Host);
+        var encerrada = await SessaoAsync(provider, anterior.Boot, U(3), encerrar: true, host: anterior.Host);
         var semBoot = await SessaoAsync(provider, null, U(4));
+        // Outro Worker vivo em outro host: boot diferente não prova abandono; nada dele é tocado.
+        var deOutroHost = await SessaoAsync(provider, Guid.NewGuid(), U(6), host: "outro-host");
         // Trabalho reivindicado pelo boot anterior deste host volta à fila; o de outro host continua com o dono.
         await CriarAsync(provider, "boot:1");
         await CriarAsync(provider, "boot:2");
@@ -290,13 +292,15 @@ public sealed class FilaDuravelPostgreSqlTests
 
         Assert.Equal([U(1), U(3)], unidades.Paradas);
         Assert.Equal([U(1), U(3)], relatorio.UnidadesParadas);
-        Assert.Equal([U(2), U(4), U(5), "dante-agent-x.scope"], relatorio.UnidadesDesconhecidas);
-        Assert.Equal((false, 2, 1), (relatorio.ListagemIndisponivel, relatorio.SessoesInterrompidas, relatorio.TrabalhosDevolvidos));
+        Assert.Equal([U(2), U(4), U(5), U(6), "dante-agent-x.scope"], relatorio.UnidadesDesconhecidas);
+        Assert.Equal((false, 1, 1), (relatorio.ListagemIndisponivel, relatorio.SessoesInterrompidas, relatorio.TrabalhosDevolvidos));
         await using (var escopo = provider.CreateAsyncScope())
         {
             var ledger = escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>();
             Assert.Equal(EstadoDaSessaoDeAgente.Interrompida, (await ledger.ObterSessaoAsync(viva))!.Estado);
-            Assert.Equal(EstadoDaSessaoDeAgente.Interrompida, (await ledger.ObterSessaoAsync(semBoot))!.Estado);
+            // Registro anterior à #300 (sem boot) e sessão de outro host continuam como estão.
+            Assert.Equal(EstadoDaSessaoDeAgente.Ativa, (await ledger.ObterSessaoAsync(semBoot))!.Estado);
+            Assert.Equal(EstadoDaSessaoDeAgente.Ativa, (await ledger.ObterSessaoAsync(deOutroHost))!.Estado);
             Assert.Equal(EstadoDaSessaoDeAgente.Ativa, (await ledger.ObterSessaoAsync(doBootAtual))!.Estado);
             Assert.Equal(EstadoDaSessaoDeAgente.Encerrada, (await ledger.ObterSessaoAsync(encerrada))!.Estado);
             Assert.Equal(RecuperacaoDeExecucoesAppService.MotivoDaSessaoInterrompida, (await ledger.ObterSessaoAsync(viva))!.MotivoDoFim);
@@ -329,7 +333,8 @@ public sealed class FilaDuravelPostgreSqlTests
             await espelho.DescarregarAsync();
             await using var escopo = provider.CreateAsyncScope();
             var sessao = (await escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>().ObterSessaoAsync(long.Parse(id[1..])))!;
-            Assert.Equal((identidade.Boot, "dante-agent-0123456789abcdef0123456789abcdef.scope"), (sessao.BootDoWorker, sessao.UnidadeDeContencao));
+            Assert.Equal((identidade.Boot, identidade.Host, "dante-agent-0123456789abcdef0123456789abcdef.scope"),
+                (sessao.BootDoWorker, sessao.MaquinaDoWorker, sessao.UnidadeDeContencao));
         }
     }
 
@@ -575,6 +580,67 @@ public sealed class FilaDuravelPostgreSqlTests
         }
     }
 
+    // Review Codex: um processo que não tem o pedido não cancela um job cuja origem é outro host (dono possivelmente
+    // vivo); devolve com backoff e só cancela quando as tentativas acabam.
+    [PostgreSqlFact]
+    public async Task JobComOrigemEmOutroHostNaoECanceladoPorQuemNaoTemOPedido()
+    {
+        await using var banco = await FilaAsync();
+        await using var provider = Provider(banco.ConnectionString);
+        JobNaFilaDto job;
+        await using (var escopo = provider.CreateAsyncScope())
+        {
+            var numero = await escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>().ReservarNumeroDeExecucaoAsync();
+            job = await escopo.ServiceProvider.GetRequiredService<IFilaDeExecucoesAppService>().EnfileirarJobAsync(
+                new JobRegistradoDto(numero, AgentKind.Codex, "telegram", 1001, JobExecutionContext.General("/g"), null, null, Inicio),
+                "telegram:1:90", origem: Processador("host-produtor"));
+        }
+        var executor = ExecutorDeTeste.QueConclui(podeExecutar: false);
+        var processador = CriarProcessador(provider, Processador("host-consumidor"), Rapidas, executor);
+        await processador.StartAsync(CancellationToken.None);
+        try
+        {
+            await Eventually(async () => (await TrabalhoAsync(provider, "telegram:1:90")).Tentativas >= 2);
+            Assert.Equal(EstadoDaExecucao.Pendente, (await ExecucaoAsync(provider, job.Numero)).Estado);
+            Assert.Equal("pedido em outro processo", (await TrabalhoAsync(provider, "telegram:1:90")).UltimoErro);
+            Assert.Empty(executor.Interrupcoes);
+            // Esgotadas as tentativas, desiste com aviso em vez de girar para sempre.
+            await Eventually(async () => (await ExecucaoAsync(provider, job.Numero)).Estado == EstadoDaExecucao.Cancelada);
+        }
+        finally
+        {
+            await processador.StopAsync(CancellationToken.None);
+        }
+    }
+
+    // Review Codex: falha do executor depois de iniciar a etapa conta tentativa, com backoff; a retomada automática não
+    // gira para sempre.
+    [PostgreSqlFact]
+    public async Task FalhaDepoisDeIniciarContaTentativaEEsgotadaFalhaAExecucao()
+    {
+        await using var banco = await FilaAsync();
+        await using var provider = Provider(banco.ConnectionString);
+        var executor = new ExecutorDeTeste(async (_, controle, token) =>
+        {
+            await controle.IniciarAsync(token);
+            throw new InvalidOperationException("falha persistente");
+        });
+        var processador = CriarProcessador(provider, Processador(), Rapidas, executor);
+        await processador.StartAsync(CancellationToken.None);
+        try
+        {
+            var (execucao, _) = await CriarAsync(provider, "persistente", PoliticaDeRetomada.Automatica, escrita: false);
+            await Eventually(async () => (await ExecucaoAsync(provider, execucao.Numero)).Estado == EstadoDaExecucao.Falhou,
+                TimeSpan.FromSeconds(20));
+            Assert.InRange(executor.Execucoes[execucao.Numero], 1, TrabalhoDaFila.MaximoDeTentativasPadrao);
+            Assert.StartsWith("Tentativas esgotadas", (await ExecucaoAsync(provider, execucao.Numero)).Erro);
+        }
+        finally
+        {
+            await processador.StopAsync(CancellationToken.None);
+        }
+    }
+
     // ---- apoio ----
 
     internal static readonly OpcoesDaFila Rapidas = new()
@@ -650,13 +716,14 @@ public sealed class FilaDuravelPostgreSqlTests
         return (execucao, etapa);
     }
 
-    private static async Task<long> SessaoAsync(IServiceProvider provider, Guid? boot, string unidade, bool encerrar = false)
+    private static async Task<long> SessaoAsync(IServiceProvider provider, Guid? boot, string unidade, bool encerrar = false,
+        string? host = null)
     {
         await using var escopo = provider.CreateAsyncScope();
         var ledger = escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>();
         var numero = await ledger.ReservarNumeroDeSessaoAsync();
         await ledger.RegistrarSessaoCriadaAsync(new SessaoRegistradaDto(numero, AgentKind.Claude, "telegram", 1001,
-            JobExecutionContext.General("/g"), AgentPermissionProfile.Manual, null, null, Inicio, boot));
+            JobExecutionContext.General("/g"), AgentPermissionProfile.Manual, null, null, Inicio, boot, host));
         await ledger.RegistrarSessaoIniciadaAsync(numero, "u", null, Inicio, unidadeDeContencao: unidade);
         if (encerrar)
             await ledger.RegistrarSessaoEncerradaAsync(new SessaoEncerradaDto(numero, EstadoDaSessaoDeAgente.Encerrada, null, null, Inicio));

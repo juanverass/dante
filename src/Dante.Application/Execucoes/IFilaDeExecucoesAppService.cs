@@ -8,8 +8,10 @@ public interface IFilaDeExecucoesAppService
     // Outbox do job legado: execução Avulsa, etapa, evento de criação e trabalho AvancarExecucao numa transação. A
     // chave de deduplicação é verificada antes; numa corrida, o salvamento falha inteiro com
     // ConflitoDeConcorrenciaException e o chamador consulta ObterJobPorChaveAsync num escopo novo.
+    // origem: o processo que tem o pedido em memória; registrada no trabalho para outro processo não cancelar um job
+    // cujo dono pode estar vivo.
     Task<JobNaFilaDto> EnfileirarJobAsync(JobRegistradoDto job, string chaveDeDeduplicacao,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, IdentidadeDoProcessador? origem = null);
 
     Task<JobNaFilaDto?> ObterJobPorChaveAsync(string chaveDeDeduplicacao, CancellationToken cancellationToken = default);
 

@@ -24,6 +24,7 @@ internal static class SessaoDeAgenteMapping
             IdUpstream = sessao.IdUpstream,
             IdExecucao = sessao.IdExecucao,
             BootDoWorker = sessao.BootDoWorker,
+            MaquinaDoWorker = sessao.MaquinaDoWorker,
             UnidadeDeContencao = sessao.UnidadeDeContencao,
             MotivoDoFim = sessao.MotivoDoFim,
             CriadaEm = sessao.CriadaEm,

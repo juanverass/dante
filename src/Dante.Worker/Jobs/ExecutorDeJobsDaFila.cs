@@ -20,7 +20,8 @@ public sealed class ExecutorDeJobsDaFila(
     SinalDaFila sinal,
     MetricasDaFila metricas,
     ILogger<ExecutorDeJobsDaFila> logger,
-    ITelegramBotApi? telegram = null) : IExecutorDeEtapa
+    ITelegramBotApi? telegram = null,
+    IdentidadeDoProcessador? identidade = null) : IExecutorDeEtapa
 {
     public const string FilaIndisponivel =
         "Fila de execuções indisponível (banco de dados). Nada foi enviado ao agente; tente novamente.";
@@ -62,9 +63,16 @@ public sealed class ExecutorDeJobsDaFila(
         try
         {
             await using var escopo = escopos.CreateAsyncScope();
-            await escopo.ServiceProvider.GetRequiredService<IFilaDeExecucoesAppService>().EnfileirarJobAsync(
+            var enfileirado = await escopo.ServiceProvider.GetRequiredService<IFilaDeExecucoesAppService>().EnfileirarJobAsync(
                 new JobRegistradoDto(numero, agente, LedgerChannel.Telegram, userId, context, modelSelection?.Model,
-                    modelSelection?.Effort, job.CreatedAtUtc), chaveDeDeduplicacao, stoppingToken);
+                    modelSelection?.Effort, job.CreatedAtUtc), chaveDeDeduplicacao, stoppingToken, identidade);
+            if (!enfileirado.Novo)
+            {
+                // Outro produtor gravou a mesma chave entre a consulta e a gravação: nada deste número existe no banco.
+                entradas.TryRemove(numero, out _);
+                jobs.Complete(job.Id, AgentProcessStatus.Failed, errorMessage: "Pedido já recebido.");
+                return Duplicado(enfileirado.Numero);
+            }
         }
         catch (Exception exception)
         {

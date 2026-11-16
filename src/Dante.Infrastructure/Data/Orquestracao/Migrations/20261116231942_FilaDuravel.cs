@@ -19,6 +19,14 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
+                name: "maquina_do_worker",
+                schema: "orquestracao",
+                table: "sessoes_de_agente",
+                type: "character varying(200)",
+                maxLength: 200,
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
                 name: "unidade_de_contencao",
                 schema: "orquestracao",
                 table: "sessoes_de_agente",
@@ -144,6 +152,11 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
 
             migrationBuilder.DropColumn(
                 name: "boot_do_worker",
+                schema: "orquestracao",
+                table: "sessoes_de_agente");
+
+            migrationBuilder.DropColumn(
+                name: "maquina_do_worker",
                 schema: "orquestracao",
                 table: "sessoes_de_agente");
 

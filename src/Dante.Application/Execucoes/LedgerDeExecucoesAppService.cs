@@ -91,7 +91,7 @@ public sealed class LedgerDeExecucoesAppService(
         LedgerDeExecucoesValidator.Validar(sessao);
         var registro = new SessaoDeAgente(sessao.Numero, sessao.Agente, sessao.Canal, sessao.IdDoDono,
             SerializarContexto(sessao.Contexto), sessao.Perfil, sessao.CriadaEm, sessao.Modelo, sessao.Esforco,
-            bootDoWorker: sessao.BootDoWorker);
+            bootDoWorker: sessao.BootDoWorker, maquinaDoWorker: sessao.MaquinaDoWorker);
         await sessoes.AdicionarAsync(registro, cancellationToken);
         await eventos.AdicionarAsync(EventoDeOrquestracao.DaSessao(registro, TipoDeEventoDeOrquestracao.SessaoCriada,
             null, Json(new Dictionary<string, string?> { ["agente"] = registro.Agente.ToString() }), sessao.CriadaEm),

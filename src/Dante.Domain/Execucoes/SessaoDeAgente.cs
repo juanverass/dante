@@ -9,6 +9,7 @@ public sealed class SessaoDeAgente : EntidadeBase
 {
     public const int TamanhoMaximoDoUpstream = 200;
     public const int TamanhoMaximoDaUnidade = 100;
+    public const int TamanhoMaximoDaMaquina = 200;
 
     private static readonly IReadOnlyDictionary<EstadoDaSessaoDeAgente, EstadoDaSessaoDeAgente[]> Transicoes =
         new Dictionary<EstadoDaSessaoDeAgente, EstadoDaSessaoDeAgente[]>
@@ -31,13 +32,15 @@ public sealed class SessaoDeAgente : EntidadeBase
 
     public SessaoDeAgente(long numero, AgentKind agente, string canal, long idDoDono, string contexto,
         AgentPermissionProfile perfil, DateTimeOffset criadaEm, string? modelo = null, string? esforco = null,
-        Guid? idExecucao = null, Guid? bootDoWorker = null)
+        Guid? idExecucao = null, Guid? bootDoWorker = null, string? maquinaDoWorker = null)
     {
         if (numero < 1) throw new ArgumentOutOfRangeException(nameof(numero), "Número da sessão deve ser positivo.");
         if (!Enum.IsDefined(agente)) throw new ArgumentOutOfRangeException(nameof(agente), "Agente inválido.");
         if (!Enum.IsDefined(perfil)) throw new ArgumentOutOfRangeException(nameof(perfil), "Perfil inválido.");
         if (idExecucao == Guid.Empty) throw new ArgumentException("Execução inválida.", nameof(idExecucao));
         if (bootDoWorker == Guid.Empty) throw new ArgumentException("Boot inválido.", nameof(bootDoWorker));
+        if ((bootDoWorker is null) != string.IsNullOrWhiteSpace(maquinaDoWorker) || maquinaDoWorker is { Length: > TamanhoMaximoDaMaquina })
+            throw new ArgumentException("Boot e máquina do Worker vêm juntos.", nameof(maquinaDoWorker));
         Numero = numero;
         Agente = agente;
         Canal = Execucao.TextoObrigatorio(canal, Execucao.TamanhoMaximoDoCanal, nameof(canal));
@@ -48,6 +51,7 @@ public sealed class SessaoDeAgente : EntidadeBase
         Esforco = Execucao.TextoOpcional(esforco, EtapaDaExecucao.TamanhoMaximoDoModelo);
         IdExecucao = idExecucao;
         BootDoWorker = bootDoWorker;
+        MaquinaDoWorker = string.IsNullOrWhiteSpace(maquinaDoWorker) ? null : maquinaDoWorker;
         CriadaEm = criadaEm;
     }
 
@@ -67,9 +71,10 @@ public sealed class SessaoDeAgente : EntidadeBase
     public string? IdUpstream { get; private set; }
     // Execução para a qual a sessão foi aberta; nulo na conversa comum.
     public Guid? IdExecucao { get; private set; }
-    // Boot do Worker que criou a sessão e unidade de contenção (scope dante-agent-*) do processo dela (AD-67): a
-    // recuperação na inicialização só para unidades registradas aqui por um boot anterior.
+    // Máquina (host) e boot do Worker que criou a sessão e unidade de contenção (scope dante-agent-*) do processo dela (AD-67):
+    // a recuperação na inicialização só mexe no que foi registrado por um boot anterior do mesmo host.
     public Guid? BootDoWorker { get; private set; }
+    public string? MaquinaDoWorker { get; private set; }
     public string? UnidadeDeContencao { get; private set; }
     public string? MotivoDoFim { get; private set; }
     public DateTimeOffset CriadaEm { get; private set; }

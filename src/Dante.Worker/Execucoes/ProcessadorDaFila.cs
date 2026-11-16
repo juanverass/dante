@@ -202,7 +202,7 @@ public sealed class ProcessadorDaFila(
                     if (interrupcao.NovoEstado == EstadoDaExecucao.Pendente) sinal.Sinalizar();
                     break;
                 default:
-                    await ExecutarAsync(trabalho, avaliacao.Alvo!);
+                    await ExecutarAsync(trabalho, avaliacao.Alvo!, avaliacao.Origem);
                     break;
             }
         }
@@ -218,7 +218,7 @@ public sealed class ProcessadorDaFila(
         }
     }
 
-    private async Task ExecutarAsync(TrabalhoReivindicado trabalho, AlvoDoTrabalhoDto alvo)
+    private async Task ExecutarAsync(TrabalhoReivindicado trabalho, AlvoDoTrabalhoDto alvo, string? origem)
     {
         var executor = executores.FirstOrDefault(e => e.Tipo == alvo.Tipo);
         if (executor is null)
@@ -233,6 +233,15 @@ public sealed class ProcessadorDaFila(
         }
         if (!executor.PodeExecutar(alvo))
         {
+            // O pedido pode estar na memória de um processo vivo em outro host: devolve para ele, com backoff; só
+            // cancela quando a origem é deste host (este boot ou um boot morto) ou as tentativas acabaram.
+            if (origem is not null && !identidade.MesmoHost(origem) && trabalho.Tentativas < trabalho.MaximoDeTentativas)
+            {
+                await DevolverAsync(trabalho, relogio.GetUtcNow() +
+                    TrabalhoDaFila.Backoff(trabalho.Tentativas, opcoes.BackoffInicial, opcoes.BackoffMaximo), "pedido em outro processo", true);
+                logger.LogInformation("Trabalho {IdTrabalho} devolvido: o pedido está em outro processo ({Origem}).", trabalho.Id, origem);
+                return;
+            }
             var cancelada = await EmEscopoAsync(s => s.GetRequiredService<IFilaDeExecucoesAppService>()
                 .CancelarNaoIniciadaAsync(trabalho.Posse, alvo, MotivoSemExecutorLocal, CancellationToken.None));
             RegistrarInterrupcao(trabalho, cancelada);
@@ -244,6 +253,7 @@ public sealed class ProcessadorDaFila(
         using var execucao = CancellationTokenSource.CreateLinkedTokenSource(posseCancelada.Token, encerramento);
         var heartbeat = new Heartbeat(this, trabalho, posseCancelada);
         var controle = new ExecucaoSobPosse(escopos, trabalho, alvo, posseCancelada.Token, heartbeat.PararAsync);
+        string? falha = null;
         try
         {
             logger.LogInformation("Etapa {Etapa} de {Execucao} em execução pelo trabalho {IdTrabalho} (geração {Geracao}).",
@@ -258,12 +268,7 @@ public sealed class ProcessadorDaFila(
         {
             logger.LogWarning("Executor de {Tipo} falhou no trabalho {IdTrabalho} ({ErrorType}).", alvo.Tipo, trabalho.Id,
                 exception.GetType().Name);
-            if (!controle.Iniciada)
-            {
-                await heartbeat.PararAsync();
-                await DevolverComBackoffAsync(trabalho, exception.GetType().Name);
-                return;
-            }
+            falha = exception.GetType().Name;
         }
         finally
         {
@@ -281,6 +286,13 @@ public sealed class ProcessadorDaFila(
         {
             logger.LogWarning("Lease do trabalho {IdTrabalho} (geração {Geracao}) perdido durante a etapa: resultado descartado.",
                 trabalho.Id, trabalho.Geracao);
+            return;
+        }
+        // Falha do executor: backoff contando tentativa (esgotadas, a execução falha), mesmo que a etapa tenha iniciado,
+        // para uma falha persistente não girar pela retomada automática.
+        if (falha is not null && !encerramento.IsCancellationRequested)
+        {
+            await DevolverComBackoffAsync(trabalho, falha);
             return;
         }
         // Encerramento do Worker ou executor que saiu sem resultado: o trabalho volta à fila já; na próxima
@@ -392,28 +404,44 @@ public sealed class ProcessadorDaFila(
         private async Task RenovarAsync(ProcessadorDaFila processador, TrabalhoReivindicado trabalho,
             CancellationTokenSource perdida)
         {
+            var opcoes = processador.opcoes;
             var leaseAte = trabalho.LeaseAte;
+            var proxima = opcoes.Heartbeat;
             while (true)
             {
-                await Task.Delay(processador.opcoes.Heartbeat, parar.Token);
+                // Nunca dorme além do lease: sem renovação até lá, a posse é dada como perdida no prazo.
+                var restante = leaseAte - processador.relogio.GetUtcNow();
+                var espera = proxima < restante ? proxima : restante;
+                if (espera > TimeSpan.Zero) await Task.Delay(espera, parar.Token);
                 var antes = processador.relogio.GetUtcNow();
                 bool renovado;
-                try
+                if (antes >= leaseAte) renovado = false;
+                else
                 {
-                    renovado = await processador.EmEscopoAsync(s => s.GetRequiredService<IFilaDeTrabalho>()
-                        .RenovarAsync(trabalho.Posse, processador.opcoes.Lease, parar.Token));
-                    if (renovado) leaseAte = antes + processador.opcoes.Lease;
-                }
-                catch (OperationCanceledException) when (parar.IsCancellationRequested)
-                {
-                    return;
-                }
-                catch (Exception exception)
-                {
-                    // Falha isolada de heartbeat: a posse vale até o lease vencer; depois, perdida.
-                    renovado = processador.relogio.GetUtcNow() < leaseAte;
-                    processador.logger.LogWarning("Heartbeat do trabalho {IdTrabalho} falhou ({ErrorType}); lease até {LeaseAte:O}.",
-                        trabalho.Id, exception.GetType().Name, leaseAte);
+                    using var prazo = CancellationTokenSource.CreateLinkedTokenSource(parar.Token);
+                    prazo.CancelAfter(leaseAte - antes);
+                    try
+                    {
+                        renovado = await processador.EmEscopoAsync(s => s.GetRequiredService<IFilaDeTrabalho>()
+                            .RenovarAsync(trabalho.Posse, opcoes.Lease, prazo.Token));
+                        if (renovado)
+                        {
+                            leaseAte = antes + opcoes.Lease;
+                            proxima = opcoes.Heartbeat;
+                        }
+                    }
+                    catch (OperationCanceledException) when (parar.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    catch (Exception exception)
+                    {
+                        // Falha isolada (banco lento ou fora): tenta de novo mais cedo; a posse vale só até o lease.
+                        renovado = processador.relogio.GetUtcNow() < leaseAte;
+                        proxima = opcoes.Heartbeat / 4;
+                        processador.logger.LogWarning("Heartbeat do trabalho {IdTrabalho} falhou ({ErrorType}); lease até {LeaseAte:O}.",
+                            trabalho.Id, exception.GetType().Name, leaseAte);
+                    }
                 }
                 if (renovado) continue;
                 if (parar.IsCancellationRequested) return;
