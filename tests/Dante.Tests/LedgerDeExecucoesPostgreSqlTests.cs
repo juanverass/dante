@@ -378,6 +378,42 @@ public sealed class LedgerDeExecucoesPostgreSqlTests
         Assert.Equal(502, await ledger.ReservarNumeroDeExecucaoAsync(10));
     }
 
+    // Segunda rodada do Codex: nextval e setval não são atômicos juntos. A reserva toma um advisory lock de transação:
+    // com o lock ocupado por outra conexão, ela espera; reservas concorrentes nunca repetem nem recuam a sequência.
+    [PostgreSqlFact]
+    public async Task ReservaComReconciliacaoESerializadaEntreConexoes()
+    {
+        await using var banco = await LedgerAsync();
+        await using var provider = Provider(banco.ConnectionString);
+        await using (var bloqueio = new NpgsqlConnection(banco.ConnectionString))
+        {
+            await bloqueio.OpenAsync();
+            await using var transacao = await bloqueio.BeginTransactionAsync();
+            await using (var lockar = new NpgsqlCommand(
+                "SELECT pg_advisory_xact_lock(hashtext('orquestracao.seq_numero_da_execucao'))", bloqueio, transacao))
+                await lockar.ExecuteNonQueryAsync();
+            var reserva = Task.Run(async () =>
+            {
+                await using var escopo = provider.CreateAsyncScope();
+                return await escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>().ReservarNumeroDeExecucaoAsync(500);
+            });
+            await Task.Delay(500);
+            Assert.False(reserva.IsCompleted);
+            await transacao.CommitAsync();
+            Assert.Equal(501, await reserva);
+        }
+
+        var pisos = Enumerable.Range(0, 40).Select(i => i % 3 == 0 ? 0L : 600 + i * 5L).ToArray();
+        var numeros = await Task.WhenAll(pisos.Select(piso => Task.Run(async () =>
+        {
+            await using var escopo = provider.CreateAsyncScope();
+            return (Piso: piso, Numero: await escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>()
+                .ReservarNumeroDeExecucaoAsync(piso));
+        })));
+        Assert.Equal(numeros.Length, numeros.Select(n => n.Numero).Distinct().Count());
+        Assert.All(numeros, n => Assert.True(n.Numero > n.Piso && n.Numero > 501, $"{n.Numero} <= {n.Piso}"));
+    }
+
     [Fact]
     public async Task BancoIndisponivelMantemJobsESessoesNoComportamentoLegado()
     {

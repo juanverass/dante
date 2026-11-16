@@ -117,6 +117,31 @@ public sealed class ComposicaoDaOrquestracaoTests
         Assert.Equal(("S000503", false), ids.NextSessionId(3));
     }
 
+    // Segunda rodada do Codex: com a fila cheia, a descarga do encerramento espera espaço e o consumidor, em vez de
+    // retornar com registros aceitos ainda pendentes.
+    [Fact]
+    public async Task DescargaComFilaCheiaEsperaOsRegistrosAceitos()
+    {
+        using var provider = new ServiceCollection().AddScoped(typeof(Dante.Application.Execucoes.ILedgerDeExecucoesAppService),
+            _ => ApplicationCompositionTests.PortaFalsa.Criar(typeof(Dante.Application.Execucoes.ILedgerDeExecucoesAppService)))
+            .BuildServiceProvider();
+        await using var espelho = new EspelhoDoLedger(provider.GetRequiredService<IServiceScopeFactory>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<EspelhoDoLedger>.Instance);
+        var liberar = new TaskCompletionSource();
+        var gravados = 0;
+        espelho.Registrar("bloqueio", async (_, _) => await liberar.Task);
+        await Task.Delay(100);
+        for (var i = 0; i < EspelhoDoLedger.Capacidade; i++)
+            espelho.Registrar("registro", (_, _) => { Interlocked.Increment(ref gravados); return Task.CompletedTask; });
+
+        var descarga = espelho.DescarregarAsync();
+        await Task.Delay(300);
+        Assert.False(descarga.IsCompleted);
+        liberar.SetResult();
+        await descarga.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(EspelhoDoLedger.Capacidade, gravados);
+    }
+
     private static IConfiguration Configuracao(string? banco, string? habilitada) => new ConfigurationBuilder()
         .AddInMemoryCollection(new Dictionary<string, string?>
         {

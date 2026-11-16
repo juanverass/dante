@@ -2347,8 +2347,10 @@ Decisão:
   reserva do número espera o banco (prazo de 3 s; após falha, 30 s sem consultar); os registros vão a uma fila em
   memória limitada, gravados em ordem por um único consumidor. Falha de gravação é logada e não afeta job nem
   sessão; banco indisponível volta ao contador local, sem espelho, e nunca repete um id já usado no processo. Cada
-  reserva informa o maior número já usado localmente; a sequência atrás dele é avançada (`setval` com `GREATEST`,
-  nunca recua), e o espelho volta a valer quando o banco retorna.
+  reserva informa o maior número já usado localmente; a sequência atrás dele é avançada até ele, e o espelho volta a
+  valer quando o banco retorna. Reservas de execução e de sessão são serializadas entre conexões por
+  `pg_advisory_xact_lock`, então `nextval` e `setval` nunca se intercalam e a sequência nunca recua. A descarga do
+  encerramento espera espaço na fila cheia em vez de retornar com registros pendentes.
 * **Encerramento**: o hosted service `EncerramentoDoLedger`, registrado antes dos demais, para por último. No
   `StopAsync`, depois de o polling esperar os jobs, encerra as sessões vivas (`Interrompida`, não `Falhou`) e grava
   a fila enquanto o provider ainda cria escopos; o descarte do provider vem depois.

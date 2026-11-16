@@ -53,11 +53,20 @@ public sealed class EspelhoDoLedger : IAsyncDisposable, IDisposable
             logger.LogWarning("Registro {Descricao} descartado: fila do ledger cheia ou encerrada.", descricao);
     }
 
-    // Espera tudo o que foi enfileirado até agora ser gravado (ou falhar).
+    // Espera tudo o que foi enfileirado até agora ser gravado (ou falhar). Com a fila cheia, espera espaço para a
+    // marca de descarga em vez de retornar: o encerramento não pode seguir com registros aceitos ainda pendentes.
     public async Task DescarregarAsync(CancellationToken cancellationToken = default)
     {
         var concluido = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (!fila.Writer.TryWrite(new Registro("descarga", null, concluido))) return;
+        try
+        {
+            await fila.Writer.WriteAsync(new Registro("descarga", null, concluido), cancellationToken);
+        }
+        catch (ChannelClosedException)
+        {
+            // Já encerrado: o DisposeAsync aguarda o consumidor.
+            return;
+        }
         await concluido.Task.WaitAsync(cancellationToken);
     }
 

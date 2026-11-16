@@ -14,7 +14,7 @@ public sealed class EventoDeOrquestracaoRepository(OrquestracaoDbContext context
     public override async Task AdicionarAsync(EventoDeOrquestracao entidade, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(entidade);
-        var sequencia = await SequenciasDoLedger.ReservarAsync(Context, OrquestracaoDbContext.SequenciaDeEventos, 0,
+        var sequencia = await SequenciasDoLedger.ProximoAsync(Context, OrquestracaoDbContext.SequenciaDeEventos,
             cancellationToken);
         await base.AdicionarAsync(entidade, cancellationToken);
         Context.Entry(entidade).Property(evento => evento.Sequencia).CurrentValue = sequencia;
