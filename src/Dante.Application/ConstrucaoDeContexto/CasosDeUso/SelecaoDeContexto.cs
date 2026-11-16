@@ -17,6 +17,11 @@ internal static class SelecaoDeContexto
         var presentes=pedido.FragmentosJaPresentes.Append(pedido.Mensagem).Select(Normalizar).ToArray();
         var selecionados=new List<ItemDeContextoDto>();var tokens=EstimarTokens(FormatoDeContexto.Cabecalho(PlanoDoFormato.Extenso));
         var normalizados=new HashSet<string>(StringComparer.Ordinal);
+        // Fonte que pode sair omitida (O3): a forma final (chave Omitida + ConsolidadaEm, sem Conteudo) e a explicação
+        // no cabeçalho podem custar mais que a íntegra numa fonte curta. A seleção conta o maior dos dois custos e a
+        // explicação uma única vez; assim o custo admitido é sempre um limite superior do texto final.
+        var porChaveCandidata=candidatos.GroupBy(x=>x.Chave,StringComparer.Ordinal).ToDictionary(g=>g.Key,g=>g.First(),StringComparer.Ordinal);
+        var custoDaExplicacao=EstimarTokens(FormatoDeContexto.Omitido+FormatoDeContexto.OmitidoImplicito+"\n");var explicacaoContada=false;
         foreach(var original in candidatos.OrderBy(Prioridade).ThenByDescending(x=>x.Relevancia).ThenBy(x=>x.Chave,StringComparer.Ordinal))
         {
             var candidato=original;
@@ -25,8 +30,16 @@ internal static class SelecaoDeContexto
                 var campos=CamposRestantes(camposDoSnapshot,selecionados);
                 candidato=candidato with{Conteudo=string.Join("\n",campos.Select(c=>c.Texto)),CamposDoSnapshot=campos};
             }
-            // Estimativa conservadora: sensibilidade por item, sem omissão de fonte; o pós-processamento só reduz ou verifica.
-            var item=candidato with{TokensEstimados=EstimarTokens(FormatoDeContexto.Formatar(candidato,true))};
+            // Estimativa conservadora: sensibilidade e rótulo por item; o pós-processamento só reduz ou verifica.
+            var custo=EstimarTokens(FormatoDeContexto.Formatar(candidato,true));
+            var omissivel=candidato.Origem=="fonte_bruta" && consolidacoes?.GetValueOrDefault(candidato.Chave) is { Count: > 0 } possivel &&
+                possivel.All(porChaveCandidata.ContainsKey);
+            if(omissivel)
+            {
+                var cobertura=consolidacoes![candidato.Chave].Select(c=>FormatoDeContexto.Identidade(porChaveCandidata[c])).Distinct(StringComparer.Ordinal).ToArray();
+                custo=Math.Max(custo,EstimarTokens(FormatoDeContexto.Formatar(candidato with{ConsolidadaEm=cobertura},true))+(explicacaoContada?0:custoDaExplicacao));
+            }
+            var item=candidato with{TokensEstimados=custo};
             var normal=Normalizar(item.Conteudo);string? descarte=null;
             // O snapshot já foi reduzido campo a campo por igualdade; substring aqui descartaria pendências e próximos
             // passos contidos em frases de sentido oposto. Ele só sai inteiro se for igual ao que já está presente.
@@ -40,7 +53,7 @@ internal static class SelecaoDeContexto
             else if(selecionados.Count>=pedido.LimiteDeItens)descarte="Limite de itens.";
             else if(tokens+item.TokensEstimados>pedido.OrcamentoDeTokens)descarte="Descartado pelo orçamento de tokens estimados.";
             if(descarte is not null){registros.Add(new(item.Chave,item.Id,item.Origem,"descartado",descarte,item.TokensEstimados));continue;}
-            selecionados.Add(item);normalizados.Add(normal);tokens+=item.TokensEstimados;
+            selecionados.Add(item);normalizados.Add(normal);tokens+=item.TokensEstimados;explicacaoContada|=omissivel;
             registros.Add(new(item.Chave,item.Id,item.Origem,"selecionado",item.Motivo,item.TokensEstimados));
         }
         if(selecionados.Count==0)return new(Guid.NewGuid(),"",[],registros.ToArray(),new(0,0,0,0,pedido.OrcamentoDeTokens),limitou);
