@@ -30,6 +30,9 @@ public sealed record AgentSessionSnapshot(
     // A /compact is running in the background (#121): messages and other context operations wait for its end.
     public bool Compacting { get; init; }
 
+    // Registered agent frozen at start (AD-68); null for the built-in claude/codex.
+    public AgenteDaSessao? RegisteredAgent { get; init; }
+
     // The model chosen when the session started, or the CLI default with the model the CLI reported, if any (#77).
     public string EffortLabel => ModelSelection?.EffortLabel ?? "padrão da CLI";
 
@@ -44,7 +47,9 @@ public sealed record SessionStartRequest(
     IReadOnlyDictionary<string, string>? EnvironmentVariables = null,
     AgentPermissionProfile Profile = AgentPermissionProfile.Manual,
     AgentModelSelection? ModelSelection = null,
-    ContextoDeFerramentas? BrainConversation = null);
+    ContextoDeFerramentas? BrainConversation = null,
+    // Registered agent whose version the session freezes (AD-68); null keeps the built-in behavior.
+    AgenteDaSessao? RegisteredAgent = null);
 
 // DiscardedMessages: queued messages dropped by an interrupt.
 public sealed record SessionResult(

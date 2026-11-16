@@ -18,6 +18,9 @@ internal static class WorkerComposition
         // Ledger de execuções (AD-66): exige banco e a chave própria; a connection string sozinha não o liga. Sem o
         // espelho, JobRegistry e SessionRegistry seguem só em memória, como antes.
         if (OrquestracaoHabilitada(configuration)) services.AddLedgerDeExecucoes();
+        // Cadastro de agentes (AD-68): mesma condição do ledger; sem ele, /agentes, /agente e /tarefa respondem
+        // indisponível e /session start segue só com claude|codex.
+        if (OrquestracaoHabilitada(configuration)) services.AddSingleton<TelegramAgentes>();
         services.AddSingleton<JobRegistry>();
         services.AddSingleton<RegistroDeOperacoesBrain>();
         services.AddSingleton(provider => new TelegramBrain(provider.GetRequiredService<IServiceScopeFactory>(), configuration, provider.GetRequiredService<RegistroDeOperacoesBrain>()));

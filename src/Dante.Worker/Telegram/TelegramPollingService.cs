@@ -38,7 +38,8 @@ public sealed partial class TelegramPollingService(
     TelegramBrain? brain = null,
     IContinuidadeDoBrain? continuidade = null,
     TelegramPlanilhas? planilhas = null,
-    ILeitorDeCheckouts? checkouts = null) : BackgroundService
+    ILeitorDeCheckouts? checkouts = null,
+    TelegramAgentes? agentes = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private static readonly TimeSpan PollRetryDelay = TimeSpan.FromSeconds(3);
@@ -281,6 +282,21 @@ public sealed partial class TelegramPollingService(
         {
             await SendReplyAsync(message.Chat.Id, HandleAgentCommand(message.From!.Id, prompt), cancellationToken);
             await DiscardStalePendingAsync(message, cancellationToken);
+            return;
+        }
+
+        // Registered agents (AD-68): catalog commands and the read-only /tarefa.
+        if (string.Equals(command, "/agentes", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(command, "/agente", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendLongMessageAsync(message.Chat.Id, await HandleAgentesCommandAsync(message.From!.Id,
+                command.Equals("/agentes", StringComparison.OrdinalIgnoreCase), prompt, cancellationToken), cancellationToken);
+            return;
+        }
+
+        if (string.Equals(command, "/tarefa", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleTarefaCommandAsync(message, prompt, cancellationToken);
             return;
         }
 
@@ -599,7 +615,7 @@ public sealed partial class TelegramPollingService(
     private async Task HandleSessionCommandAsync(TelegramMessage message, string prompt,
         CancellationToken cancellationToken)
     {
-        const string usage = "Uso: /session start [claude|codex] [@alias] [manual|auto|plan] [model=<modelo>] [effort=<nível>] | list | select <id|none> | stop [id] | close [id]";
+        const string usage = "Uso: /session start [claude|codex|<handle>] [@alias] [manual|auto|plan] [model=<modelo>] [effort=<nível>] | list | select <id|none> | stop [id] | close [id]";
         if (sessions is null)
         {
             await SendReplyAsync(message.Chat.Id, "Sessões indisponíveis.", cancellationToken);
@@ -622,6 +638,7 @@ public sealed partial class TelegramPollingService(
             string? alias = null;
             string? model = null;
             string? effort = null;
+            string? registeredHandle = null;
             var profileSpecified = false;
             for (var index = 1; index < parts.Length; index++)
             {
@@ -637,11 +654,20 @@ public sealed partial class TelegramPollingService(
                     profile = requested;
                     profileSpecified = true;
                 }
+                // A registered agent's handle (AD-68): never starts with @ (repository) nor matches the words above.
+                else if (agentes is not null && registeredHandle is null && Agente.HandleValido(parts[index].ToLowerInvariant()))
+                    registeredHandle = parts[index].ToLowerInvariant();
                 else
                 {
                     await SendReplyAsync(message.Chat.Id, usage, cancellationToken);
                     return;
                 }
+            }
+            if (registeredHandle is not null)
+            {
+                await StartRegisteredSessionAsync(message, registeredHandle, requestedAgent is not null, alias,
+                    profileSpecified ? profile : null, model, effort, cancellationToken);
+                return;
             }
             var resolved = resolver.ResolveContext(userId, requestedAgent, alias);
             if (!resolved.Succeeded)
@@ -1089,7 +1115,9 @@ public sealed partial class TelegramPollingService(
         }
         // The Brain package goes with the text as quoted data (#145); it counts as injected, and is measured (#148), only
         // once the session took it.
-        var brainContext = continuidade is null ? null :
+        // A registered agent receives Brain context only when its version grants the Brain (AD-68).
+        var brainContext = continuidade is null || active?.RegisteredAgent?.Configuracao
+            .PermiteFerramenta(Dante.Domain.Agentes.FerramentaDoDante.Brain) == false ? null :
             await continuidade.PrepararAsync(message, sessionId, text, cancellationToken);
         var result = await SessionSubmitAsync(userId, sessionId,
             new AgentInput(brainContext?.Texto ?? text, images) { Correlation = brainContext?.Correlacao, BrainConversation = message.ParaFerramentas() },
@@ -1745,7 +1773,9 @@ public sealed partial class TelegramPollingService(
         $" | criado {job.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
 
     private static string FormatSession(AgentSessionSnapshot session) =>
-        $"{session.Id} {session.Agent} {session.Context.Descricao}: {session.State}" +
+        $"{session.Id} {session.Agent}" +
+        (session.RegisteredAgent is null ? string.Empty : $" (agente {session.RegisteredAgent.Descricao})") +
+        $" {session.Context.Descricao}: {session.State}" +
         (session.IsActive ? " (ativa)" : string.Empty) +
         (session.ActiveTurnId is null ? string.Empty : $" | turno {session.ActiveTurnId}") +
         (session.Compacting ? " | compactando" : string.Empty) +

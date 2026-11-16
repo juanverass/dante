@@ -1,5 +1,7 @@
 using Dante.Application.Agentes;
 using Dante.Application.Anexos;
+using Dante.Worker.Brain;
+using Dante.Worker.Planilhas;
 using Dante.Application.Execucoes;
 using Dante.Domain.Execucoes;
 using Dante.Worker.Execucoes;
@@ -51,6 +53,11 @@ public sealed class SessionRegistry(
                 return SessionResult.Reject("O Worker está sendo encerrado; não é possível iniciar sessões.");
             }
 
+            // A registered agent's version is the ceiling of the session (AD-68): checked here, before any driver
+            // exists, whatever the caller already checked.
+            if (request.RegisteredAgent is { } registeredAgent && RefuseRegistered(request, registeredAgent) is { } refusal)
+                return SessionResult.Reject(refusal);
+
             driver = drivers.Create(request.Agent);
             // A mode the agent cannot map is refused before any process starts (#76).
             if (driver.Capabilities.Modes.Contains(request.Profile))
@@ -60,14 +67,22 @@ public sealed class SessionRegistry(
                     request.Context, driver.Capabilities, ids, requestTimeout);
                 entry = new Entry(session, driver, request.Profile, request.ModelSelection)
                 {
-                    LedgerNumber = mirrored ? reserved : null
+                    LedgerNumber = mirrored ? reserved : null,
+                    RegisteredAgent = request.RegisteredAgent
                 };
                 sessions.Add(session.Id, entry);
                 if (entry.LedgerNumber is { } number)
                 {
+                    // The agent is frozen in the record too: the registered version, or the built-in materialized from
+                    // the preferences this session starts with (AD-68).
+                    var agent = request.RegisteredAgent;
                     var registered = new SessaoRegistradaDto(number, request.Agent, LedgerChannel.Telegram,
                         request.OwnerUserId, request.Context, request.Profile, request.ModelSelection?.Model,
-                        request.ModelSelection?.Effort, entry.CreatedAtUtc);
+                        request.ModelSelection?.Effort, entry.CreatedAtUtc,
+                        agent?.Handle ?? AgentesEmbutidos.Handle(request.Agent),
+                        agent?.Versao.HashDaConfiguracao ?? AgentesEmbutidos
+                            .Materializar(request.Agent, request.ModelSelection, request.Profile).Hash(),
+                        agent?.Versao.Id);
                     ledger!.Registrar($"criação da sessão {id}", (l, token) => l.RegistrarSessaoCriadaAsync(registered, token));
                 }
             }
@@ -91,9 +106,10 @@ public sealed class SessionRegistry(
                 request.EnvironmentVariables,
                 request.Profile,
                 request.ModelSelection,
-                toolServers is null ? null : await toolServers.ForSessionAsync(entry.Session.Id, request, cancellationToken),
+                Granted(request, toolServers is null ? null
+                    : await toolServers.ForSessionAsync(entry.Session.Id, request, cancellationToken)),
                 request.Context.RepositoriosVinculados.Select(linked => linked.Caminho).ToArray(),
-                ContratoMultirrepositorio.Para(request.Context)),
+                Instructions(request)),
                 cancellationToken);
             entry.ReportedModel = started.Model;
             entry.Session.MarkStarted(started);
@@ -142,6 +158,9 @@ public sealed class SessionRegistry(
                     "Aguarde a conclusão ou use /session stop para interromper explicitamente.");
             if (!entry.Driver.Capabilities.Modes.Contains(profile))
                 return SessionResult.Reject($"O modo {AgentSessionModes.Name(profile)} não é suportado pelo {snapshot.Agent}.");
+            // A session never goes past the maximum of its agent's version (AD-68).
+            if (entry.RegisteredAgent is { } registered && !registered.PermitePerfil(profile))
+                return SessionResult.Reject(AboveMaximum(registered, profile));
             if (entry.Driver.Capabilities.ModeSwitch == AgentModeSwitch.Unsupported)
                 return SessionResult.Reject($"Esta sessão {snapshot.Agent} não permite trocar o modo sem reiniciar. " +
                     $"Use /session start {snapshot.Agent.ToString().ToLowerInvariant()} {AgentSessionModes.Name(profile)} para abrir uma nova sessão.");
@@ -736,6 +755,18 @@ public sealed class SessionRegistry(
     }
 
     // Only the owner's sessions: live ones and the most recently ended.
+    // Live sessions of one registered agent, of every owner (AD-68): what keeps running after it is deactivated.
+    public IReadOnlyList<AgentSessionSnapshot> ListLiveOfRegisteredAgent(string handle)
+    {
+        lock (gate)
+        {
+            return sessions.Values
+                .Where(entry => entry.RegisteredAgent?.Handle == handle && !IsEnded(entry.Session.State))
+                .Select(Snapshot)
+                .ToArray();
+        }
+    }
+
     public IReadOnlyList<AgentSessionSnapshot> List(long userId)
     {
         lock (gate)
@@ -1097,9 +1128,51 @@ public sealed class SessionRegistry(
                 entry.ReportedModel)
             {
                 PendingProfile = entry.PendingProfile, UpstreamSessionId = session.UpstreamSessionId,
-                Compacting = entry.Compaction is not null
+                Compacting = entry.Compaction is not null, RegisteredAgent = entry.RegisteredAgent
             };
         }
+    }
+
+    // Caller holds the gate. Profile, driver, repositories and the agent's simultaneous limit (AD-68).
+    private string? RefuseRegistered(SessionStartRequest request, AgenteDaSessao registered)
+    {
+        var configuration = registered.Configuracao;
+        if (configuration.Driver != request.Agent)
+            return $"O agente {registered.Descricao} usa {configuration.Driver}, não {request.Agent}.";
+        if (!registered.PermitePerfil(request.Profile)) return AboveMaximum(registered, request.Profile);
+        if (!MontagemDaTarefa.ReposPermitidos(configuration, request.Context))
+            return MontagemDaTarefa.RecusaDeRepositorio(registered.Handle, configuration, request.Context);
+        if (configuration.Limites.ExecucoesSimultaneas is { } limit && sessions.Values.Count(other =>
+                other.RegisteredAgent?.Handle == registered.Handle && !IsEnded(other.Session.State)) >= limit)
+            return $"O agente {registered.Handle} já tem {limit} sessão(ões) simultânea(s), o limite da versão.";
+        return null;
+    }
+
+    private static string AboveMaximum(AgenteDaSessao registered, AgentPermissionProfile profile) =>
+        $"O modo {AgentSessionModes.Name(profile)} passa do máximo do agente {registered.Descricao} " +
+        $"({AgentSessionModes.Name(registered.PerfilMaximo)}).";
+
+    // A registered agent receives only the D.A.N.T.E. tool servers its version grants; an unknown server is never
+    // granted. Built-ins keep everything, as before.
+    private static IReadOnlyList<AgentToolServer>? Granted(SessionStartRequest request,
+        IReadOnlyList<AgentToolServer>? servers)
+    {
+        if (servers is null || request.RegisteredAgent is not { } registered) return servers;
+        return servers.Where(server => server.Name switch
+        {
+            ServidorMcpDoBrain.Nome => registered.Configuracao.PermiteFerramenta(FerramentaDoDante.Brain),
+            ServidorMcpDePlanilhas.Nome => registered.Configuracao.PermiteFerramenta(FerramentaDoDante.Planilhas),
+            _ => false
+        }).ToArray();
+    }
+
+    // Multi-repository contract first (AD-58), then the registered agent's role (AD-68); both after the conversation
+    // contract the drivers always put first.
+    private static string? Instructions(SessionStartRequest request)
+    {
+        var context = ContratoMultirrepositorio.Para(request.Context);
+        var agent = request.RegisteredAgent?.Instrucoes;
+        return context is null ? agent : agent is null ? context : context + "\n" + agent;
     }
 
     private static bool IsEnded(AgentSessionState state) =>
@@ -1120,6 +1193,8 @@ public sealed class SessionRegistry(
         public DateTimeOffset? EndedAtUtc { get; set; }
         // Number of the session in the execution ledger; null when not mirrored.
         public long? LedgerNumber { get; init; }
+        // Registered agent version frozen at start (AD-68); null for the built-ins.
+        public AgenteDaSessao? RegisteredAgent { get; init; }
         public Task? Pump { get; set; }
         public AgentTurnOutcome? LastTurnOutcome { get; set; }
         // Turns that ended since the session started or was cleared: without any, there is nothing to compact (#121).
