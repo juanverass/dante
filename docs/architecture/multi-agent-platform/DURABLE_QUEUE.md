@@ -137,3 +137,57 @@ ADR 0163 do concorrente vale aqui.
 
 Trabalhos `concluido` apagados após 7 dias; execuções e eventos mantidos (com exportação/limpeza administrativa
 futura). Conteúdo textual de eventos segue a política de redaction e omissão por segredos (AD-21).
+
+## Implementação (#300)
+
+Registrada como [AD-67](../../context/ARCHITECTURE_DECISIONS.md). Diferenças em relação ao modelo acima: os instantes
+(lease, `disponivel_em`) vêm do relógio do processo, não de `now()`, para serem controláveis nos testes; o estado é
+gravado como inteiro (`EstadoDoTrabalho`); só o tipo `AvancarExecucao` existe por enquanto; a retenção de concluídos
+ainda não foi implementada. Na recuperação, uma sessão de boot anterior com unidade de contenção registrada só vira
+`Interrompida` quando a parada dessa unidade é confirmada (ausente da listagem ou parada agora); sem isso fica pendente
+para a próxima inicialização. O limite de tentativas é conferido antes de executar ou retomar, contando toda
+reivindicação (inclusive a de um lease vencido depois de um SIGKILL); esgotado, nenhum executor é iniciado e a política
+da etapa decide o estado terminal (`Falhou` se não iniciou ou é `Automatica`; `Interrompida` para `ComConfirmacao`;
+`Bloqueada` para `Nunca`).
+
+### Contrato `IFilaDeTrabalho` (Application, `Execucoes/Portas`)
+
+```csharp
+DateTimeOffset Agora { get; }                                   // relógio da fila
+Task EnfileirarAsync(TrabalhoDaFila trabalho, CancellationToken ct = default);          // outbox: entra na UoW
+Task<TrabalhoDaFila?> ObterPorChaveAsync(string chaveDeDeduplicacao, CancellationToken ct = default);
+Task ExecutarEmTransacaoAsync(Func<CancellationToken, Task> gravacao, CancellationToken ct = default);
+Task<TrabalhoReivindicado?> ReivindicarAsync(IdentidadeDoProcessador processador, TimeSpan lease, CancellationToken ct = default);
+Task<bool> RenovarAsync(PosseDoTrabalho posse, TimeSpan lease, CancellationToken ct = default);
+Task GravarComPosseAsync(PosseDoTrabalho posse, Func<CancellationToken, Task>? gravacao, EstadoDoTrabalho? encerrarComo,
+    string? motivo = null, DateTimeOffset? disponivelEm = null, CancellationToken ct = default);
+Task<bool> DevolverAsync(PosseDoTrabalho posse, DateTimeOffset disponivelEm, string? erro, bool contarTentativa, CancellationToken ct = default);
+Task<DateTimeOffset?> ProximaDisponibilidadeAsync(CancellationToken ct = default);
+Task<int> DevolverDeBootsAnterioresAsync(IdentidadeDoProcessador atual, CancellationToken ct = default);
+```
+
+Por cima dele, `IFilaDeExecucoesAppService` (avaliar, iniciar etapa, concluir etapa, interromper pela política,
+encerrar por tentativas esgotadas, cancelar não iniciada, confirmar retomada) e `IRecuperacaoDeExecucoesAppService` (recuperação na inicialização). O
+processador (`ProcessadorDaFila`, Worker) despacha cada trabalho para o `IExecutorDeEtapa` do `TipoDeExecucao` da
+execução e entrega a ele um `ExecucaoSobPosse` com `IniciarAsync`/`ConcluirAsync`, que gravam sob posse.
+
+### Como uma execução nova entra na fila (ex.: `/tarefa`, #301)
+
+```csharp
+var numero = await execucoes.ReservarNumeroAsync(ct);
+var execucao = new Execucao(numero, TipoDeExecucao.Tarefa, canal, idDoUsuario, contexto, objetivo, fila.Agora);
+var etapa = new EtapaDaExecucao(execucao, 1, TipoDeEtapa.TurnoDeAgente, escrita: false,
+    PoliticaDeRetomada.Automatica, fila.Agora, agente, modelo, esforco);
+await execucoes.AdicionarAsync(execucao, ct);
+await etapas.AdicionarAsync(etapa, ct);
+await eventos.AdicionarAsync(EventoDeOrquestracao.DaExecucao(execucao, TipoDeEventoDeOrquestracao.ExecucaoCriada, dados, fila.Agora), ct);
+await fila.EnfileirarAsync(TrabalhoDaFila.AvancarExecucao(execucao, etapa, chaveDeDeduplicacao, fila.Agora), ct);
+await unidade.SalvarAlteracoesAsync(ct);   // tudo ou nada; chave repetida → ConflitoDeConcorrenciaException
+```
+
+A chave identifica o pedido de origem (ex.: `telegram:<chat>:<mensagem>`), nunca o conteúdo. No Worker, registrar um
+`IExecutorDeEtapa` com `Tipo = TipoDeExecucao.Tarefa` (singleton, exposto como `IExecutorDeEtapa`): `PodeExecutar`
+diz se este processo tem o necessário (para uma tarefa cujo objetivo está no ledger, sempre); `ExecutarAsync` chama
+`controle.IniciarAsync`, roda a sessão/processo fora de transação respeitando o token (encerramento ou posse perdida)
+e grava com `controle.ConcluirAsync(new ResultadoDaEtapaDto(...))` antes de entregar a resposta. Etapa de leitura usa
+`PoliticaDeRetomada.Automatica`; a etapa só é refeita sozinha se a política permitir.

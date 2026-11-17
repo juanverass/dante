@@ -15,8 +15,9 @@ public interface ILedgerDeExecucoesAppService
     Task RegistrarJobEncerradoAsync(JobEncerradoDto fim, CancellationToken cancellationToken = default);
 
     Task RegistrarSessaoCriadaAsync(SessaoRegistradaDto sessao, CancellationToken cancellationToken = default);
+    // unidadeDeContencao: scope dante-agent-* do processo da sessão, quando há contenção nativa (AD-63/67).
     Task RegistrarSessaoIniciadaAsync(long numero, string? idUpstream, string? modeloInformado, DateTimeOffset iniciadaEm,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, string? unidadeDeContencao = null);
     Task RegistrarSessaoEncerradaAsync(SessaoEncerradaDto fim, CancellationToken cancellationToken = default);
     Task RegistrarEventoDaSessaoAsync(EventoDeSessaoDto evento, CancellationToken cancellationToken = default);
 

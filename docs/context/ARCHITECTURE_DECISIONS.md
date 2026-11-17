@@ -68,7 +68,7 @@ Código: `Telegram/TelegramUserAuthorizer.cs`; testes em `TelegramUserAuthorizer
 
 ## AD-06 — Jobs somente em memória
 
-Status: vigente (MVP 1, #9)
+Status: vigente sem `Orquestracao:Habilitada`; com a orquestração habilitada, substituída pela AD-67 (#300)
 
 `JobRegistry` mantém jobs ativos e os 20 encerrados mais recentes em memória. Reiniciar
 o Worker perde o histórico.
@@ -2375,6 +2375,97 @@ Consequências:
   sequência (SSE, AD-73) deve tratar isso;
 * agente/versão, raiz/pai, profundidade e unidade de contenção da sessão ainda não são colunas: entram com as
   entregas que os usam.
+
+## AD-67 — Fila durável no PostgreSQL com lease, heartbeat, fencing e recuperação após reinício (#300)
+
+Status: vigente, Issue 2 da Epic #296. Proposta aprovada na #297 (PR #298). Substitui a AD-06 quando
+`Orquestracao:Habilitada=true`; sem a chave, a AD-06 continua valendo e o Worker compõe exatamente o legado.
+Complementa a AD-66 (o ledger passa a ser gravado sob posse do trabalho) e a AD-63 (varredura de scopes órfãos na
+inicialização). Desligada por padrão; a migration no banco canônico e a ativação no serviço exigem autorização
+operacional própria.
+
+Contexto: com o ledger da AD-66, jobs e sessões eram espelhados de forma best-effort e nada era retomado depois de um
+reinício. Faltava um caminho durável para enfileirar trabalho, impedir execução dupla entre processos, sobreviver à
+morte do Worker no meio de uma CLI e decidir com segurança o que fazer com uma etapa interrompida.
+
+Decisão:
+
+* **Tabela `orquestracao.trabalhos_da_fila` como outbox transacional.** O produtor cria execução/etapa pelos métodos do
+  domínio, chama `IFilaDeTrabalho.EnfileirarAsync` e confirma com `IUnitOfWorkDaOrquestracao.SalvarAlteracoesAsync`:
+  execução, etapa, evento e trabalho entram numa transação. `chave_de_deduplicacao` é única: a mesma chave produz no
+  máximo um trabalho e uma execução lógica (corrida → `ConflitoDeConcorrenciaException`, nada gravado). `dados` guarda
+  só identificadores.
+* **Reivindicação** por um único `UPDATE … FROM (SELECT … FOR UPDATE SKIP LOCKED LIMIT 1)`: pendente com
+  `disponivel_em` vencido ou reivindicado com lease vencido; incrementa `geracao` (fencing token) e `tentativas`. Os
+  instantes vêm do `TimeProvider` do processo (controlável nos testes), não de `now()`.
+* **Lease 60 s, heartbeat 20 s, polling 5 s, 1 slot** por padrão (`Orquestracao:Fila:{LeaseSegundos, HeartbeatSegundos,
+  PollingSegundos, Slots}`; o heartbeat precisa caber duas vezes no lease). O limite global de 1 processo de execução
+  vale até a contenção estrita da AD-63 estar ativa no serviço.
+* **Fencing**: toda gravação do processador passa por `GravarComPosseAsync`, numa transação que trava a linha do
+  trabalho (`FOR UPDATE`) e confere geração, dono, boot, estado e lease não vencido antes de qualquer escrita; a
+  conclusão da etapa, a transição da execução, os eventos, o próximo trabalho e o fim do trabalho atual são uma única
+  transação. Posse perdida → `PosseDoTrabalhoPerdidaException`, nada gravado. Heartbeat recusado (ou sem renovar até o
+  lease vencer) cancela a etapa localmente; o heartbeat nunca dorme além do lease, então a CLI não segue rodando depois
+  de a posse poder ter passado a outro processador, e um prazo local independente (lease menos uma margem) cancela a
+  etapa mesmo que a renovação fique presa no banco.
+* **Nenhuma transação aberta durante a CLI**: reivindicar, renovar e gravar são transações curtas em escopos próprios; o
+  executor roda o processo entre elas.
+* **Sinal**: trigger `trg_trabalhos_da_fila_notificar` faz `pg_notify('dante_fila')` no commit de todo trabalho
+  pendente; o processador escuta (`LISTEN`, conexão dedicada que se refaz) e também faz polling, e dorme até o próximo
+  `disponivel_em` sem busy loop. Notificação perdida só atrasa.
+* **Backoff** de erro transitório do D.A.N.T.E. e de falha do executor (inclusive depois de iniciar a etapa): 5 s, 10 s,
+  20 s… até 10 min, `max_tentativas` 5.
+* **Limite de tentativas** verificado antes de executar ou retomar: toda reivindicação conta (inclusive a que recupera o
+  lease vencido de um processo morto por SIGKILL, que nunca devolve o trabalho); só o encerramento do Worker e a
+  devolução a outro host que tem o pedido não contam. `tentativas` inclui a atual: a de número `max_tentativas` ainda
+  roda, a seguinte não inicia executor nenhum. Esgotadas, o trabalho termina `Falhou` na mesma transação da transição
+  terminal decidida pelo estado da etapa: não iniciada (nenhuma ação externa começou, o início é gravado antes do
+  processo) ou `Automatica` em execução → execução `Falhou` com motivo; `ComConfirmacao` em execução → `Interrompida`;
+  `Nunca` em execução → `Bloqueada` (resultado incerto nunca vira falha comum). As duas últimas só voltam por
+  confirmação explícita, com trabalho novo.
+* **Recuperação na inicialização**, antes da primeira reivindicação: lista `dante-agent-*.scope` e para **só** as
+  unidades que o ledger registra em sessões de um boot anterior **do mesmo host** (`sessoes_de_agente`
+  `unidade_de_contencao`, `boot_do_worker` e `maquina_do_worker`, colunas novas); desconhecidas são relatadas e nunca
+  paradas, e sem listagem nada é parado. Sessões não terminais de boot anterior do mesmo host → `Interrompida`; com
+  unidade registrada, só depois de confirmar que ela não está ativa (ausente de uma listagem bem-sucedida ou parada
+  agora) — sem listagem ou com falha ao parar, a sessão continua não terminal (contada como pendente no relatório) e a
+  próxima inicialização tenta de novo. Sessão sem unidade registrada vira `Interrompida` sem essa confirmação. De outro
+  host ou sem boot registrado (anteriores à #300), intocadas. Trabalhos reivindicados por outro boot do mesmo host voltam à fila
+  sem esperar o lease (o Worker é instância única no host; o fencing protege mesmo que não seja).
+* **Política de retomada** ao reivindicar uma etapa que estava `EmExecucao`: `Automatica` → nova tentativa e execução
+  `Pendente`; `ComConfirmacao` (escrita; o job legado) → `Interrompida`, só volta por
+  `IFilaDeExecucoesAppService.ConfirmarRetomadaAsync` (chave por tentativa); `Nunca` (ação externa de resultado
+  incerto) → `Bloqueada` com motivo, nunca repetida automaticamente. O dono recebe aviso no Telegram.
+* **Jobs `/claude` e `/codex` pelo caminho da fila** quando habilitada: número reservado, execução `Avulsa` + trabalho
+  gravados antes do "iniciado", chave `telegram:<chat>:<mensagem>`; o processador reivindica e chama o mesmo
+  `RunJobAsync`, com início e resultado gravados sob posse antes da entrega. Respostas, `/status` e `/cancel`
+  inalterados. O pedido continua só em memória: depois de um reinício, job não iniciado é cancelado com aviso e job em
+  execução fica `Interrompida`. O trabalho do job registra a origem (`host/boot`): outro processo que não tem o pedido só
+  o cancela se a origem for deste host (boot morto); de outro host, devolve sem contar tentativa e nunca cancela. Banco
+  indisponível recusa o job ("Fila de execuções indisponível") em vez de rodá-lo
+  sem registro.
+* **Contrato para execuções novas** (`Tarefa`, #301): enfileirar com `TrabalhoDaFila.AvancarExecucao` no mesmo
+  salvamento da execução e registrar um `IExecutorDeEtapa` para o `TipoDeExecucao` no Worker
+  ([DURABLE_QUEUE](../architecture/multi-agent-platform/DURABLE_QUEUE.md#implementação-300)).
+* **Diagnóstico**: logs estruturados (reivindicação, lease perdido, retentativa, deduplicação, interrupção, recuperação
+  com unidades paradas e desconhecidas) e medidor `Dante.Orquestracao.Fila` com contadores, sem conteúdo.
+
+Consequências:
+
+* com a chave ligada, Postgres passa a ser requisito para jobs; a gravação deixa de ser best-effort para jobs (sessões
+  continuam espelhadas pela AD-66);
+* jobs passam a ser executados um por vez (1 slot) até a ativação da AD-63 no serviço;
+* processo órfão de job one-shot (sem scope) depende do cgroup do serviço systemd para morrer junto com o Worker; o
+  registro de PID para matar órfãos em modo compatibilidade não entra aqui;
+* trabalhos concluídos não são apagados ainda (retenção de 7 dias proposta fica para entrega própria);
+* a unidade de contenção é gravada pelo espelho best-effort: uma sessão iniciada imediatamente antes da morte do
+  Worker pode não ter a unidade registrada e, então, é só relatada, nunca parada.
+
+Código: `Dante.Domain/Execucoes/TrabalhoDaFila.cs`, `Dante.Application/Execucoes/{Portas/IFilaDeTrabalho.cs,
+FilaDeExecucoesAppService.cs, RecuperacaoDeExecucoesAppService.cs}`, `Dante.Infrastructure/Fila`,
+`Dante.Infrastructure/Agentes/Contencao/UnidadesDeContencaoSystemd.cs`, `Dante.Worker/Execucoes/ProcessadorDaFila.cs`,
+`Dante.Worker/Jobs/ExecutorDeJobsDaFila.cs`; testes em `FilaDuravelPostgreSqlTests`, `FilaDuravelEndToEndTests` e
+`FilaDuravelTests`.
 
 ## AD-68 — Agente registrado e versionado, separado de sessão e execução (#301)
 

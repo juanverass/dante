@@ -7,7 +7,14 @@ namespace Dante.Application;
 // com banco configurado, e o host decide usá-lo pela chave Orquestracao:Habilitada.
 internal static class ServicosDeExecucoes
 {
-    internal static void Registrar(IServiceCollection services) =>
+    internal static void Registrar(IServiceCollection services)
+    {
         services.TryAddScoped<Dante.Application.Execucoes.ILedgerDeExecucoesAppService>(provider =>
             ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.LedgerDeExecucoesAppService>(provider));
+        // Fila durável e recuperação (AD-67).
+        services.TryAddScoped<Dante.Application.Execucoes.IFilaDeExecucoesAppService>(provider =>
+            ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.FilaDeExecucoesAppService>(provider));
+        services.TryAddScoped<Dante.Application.Execucoes.IRecuperacaoDeExecucoesAppService>(provider =>
+            ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.RecuperacaoDeExecucoesAppService>(provider));
+    }
 }

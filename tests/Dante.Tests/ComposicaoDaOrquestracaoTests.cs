@@ -82,9 +82,9 @@ public sealed class ComposicaoDaOrquestracaoTests
     public void ModeloDoLedgerTemSchemaEHistoricoPropriosSemTocarOBrain()
     {
         using var ledger = new OrquestracaoDbContext(OrquestracaoDbContextFactory.Opcoes(BancoFicticio));
-        // Ledger (AD-66) e cadastro de agentes (AD-68) no mesmo schema e histórico.
+        // Ledger (AD-66), fila (AD-67) e cadastro de agentes (AD-68) no mesmo schema e histórico.
         Assert.Equal(["Agente", "DependenciaDeEtapa", "EtapaDaExecucao", "EventoDeOrquestracao", "Execucao", "SessaoDeAgente",
-            "VersaoDoAgente"], ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
+            "TrabalhoDaFila", "VersaoDoAgente"], ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
         Assert.All(ledger.Model.GetEntityTypes(), e =>
         {
             Assert.Equal("orquestracao", e.GetSchema());

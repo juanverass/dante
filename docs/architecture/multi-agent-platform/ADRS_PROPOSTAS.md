@@ -25,6 +25,8 @@
 
 ## AD-67 — Fila durável no PostgreSQL com lease, heartbeat e idempotência, sem broker
 
+> Registrada em `ARCHITECTURE_DECISIONS.md` pela #300. O texto vigente é o de lá.
+
 - **Decisão**: tabela `trabalhos_da_fila` como outbox transacional; reivindicação por `FOR UPDATE SKIP LOCKED`;
   lease de 60 s com heartbeat de 20 s e *fencing* por `geracao`; `chave_de_deduplicacao` única; backoff;
   `disponivel_em` para timers; `LISTEN/NOTIFY` + polling; nenhuma transação aberta durante a chamada à CLI.

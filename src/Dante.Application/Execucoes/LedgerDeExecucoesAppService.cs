@@ -91,6 +91,7 @@ public sealed class LedgerDeExecucoesAppService(
         LedgerDeExecucoesValidator.Validar(sessao);
         var registro = new SessaoDeAgente(sessao.Numero, sessao.Agente, sessao.Canal, sessao.IdDoDono,
             SerializarContexto(sessao.Contexto), sessao.Perfil, sessao.CriadaEm, sessao.Modelo, sessao.Esforco,
+            bootDoWorker: sessao.BootDoWorker, maquinaDoWorker: sessao.MaquinaDoWorker,
             handleDoAgente: sessao.HandleDoAgente, hashDaConfiguracaoDoAgente: sessao.HashDaConfiguracaoDoAgente,
             idVersaoDoAgente: sessao.IdVersaoDoAgente);
         await sessoes.AdicionarAsync(registro, cancellationToken);
@@ -101,12 +102,12 @@ public sealed class LedgerDeExecucoesAppService(
     }
 
     public async Task RegistrarSessaoIniciadaAsync(long numero, string? idUpstream, string? modeloInformado,
-        DateTimeOffset iniciadaEm, CancellationToken cancellationToken = default)
+        DateTimeOffset iniciadaEm, CancellationToken cancellationToken = default, string? unidadeDeContencao = null)
     {
         LedgerDeExecucoesValidator.ValidarNumero(numero);
         var sessao = await CarregarSessaoAsync(numero, cancellationToken);
         var antes = sessao.Estado;
-        sessao.MarcarIniciada(idUpstream, modeloInformado, iniciadaEm);
+        sessao.MarcarIniciada(idUpstream, modeloInformado, iniciadaEm, unidadeDeContencao);
         await RegistrarTransicaoAsync(sessao, antes, iniciadaEm, cancellationToken);
         await unidade.SalvarAlteracoesAsync(cancellationToken);
     }

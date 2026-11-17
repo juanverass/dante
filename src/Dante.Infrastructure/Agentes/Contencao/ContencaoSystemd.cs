@@ -11,6 +11,7 @@ internal sealed record DiagnosticoBootstrapLinux(int PidCliente, int PidBootstra
 internal sealed class ContencaoSystemd(string unidade, string caminhoCgroup) : IContencaoDeAgente
 {
     internal string CaminhoCgroup => caminhoCgroup;
+    public string? Unidade => unidade;
     private const string Raiz = "/sys/fs/cgroup";
 
     internal static async Task<ProcessoContido> IniciarAsync(ProcessStartInfo agente, CancellationToken cancellationToken,
@@ -238,7 +239,7 @@ internal sealed class ContencaoSystemd(string unidade, string caminhoCgroup) : I
         comando.Environment.TryAdd("DBUS_SESSION_BUS_ADDRESS", "unix:path=" + comando.Environment["XDG_RUNTIME_DIR"] + "/bus");
     }
 
-    private static async Task<string> ExecutarControleAsync(string[] argumentos, CancellationToken token)
+    internal static async Task<string> ExecutarControleAsync(string[] argumentos, CancellationToken token)
     {
         var start = new ProcessStartInfo("/usr/bin/systemctl")
         { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };

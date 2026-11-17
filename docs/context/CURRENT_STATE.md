@@ -171,12 +171,12 @@ Detalhes de uso: [README](../../README.md).
 
 ## Limitações atuais
 
-- jobs e sessões vivem em memória e se perdem ao reiniciar; com o ledger ligado (`Orquestracao:Habilitada`, AD-66), o histórico e os códigos `J…`/`S…` persistem, mas o espelho é best-effort e nada é retomado após reinício;
+- jobs e sessões vivem em memória e se perdem ao reiniciar; com o ledger ligado (`Orquestracao:Habilitada`, AD-66), o histórico e os códigos `J…`/`S…` persistem, e os jobs passam pela fila durável (AD-67): um por vez, recusados sem banco, e após reinício o job interrompido não é repetido (o pedido não é guardado); sessões continuam espelhadas best-effort e não são retomadas;
 - `/uso claude` depende do `get_usage` **experimental** do Claude Code (pode mudar a cada versão; formato desconhecido
   vira "CLI sem suporte") e a CLI pode responder com leitura própria de até 1 min, ou até 1 h quando o serviço falha,
   sem informar a idade; contas por API key ou provedor de nuvem não têm cota de assinatura nas duas CLIs (AD-31);
 - como serviço, o D.A.N.T.E. fica disponível a partir do logon no Windows, não do boot (AD-28);
-- sem worktrees, fila persistente ou execução concorrente isolada por Issue;
+- sem worktrees ou execução concorrente isolada por Issue; a fila durável (AD-67) existe só com `Orquestracao:Habilitada`, que não está ativa no homelab;
 - repositórios vinculados (AD-58): o D.A.N.T.E. não executa `git`/`gh` de escrita; branches, PRs e referências
   cruzadas são do agente, guiado pelo contrato multirrepositório, e só o estado local de cada checkout é observado (a
   existência real dos PRs não é rastreada). Sessões e jobs em andamento mantêm o acesso após `unlink`/`remove` até
@@ -266,8 +266,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
 - **Epic #114 — Cotas de uso pelo `/uso`**: spike #115 (AD-31, [`docs/spikes/usage-quotas`](../spikes/usage-quotas/README.md)), Codex (#116) e Claude (#117) entregues; aguarda revisão e fechamento humano.
 - **Epic #118 — Limpar e compactar contexto**: o spike #119 comprovou, nas duas CLIs reais, compactação e limpeza no mesmo processo da sessão — Claude por `/compact`/`/clear` no stream-json, Codex por `thread/compact/start` e nova thread — e definiu contrato e regras (AD-32, [`docs/spikes/clear-compact`](../spikes/clear-compact/README.md)); `/clear` (#120) e `/compact` (#121) entregues; aguarda revisão e fechamento humano.
 
-- **Epic #296 — Plataforma multiagente**: proposta aprovada (#297, PR #298); ledger de execuções (#299, AD-66) em
-  revisão. Fila durável e cadastro de agentes dependem dele.
+- **Epic #296 — Plataforma multiagente**: proposta aprovada (#297, PR #298); ledger de execuções (#299, AD-66)
+  integrado; fila durável e recuperação após reinício (#300, AD-67) em revisão; cadastro de agentes (#301) em paralelo.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -665,8 +665,19 @@ execuções, etapas, dependências, eventos-chave com sequência global e regist
 domínio e `xmin`. `JobRegistry` e `SessionRegistry` espelham jobs (execução `Avulsa`, código `J…`) e sessões
 (`S…`) quando `Orquestracao:Habilitada=true` e há banco; códigos vêm de sequências e não se repetem após reinício.
 O runtime continua em memória e o espelho nunca bloqueia nem falha job ou sessão. Migration só por
-`--orquestracao migrate`. Desligado por padrão; não ativado no homelab. Sem fila durável, recuperação ou comandos
-de consulta no Telegram ainda.
+`--orquestracao migrate`. Desligado por padrão; não ativado no homelab. Sem comandos de consulta no Telegram ainda.
+
+## Fila durável e recuperação (#300, AD-67)
+
+Com `Orquestracao:Habilitada=true`, `orquestracao.trabalhos_da_fila` é o outbox dos jobs: `/claude` e `/codex` gravam
+execução e trabalho antes do "iniciado" (chave `telegram:<chat>:<mensagem>`), e o `ProcessadorDaFila` reivindica com
+`FOR UPDATE SKIP LOCKED`, lease 60 s, heartbeat 20 s, fencing por geração, backoff e `disponivel_em`, acordado por
+`LISTEN dante_fila` com polling de 5 s (configuráveis em `Orquestracao:Fila`), um job por vez. Nenhuma transação fica
+aberta durante a CLI; resultado gravado sob posse antes da entrega. Na inicialização, para só os scopes
+`dante-agent-*` registrados por sessões de boot anterior (desconhecidos só relatados), interrompe as sessões desse boot
+e devolve os trabalhos; a etapa interrompida segue a política (`Automatica`, `ComConfirmacao`, `Nunca`). Migration
+`FilaDuravel` só por `--orquestracao migrate`; não aplicada no banco canônico nem ativada no homelab. Sem a chave, o
+Worker compõe exatamente o legado.
 
 ## Cadastro de agentes (#301, AD-68)
 

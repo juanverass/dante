@@ -77,7 +77,7 @@ public sealed class ClaudeSessionDriver(
             throw;
         }
 
-        return new AgentSessionStarted(sessionId, agent.ProcessId);
+        return new AgentSessionStarted(sessionId, agent.ProcessId, UnidadeDeContencao: agent.UnidadeDeContencao);
     }
 
     public async Task ChangeModeAsync(AgentPermissionProfile profile, CancellationToken cancellationToken = default)

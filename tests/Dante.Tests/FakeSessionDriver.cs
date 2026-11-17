@@ -17,6 +17,8 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
     public AgentDriverCapabilities Capabilities { get; set; } = capabilities;
     public AgentSessionStartOptions? StartOptions { get; private set; }
     public Exception? StartFailure { get; set; }
+    // Native containment unit reported at start (AD-63 scope), recorded by the ledger (AD-67).
+    public string? UnidadeDeContencao { get; set; }
     public Exception? ModeFailure { get; set; }
     public TaskCompletionSource? ModeGate { get; set; }
     private AgentPermissionProfile? pendingMode;
@@ -55,7 +57,7 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
         StartOptions = options;
         calls.Enqueue("start");
         return StartFailure is null
-            ? Task.FromResult(new AgentSessionStarted("upstream-1", 4242))
+            ? Task.FromResult(new AgentSessionStarted("upstream-1", 4242, UnidadeDeContencao: UnidadeDeContencao))
             : Task.FromException<AgentSessionStarted>(StartFailure);
     }
 

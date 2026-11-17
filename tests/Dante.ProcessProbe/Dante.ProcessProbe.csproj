@@ -5,4 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+  <!-- #300: o modo processador-da-fila hospeda o ProcessadorDaFila real para o E2E que mata o processo no meio da etapa. -->
+  <ItemGroup>
+    <ProjectReference Include="../../src/Dante.Worker/Dante.Worker.csproj" />
+  </ItemGroup>
 </Project>

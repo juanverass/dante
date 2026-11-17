@@ -27,15 +27,20 @@ public sealed class EspelhoDoLedger : IAsyncDisposable, IDisposable
     private readonly Task consumidor;
     private long reservaIndisponivelAte;
 
-    public EspelhoDoLedger(IServiceScopeFactory escopos, ILogger<EspelhoDoLedger> logger, TimeProvider? relogio = null)
+    public EspelhoDoLedger(IServiceScopeFactory escopos, ILogger<EspelhoDoLedger> logger, TimeProvider? relogio = null,
+        IdentidadeDoProcessador? identidade = null)
     {
         this.escopos = escopos;
         this.logger = logger;
         this.relogio = relogio ?? TimeProvider.System;
+        Identidade = identidade;
         consumidor = Task.Run(ConsumirAsync);
     }
 
     public DateTimeOffset Agora => relogio.GetUtcNow();
+
+    // Boot deste processo, gravado nas sessões para a recuperação na inicialização (AD-67); nulo fora do Worker.
+    public IdentidadeDoProcessador? Identidade { get; }
 
     // Número J…/E… da sequência do banco, acima do maior já usado localmente; nulo quando o banco não respondeu
     // (o chamador usa o contador local).
