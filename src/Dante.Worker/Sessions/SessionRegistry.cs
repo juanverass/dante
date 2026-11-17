@@ -578,6 +578,11 @@ public sealed class SessionRegistry(
             return SessionResult.Reject($"A sessão {session.Id} já está sendo encerrada.");
         }
 
+        // This close holds Upstream and waits for the pump below. A pump that has just applied a turn completion may be
+        // about to take Upstream to start the next queued message: cancelling its wait lets it end instead of waiting
+        // for this close forever (a deadlock since #65, made likely by a task step closing right after its turn).
+        await entry.Closing.CancelAsync();
+
         await PublishClosedInputsAsync(entry, inputs);
 
         lock (gate)
@@ -862,7 +867,8 @@ public sealed class SessionRegistry(
                 await PublishAsync(entry, stamped);
                 if (stamped is TurnCompletedEvent)
                 {
-                    await StartNextQueuedAsync(entry, lifetime.Token);
+                    using var next = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, entry.Closing.Token);
+                    await StartNextQueuedAsync(entry, next.Token);
                 }
 
                 if (session.State == AgentSessionState.Failed)
@@ -1202,6 +1208,8 @@ public sealed class SessionRegistry(
         public long? LedgerNumber { get; init; }
         // Registered agent version frozen at start (AD-68); null for the built-ins.
         public AgenteDaSessao? RegisteredAgent { get; init; }
+        // Cancelled by a close: the pump never waits on Upstream for a session whose close is waiting for the pump.
+        public CancellationTokenSource Closing { get; } = new();
         public Task? Pump { get; set; }
         public AgentTurnOutcome? LastTurnOutcome { get; set; }
         // Turns that ended since the session started or was cleared: without any, there is nothing to compact (#121).

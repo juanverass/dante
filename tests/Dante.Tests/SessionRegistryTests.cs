@@ -1013,6 +1013,42 @@ public sealed class SessionRegistryTests
     private SessionRegistry CreateRegistry() =>
         new(drivers, NullLogger<SessionRegistry>.Instance, sink);
 
+    // #301 (deadlock latente desde #65): o pump aplica o fim do turno (a sessão já fica Idle) e só depois pede o Upstream
+    // para iniciar a próxima mensagem da fila. Um close que pegou o Upstream nesse intervalo esperava o pump, que esperava
+    // o close. O sink segura o pump exatamente nesse ponto; o close tem de terminar mesmo assim.
+    [Fact]
+    public async Task CloseLogoDepoisDoFimDoTurnoNaoTravaComOPump()
+    {
+        var segura = new SinkQueSeguraOFimDoTurno();
+        await using var registry = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance, segura);
+        var started = await registry.StartAsync(new SessionStartRequest(1, AgentKind.Codex, JobExecutionContext.General("/g")));
+        Assert.True(started.Accepted);
+        await registry.SubmitAsync(1, null, new AgentInput("olá", []));
+        drivers.Created.Single().Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        await segura.Segurando.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var close = registry.CloseAsync(1, started.Session!.Id);
+        // O close pega o Upstream e espera o pump; só então o pump é solto e pede o Upstream.
+        await Task.Delay(200);
+        segura.Soltar.TrySetResult();
+        var encerrada = await close.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(encerrada.Accepted, encerrada.Error);
+        Assert.Equal(AgentSessionState.Closed, encerrada.Session!.State);
+    }
+
+    private sealed class SinkQueSeguraOFimDoTurno : IAgentSessionEventSink
+    {
+        public TaskCompletionSource Segurando { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Soltar { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task PublishAsync(AgentSessionSnapshot session, AgentEvent agentEvent, CancellationToken cancellationToken)
+        {
+            if (agentEvent is not TurnCompletedEvent) return;
+            Segurando.TrySetResult();
+            await Soltar.Task;
+        }
+    }
+
     private static async Task Eventually(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
