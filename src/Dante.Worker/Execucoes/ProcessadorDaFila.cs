@@ -187,6 +187,15 @@ public sealed class ProcessadorDaFila(
         {
             var avaliacao = await EmEscopoAsync(s => s.GetRequiredService<IFilaDeExecucoesAppService>()
                 .AvaliarAsync(trabalho, CancellationToken.None));
+            // Limite antes de executar ou retomar: a reivindicação já contou esta tentativa, inclusive quando recuperou
+            // o lease vencido de um processo morto (SIGKILL) que nunca devolveu o trabalho. Além do limite, nenhum
+            // executor é iniciado e a política da etapa decide o estado terminal.
+            if (avaliacao.Acao != AcaoDoTrabalho.Descartar && Esgotado(trabalho))
+            {
+                await EncerrarPorTentativasEsgotadasAsync(trabalho, avaliacao.Alvo!,
+                    $"Tentativas esgotadas na fila ({trabalho.MaximoDeTentativas}): a tentativa anterior não terminou.");
+                return;
+            }
             switch (avaliacao.Acao)
             {
                 case AcaoDoTrabalho.Descartar:
@@ -297,8 +306,25 @@ public sealed class ProcessadorDaFila(
             return;
         }
         // Encerramento do Worker ou executor que saiu sem resultado: o trabalho volta à fila já; na próxima
-        // reivindicação, uma etapa que chegou a iniciar segue a política de retomada.
-        await DevolverAsync(trabalho, relogio.GetUtcNow(), "etapa sem resultado", false);
+        // reivindicação, uma etapa que chegou a iniciar segue a política de retomada. Só o encerramento do Worker não
+        // conta tentativa: um executor que sai sem resultado repetidamente esgota o limite como qualquer outra falha.
+        await DevolverAsync(trabalho, relogio.GetUtcNow(), "etapa sem resultado", !encerramento.IsCancellationRequested);
+    }
+
+    // Tentativas inclui a reivindicação atual: a de número MaximoDeTentativas ainda roda; a seguinte, não.
+    private static bool Esgotado(TrabalhoReivindicado trabalho) => trabalho.Tentativas > trabalho.MaximoDeTentativas;
+
+    private async Task EncerrarPorTentativasEsgotadasAsync(TrabalhoReivindicado trabalho, AlvoDoTrabalhoDto alvo,
+        string motivo)
+    {
+        var encerrada = await EmEscopoAsync(s => s.GetRequiredService<IFilaDeExecucoesAppService>()
+            .EncerrarPorTentativasEsgotadasAsync(trabalho.Posse, alvo, motivo, CancellationToken.None));
+        metricas.Esgotados.Add(1);
+        logger.LogWarning(
+            "Trabalho {IdTrabalho} esgotou as tentativas ({Tentativas}/{MaximoDeTentativas}); execução {Execucao} (etapa {Etapa}, política {Politica}) passou a {NovoEstado}.",
+            trabalho.Id, trabalho.Tentativas, trabalho.MaximoDeTentativas, alvo.Codigo, alvo.NumeroDaEtapa,
+            alvo.PoliticaDeRetomada, encerrada.NovoEstado);
+        await AvisarAsync(alvo, encerrada);
     }
 
     private const string MotivoSemExecutorLocal =
@@ -334,15 +360,13 @@ public sealed class ProcessadorDaFila(
         metricas.Retentativas.Add(1);
         try
         {
+            // Esta era a última tentativa: a política da etapa decide o estado terminal (uma etapa Nunca que chegou a
+            // iniciar fica Bloqueada, nunca vira falha comum).
             if (trabalho.Tentativas >= trabalho.MaximoDeTentativas &&
                 await EmEscopoAsync(s => s.GetRequiredService<IFilaDeExecucoesAppService>().AvaliarAsync(trabalho,
-                    CancellationToken.None)) is { Alvo: { } alvo })
+                    CancellationToken.None)) is { Acao: not AcaoDoTrabalho.Descartar, Alvo: { } alvo })
             {
-                await EmEscopoAsync(s => s.GetRequiredService<IFilaDeExecucoesAppService>().ConcluirEtapaAsync(trabalho.Posse,
-                    alvo.IdEtapa, new ResultadoDaEtapaDto(EstadoDaEtapa.Falhou, Erro: $"Tentativas esgotadas na fila ({erro})."),
-                    CancellationToken.None));
-                logger.LogWarning("Trabalho {IdTrabalho} esgotou {Tentativas} tentativas ({ErrorType}); execução {Execucao} falhou.",
-                    trabalho.Id, trabalho.Tentativas, erro, alvo.Codigo);
+                await EncerrarPorTentativasEsgotadasAsync(trabalho, alvo, $"Tentativas esgotadas na fila ({erro}).");
                 return;
             }
             var espera = TrabalhoDaFila.Backoff(trabalho.Tentativas, opcoes.BackoffInicial, opcoes.BackoffMaximo);

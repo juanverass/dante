@@ -2414,7 +2414,15 @@ Decisão:
   pendente; o processador escuta (`LISTEN`, conexão dedicada que se refaz) e também faz polling, e dorme até o próximo
   `disponivel_em` sem busy loop. Notificação perdida só atrasa.
 * **Backoff** de erro transitório do D.A.N.T.E. e de falha do executor (inclusive depois de iniciar a etapa): 5 s, 10 s,
-  20 s… até 10 min, `max_tentativas` 5; esgotadas, a execução falha com motivo.
+  20 s… até 10 min, `max_tentativas` 5.
+* **Limite de tentativas** verificado antes de executar ou retomar: toda reivindicação conta (inclusive a que recupera o
+  lease vencido de um processo morto por SIGKILL, que nunca devolve o trabalho); só o encerramento do Worker e a
+  devolução a outro host que tem o pedido não contam. `tentativas` inclui a atual: a de número `max_tentativas` ainda
+  roda, a seguinte não inicia executor nenhum. Esgotadas, o trabalho termina `Falhou` na mesma transação da transição
+  terminal decidida pelo estado da etapa: não iniciada (nenhuma ação externa começou, o início é gravado antes do
+  processo) ou `Automatica` em execução → execução `Falhou` com motivo; `ComConfirmacao` em execução → `Interrompida`;
+  `Nunca` em execução → `Bloqueada` (resultado incerto nunca vira falha comum). As duas últimas só voltam por
+  confirmação explícita, com trabalho novo.
 * **Recuperação na inicialização**, antes da primeira reivindicação: lista `dante-agent-*.scope` e para **só** as
   unidades que o ledger registra em sessões de um boot anterior **do mesmo host** (`sessoes_de_agente`
   `unidade_de_contencao`, `boot_do_worker` e `maquina_do_worker`, colunas novas); desconhecidas são relatadas e nunca

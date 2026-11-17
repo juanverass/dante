@@ -145,7 +145,10 @@ Registrada como [AD-67](../../context/ARCHITECTURE_DECISIONS.md). Diferenças em
 gravado como inteiro (`EstadoDoTrabalho`); só o tipo `AvancarExecucao` existe por enquanto; a retenção de concluídos
 ainda não foi implementada. Na recuperação, uma sessão de boot anterior com unidade de contenção registrada só vira
 `Interrompida` quando a parada dessa unidade é confirmada (ausente da listagem ou parada agora); sem isso fica pendente
-para a próxima inicialização.
+para a próxima inicialização. O limite de tentativas é conferido antes de executar ou retomar, contando toda
+reivindicação (inclusive a de um lease vencido depois de um SIGKILL); esgotado, nenhum executor é iniciado e a política
+da etapa decide o estado terminal (`Falhou` se não iniciou ou é `Automatica`; `Interrompida` para `ComConfirmacao`;
+`Bloqueada` para `Nunca`).
 
 ### Contrato `IFilaDeTrabalho` (Application, `Execucoes/Portas`)
 
@@ -164,7 +167,7 @@ Task<int> DevolverDeBootsAnterioresAsync(IdentidadeDoProcessador atual, Cancella
 ```
 
 Por cima dele, `IFilaDeExecucoesAppService` (avaliar, iniciar etapa, concluir etapa, interromper pela política,
-cancelar não iniciada, confirmar retomada) e `IRecuperacaoDeExecucoesAppService` (recuperação na inicialização). O
+encerrar por tentativas esgotadas, cancelar não iniciada, confirmar retomada) e `IRecuperacaoDeExecucoesAppService` (recuperação na inicialização). O
 processador (`ProcessadorDaFila`, Worker) despacha cada trabalho para o `IExecutorDeEtapa` do `TipoDeExecucao` da
 execução e entrega a ele um `ExecucaoSobPosse` com `IniciarAsync`/`ConcluirAsync`, que gravam sob posse.
 

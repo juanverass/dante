@@ -22,10 +22,15 @@ internal static class ProcessadorDaFilaDoProbe
         var services = new ServiceCollection().AddLogging().AddApplication().AddInfrastructure(new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:Dante"] = conexao }).Build());
         services.AddSingleton<IUnidadesDeContencao, SemUnidades>();
+        // Host e lease opcionais: um host diferente a cada boot faz a recuperação na inicialização não devolver o
+        // trabalho do boot morto, e o próximo só o reivindica quando o lease vence.
         var identidade = IdentidadeDoProcessador.DoProcessoAtual();
+        if (Environment.GetEnvironmentVariable("DANTE_FILA_HOST") is { Length: > 0 } host) identidade = identidade with { Host = host };
+        var lease = int.TryParse(Environment.GetEnvironmentVariable("DANTE_FILA_LEASE_MS"), out var ms)
+            ? TimeSpan.FromMilliseconds(ms) : TimeSpan.FromSeconds(30);
         await using var provider = services.BuildServiceProvider();
         var processador = new ProcessadorDaFila(provider.GetRequiredService<IServiceScopeFactory>(), identidade,
-            new OpcoesDaFila { Lease = TimeSpan.FromSeconds(30), Heartbeat = TimeSpan.FromSeconds(1), Polling = TimeSpan.FromMilliseconds(200) },
+            new OpcoesDaFila { Lease = lease, Heartbeat = TimeSpan.FromSeconds(1), Polling = TimeSpan.FromMilliseconds(200) },
             new SinalDaFila(), [new ExecutorQueIniciaUmFilho(args[1])], new MetricasDaFila(),
             NullLogger<ProcessadorDaFila>.Instance);
         Console.WriteLine("boot:" + identidade.Boot);

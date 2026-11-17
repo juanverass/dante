@@ -165,6 +165,54 @@ public sealed class FilaDeExecucoesAppService(
         return new ExecucaoInterrompidaDto(alvo, novoEstado, motivoFinal);
     }
 
+    public async Task<ExecucaoInterrompidaDto> EncerrarPorTentativasEsgotadasAsync(PosseDoTrabalho posse,
+        AlvoDoTrabalhoDto alvo, string motivo, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(alvo);
+        ArgumentException.ThrowIfNullOrWhiteSpace(motivo);
+        var novoEstado = EstadoDaExecucao.Falhou;
+        var motivoFinal = motivo;
+        await fila.GravarComPosseAsync(posse, async token =>
+        {
+            var (execucao, etapa) = await CarregarAsync(alvo.IdEtapa, token);
+            if (etapa.PoliticaDeRetomada != alvo.PoliticaDeRetomada)
+                throw new InvalidOperationException("A política da etapa mudou desde a avaliação.");
+            novoEstado = execucao.Estado;
+            // Só uma etapa pronta para rodar ou que estava rodando é encerrada aqui; em qualquer outro estado (espera de
+            // humano, já terminal) o ledger fica como está e só o trabalho termina.
+            if (execucao.Terminal || etapa.Estado is not (EstadoDaEtapa.Pendente or EstadoDaEtapa.Pronta or EstadoDaEtapa.EmExecucao))
+                return;
+            var agora = fila.Agora;
+            var estavaEmExecucao = etapa.Estado == EstadoDaEtapa.EmExecucao;
+            // Não iniciou: a tentativa conta como iniciada e falha no mesmo instante, como em ConcluirEtapaAsync.
+            if (!estavaEmExecucao) await IniciarAsync(execucao, etapa, agora, token);
+            var etapaAntes = etapa.Estado;
+            var execucaoIniciada = execucao.Estado;
+            if (estavaEmExecucao && etapa.PoliticaDeRetomada == PoliticaDeRetomada.ComConfirmacao)
+            {
+                etapa.Interromper(motivo);
+                execucao.Interromper(motivo);
+            }
+            else if (estavaEmExecucao && etapa.PoliticaDeRetomada == PoliticaDeRetomada.Nunca)
+            {
+                // A tentativa anterior pode ter produzido efeito externo: bloqueada, nunca uma falha comum.
+                motivoFinal = MotivoDeResultadoIncerto;
+                etapa.Interromper(motivo);
+                execucao.Bloquear(motivoFinal);
+            }
+            else
+            {
+                etapa.Falhar(motivo, null, agora);
+                execucao.Falhar(motivo, agora);
+            }
+            await TransicaoAsync(execucao, etapa, etapaAntes, agora, token);
+            if (execucao.Estado != execucaoIniciada) await TransicaoAsync(execucao, null, execucaoIniciada, agora, token);
+            novoEstado = execucao.Estado;
+            await unidade.SalvarAlteracoesAsync(token);
+        }, EstadoDoTrabalho.Falhou, motivo, cancellationToken: cancellationToken);
+        return new ExecucaoInterrompidaDto(alvo, novoEstado, motivoFinal);
+    }
+
     public async Task<ExecucaoInterrompidaDto> CancelarNaoIniciadaAsync(PosseDoTrabalho posse, AlvoDoTrabalhoDto alvo,
         string motivo, CancellationToken cancellationToken = default)
     {

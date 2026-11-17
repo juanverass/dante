@@ -704,6 +704,160 @@ public sealed class FilaDuravelPostgreSqlTests
         }
     }
 
+    // Review do PR #304: cada reivindicação conta tentativa, inclusive a que recupera o lease vencido de um processo morto
+    // (SIGKILL) que nunca avaliou, gravou nem devolveu o trabalho. Depois do limite nenhum executor é iniciado, nada volta
+    // à fila sozinho, a política decide o estado terminal e nenhuma posse antiga grava.
+    [PostgreSqlTheory]
+    [InlineData(PoliticaDeRetomada.Automatica, false, false)]
+    [InlineData(PoliticaDeRetomada.Automatica, false, true)]
+    [InlineData(PoliticaDeRetomada.ComConfirmacao, true, false)]
+    [InlineData(PoliticaDeRetomada.ComConfirmacao, true, true)]
+    [InlineData(PoliticaDeRetomada.Nunca, false, false)]
+    [InlineData(PoliticaDeRetomada.Nunca, false, true)]
+    public async Task LeasesVencidosDeProcessosMortosNaoUltrapassamOLimiteDeTentativas(PoliticaDeRetomada politica,
+        bool escrita, bool iniciou)
+    {
+        const int maximo = 3;
+        await using var banco = await FilaAsync();
+        await using var provider = Provider(banco.ConnectionString);
+        var chave = $"esgotado:{politica}:{iniciou}";
+        var (execucao, etapa) = await CriarAsync(provider, chave, politica, escrita);
+        await LimitarTentativasAsync(banco, chave, maximo);
+
+        // Cada processo reivindica com lease curto e morre sem gravar nada além, opcionalmente, do início da etapa.
+        var mortos = new List<TrabalhoReivindicado>();
+        for (var tentativa = 1; tentativa <= maximo; tentativa++)
+        {
+            var morto = (await ReivindicarAsync(provider, Processador("host-morto"), TimeSpan.FromMilliseconds(200)))!;
+            Assert.Equal((tentativa, (long)tentativa), (morto.Tentativas, morto.Geracao));
+            if (iniciou && tentativa == 1) await AppAsync(provider, app => app.IniciarEtapaAsync(morto.Posse, etapa.Id));
+            mortos.Add(morto);
+            await Task.Delay(300);
+        }
+
+        var executor = ExecutorDeTeste.QueConclui();
+        var processador = CriarProcessador(provider, Processador(), Rapidas, executor);
+        await processador.StartAsync(CancellationToken.None);
+        try
+        {
+            await Eventually(async () => (await TrabalhoAsync(provider, chave)).Terminal);
+            await Task.Delay(500);
+        }
+        finally
+        {
+            await processador.StopAsync(CancellationToken.None);
+        }
+
+        Assert.Empty(executor.Execucoes);
+        var trabalho = await TrabalhoAsync(provider, chave);
+        Assert.Equal((EstadoDoTrabalho.Falhou, maximo + 1, (long)maximo + 1), (trabalho.Estado, trabalho.Tentativas, trabalho.Geracao));
+        var lida = await ExecucaoAsync(provider, execucao.Numero);
+        var esperado = (iniciou, politica) switch
+        {
+            (true, PoliticaDeRetomada.ComConfirmacao) => (EstadoDaExecucao.Interrompida, EstadoDaEtapa.Interrompida),
+            (true, PoliticaDeRetomada.Nunca) => (EstadoDaExecucao.Bloqueada, EstadoDaEtapa.Interrompida),
+            // Não iniciou (nenhuma ação externa começou) ou leitura idempotente: falha comum.
+            _ => (EstadoDaExecucao.Falhou, EstadoDaEtapa.Falhou)
+        };
+        Assert.Equal(esperado, (lida.Estado, lida.Etapas[0].Estado));
+        Assert.Equal(esperado.Item1, Assert.Single(executor.Interrupcoes).NovoEstado);
+        if (esperado.Item1 == EstadoDaExecucao.Bloqueada)
+            Assert.Equal(FilaDeExecucoesAppService.MotivoDeResultadoIncerto, lida.Motivo);
+        if (esperado.Item1 == EstadoDaExecucao.Falhou) Assert.StartsWith("Tentativas esgotadas", lida.Erro);
+        Assert.Equal(1, lida.Etapas[0].Tentativa);
+
+        // Fencing: nenhum processo que perdeu a posse grava, renova ou devolve.
+        foreach (var morto in mortos)
+        {
+            await Assert.ThrowsAsync<PosseDoTrabalhoPerdidaException>(() => AppAsync(provider, app =>
+                app.ConcluirEtapaAsync(morto.Posse, etapa.Id, new ResultadoDaEtapaDto(EstadoDaEtapa.Concluida, 0))));
+            Assert.False(await FilaAsync(provider, f => f.RenovarAsync(morto.Posse, Lease)));
+            Assert.False(await FilaAsync(provider, f => f.DevolverAsync(morto.Posse, DateTimeOffset.UtcNow, null, false)));
+        }
+        Assert.Equal(esperado, await EstadosAsync(provider, execucao.Numero));
+        Assert.Null(await ReivindicarAsync(provider, Processador()));
+
+        // Interrompida ou Bloqueada: só a confirmação explícita retoma, com trabalho novo executado uma única vez.
+        var confirmada = await AppAsync(provider, app => app.ConfirmarRetomadaAsync(execucao.Numero));
+        Assert.Equal(esperado.Item1 != EstadoDaExecucao.Falhou, confirmada);
+        if (!confirmada) return;
+        var retomada = ExecutorDeTeste.QueConclui();
+        var outro = CriarProcessador(provider, Processador(), Rapidas, retomada);
+        await outro.StartAsync(CancellationToken.None);
+        try
+        {
+            await Eventually(async () => (await ExecucaoAsync(provider, execucao.Numero)).Estado == EstadoDaExecucao.Concluida);
+        }
+        finally
+        {
+            await outro.StopAsync(CancellationToken.None);
+        }
+        Assert.Equal(1, retomada.Execucoes[execucao.Numero]);
+    }
+
+    // Review do PR #304: a falha do executor na última tentativa respeita a política da etapa que já iniciou; uma ação
+    // de resultado incerto (Nunca) nunca vira falha comum, e uma escrita (ComConfirmacao) espera confirmação.
+    [PostgreSqlTheory]
+    [InlineData(PoliticaDeRetomada.Automatica, false, EstadoDaExecucao.Falhou)]
+    [InlineData(PoliticaDeRetomada.ComConfirmacao, true, EstadoDaExecucao.Interrompida)]
+    [InlineData(PoliticaDeRetomada.Nunca, false, EstadoDaExecucao.Bloqueada)]
+    public async Task FalhaNaUltimaTentativaDepoisDeIniciarRespeitaAPoliticaDaEtapa(PoliticaDeRetomada politica,
+        bool escrita, EstadoDaExecucao esperado)
+    {
+        await using var banco = await FilaAsync();
+        await using var provider = Provider(banco.ConnectionString);
+        var executor = new ExecutorDeTeste(async (_, controle, token) =>
+        {
+            await controle.IniciarAsync(token);
+            throw new InvalidOperationException("efeito externo e depois falha");
+        });
+        var chave = $"ultima:{politica}";
+        var (execucao, _) = await CriarAsync(provider, chave, politica, escrita);
+        await LimitarTentativasAsync(banco, chave, 1);
+        var processador = CriarProcessador(provider, Processador(), Rapidas, executor);
+        await processador.StartAsync(CancellationToken.None);
+        try
+        {
+            await Eventually(async () => (await TrabalhoAsync(provider, chave)).Terminal);
+            await Task.Delay(500);
+        }
+        finally
+        {
+            await processador.StopAsync(CancellationToken.None);
+        }
+        Assert.Equal(1, executor.Execucoes[execucao.Numero]);
+        var lida = await ExecucaoAsync(provider, execucao.Numero);
+        Assert.Equal(esperado, lida.Estado);
+        Assert.Equal(esperado == EstadoDaExecucao.Falhou ? EstadoDaEtapa.Falhou : EstadoDaEtapa.Interrompida, lida.Etapas[0].Estado);
+        if (esperado == EstadoDaExecucao.Bloqueada) Assert.Equal(FilaDeExecucoesAppService.MotivoDeResultadoIncerto, lida.Motivo);
+        Assert.Equal(EstadoDoTrabalho.Falhou, (await TrabalhoAsync(provider, chave)).Estado);
+        Assert.Null(await ReivindicarAsync(provider, Processador()));
+    }
+
+    // Executor que sai sem resultado fora do encerramento do Worker conta tentativa: não gira para sempre.
+    [PostgreSqlFact]
+    public async Task ExecutorQueSaiSemResultadoEsgotaOLimite()
+    {
+        await using var banco = await FilaAsync();
+        await using var provider = Provider(banco.ConnectionString);
+        var executor = new ExecutorDeTeste((_, _, _) => Task.CompletedTask);
+        var (execucao, _) = await CriarAsync(provider, "sem-resultado", PoliticaDeRetomada.Automatica, escrita: false);
+        await LimitarTentativasAsync(banco, "sem-resultado", 3);
+        var processador = CriarProcessador(provider, Processador(), Rapidas, executor);
+        await processador.StartAsync(CancellationToken.None);
+        try
+        {
+            await Eventually(async () => (await TrabalhoAsync(provider, "sem-resultado")).Terminal);
+            await Task.Delay(500);
+        }
+        finally
+        {
+            await processador.StopAsync(CancellationToken.None);
+        }
+        Assert.Equal(3, executor.Execucoes[execucao.Numero]);
+        Assert.Equal(EstadoDaExecucao.Falhou, (await ExecucaoAsync(provider, execucao.Numero)).Estado);
+    }
+
     // ---- apoio ----
 
     internal static readonly OpcoesDaFila Rapidas = new()
@@ -824,6 +978,17 @@ public sealed class FilaDuravelPostgreSqlTests
     {
         await using var escopo = provider.CreateAsyncScope();
         return (await escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>().ObterExecucaoAsync(numero))!;
+    }
+
+    // O limite padrão (5) deixa os cenários de esgotamento lentos; o teste o reduz direto na linha, antes de reivindicar.
+    internal static Task LimitarTentativasAsync(Banco banco, string chave, int maximo) => Executar(banco,
+        $"UPDATE {OrquestracaoDbContext.Schema}.trabalhos_da_fila SET maximo_de_tentativas = {maximo} " +
+        $"WHERE chave_de_deduplicacao = '{chave}'");
+
+    internal static async Task<(EstadoDaExecucao, EstadoDaEtapa)> EstadosAsync(IServiceProvider provider, long numero)
+    {
+        var execucao = await ExecucaoAsync(provider, numero);
+        return (execucao.Estado, execucao.Etapas[0].Estado);
     }
 
     internal static async Task<TrabalhoDaFila> TrabalhoAsync(IServiceProvider provider, string chave) =>

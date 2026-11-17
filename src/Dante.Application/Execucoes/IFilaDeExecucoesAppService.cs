@@ -39,6 +39,15 @@ public interface IFilaDeExecucoesAppService
 
     Task DescartarAsync(PosseDoTrabalho posse, string motivo, CancellationToken cancellationToken = default);
 
+    // Tentativas do trabalho esgotadas (cada reivindicação conta, inclusive a de um lease vencido depois de um SIGKILL):
+    // nada mais é executado nem retomado, e o trabalho termina Falhou na mesma transação da transição terminal, decidida
+    // pelo estado atual da etapa e pela sua política. Etapa que não chegou a iniciar (nenhuma ação externa começou: o
+    // início é gravado antes do processo) ou etapa Automatica em execução: execução Falhou. Etapa em execução
+    // ComConfirmacao: Interrompida, só com confirmação explícita. Nunca: Bloqueada (resultado incerto), jamais uma falha
+    // comum. As duas últimas continuam retomáveis por ConfirmarRetomadaAsync, com trabalho novo.
+    Task<ExecucaoInterrompidaDto> EncerrarPorTentativasEsgotadasAsync(PosseDoTrabalho posse, AlvoDoTrabalhoDto alvo,
+        string motivo, CancellationToken cancellationToken = default);
+
     // Confirmação explícita de retomada de uma execução Interrompida ou Bloqueada: nova tentativa da etapa interrompida
     // e novo trabalho, com chave de deduplicação por tentativa (confirmar duas vezes não executa duas vezes).
     // Falso quando a execução não existe ou não está esperando confirmação.

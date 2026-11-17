@@ -124,6 +124,11 @@ public sealed class ExecutorDeJobsDaFila(
 
     public async Task AoInterromperAsync(ExecucaoInterrompidaDto interrupcao, CancellationToken cancellationToken)
     {
+        // Tentativas esgotadas: o executor não roda mais este job; o pedido em memória (se deste boot) termina Failed
+        // no registry em vez de ficar Queued.
+        if (interrupcao.NovoEstado == EstadoDaExecucao.Falhou &&
+            entradas.TryRemove(interrupcao.Alvo.NumeroDaExecucao, out var esgotada))
+            jobs.Complete(esgotada.JobId, AgentProcessStatus.Failed, errorMessage: interrupcao.Motivo);
         if (telegram is null || interrupcao.Alvo.Canal != LedgerChannel.Telegram) return;
         var codigo = interrupcao.Alvo.Codigo;
         var texto = interrupcao.NovoEstado switch
@@ -132,6 +137,7 @@ public sealed class ExecutorDeJobsDaFila(
                 $"{codigo} não chegou a iniciar antes do reinício do Worker e foi cancelado: o pedido do job não é guardado. Reenvie se ainda precisar.",
             EstadoDaExecucao.Pendente => $"{codigo} foi interrompido e será retomado automaticamente.",
             EstadoDaExecucao.Bloqueada => $"{codigo} foi interrompido com resultado incerto e não será repetido automaticamente. Confira o efeito antes de continuar.",
+            EstadoDaExecucao.Falhou => $"{codigo} falhou: esgotou as tentativas de execução da fila e não será repetido automaticamente.",
             _ => $"{codigo} foi interrompido pelo reinício do Worker durante a execução e não será repetido sem confirmação: " +
                  "o resultado é incerto e o pedido do job não é guardado. Confira o estado do contexto antes de reenviar."
         };
