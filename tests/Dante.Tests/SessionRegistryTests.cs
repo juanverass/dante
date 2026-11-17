@@ -5,6 +5,7 @@ using Dante.Worker.Attachments;
 using Dante.Worker.Jobs;
 using Dante.Worker.Sessions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Dante.Tests;
@@ -1015,23 +1016,45 @@ public sealed class SessionRegistryTests
 
     // #301 (deadlock latente desde #65): o pump aplica o fim do turno (a sessão já fica Idle) e só depois pede o Upstream
     // para iniciar a próxima mensagem da fila. Um close que pegou o Upstream nesse intervalo esperava o pump, que esperava
-    // o close. O sink segura o pump exatamente nesse ponto; o close tem de terminar mesmo assim.
+    // o close. Ordem forçada sem depender de tempo: o sink segura o pump entre o fim do turno e o pedido do Upstream, e só
+    // é solto de dentro do descarte do driver pelo close. Esse descarte acontece depois de o close pegar o Upstream
+    // (liberado só quando o close termina) e de marcar a sessão Closing, e imediatamente antes do await do pump, sem
+    // outro await no meio. O pump, então, só pede o Upstream com o close segurando-o e esperando por ele.
     [Fact]
     public async Task CloseLogoDepoisDoFimDoTurnoNaoTravaComOPump()
     {
         var segura = new SinkQueSeguraOFimDoTurno();
-        await using var registry = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance, segura);
+        var log = new LogCapturado();
+        await using var registry = new SessionRegistry(drivers, log, segura);
         var started = await registry.StartAsync(new SessionStartRequest(1, AgentKind.Codex, JobExecutionContext.General("/g")));
         Assert.True(started.Accepted);
+        var id = started.Session!.Id;
+        var driver = drivers.Created.Single();
         await registry.SubmitAsync(1, null, new AgentInput("olá", []));
-        drivers.Created.Single().Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        // O pump está parado no sink: fim do turno aplicado, Upstream ainda não pedido.
         await segura.Segurando.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(AgentSessionState.Idle, registry.List(1).Single(s => s.Id == id).State);
 
-        var close = registry.CloseAsync(1, started.Session!.Id);
-        // O close pega o Upstream e espera o pump; só então o pump é solto e pede o Upstream.
-        await Task.Delay(200);
-        segura.Soltar.TrySetResult();
+        AgentSessionState? estadoNoDescarte = null;
+        var closeDoDriverAntes = false;
+        driver.OnDispose = () =>
+        {
+            estadoNoDescarte = registry.List(1).Single(s => s.Id == id).State;
+            closeDoDriverAntes = driver.Calls.Contains("close");
+            segura.Soltar.TrySetResult();
+        };
+        var close = registry.CloseAsync(1, id);
+        // O prazo só detecta o travamento; a ordem não depende dele.
         var encerrada = await close.WaitAsync(TimeSpan.FromSeconds(10));
+
+        // A barreira foi o descarte feito pelo close, com a sessão já assumida por ele.
+        Assert.Equal(AgentSessionState.Closing, estadoNoDescarte);
+        Assert.True(closeDoDriverAntes);
+        Assert.True(segura.Retomou.Task.IsCompletedSuccessfully);
+        // O pump pediu o Upstream depois de solto e saiu pela espera cancelada do encerramento, não por outro caminho.
+        Assert.Contains(log.Mensagens, mensagem => mensagem.Contains("terminou durante o encerramento") &&
+                                                   mensagem.Contains("CanceledException"));
         Assert.True(encerrada.Accepted, encerrada.Error);
         Assert.Equal(AgentSessionState.Closed, encerrada.Session!.State);
     }
@@ -1040,13 +1063,26 @@ public sealed class SessionRegistryTests
     {
         public TaskCompletionSource Segurando { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Soltar { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Retomou { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public async Task PublishAsync(AgentSessionSnapshot session, AgentEvent agentEvent, CancellationToken cancellationToken)
         {
             if (agentEvent is not TurnCompletedEvent) return;
             Segurando.TrySetResult();
             await Soltar.Task;
+            Retomou.TrySetResult();
         }
+    }
+
+    private sealed class LogCapturado : ILogger<SessionRegistry>
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> mensagens = new();
+        public IReadOnlyList<string> Mensagens => mensagens.ToArray();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => mensagens.Enqueue(formatter(state, exception));
     }
 
     private static async Task Eventually(Func<bool> condition)
