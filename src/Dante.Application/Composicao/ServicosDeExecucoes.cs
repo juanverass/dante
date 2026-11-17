@@ -23,5 +23,9 @@ internal static class ServicosDeExecucoes
             ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.AcompanhamentoDeExecucoesAppService>(provider));
         services.TryAddScoped<Dante.Application.Execucoes.IControleDeExecucoesAppService>(provider =>
             ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.ControleDeExecucoesAppService>(provider));
+        // Worktrees de execução de escrita (#307, AD-71): depende de OpcoesDeWorktrees e do gerenciador Git, compostos
+        // pelo host junto com a fila.
+        services.TryAddScoped<Dante.Application.Execucoes.IReservasDeWorktreeAppService>(provider =>
+            ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.ReservasDeWorktreeAppService>(provider));
     }
 }

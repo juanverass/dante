@@ -48,9 +48,11 @@ public sealed class EtapaDaExecucao : EntidadeBase
             throw new ArgumentOutOfRangeException(nameof(politicaDeRetomada), "Política de retomada inválida.");
         if (agente is { } valor && !Enum.IsDefined(valor))
             throw new ArgumentOutOfRangeException(nameof(agente), "Agente inválido.");
-        // Fail-closed (AD-68): etapa de escrita de execução nova só existiria com worktree reservada, que esta entrega
-        // não cria. Ela nem nasce; o checkout principal nunca recebe escrita de execução nova.
-        if (escrita && execucao.Nova) throw new EscritaSemWorktreeException();
+        // Escrita de execução nova (AD-71, #307): só roda numa worktree reservada, conferida por quem executa
+        // (GuardaDeEscrita). Aqui o domínio exige o que vale desde a criação: escrita não é idempotente, então nunca é
+        // retomada automaticamente; o checkout principal nunca recebe escrita de execução nova.
+        if (escrita && execucao.Nova && politicaDeRetomada == PoliticaDeRetomada.Automatica)
+            throw new InvalidOperationException("Etapa de escrita não é retomada automaticamente.");
         IdExecucao = execucao.Id;
         Numero = numero;
         Tipo = tipo;
@@ -67,7 +69,7 @@ public sealed class EtapaDaExecucao : EntidadeBase
     public int Numero { get; private set; }
     public TipoDeEtapa Tipo { get; private set; }
     public EstadoDaEtapa Estado { get; private set; } = EstadoDaEtapa.Pendente;
-    // Se altera repositório. Execuções novas só poderão escrever numa worktree reservada (etapa 5 do roadmap).
+    // Se altera repositório. Em execução nova, só numa worktree reservada e pronta da própria execução (AD-71).
     public bool Escrita { get; private set; }
     public PoliticaDeRetomada PoliticaDeRetomada { get; private set; }
     public int Tentativa { get; private set; } = 1;

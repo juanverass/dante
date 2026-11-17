@@ -13,7 +13,14 @@ public sealed record AgentSessionStartOptions(
     // Linked repositories of the context (AD-58): checkouts the agent may read and write besides the working directory,
     // and the instructions that tell it which they are and how to deliver per repository.
     IReadOnlyList<string>? AdditionalDirectories = null,
-    string? ContextInstructions = null);
+    string? ContextInstructions = null,
+    // Write step of a new execution (#307, AD-71): the working directory and AdditionalDirectories are the execution's
+    // worktrees, the only writable roots. The driver must enforce it with an OS sandbox it confirms at start, with no
+    // interactive approval, network, temp dirs or tool servers; a driver that cannot refuses before starting a process.
+    bool EscritaConfinada = false,
+    // Main checkouts of a confined write step, declared untrusted to the CLI so it neither persists trust for them nor
+    // loads their project config. Never a working directory or a writable root.
+    IReadOnlyList<string>? ProjetosNaoConfiaveis = null);
 
 // Upstream session id (Claude session_id, Codex thread.id) and the OS id of the process that serves it. Model is the
 // model the CLI reports for the session when it says so at start (Codex thread/start), even without a selection.

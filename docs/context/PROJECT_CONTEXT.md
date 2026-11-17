@@ -141,7 +141,8 @@ Fora do sistema hoje, por decisão (ver [ARCHITECTURE_DECISIONS](ARCHITECTURE_DE
 - fila persistente de jobs;
 - webhook ou entrada HTTP funcional para executar agentes;
 - execução de comandos arbitrários;
-- worktrees automáticos e execução concorrente isolada por Issue;
+- worktrees automáticos e execução concorrente isolada por Issue (a AD-71 trouxe só a worktree por tarefa de escrita,
+  com limite global 1);
 - seleção automática de Issues e handoff automático pelo próprio D.A.N.T.E.
 
 O desenvolvimento **do** D.A.N.T.E. por agentes (o Agent Harness em `docs/development/`)

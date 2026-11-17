@@ -2471,6 +2471,9 @@ FilaDeExecucoesAppService.cs, RecuperacaoDeExecucoesAppService.cs}`, `Dante.Infr
 
 Status: vigente (Epic #296, etapa 3 do roadmap). Proposta aprovada na #297 (PR #298). Complementa AD-24/25/26/27 e
 a AD-66. Depende do mesmo banco e da mesma chave `Orquestracao:Habilitada` do ledger.
+Complementada pela AD-71 (#307): a "tarefa somente leitura" abaixo continua sendo o padrão, e a escrita passa a existir
+só pelo pedido explícito `escrever`, em worktrees, com driver confinado; a recusa de etapa de escrita no domínio virou a
+recusa de escrita com retomada automática.
 
 Contexto: `AgentKind` é o driver (CLI), não uma identidade. Papéis reutilizáveis (revisor, implementador) precisam
 de configuração própria, reprodutível e com permissões fechadas, sem mudar `/claude`, `/codex` nem a conversa.
@@ -2553,6 +2556,107 @@ Código: `Dante.Domain/Agentes`, `Dante.Application/Agentes`, `Dante.Application
 Testes: `AgentesDominioTests`, `CadastroDeAgentesAppServiceTests`, `TelegramAgentesTests`,
 `CadastroDeAgentesPostgreSqlTests`, `SessaoReservadaTests`, `TarefaPelaFilaEndToEndTests`.
 
+
+## AD-71 — Worktree por execução de escrita, conjunto fechado de comandos Git e escrita só com sandbox de SO (#307)
+
+Status: vigente, etapa 5 do roadmap da Epic #296. Proposta aprovada na #297 (PR #298); decisões de escopo revisadas na
+#307. Complementa a AD-58 sem substituí-la para os fluxos existentes, a AD-67 (reserva e liberação sob posse) e a
+AD-68 (a `/tarefa` passa a ter um pedido explícito de escrita). Altera o limite "worktrees automáticos" do
+PROJECT_CONTEXT. Depende do mesmo banco e da mesma chave `Orquestracao:Habilitada`; migration `ReservasDeWorktree`,
+não aplicada no banco canônico.
+
+Contexto: execuções novas eram só de leitura porque não havia onde escrever com segurança. Escrever exige isolar o
+checkout do usuário, impedir que duas execuções disputem o mesmo diretório, sobreviver à morte do Worker sem duplicar
+nem reaproveitar diretório ocupado e, sobretudo, não confundir worktree com sandbox: uma worktree é só outro diretório.
+A investigação mostrou que o Codex CLI (0.166) confina por mecanismo do SO (`workspace-write`) e reporta a política
+efetiva no `thread/start`, e que o fluxo atual do Claude CLI não tem confinamento de filesystem (modos de permissão não
+são sandbox).
+
+Decisão:
+
+* **Pedido explícito**: `/tarefa <handle> @alias escrever <texto>` é o único pedido de escrita (sem o marcador e sem o
+  `@alias` explícito, nada muda: leitura em `plan`). `MontagemDaTarefa.MontarEscrita` exige versão com `implementar` e
+  escrita, perfil efetivo = perfil padrão congelado da versão e acima de `plan` (sem escalonamento), modo repositório e
+  driver com confinamento comprovado (`ConfinamentoDeEscrita`). A etapa é `Escrita`, retomada `ComConfirmacao`: escrita
+  não é idempotente, e o domínio recusa etapa de escrita de execução nova com retomada automática.
+* **Uma worktree por repositório envolvido**: o principal e cada vinculado explícito (AD-58), todos ligados à mesma
+  execução e etapa. Layout `<raiz>/<alias>/E<n>` (raiz `Orquestracao:Worktrees:Raiz`, padrão `~/.dante/worktrees`),
+  branch `dante/<handle>/e<n>` a partir do `HEAD` do checkout principal no momento do planejamento (SHA gravado). A
+  sessão recebe só as worktrees: a principal como diretório de trabalho, as vinculadas como raízes graváveis. O
+  checkout principal nunca é fallback.
+* **`ReservaDeWorktree` no ledger** (`reservas_de_worktree`): execução, etapa, alias, principal, caminho canônico do
+  checkout e da worktree, branch, SHA base, host e estado `Reservada → Pronta → Liberada → Removida | Preservada`, mais
+  `Falhou`. É a única entidade do domínio com caminhos: ela é o registro de um recurso do host e precisa guardar os
+  caminhos exatos, porque derivá-los de configuração mutável poderia dar como removida uma worktree que ainda existe
+  (exceção explícita no teste de arquitetura). Eventos `Worktree*` levam alias, branch e estado, nunca caminho.
+* **Reserva atômica sob posse**: `IReservasDeWorktreeAppService.ReservarAsync` grava todas as reservas da execução
+  (todas ou nenhuma) dentro de `GravarComPosseAsync`, sob `pg_advisory_xact_lock` que serializa processos e Workers
+  entre a contagem e a inserção; índices únicos parciais entre as ativas (caminho; repositório + branch; execução +
+  alias) são a segunda barreira, e um check recusa caminho igual ao do checkout. Nova tentativa ou nova geração da
+  mesma execução recebe as mesmas reservas (nunca uma segunda worktree); planejamento divergente ou caminho de reserva
+  encerrada é recusado.
+* **Limites no banco, não em memória**: global por host e por repositório (checkout), contando execuções com reserva
+  ativa que podem escrever (interrompida e bloqueada mantêm a reserva, mas não contam). Excedido, nada é gravado e o
+  processador devolve o trabalho **sem contar tentativa** (espera `EsperaPorCapacidade`). O código suporta limites
+  maiores (exercitados em teste), mas a composição do Worker recusa `LimiteGlobal > 1`: elevar o limite exige alteração
+  e autorização operacional próprias, depois da ativação da contenção estrita da AD-63, que trata do tempo de vida dos
+  processos e não substitui nem a reserva atômica nem o sandbox de filesystem.
+* **`GerenciadorDeWorktreesGit` (Infrastructure)**: conjunto fechado e conferido antes de cada processo —
+  `worktree add|remove|list --porcelain` e consultas somente leitura (`rev-parse`, `check-ref-format`, `symbolic-ref`,
+  `status`, `rev-list`) —, `ArgumentList`, sem shell, `core.fsmonitor=false`, `core.hooksPath=/dev/null`, prazo, nunca
+  `--force`, sem `prune`. Antes de entregar ao agente: caminho real igual ao planejado (sem link em nenhum componente da
+  raiz, do diretório do alias ou da worktree), raiz fora de qualquer checkout cadastrado, raiz Git = a worktree,
+  diretório Git comum = o do repositório, branch da execução e worktree listada pelo próprio Git. Diretório ocupado,
+  link, traversal, branch existente fora da base ou repositório sem commit recusam sem apagar nada. A worktree de uma
+  tentativa anterior é adotada só se for exatamente a planejada.
+* **Executor fail-closed**: depois das conferências da AD-68, o `ExecutorDeTarefasDaFila` planeja, reserva, cria ou
+  adota e valida cada worktree, marca `Pronta` sob posse, valida de novo e só então confere `GuardaDeEscrita` com as
+  worktrees (todas prontas, da própria execução, uma principal, nenhuma igual a um checkout). Qualquer falha marca a
+  worktree culpada `Falhou` (diretório preservado para conferência), libera as demais e falha a etapa sem sessão.
+* **Escrita só com sandbox de SO, por provider**: a sessão de escrita é reservada e confinada (`EscritaConfinada`).
+  Codex: `sandbox=workspace-write` com as worktrees como únicas raízes graváveis, `/tmp` e `TMPDIR` excluídos, rede
+  desligada, `approvalPolicy=never` (sem aprovação interativa nem escalonamento antes do gateway #311), nenhum servidor
+  de ferramentas (eles rodam fora do sandbox; `mcp_servers={}` também esvazia os do usuário) e os checkouts principais
+  declarados não confiáveis (senão o Codex grava a confiança deles em `~/.codex/config.toml` e carregaria configuração
+  de projeto deles). O driver só aceita a sessão se o `thread/start` reportar exatamente essa política; troca de modo e
+  limpeza de contexto são recusadas. O diretório Git comum fica fora das raízes: commit, alteração de refs e o arquivo
+  `.git` da worktree são negados pelo sandbox, então o agente entrega alterações não commitadas. Claude: escrita
+  recusada na montagem, no `SessionRegistry` e no driver, antes de qualquer processo, até existir sandbox de SO
+  implementado e comprovado; instrução no prompt não é garantia.
+* **Liberação e limpeza**: toda transição terminal da execução (conclusão, falha, cancelamento com ou sem posse,
+  tentativas esgotadas, não iniciada) libera as reservas ativas na mesma transação. A limpeza física, depois de cada
+  etapa de escrita e na recuperação da inicialização, só toca reservas liberadas do próprio host: remove (`worktree
+  remove`, sem `--force`) a worktree limpa e sem commits além da base e preserva, com motivo no ledger, a que tem
+  alterações, commits ou estado ilegível. Branch nunca é apagada. Diretório sob a raiz sem reserva é relatado, nunca
+  removido; falha de remoção fica para a próxima passada.
+
+Consequências:
+
+* a `/tarefa` escreve de verdade, mas só com Codex, só em worktrees e só deixando alterações não commitadas; commit,
+  push e PR a partir delas ficam para um processo confiável do D.A.N.T.E. sob política de aprovação, em entrega
+  posterior;
+* uma execução interrompida durante a escrita fica `Interrompida` com a worktree reservada; como o pedido da tarefa
+  só existe em memória, ela só sai por cancelamento do dono, que libera a reserva;
+* a limpeza física depois de um cancelamento sem posse (tarefa na fila ou interrompida) acontece na próxima passada
+  (outra etapa de escrita ou reinício);
+* o processo da CLI continua fora do sandbox e mantém o próprio estado em `~/.codex`; o sandbox confina os comandos
+  do agente, não a CLI;
+* arquivos ignorados pelo Git (por exemplo `.env` locais) não existem na worktree; a remoção apaga os ignorados que o
+  agente tiver criado numa worktree sem alterações rastreadas;
+* sem `prune`, metadados de worktree cujo diretório sumiu por fora são limpos pelo `worktree remove` da própria
+  reserva ou pelo `gc` do Git.
+
+Código: `Dante.Domain/Execucoes/{ReservaDeWorktree, EstadoDaReservaDeWorktree}.cs`,
+`Dante.Application/Execucoes/{ReservasDeWorktreeAppService, LiberacaoDeWorktrees, GuardaDeEscrita}.cs`,
+`Dante.Application/Execucoes/Portas/{IReservaDeWorktreeRepository, IGerenciadorDeWorktrees}.cs`,
+`Dante.Application/Agentes/{ConfinamentoDeEscrita, MontagemDaTarefa, PlanoDaTarefa}.cs`,
+`Dante.Infrastructure/Contextos/GerenciadorDeWorktreesGit.cs`, `Dante.Infrastructure/Modulos/Execucoes/ReservaDeWorktree*`,
+migration `ReservasDeWorktree`, `Dante.Worker/Execucoes/{ExecutorDeTarefasDaFila, ProcessadorDaFila, ExecucaoSobPosse}.cs`,
+`Dante.Worker/Sessions/{CodexSessionDriver, ClaudeSessionDriver, SessionRegistry, SolicitacaoDaTarefa, AgenteDaSessao}.cs`,
+`Dante.Worker/Telegram/TelegramPollingService.Agentes.cs`.
+Testes: `GerenciadorDeWorktreesGitTests`, `EscritaEmWorktreeTests`, `ReservasDeWorktreePostgreSqlTests`,
+`TarefaPelaFilaEndToEndTests` (escrita), `CodexSessionDriverTests` (confinamento) e a evidência opt-in
+`LiveCodexSandboxEvidenceTests` (`DANTE_LIVE_CODEX_SANDBOX=1`, Codex real, sem chamada de modelo).
 
 ## AD-74 — Acompanhamento e cancelamento de execuções na Application, neutros de interface (#305)
 

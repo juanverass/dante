@@ -52,6 +52,32 @@ public sealed class ExecucaoSobPosse
             .VincularSessaoAsync(posse, Alvo.IdEtapa, numeroDaSessao, cancellationToken);
     }
 
+    // Worktrees prontas da execução (#307), entregues à sessão da etapa de escrita; vazio numa etapa de leitura.
+    public IReadOnlyList<WorktreeDaExecucaoDto> Worktrees { get; private set; } = [];
+
+    // Reserva atômica sob posse (todas ou nenhuma). Capacidade esgotada: CapacidadeDeWorktreesIndisponivelException.
+    internal async Task<IReadOnlyList<WorktreeDaExecucaoDto>> ReservarWorktreesAsync(
+        IReadOnlyList<WorktreePlanejada> planejadas, string maquina, CancellationToken cancellationToken)
+    {
+        await using var escopo = escopos.CreateAsyncScope();
+        return await escopo.ServiceProvider.GetRequiredService<IReservasDeWorktreeAppService>()
+            .ReservarAsync(posse, Alvo.IdEtapa, planejadas, maquina, cancellationToken);
+    }
+
+    internal async Task MarcarWorktreesProntasAsync(CancellationToken cancellationToken)
+    {
+        await using var escopo = escopos.CreateAsyncScope();
+        Worktrees = await escopo.ServiceProvider.GetRequiredService<IReservasDeWorktreeAppService>()
+            .MarcarProntasAsync(posse, Alvo.IdExecucao, cancellationToken);
+    }
+
+    internal async Task FalharWorktreesAsync(string alias, string motivo, CancellationToken cancellationToken)
+    {
+        await using var escopo = escopos.CreateAsyncScope();
+        await escopo.ServiceProvider.GetRequiredService<IReservasDeWorktreeAppService>()
+            .FalharAsync(posse, Alvo.IdExecucao, alias, motivo, cancellationToken);
+    }
+
     // Grava o resultado e encerra o trabalho numa transação, antes de qualquer efeito seguinte (entrega da resposta).
     // O heartbeat para antes: renovar a linha travada pela gravação só a atrasaria.
     public async Task ConcluirAsync(ResultadoDaEtapaDto resultado, CancellationToken cancellationToken)

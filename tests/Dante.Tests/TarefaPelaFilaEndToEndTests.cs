@@ -279,6 +279,181 @@ public sealed class TarefaPelaFilaEndToEndTests
         Assert.Equal(EstadoDaExecucao.Cancelada, (await ExecucaoAsync(a.Provider, long.Parse(codigo[1..]))).Estado);
     }
 
+    // ---- #307: tarefa de escrita em worktrees (AD-71) ----
+
+    private const string CriarCodexDev =
+        "/agente criar dev driver=codex model=fake-mini modo=auto maximo=auto escrita=sim capacidades=implementar " +
+        "repos=@first,@second\nImplemente.";
+
+    // Pedido explícito, worktree por repositório (principal e vinculado) reservada, criada e validada antes da sessão; a
+    // sessão confinada recebe só as worktrees; o checkout principal fica byte a byte igual; a worktree com alterações é
+    // preservada e a limpa removida, sem apagar branch.
+    [PostgreSqlFact]
+    public async Task TarefaDeEscritaRodaSoNasWorktreesConfinadaEPreservaAsAlteracoes()
+    {
+        await using var banco = await FilaAsync();
+        await using var a = await Ambiente.CriarAsync(banco);
+        Assert.True(a.Registro.Link("@first", "@second"));
+        var impressoes = (RepositorioGitDeTeste.Impressao(a.Primeiro), RepositorioGitDeTeste.Impressao(a.Segundo));
+        await a.IniciarAsync();
+        Assert.StartsWith("Agente dev criado (v1)", await a.Send(CriarCodexDev, 1));
+
+        var confirmacao = await a.Send("/tarefa dev @first escrever crie o arquivo", 2);
+        Assert.Matches(@"^Tarefa E\d+ enfileirada: agente dev v1 \(@first \+ @second\)\. " +
+            Regex.Escape(MontagemDaTarefa.AvisoDeEscrita) + "$", confirmacao);
+        var codigo = Regex.Match(confirmacao, @"E\d+").Value;
+        var numero = long.Parse(codigo[1..]);
+        var principal = Path.Combine(a.RaizDasWorktrees, "first", codigo);
+        var vinculada = Path.Combine(a.RaizDasWorktrees, "second", codigo);
+
+        var driver = await a.DriverComAsync("turn:crie o arquivo");
+        var opcoes = driver.StartOptions!;
+        Assert.Equal((true, AgentPermissionProfile.Auto, principal), (opcoes.EscritaConfinada, opcoes.Profile, opcoes.WorkingDirectory));
+        Assert.Equal([vinculada], opcoes.AdditionalDirectories);
+        // Os checkouts principais só vão à CLI como projetos não confiáveis (para ela não gravar confiança neles).
+        Assert.Equal([a.Primeiro, a.Segundo], opcoes.ProjetosNaoConfiaveis);
+        Assert.Empty(opcoes.ToolServers ?? []);
+        Assert.Contains(MontagemDaTarefa.AvisoDeEscrita, opcoes.ContextInstructions);
+        Assert.DoesNotContain(a.Primeiro + Path.DirectorySeparatorChar, opcoes.ContextInstructions + Path.DirectorySeparatorChar);
+        foreach (var caminho in opcoes.AdditionalDirectories!.Prepend(opcoes.WorkingDirectory))
+            Assert.DoesNotContain(caminho, new[] { a.Primeiro, a.Segundo });
+        Assert.Equal($"dante/dev/e{numero}", RepositorioGitDeTeste.Git(principal, "branch", "--show-current"));
+
+        var emCurso = await ExecucaoAsync(a.Provider, numero);
+        Assert.Equal((EstadoDaExecucao.EmExecucao, true, PoliticaDeRetomada.ComConfirmacao),
+            (emCurso.Estado, emCurso.Etapas[0].Escrita, emCurso.Etapas[0].PoliticaDeRetomada));
+        var reservas = await ReservasAsync(a, emCurso.Id);
+        Assert.Equal([("@first", true, EstadoDaReservaDeWorktree.Pronta), ("@second", false, EstadoDaReservaDeWorktree.Pronta)],
+            reservas.Select(r => (r.Alias, r.Principal, r.Estado)));
+
+        // O "agente" escreve na worktree principal; a vinculada fica intacta.
+        File.WriteAllText(Path.Combine(principal, "novo.txt"), "feito pelo agente\n");
+        driver.Emit(new MessageCompletedEvent("m1", "Arquivo criado."));
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        Assert.Equal($"Tarefa {codigo} (dev v1, @first + @second) [worktree: @first dante/dev/e{numero}, @second " +
+            $"dante/dev/e{numero}] concluída.\n\nArquivo criado.", await a.ProximaAsync());
+
+        await PollAsync(async () => (await ReservasAsync(a, emCurso.Id)).All(r => r.Estado is EstadoDaReservaDeWorktree.Preservada or EstadoDaReservaDeWorktree.Removida));
+        var finais = await ReservasAsync(a, emCurso.Id);
+        Assert.Equal((EstadoDaReservaDeWorktree.Preservada, "Preservada: há alterações não commitadas."), (finais[0].Estado, finais[0].Motivo));
+        Assert.Equal(EstadoDaReservaDeWorktree.Removida, finais[1].Estado);
+        Assert.True(File.Exists(Path.Combine(principal, "novo.txt")));
+        Assert.False(Directory.Exists(vinculada));
+        Assert.Contains($"dante/dev/e{numero}", RepositorioGitDeTeste.Git(a.Segundo, "branch", "--list", "dante/*"));
+        Assert.False(File.Exists(Path.Combine(a.Primeiro, "novo.txt")));
+        Assert.Equal(impressoes, (RepositorioGitDeTeste.Impressao(a.Primeiro), RepositorioGitDeTeste.Impressao(a.Segundo)));
+    }
+
+    // Recusas antes de enfileirar: Claude não escreve (sem confinamento de filesystem), escrita sem @alias explícito,
+    // agente sem a capacidade implementar. Nada é gravado e nenhuma sessão é aberta. A leitura continua igual.
+    [PostgreSqlFact]
+    public async Task EscritaRecusadaAntesDeEnfileirarParaClaudeSemAliasOuSemImplementar()
+    {
+        await using var banco = await FilaAsync();
+        await using var a = await Ambiente.CriarAsync(banco);
+        await a.IniciarAsync();
+        Assert.StartsWith("Agente dev criado (v1)", await a.Send(CriarDev, 1));
+        Assert.Equal(ConfinamentoDeEscrita.RecusaDoClaude, await a.Send("/tarefa dev @first escrever corrija", 2));
+        Assert.StartsWith("Agente leitor criado (v1)", await a.Send(
+            "/agente criar leitor driver=codex model=fake-mini modo=auto maximo=auto escrita=sim capacidades=revisar repos=*", 3));
+        Assert.Contains("capacidade implementar", await a.Send("/tarefa leitor @first escrever corrija", 4));
+        Assert.Equal("Tarefa de escrita exige o repositório explícito: /tarefa <handle> @alias escrever <pedido>.",
+            await a.Send("/tarefa leitor escrever corrija", 5));
+        Assert.Equal(0L, await Escalar(banco, "SELECT count(*) FROM orquestracao.execucoes"));
+        Assert.Empty(a.Drivers.Created);
+        // "escrevera" não é o marcador: segue como leitura.
+        Assert.Contains(MontagemDaTarefa.AvisoDeLeitura, await a.Send("/tarefa dev @first escrevera algo?", 6));
+    }
+
+    // Cancelamento pelo dono durante a escrita: a sessão é encerrada, nada é entregue, a etapa não roda de novo, e a
+    // limpeza preserva a worktree alterada.
+    [PostgreSqlFact]
+    public async Task CancelamentoDuranteAEscritaEncerraASessaoELiberaAWorktree()
+    {
+        await using var banco = await FilaAsync();
+        await using var a = await Ambiente.CriarAsync(banco);
+        var impressao = RepositorioGitDeTeste.Impressao(a.Primeiro);
+        await a.IniciarAsync();
+        Assert.StartsWith("Agente dev criado (v1)", await a.Send(CriarCodexDev, 1));
+        var codigo = Regex.Match(await a.Send("/tarefa dev @first escrever altere", 2), @"E\d+").Value;
+        var numero = long.Parse(codigo[1..]);
+        var driver = await a.DriverComAsync("turn:altere");
+        File.WriteAllText(Path.Combine(driver.StartOptions!.WorkingDirectory, "parcial.txt"), "meio caminho\n");
+
+        Assert.StartsWith($"Cancelamento de {codigo} solicitado.", await a.Send($"/cancel {codigo} parei", 3));
+        Assert.StartsWith($"Tarefa {codigo} cancelada", await a.ProximaAsync());
+        await Eventually(() => driver.Disposed);
+        var id = (await ExecucaoAsync(a.Provider, numero)).Id;
+        await PollAsync(async () => (await ReservasAsync(a, id)).Single().Estado == EstadoDaReservaDeWorktree.Preservada);
+        Assert.Equal(EstadoDaExecucao.Cancelada, (await ExecucaoAsync(a.Provider, numero)).Estado);
+        Assert.Single(a.Drivers.Created);
+        Assert.Equal(impressao, RepositorioGitDeTeste.Impressao(a.Primeiro));
+    }
+
+    // Limite global operacional = 1, no banco: mesmo com dois slots livres no processador, a segunda escrita espera na
+    // fila sem contar tentativa e só começa depois da primeira.
+    [PostgreSqlFact]
+    public async Task SegundaEscritaEsperaACapacidadeSemContarTentativa()
+    {
+        await using var banco = await FilaAsync();
+        await using var a = await Ambiente.CriarAsync(banco);
+        await a.IniciarAsync(slots: 2);
+        Assert.StartsWith("Agente dev criado (v1)", await a.Send(CriarCodexDev, 1));
+        var primeira = Regex.Match(await a.Send("/tarefa dev @first escrever primeira", 2), @"E\d+").Value;
+        var driver = await a.DriverComAsync("turn:primeira");
+        var segunda = Regex.Match(await a.Send("/tarefa dev @second escrever segunda", 3), @"E\d+").Value;
+        await PollAsync(async () => (await TrabalhoAsync(a.Provider, "telegram:123:3")).UltimoErro == "capacidade de worktrees");
+        // Vários ciclos de espera (300 ms cada): contando tentativa, as 5 já teriam se esgotado.
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        var esperando = await TrabalhoAsync(a.Provider, "telegram:123:3");
+        Assert.Contains(esperando.Estado, new[] { EstadoDoTrabalho.Pendente, EstadoDoTrabalho.Reivindicado });
+        Assert.True(esperando.Tentativas <= 1, $"tentativas: {esperando.Tentativas}");
+        Assert.Equal(EstadoDaExecucao.Pendente, (await ExecucaoAsync(a.Provider, long.Parse(segunda[1..]))).Estado);
+        Assert.Single(a.Drivers.Created);
+
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        Assert.StartsWith($"Tarefa {primeira} ", await a.ProximaAsync());
+        var outro = await a.DriverComAsync("turn:segunda", driver);
+        Assert.Equal(Path.Combine(a.RaizDasWorktrees, "second", segunda), outro.StartOptions!.WorkingDirectory);
+    }
+
+    // Uma worktree que não pode ser criada (diretório do alias é um link): nenhum agente começa, a outra worktree é
+    // liberada e removida, a que falhou fica registrada e nada do lado de fora é apagado.
+    [PostgreSqlFact]
+    public async Task WorktreeQueNaoPodeSerCriadaImpedeOAgenteEmTodosOsRepositorios()
+    {
+        await using var banco = await FilaAsync();
+        await using var a = await Ambiente.CriarAsync(banco);
+        Assert.True(a.Registro.Link("@first", "@second"));
+        var impressoes = (RepositorioGitDeTeste.Impressao(a.Primeiro), RepositorioGitDeTeste.Impressao(a.Segundo));
+        var externo = Path.Combine(Path.GetDirectoryName(a.RaizDasWorktrees)!, "externo");
+        Directory.CreateDirectory(externo);
+        Directory.CreateDirectory(a.RaizDasWorktrees);
+        Directory.CreateSymbolicLink(Path.Combine(a.RaizDasWorktrees, "second"), externo);
+        await a.IniciarAsync();
+        Assert.StartsWith("Agente dev criado (v1)", await a.Send(CriarCodexDev, 1));
+        var codigo = Regex.Match(await a.Send("/tarefa dev @first escrever x", 2), @"E\d+").Value;
+        var aviso = await a.ProximaAsync();
+        Assert.StartsWith($"Tarefa {codigo} não foi iniciada: worktree de @second:", aviso);
+        Assert.Contains("link", aviso);
+        Assert.Empty(a.Drivers.Created);
+        var execucao = await ExecucaoAsync(a.Provider, long.Parse(codigo[1..]));
+        Assert.Equal(EstadoDaExecucao.Falhou, execucao.Estado);
+        await PollAsync(async () => (await ReservasAsync(a, execucao.Id)).Any(r => r.Estado == EstadoDaReservaDeWorktree.Removida));
+        var reservas = await ReservasAsync(a, execucao.Id);
+        Assert.Equal([EstadoDaReservaDeWorktree.Removida, EstadoDaReservaDeWorktree.Falhou], reservas.Select(r => r.Estado));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(externo));
+        Assert.False(Directory.Exists(Path.Combine(a.RaizDasWorktrees, "first", codigo)));
+        Assert.Equal(impressoes, (RepositorioGitDeTeste.Impressao(a.Primeiro), RepositorioGitDeTeste.Impressao(a.Segundo)));
+        File.Delete(Path.Combine(a.RaizDasWorktrees, "second"));
+    }
+
+    private static async Task<IReadOnlyList<WorktreeDaExecucaoDto>> ReservasAsync(Ambiente a, Guid idExecucao)
+    {
+        await using var escopo = a.Provider.CreateAsyncScope();
+        return await escopo.ServiceProvider.GetRequiredService<IReservasDeWorktreeAppService>().ListarDaExecucaoAsync(idExecucao);
+    }
+
     private sealed class Ambiente : IAsyncDisposable
     {
         private readonly string raiz = Path.Combine(Path.GetTempPath(), "dante-tarefa-" + Guid.NewGuid().ToString("N"));
@@ -299,13 +474,28 @@ public sealed class TarefaPelaFilaEndToEndTests
         public CatalogoDeModelosFixo Catalogo { get; } = new();
         public SessionRegistry Sessoes { get; private set; } = null!;
         public string Primeiro { get; private set; } = "";
+        public string Segundo { get; private set; } = "";
+        public RepositoryRegistry Registro { get; private set; } = null!;
+        // #307: worktrees de escrita sob o diretório temporário do teste; espera curta quando a capacidade está ocupada.
+        public string RaizDasWorktrees => Path.Combine(raiz, "worktrees");
+        public OpcoesDeWorktrees OpcoesDeWorktrees => new() { Raiz = RaizDasWorktrees, EsperaPorCapacidade = TimeSpan.FromMilliseconds(300) };
 
         public static async Task<Ambiente> CriarAsync(Banco banco, IdentidadeDoProcessador? identidade = null)
         {
             var ambiente = new Ambiente();
             if (identidade is not null) ambiente.identidade = identidade;
+            // Repositórios com um commit (a base das worktrees) e o catálogo real deles, também para o gerenciador Git.
+            ambiente.Registro = new RepositoryRegistry(Path.Combine(ambiente.raiz, "config", "repositories.json"));
+            ambiente.Primeiro = ambiente.Git("first");
+            ambiente.Registro.Add("@first", ambiente.Primeiro);
+            ambiente.Segundo = ambiente.Git("second");
+            ambiente.Registro.Add("@second", ambiente.Segundo);
             ambiente.Provider = Provider(banco.ConnectionString, configurar: services =>
-                services.Replace(ServiceDescriptor.Singleton<IAgentModelCatalog>(ambiente.Catalogo)));
+            {
+                services.Replace(ServiceDescriptor.Singleton<IAgentModelCatalog>(ambiente.Catalogo));
+                services.Replace(ServiceDescriptor.Singleton<Dante.Application.Contextos.ICatalogoDeRepositorios>(ambiente.Registro));
+                services.AddSingleton(ambiente.OpcoesDeWorktrees);
+            });
             ambiente.Espelho = new EspelhoDoLedger(ambiente.Escopos, NullLogger<EspelhoDoLedger>.Instance);
             ambiente.Jobs = new JobRegistry(ambiente.Espelho);
             ambiente.Sessoes = new SessionRegistry(ambiente.Drivers, NullLogger<SessionRegistry>.Instance,
@@ -314,19 +504,17 @@ public sealed class TarefaPelaFilaEndToEndTests
             return ambiente;
         }
 
-        public async Task IniciarAsync(bool processador = true)
+        public async Task IniciarAsync(bool processador = true, int slots = 1)
         {
-            var registro = new RepositoryRegistry(Path.Combine(raiz, "config", "repositories.json"));
-            Primeiro = Git("first");
-            registro.Add("@first", Primeiro);
-            registro.Add("@second", Git("second"));
+            var registro = Registro;
             var options = Options.Create(new TelegramOptions { BotToken = "test", AllowedUserIds = "123" });
             var delivery = new TelegramDeliveryService(Api, NullLogger<TelegramDeliveryService>.Instance);
             var metricas = new MetricasDaFila();
             executorDeJobs = new ExecutorDeJobsDaFila(Escopos, Jobs, Espelho, Sinal, metricas,
                 NullLogger<ExecutorDeJobsDaFila>.Instance, Api, identidade);
             executorDeTarefas = new ExecutorDeTarefasDaFila(Escopos, Jobs, Espelho, Sinal,
-                NullLogger<ExecutorDeTarefasDaFila>.Instance, Api, identidade);
+                NullLogger<ExecutorDeTarefasDaFila>.Instance, Api, identidade,
+                Provider.GetRequiredService<IGerenciadorDeWorktrees>());
             var runner = new RunnerDeTeste();
             servico = new TelegramPollingService(Api, options, new TelegramUserAuthorizer(options), runner, runner, Jobs,
                 NullLogger<TelegramPollingService>.Instance, registro, new GeneralWorkspace(Path.Combine(raiz, "general")),
@@ -334,13 +522,13 @@ public sealed class TarefaPelaFilaEndToEndTests
                 filaDeJobs: executorDeJobs, agentes: new TelegramAgentes(Escopos), filaDeTarefas: executorDeTarefas,
                 execucoes: new TelegramExecucoes(Escopos, NullLogger<TelegramExecucoes>.Instance));
             await servico.StartAsync(CancellationToken.None);
-            if (processador) await IniciarProcessadorAsync();
+            if (processador) await IniciarProcessadorAsync(slots);
         }
 
-        public async Task IniciarProcessadorAsync()
+        public async Task IniciarProcessadorAsync(int slots = 1)
         {
-            processador = new ProcessadorDaFila(Escopos, identidade, Rapidas, Sinal, [executorDeJobs!, executorDeTarefas!],
-                new MetricasDaFila(), NullLogger<ProcessadorDaFila>.Instance);
+            processador = new ProcessadorDaFila(Escopos, identidade, Rapidas with { Slots = slots }, Sinal, [executorDeJobs!, executorDeTarefas!],
+                new MetricasDaFila(), NullLogger<ProcessadorDaFila>.Instance, worktrees: OpcoesDeWorktrees);
             await processador.StartAsync(CancellationToken.None);
         }
 
@@ -378,6 +566,9 @@ public sealed class TarefaPelaFilaEndToEndTests
             })!;
             git.WaitForExit();
             Assert.Equal(0, git.ExitCode);
+            File.WriteAllText(Path.Combine(caminho, "README.md"), $"# {nome}\n");
+            RepositorioGitDeTeste.Git(caminho, "add", "-A");
+            RepositorioGitDeTeste.Git(caminho, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "inicial");
             return caminho;
         }
 

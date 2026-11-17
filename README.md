@@ -739,17 +739,36 @@ Revise o diff com rigor e aponte riscos.
 /agente editar revisor effort=high        cria a versão 2; sessões abertas mantêm a delas
 /session start revisor @dante             conversa com o agente, na versão atual
 /tarefa revisor @dante revise o PR 301    tarefa somente leitura, executada pela fila durável
+/tarefa dev @dante escrever corrija o bug  tarefa de escrita, numa worktree própria (só agente Codex)
 /agente desativar revisor                 nada novo começa; o que está ativo segue até o fim
 ```
 
 Sem opções, um agente só lê (`plan`), não recebe ferramentas do D.A.N.T.E. e só trabalha no workspace
 geral: modo máximo, escrita, ferramentas (`brain`, `planilhas`) e repositórios são concessões explícitas, e
 uma sessão nunca passa do máximo da versão. O handle é minúsculo, sem `@` (que continua sendo repositório) e
-nunca é reutilizado; arquivar é o fim do ciclo de vida. `/tarefa` roda sempre em `plan`, mesmo que o agente
-permita escrita, até existirem worktrees reservadas. A tarefa é gravada e enfileirada antes da confirmação
+nunca é reutilizado; arquivar é o fim do ciclo de vida. `/tarefa` roda em `plan`, mesmo que o agente permita
+escrita, a menos que o pedido traga o marcador explícito `escrever` logo depois do `@alias`. A tarefa é gravada e
+enfileirada antes da confirmação
 ("Tarefa E… enfileirada"); roda numa sessão reservada, que não vira a sessão ativa nem recebe comandos, e o
 resultado é registrado no ledger antes de ser entregue. Depois de um reinício do Worker, uma tarefa pendente é
 cancelada com aviso (o pedido não é guardado). Credenciais nunca entram no cadastro nem nas instruções.
+
+### Tarefa de escrita em worktree
+
+`/tarefa <handle> @alias escrever <pedido>` exige um agente com `capacidades=implementar`, escrita e modo padrão
+acima de `plan` (o modo da tarefa é o padrão da versão, sem escalonamento), e o `@alias` explícito. Antes de abrir a
+sessão, o D.A.N.T.E. cria uma worktree Git exclusiva para o repositório e para cada vinculado
+(`~/.dante/worktrees/<alias>/E<n>`, branch `dante/<handle>/e<n>` a partir do `HEAD` atual do checkout) e a valida; se
+qualquer uma falhar, nenhum agente começa. O checkout principal nunca é usado.
+
+Uma worktree não é sandbox: só escreve o agente cuja CLI confina o sistema de arquivos. Hoje isso é o **Codex**
+(sandbox `workspace-write` só nas worktrees, sem `/tmp`, sem rede, sem aprovação interativa e sem ferramentas do
+D.A.N.T.E.); o diretório Git comum é somente leitura, então o agente não faz commit nem altera branches e as alterações
+ficam na worktree. Escrita via **Claude** é recusada até existir sandbox comprovado. Ao fim, a worktree sem alterações
+é removida; a que tem alterações ou commits é preservada (o motivo fica no ledger). Branches nunca são apagadas. Uma
+escrita por vez (limite global 1 até a ativação autorizada da contenção AD-63); a próxima espera na fila sem contar
+tentativa. Configuração opcional: `Orquestracao:Worktrees:{Raiz, LimiteGlobal, LimitePorRepositorio}` (limite
+global acima de 1 é recusado na inicialização).
 
 ## Acompanhamento de execuções
 
@@ -1537,13 +1556,13 @@ Responsabilidades principais:
 
 Ainda não fazem parte do projeto:
 
-- worktrees automáticos por issue;
+- worktrees automáticos por issue (existe só a worktree por tarefa de escrita, `/tarefa … escrever`);
 - seleção automática de issues pelo D.A.N.T.E.;
 - fluxo automático issue → implementação → review → merge;
 - handoff automático entre Claude, Codex e Tech Lead;
 - fila persistente;
 - persistência de jobs em banco de dados;
-- execução concorrente isolada por worktree;
+- execução concorrente de escritas (o limite global de worktrees é 1 até a ativação autorizada da AD-63);
 - comando `/ask` com agente padrão;
 - sessões interativas persistentes: reiniciar o Worker encerra as conversas;
 - botões inline para aprovação (os comandos textuais estão disponíveis);

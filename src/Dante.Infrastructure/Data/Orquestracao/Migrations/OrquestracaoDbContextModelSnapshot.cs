@@ -513,6 +513,122 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Dante.Domain.Execucoes.ReservaDeWorktree", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Alias")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("alias");
+
+                    b.Property<string>("Branch")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("branch");
+
+                    b.Property<string>("Caminho")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("caminho");
+
+                    b.Property<string>("CaminhoDoRepositorio")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("caminho_do_repositorio");
+
+                    b.Property<DateTimeOffset>("CriadaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("criada_em");
+
+                    b.Property<DateTimeOffset?>("EncerradaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("encerrada_em");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("integer")
+                        .HasColumnName("estado");
+
+                    b.Property<Guid>("IdEtapa")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_etapa");
+
+                    b.Property<Guid>("IdExecucao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_execucao");
+
+                    b.Property<DateTimeOffset?>("LiberadaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("liberada_em");
+
+                    b.Property<string>("MaquinaDoWorker")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("maquina_do_worker");
+
+                    b.Property<string>("Motivo")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("motivo");
+
+                    b.Property<bool>("Principal")
+                        .HasColumnType("boolean")
+                        .HasColumnName("principal");
+
+                    b.Property<DateTimeOffset?>("ProntaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("pronta_em");
+
+                    b.Property<string>("ShaBase")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("sha_base");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Caminho")
+                        .IsUnique()
+                        .HasDatabaseName("ux_reservas_de_worktree_caminho_ativa")
+                        .HasFilter("estado IN (0, 1)");
+
+                    b.HasIndex("CaminhoDoRepositorio", "Branch")
+                        .IsUnique()
+                        .HasDatabaseName("ux_reservas_de_worktree_branch_ativa")
+                        .HasFilter("estado IN (0, 1)");
+
+                    b.HasIndex("IdEtapa", "IdExecucao");
+
+                    b.HasIndex("IdExecucao", "Alias")
+                        .IsUnique()
+                        .HasDatabaseName("ux_reservas_de_worktree_alias_ativa")
+                        .HasFilter("estado IN (0, 1)");
+
+                    b.HasIndex("MaquinaDoWorker", "Estado");
+
+                    b.ToTable("reservas_de_worktree", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_reservas_de_worktree_estado", "estado BETWEEN 0 AND 5");
+
+                            t.HasCheckConstraint("ck_reservas_de_worktree_fora_do_checkout", "caminho <> caminho_do_repositorio");
+
+                            t.HasCheckConstraint("ck_reservas_de_worktree_sha", "char_length(sha_base) = 40");
+                        });
+                });
+
             modelBuilder.Entity("Dante.Domain.Execucoes.SessaoDeAgente", b =>
                 {
                     b.Property<Guid>("Id")
@@ -827,6 +943,22 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .WithMany()
                         .HasForeignKey("IdVersaoDoAgente")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.ReservaDeWorktree", b =>
+                {
+                    b.HasOne("Dante.Domain.Execucoes.Execucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Execucoes.EtapaDaExecucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdEtapa", "IdExecucao")
+                        .HasPrincipalKey("Id", "IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Dante.Domain.Execucoes.SessaoDeAgente", b =>

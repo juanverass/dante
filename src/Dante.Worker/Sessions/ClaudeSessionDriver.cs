@@ -53,6 +53,10 @@ public sealed class ClaudeSessionDriver(
             throw new InvalidOperationException("Este driver já iniciou uma sessão.");
         }
 
+        // #307: this flow has no filesystem confinement (permission modes are not an OS sandbox), so a confined write
+        // session is refused before any process exists. A prompt instruction is not a substitute.
+        if (options.EscritaConfinada)
+            throw new AgentProtocolException(Dante.Application.Agentes.ConfinamentoDeEscrita.RecusaDoClaude);
         var sessionId = Guid.NewGuid().ToString();
         var request = new AgentProcessRequest(
             AgentKind.Claude,

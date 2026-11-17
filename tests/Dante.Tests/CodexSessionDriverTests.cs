@@ -90,6 +90,87 @@ public sealed class CodexSessionDriverTests
         finally { if (Directory.Exists(back)) Directory.Delete(back); }
     }
 
+    // #307: a confined write step starts only when the thread reports exactly the confined sandbox: approvalPolicy
+    // never, the worktrees as the only writable roots, /tmp and TMPDIR excluded, no network, the requested cwd. The user's
+    // MCP servers are emptied (they would run outside the sandbox) and the session cannot switch mode or clear.
+    [Fact]
+    public async Task ConfinedWriteSessionStartsOnlyWithTheConfirmedSandbox()
+    {
+        var linked = Path.Combine(Path.GetTempPath(), "dante-wt-linked");
+        var launcher = new ProbeLauncher();
+        await using var driver = new CodexSessionDriver(launcher);
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Auto,
+            AdditionalDirectories: [linked], EscritaConfinada: true));
+        var arguments = Assert.Single(launcher.Requests).Arguments;
+        Assert.Equal(["app-server", "--listen", "stdio://", "-c", "mcp_servers={}"], arguments);
+        await using var events = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync("config");
+        Assert.StartsWith("never/workspace-write/", (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+        await driver.StartTurnAsync("roots");
+        Assert.Equal($"roots:{linked};turn:", (await ReadTurnAsync(events)).OfType<MessageCompletedEvent>().Single().Text);
+        await Assert.ThrowsAsync<AgentModeRejectedException>(() => driver.ChangeModeAsync(AgentPermissionProfile.Manual));
+        await Assert.ThrowsAsync<AgentContextUnchangedException>(() => driver.ClearContextAsync());
+    }
+
+    [Fact]
+    public async Task ConfinedWriteSessionRefusesAServerThatDoesNotConfirmTheConfinement()
+    {
+        var launcher = new ProbeLauncher("ignore-confinement");
+        await using var driver = new CodexSessionDriver(launcher);
+        var refused = await Assert.ThrowsAsync<AgentProtocolException>(() => driver.StartAsync(
+            new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Auto, EscritaConfinada: true)));
+        Assert.Contains("confinamento de escrita", refused.Message);
+        await WaitUntilExitedAsync(Assert.Single(launcher.Started).ProcessId);
+
+        // Plan, general mode, tool servers or a main checkout as a writable root are not a confined write session:
+        // refused before any process.
+        var semProcesso = new ProbeLauncher();
+        foreach (var opcoes in new[]
+                 {
+                     new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan, EscritaConfinada: true),
+                     new AgentSessionStartOptions(AppContext.BaseDirectory, IsGeneral: true, Profile: AgentPermissionProfile.Auto, EscritaConfinada: true),
+                     new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Auto, EscritaConfinada: true,
+                         ToolServers: [new AgentToolServer("dante_brain", "dotnet", ["x"], new Dictionary<string, string>(), [])]),
+                     new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Auto, EscritaConfinada: true,
+                         AdditionalDirectories: ["/repos/main"], ProjetosNaoConfiaveis: ["/repos/main"]),
+                     new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Auto, EscritaConfinada: true,
+                         ProjetosNaoConfiaveis: [AppContext.BaseDirectory])
+                 })
+        {
+            await using var outro = new CodexSessionDriver(semProcesso);
+            await Assert.ThrowsAsync<AgentProtocolException>(() => outro.StartAsync(opcoes));
+        }
+        Assert.Empty(semProcesso.Requests);
+    }
+
+    [Theory]
+    [InlineData("ok", true)]
+    [InlineData("approval", false)]
+    [InlineData("cwd", false)]
+    [InlineData("root", false)]
+    [InlineData("tmp", false)]
+    [InlineData("tmpdir", false)]
+    [InlineData("network", false)]
+    [InlineData("readonly", false)]
+    public void ConfinementIsConfirmedOnlyByTheExactEffectivePolicy(string variacao, bool confirmado)
+    {
+        var sandbox = new System.Text.Json.Nodes.JsonObject
+        {
+            ["type"] = variacao == "readonly" ? "readOnly" : "workspaceWrite",
+            ["writableRoots"] = new System.Text.Json.Nodes.JsonArray(variacao == "root" ? ["/w/a", "/repos/main"] : (System.Text.Json.Nodes.JsonNode?[])["/w/a"]),
+            ["networkAccess"] = variacao == "network",
+            ["excludeTmpdirEnvVar"] = variacao != "tmpdir",
+            ["excludeSlashTmp"] = variacao != "tmp"
+        };
+        var thread = new System.Text.Json.Nodes.JsonObject
+        {
+            ["approvalPolicy"] = variacao == "approval" ? "on-request" : "never",
+            ["cwd"] = variacao == "cwd" ? "/repos/main" : "/w/principal",
+            ["sandbox"] = sandbox
+        };
+        Assert.Equal(confirmado, CodexSessionDriver.ConfirmsConfinement(thread, "/w/principal", ["/w/a"]));
+    }
+
     [Fact]
     public async Task WritableRootsTheServerDoesNotConfirmFailTheStart()
     {

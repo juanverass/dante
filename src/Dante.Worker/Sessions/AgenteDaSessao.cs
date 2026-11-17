@@ -9,8 +9,18 @@ public sealed record AgenteDaSessao(string Handle, VersaoDoAgenteDto Versao, str
 {
     public ConfiguracaoDoAgente Configuracao => Versao.Configuracao;
 
-    // Teto imposto pela execução, abaixo do máximo da versão: a Tarefa desta entrega fica em plan (AD-68).
+    // Teto imposto pela execução, abaixo do máximo da versão: a Tarefa de leitura fica em plan (AD-68).
     public AgentPermissionProfile? TetoDaExecucao { get; init; }
+
+    // Etapa de escrita de execução nova (#307): a sessão só abre com confinamento de filesystem confirmado pelo driver
+    // (só as worktrees graváveis, diretório Git comum somente leitura, sem aprovação interativa nem ferramentas do
+    // D.A.N.T.E.). Driver sem esse confinamento recusa antes de iniciar processo.
+    public bool EscritaConfinada { get; init; }
+
+    // Checkouts principais dos repositórios da escrita confinada: só para o driver declará-los não confiáveis à CLI (o
+    // Codex grava em ~/.codex/config.toml a confiança do repositório de uma sessão nova). Nunca diretório de trabalho,
+    // raiz gravável nem instrução ao agente.
+    public IReadOnlyList<string> CheckoutsDaEscrita { get; init; } = [];
 
     public AgentPermissionProfile PerfilMaximo => TetoDaExecucao is { } teto &&
         ConfiguracaoDoAgente.Amplitude(teto) < ConfiguracaoDoAgente.Amplitude(Configuracao.PerfilMaximo)

@@ -99,6 +99,14 @@ etapa de escrita exige worktree reservada. Só os fluxos legados (sessão comum,
 - **Critérios**: duas escritas nunca no mesmo checkout; nenhuma etapa de escrita roda sem reserva de worktree ativa nem com diretório de trabalho no checkout principal (o executor recusa, fail-closed); `/tarefa` com escrita cria worktree e branch próprias; worktree removida só sem alterações não enviadas; limites respeitados sob carga; vinculados ganham worktree própria.
 - **Testes**: integração com repositório Git temporário; concorrência da fila; recusa de comandos fora do conjunto; etapa de escrita apontando para o checkout principal é recusada.
 - **Entregável**: AD-71.
+- **Implementação (#307, AD-71)**: pedido explícito `/tarefa <handle> @alias escrever <texto>`; uma worktree por
+  repositório envolvido (principal e vinculados), reservadas atomicamente sob posse no PostgreSQL (trava transacional +
+  índices únicos), criadas pelo `GerenciadorDeWorktreesGit` (conjunto fechado, sem `--force`, sem `prune`) e validadas
+  antes da sessão. **Divergências**: a escrita só é liberada para o driver com sandbox de SO comprovado (Codex); Claude
+  fica recusado. O agente não faz commit nem push (diretório Git comum somente leitura no sandbox): push/PR pelo agente
+  ficou para depois, sob processo confiável e aprovação. Limites global (por host) e por repositório no banco, global
+  fixado em 1 pela composição até a ativação autorizada da AD-63; limite por versão de agente segue o
+  `ExecucoesSimultaneas` das sessões. Remoção só da worktree limpa e sem commits além da base; branch nunca apagada.
 
 ### 6. Grupos, roteiro e gate humano — complexidade média/alta
 
