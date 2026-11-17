@@ -711,7 +711,8 @@ processo; tarefa em execução recebe o pedido durável (evento `CancelamentoSol
 a posse honra (antes de iniciar, no heartbeat, na conclusão), encerrando a sessão reservada e gravando `Cancelada` sob
 fencing, sem reexecução; o sinal em memória só acelera. No máximo um aviso por transição, sem garantia de entrega (sem
 outbox). Sem pausa nem retomada. Sem `Orquestracao:Habilitada`, os comandos novos respondem que não estão habilitados.
-Sem migration nova. O vínculo etapa → sessão da Tarefa ainda não é gravado, então o detalhe não mostra o `S…` dela.
+A etapa da Tarefa grava, sob posse e antes do turno, a sessão reservada que a executa, e o detalhe mostra esse `S…`.
+Motivos e erros são redigidos sobre o texto integral antes de normalizar e cortar. Sem migration nova.
 
 ## Administração de banco e migrations (#199)
 

@@ -2573,9 +2573,17 @@ Decisão:
   usuário, a mesma autoridade de origem gravada na execução) e devolvem contratos sem tipo, comando ou texto de
   interface. Execução de outro proprietário (ou de outro canal, ou com o prefixo do outro tipo) é indistinguível de
   inexistente. O adaptador Telegram (`TelegramExecucoes`) só interpreta, chama o caso de uso num escopo e formata.
-* **Redaction na Application, antes de devolver.** O contexto sai só como modo e aliases (o diretório gravado nunca);
-  objetivo, motivo e erro viram uma linha, são cortados e, se o texto inteiro parecer segredo
-  (`ProtecaoDeSegredos`), são substituídos. A saída do agente não é persistida e não é exibida.
+* **Redaction na Application, antes de gravar e de devolver.** O contexto sai só como modo e aliases (o diretório
+  gravado nunca). Objetivo, motivo, erro e o motivo do pedido de cancelamento seguem sempre a mesma ordem: o texto
+  integral é inspecionado e substituído se parecer segredo (`ProtecaoDeSegredos`), e só então vira uma linha e é
+  cortado. Cortar antes poderia partir uma credencial e deixar um fragmento irreconhecível pelo padrão; o texto
+  protegido também respeita o limite. A saída do agente não é persistida e não é exibida.
+* **Vínculo etapa → sessão sob posse.** Depois de abrir a sessão reservada e antes de enviar o turno, o executor
+  descarrega o espelho do ledger (a criação da sessão é gravada em ordem) e grava `IdSessaoDeAgente` da etapa por
+  `IFilaDeExecucoesAppService.VincularSessaoAsync`, sob posse (`GravarComPosseAsync`, trabalho continua reivindicado).
+  Só etapa `EmExecucao` e sessão do mesmo dono e canal; posse perdida não grava nada, lança e a sessão reservada é
+  encerrada normalmente. Sessão sem espelho (número do contador local, banco indisponível na reserva) segue sem
+  vínculo, com aviso no log: o `S…` é informativo, quem decide é a posse. O detalhe mostra o `S…` da etapa.
 * **Espera sem posição inventada.** `MotivoDaEspera`: na fila, aguardando nova tentativa (trabalho pendente com
   tentativa anterior e disponibilidade futura), interrompida, bloqueada, aguardando aprovação/entrada/delegações.
   Com `SKIP LOCKED`, prioridade, backoff e reivindicações concorrentes não há posição estável, então nenhuma é exibida.
@@ -2616,8 +2624,8 @@ Consequências:
 * uma interface nova (chat próprio, WebApi autenticada) consome os mesmos casos de uso informando o próprio canal e
   identidade; nada de autorização ou estado é duplicado no adaptador;
 * a Application ganha um terceiro singleton (`CanalDeCancelamento`), registrado por ela mesma;
-* a etapa da Tarefa ainda não registra o vínculo com a sessão reservada no ledger (`EtapaDaExecucao.VincularSessao`
-  existe sem chamador): o detalhe mostra `S…` quando o vínculo existir;
+* a etapa da Tarefa aponta para a sessão reservada que a executou; o vínculo custa uma descarga do espelho e uma
+  gravação sob posse por etapa, antes do turno;
 * a listagem por proprietário não tem índice próprio (`canal`, `id_do_usuario_no_canal`, `criada_em`); entra com uma
   migration quando o volume justificar;
 * a conferência do pedido no heartbeat é uma leitura por heartbeat de execução nova em andamento.
@@ -2626,6 +2634,7 @@ Código: `Dante.Domain/Execucoes/{Execucao.cs (TentarInterpretarCodigo), TipoDeE
 `Dante.Application/Execucoes/{AcompanhamentoDeExecucoesAppService, ControleDeExecucoesAppService, CanalDeCancelamento,
 PedidoDeCancelamento, FilaDeExecucoesAppService}.cs`, `Dante.Infrastructure/Fila/FilaDeTrabalhoPostgreSql.cs`,
 `Dante.Worker/Execucoes/ProcessadorDaFila.cs`, `Dante.Worker/Jobs/JobRegistry.cs`,
-`Dante.Worker/Telegram/{TelegramExecucoes, TelegramPollingService.Execucoes}.cs`.
+`Dante.Worker/Telegram/{TelegramExecucoes, TelegramPollingService.Execucoes, TelegramPollingService.Agentes}.cs`,
+`Dante.Worker/Execucoes/ExecucaoSobPosse.cs`, `Dante.Worker/Sessions/SessionRegistry.cs` (`LedgerNumberWrittenAsync`).
 Testes: `AcompanhamentoDeExecucoesTests`, `AcompanhamentoDeExecucoesPostgreSqlTests`, `ExecucoesNoTelegramTests`,
 `TarefaPelaFilaEndToEndTests`.
