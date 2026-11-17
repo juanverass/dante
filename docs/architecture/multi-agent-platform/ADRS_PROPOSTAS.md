@@ -77,6 +77,8 @@
   push/PR pelo agente (contrato multirrepositório), merge sempre humano.
 - **Relação**: complementa a AD-58 sem substituí-la para os fluxos existentes; altera o limite "worktrees
   automáticos" de PROJECT_CONTEXT.
+- **Implementada na #307**: ver a AD-71 vigente em `ARCHITECTURE_DECISIONS.md`, que acrescenta a exigência de sandbox
+  de SO por provider (escrita só com Codex) e deixa commit/push fora do agente nesta entrega.
 
 ## AD-72 — Gateway único para ferramentas do D.A.N.T.E. e aprovações persistidas vinculadas a hash
 

@@ -200,6 +200,17 @@ Comandos git que o D.A.N.T.E. passa a executar — conjunto fechado, `ArgumentLi
 (o Git recusa remover worktree com alterações, e essa recusa é a proteção). Nada de `push`, `merge`, `reset`,
 `clean` ou `checkout` no checkout principal. Isso complementa a AD-58 e exige a AD-71 proposta.
 
+### Implementação (#307, AD-71)
+
+Diferenças em relação à tabela acima: a etapa de escrita nasce com a `/tarefa … escrever`, e a reserva é feita pelo
+executor, sob posse, antes da sessão (não na transição `EmExecucao`), uma por repositório envolvido; todas ou nenhuma.
+Índices únicos parciais entre as ativas por caminho, por repositório + branch e por execução + alias (em vez de
+"escritor ativo"). Limites global por host e por repositório (o global fica em 1 até a ativação autorizada da AD-63).
+A sessão de escrita só existe com sandbox de SO confirmado pela CLI (Codex `workspace-write`); Claude não escreve. O
+diretório Git comum fica somente leitura para o agente: sem commit nem push nesta entrega, e a limpeza preserva a
+worktree com alterações em vez de exigir branch enviada. Reservas de execuções interrompidas ficam mantidas, mas não
+contam na capacidade.
+
 ### Pipeline de desenvolvimento como etapas persistentes
 
 ```text

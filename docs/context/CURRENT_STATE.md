@@ -176,7 +176,10 @@ Detalhes de uso: [README](../../README.md).
   vira "CLI sem suporte") e a CLI pode responder com leitura própria de até 1 min, ou até 1 h quando o serviço falha,
   sem informar a idade; contas por API key ou provedor de nuvem não têm cota de assinatura nas duas CLIs (AD-31);
 - como serviço, o D.A.N.T.E. fica disponível a partir do logon no Windows, não do boot (AD-28);
-- sem worktrees ou execução concorrente isolada por Issue; a fila durável (AD-67) existe só com `Orquestracao:Habilitada`, que não está ativa no homelab;
+- tarefa de escrita (`/tarefa … escrever`, AD-71) só com agente Codex, numa worktree por repositório, uma por vez
+  (limite global 1 até a ativação autorizada da AD-63), deixando alterações não commitadas (sem commit, push ou PR pelo
+  D.A.N.T.E. nem pelo agente); escrita via Claude recusada por falta de sandbox de filesystem; tudo isso, como a fila
+  durável (AD-67), só com `Orquestracao:Habilitada`, que não está ativa no homelab;
 - repositórios vinculados (AD-58): o D.A.N.T.E. não executa `git`/`gh` de escrita; branches, PRs e referências
   cruzadas são do agente, guiado pelo contrato multirrepositório, e só o estado local de cada checkout é observado (a
   existência real dos PRs não é rastreada). Sessões e jobs em andamento mantêm o acesso após `unlink`/`remove` até
@@ -268,7 +271,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
 
 - **Epic #296 — Plataforma multiagente**: proposta aprovada (#297, PR #298); ledger de execuções (#299, AD-66)
   integrado; fila durável e recuperação após reinício (#300, AD-67) integrada; cadastro de agentes e `/tarefa` pela
-  fila (#301, AD-68) integrado; acompanhamento e cancelamento de execuções (#305, AD-74) em revisão.
+  fila (#301, AD-68) integrado; acompanhamento e cancelamento de execuções (#305, AD-74) integrado; worktrees por
+  execução de escrita e limites de concorrência (#307, AD-71) em revisão.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -713,6 +717,22 @@ fencing, sem reexecução; o sinal em memória só acelera. No máximo um aviso 
 outbox). Sem pausa nem retomada. Sem `Orquestracao:Habilitada`, os comandos novos respondem que não estão habilitados.
 A etapa da Tarefa grava, sob posse e antes do turno, a sessão reservada que a executa, e o detalhe mostra esse `S…`.
 Motivos e erros são redigidos sobre o texto integral antes de normalizar e cortar. Sem migration nova.
+
+## Worktrees por execução de escrita (#307, AD-71)
+
+`/tarefa <handle> @alias escrever <texto>` cria uma execução `Tarefa` com etapa de escrita (retomada só com
+confirmação), no perfil padrão da versão (acima de `plan`, sem escalonamento), para agente com `implementar` e driver
+Codex. Antes da sessão, o executor planeja uma worktree por repositório (principal e vinculados), reserva todas
+atomicamente sob posse (`reservas_de_worktree`, migration `ReservasDeWorktree`, trava transacional e índices únicos),
+cria ou adota cada uma com o `GerenciadorDeWorktreesGit` (conjunto fechado de comandos, sem `--force`, caminho real,
+diretório Git comum, branch) e só então abre a sessão reservada confinada: Codex com sandbox `workspace-write` só nas
+worktrees, sem `/tmp`, rede, aprovação interativa nem ferramentas, política conferida no `thread/start`. Claude é
+recusado. Limites global (por host) e por repositório no banco, global = 1 (a composição recusa mais); sem
+capacidade, o trabalho volta à fila sem contar tentativa. Transições terminais liberam as reservas; a limpeza remove
+a worktree limpa e preserva com motivo a alterada, sem apagar branch; diretórios desconhecidos são só relatados.
+Evidência opt-in com o Codex real (`DANTE_LIVE_CODEX_SANDBOX=1`): escrever fora das worktrees, no checkout, no
+diretório Git comum, em `/tmp`, commit e `update-ref` são negados pelo SO. Exige banco e `Orquestracao:Habilitada`;
+desligado no homelab; migration não aplicada no banco canônico.
 
 ## Administração de banco e migrations (#199)
 
