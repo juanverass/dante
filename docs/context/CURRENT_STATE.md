@@ -272,7 +272,9 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
 - **Epic #296 — Plataforma multiagente**: proposta aprovada (#297, PR #298); ledger de execuções (#299, AD-66)
   integrado; fila durável e recuperação após reinício (#300, AD-67) integrada; cadastro de agentes e `/tarefa` pela
   fila (#301, AD-68) integrado; acompanhamento e cancelamento de execuções (#305, AD-74) integrado; worktrees por
-  execução de escrita e limites de concorrência (#307, AD-71) em revisão.
+  execução de escrita e limites de concorrência (#307, AD-71) integradas; grupos versionados com roteiro
+  determinístico e gate humano (#308, AD-69) em desenvolvimento em três entregas — cadastro em revisão; gate durável
+  e executor do roteiro a seguir.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -717,6 +719,19 @@ fencing, sem reexecução; o sinal em memória só acelera. No máximo um aviso 
 outbox). Sem pausa nem retomada. Sem `Orquestracao:Habilitada`, os comandos novos respondem que não estão habilitados.
 A etapa da Tarefa grava, sob posse e antes do turno, a sessão reservada que a executa, e o detalhe mostra esse `S…`.
 Motivos e erros são redigidos sobre o texto integral antes de normalizar e cortar. Sem migration nova.
+
+## Cadastro de grupos de agentes (#308, AD-69 — primeira entrega)
+
+`GrupoDeAgentes` (nome imutável, único e nunca reutilizado; ativo/desativado/arquivado), `VersaoDoGrupo` imutável com
+participantes (agente registrado, papel, responsabilidades, escrita), roteiro de forma fechada (implementar, revisar,
+corrigir opcional, aprovação humana), política (rodadas de correção, paralelismo 1, repositórios, duração) e hash
+SHA-256 canônico, no schema `orquestracao` (migration `GruposDeAgentes`, triggers de imutabilidade). Participantes
+conferidos contra a versão atual de cada agente ao salvar, ativar e resolver: implementar/corrigir exigem Codex com
+escrita e `implementar`; revisar exige Codex sem escrita e `revisar`. Versão nova só vale depois de `/grupo ativar
+<nome> v<N> <hash>`, decisão humana gravada com o hash aprovado e conferida pelo banco. Telegram: `/grupos`,
+`/grupo criar|ver|editar|ativar|descricao|desativar|reativar|arquivar`. Ainda não há execução de grupo: o roteiro, o
+gate final e o `dante_coordenacao` vêm nas próximas entregas da #308. Exige banco e `Orquestracao:Habilitada`;
+desligado no homelab; migration não aplicada no banco canônico.
 
 ## Worktrees por execução de escrita (#307, AD-71)
 

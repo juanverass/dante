@@ -2557,6 +2557,69 @@ Testes: `AgentesDominioTests`, `CadastroDeAgentesAppServiceTests`, `TelegramAgen
 `CadastroDeAgentesPostgreSqlTests`, `SessaoReservadaTests`, `TarefaPelaFilaEndToEndTests`.
 
 
+## AD-69 — Grupos versionados de agentes com roteiro determinístico e ativação humana vinculada a hash (#308)
+
+Status: vigente na parte de **cadastro** (etapa 6 do roadmap da Epic #296, primeira das três entregas da #308). Proposta
+aprovada na #297 (PR #298) e decisões de escopo da #308 (A–H). A execução do roteiro, o gate final e o
+`dante_coordenacao` entram nas entregas seguintes da mesma Issue e complementam esta AD. Complementa a AD-68 (grupos
+referenciam agentes registrados) e a AD-71 (quem escreve precisa de confinamento de SO). Depende do mesmo banco e da
+mesma chave `Orquestracao:Habilitada`; migration `GruposDeAgentes`, não aplicada no banco canônico.
+
+Contexto: o pipeline implementar → revisar → corrigir → aprovação era feito à mão. Para virar unidade de execução, o
+grupo precisa de identidade, papéis e permissões explícitos e reprodutíveis, decididos pelo sistema e não inferidos do
+prompt, e uma execução iniciada não pode mudar quando o grupo ou um agente muda.
+
+Decisão:
+
+* **Grupo** (`grupos_de_agentes`): nome único, minúsculo (`[a-z][a-z0-9-]{1,30}`), imutável e nunca reutilizado; as
+  ações de `/grupo` são nomes reservados. Estados `Ativo ⇄ Desativado → Arquivado`; remoção física não existe (trigger).
+* **VersaoDoGrupo** (`versoes_de_grupo` + `participantes_de_grupo`): imutável (triggers recusam UPDATE e DELETE das duas
+  tabelas), `(grupo, número)` único. Modo `Roteiro` (o coordenador por papel é da etapa 8). Participantes referenciam o
+  **agente**, não a versão dele: papel único (`[a-z][a-z0-9-]{1,30}`), responsabilidades e `PodeEscrever`. A versão de
+  cada agente é congelada só na execução.
+* **Roteiro determinístico, forma fechada**: `implementar:<papel>`, `revisar:<papel>`, `corrigir:<papel>` opcional e
+  `aprovar`, nesta ordem. As transições são do orquestrador, não do roteiro nem de um modelo: implementar → revisar;
+  revisão aprovada → aprovação humana; revisão pedindo correção → corrigir → revisar enquanto houver rodadas; sem
+  `corrigir` ou sem rodadas, bloqueia (nunca aprova implicitamente). Implementar e corrigir exigem papel com escrita;
+  revisar exige papel sem escrita; todo participante executa algum passo; a aprovação não tem papel.
+* **Política congelada na versão**: `RodadasDeRevisaoMaximas` (1–5 com correção, 0 sem), `ParalelismoMaximo` = 1
+  (check no banco: estritamente sequencial enquanto o limite global for 1), repositórios permitidos (aliases; vazio = os
+  do pedido, sempre dentro das concessões de cada agente) e duração máxima opcional.
+* **Hash canônico**: SHA-256 do JSON canônico (formato versionado, participantes ordenados por papel, roteiro na ordem
+  dos passos, listas ordenadas, enums pelo nome). Versão cujo conteúdo gravado não reproduz o hash, ou não passa mais
+  na validação, não é íntegra: não é ativada nem resolvida.
+* **Conferência contra os agentes** (Application, `ParticipacaoNoRoteiro`), ao salvar, ao ativar e ao resolver para
+  execução, sempre com a versão atual de cada agente: agente registrado (embutido recusado), ativo e com versão íntegra;
+  `PodeEscrever` do participante ≤ o da versão; capacidade `implementar` para implementar/corrigir e `revisar` para
+  revisar; quem escreve precisa de driver com confinamento de escrita (`ConfinamentoDeEscrita`, só Codex) e quem revisa
+  precisa de Codex, porque a revisão será uma sessão Codex com sandbox somente leitura (decisões A e D). Nada é
+  substituído automaticamente: participante desativado faz a resolução recusar com o motivo.
+* **Ativação = decisão humana vinculada ao hash** (decisão F): versão nova nasce não ativada; `/grupo ativar <nome> v<N>
+  <hash>` exige o hash (ou o prefixo exibido, ≥ 12 caracteres) e grava uma `AtivacaoDeVersaoDoGrupo` imutável (versão,
+  número, hash aprovado, autor, momento). O banco confere a decisão contra a versão gravada (trigger na inserção) e só
+  aceita `id_versao_ativa` com decisão correspondente (constraint trigger adiada para o commit). Execuções novas usam
+  só a versão ativa; editar não troca a ativa. Ativar não concede nada além das capacidades já dadas aos agentes.
+* **Concorrência**: índice único `(grupo, número)` e `xmin` do grupo: edições ou ativações simultâneas gravam uma só,
+  a outra recebe `ConflitoDeConcorrenciaException`. Nome único idem.
+* **Interface**: `ICadastroDeGruposAppService` (criar, consultar, listar, editar, ativar, descrever, desativar,
+  reativar, arquivar, `ResolverParaExecucaoAsync`). Telegram é adaptador (`TelegramGrupos`): `/grupos [todos]`,
+  `/grupo criar|ver|editar|ativar|descricao|desativar|reativar|arquivar`, com participantes nas linhas seguintes
+  (`<papel>=<handle> [escrita] [: responsabilidades]`). Nome, descrição, papéis e responsabilidades com aparência de
+  segredo são recusados.
+
+Consequências:
+
+* uma versão de grupo é reprodutível pelo hash e por quem a ativou; o que a execução usa é a versão ativa no momento
+  em que ela começa;
+* nesta entrega nenhuma execução referencia grupos: arquivar não confere trabalho ativo (passa a conferir quando a
+  execução `Roteiro` existir) e `ResolverParaExecucaoAsync` ainda não tem consumidor;
+* a forma do roteiro é fechada de propósito; outra forma exige mudar o domínio e esta AD.
+
+Código: `Dante.Domain/Grupos`, `Dante.Application/Grupos`, `Dante.Infrastructure/Modulos/Grupos`, migration
+`GruposDeAgentes`, `Dante.Worker/Telegram/TelegramGrupos.cs`.
+Testes: `GruposDominioTests`, `CadastroDeGruposAppServiceTests`, `GruposDeAgentesPostgreSqlTests`,
+`TelegramAgentesTests` (`/grupo`).
+
 ## AD-71 — Worktree por execução de escrita, conjunto fechado de comandos Git e escrita só com sandbox de SO (#307)
 
 Status: vigente, etapa 5 do roadmap da Epic #296. Proposta aprovada na #297 (PR #298); decisões de escopo revisadas na
