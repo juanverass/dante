@@ -187,7 +187,13 @@ await unidade.SalvarAlteracoesAsync(ct);   // tudo ou nada; chave repetida → C
 
 A chave identifica o pedido de origem (ex.: `telegram:<chat>:<mensagem>`), nunca o conteúdo. No Worker, registrar um
 `IExecutorDeEtapa` com `Tipo = TipoDeExecucao.Tarefa` (singleton, exposto como `IExecutorDeEtapa`): `PodeExecutar`
-diz se este processo tem o necessário (para uma tarefa cujo objetivo está no ledger, sempre); `ExecutarAsync` chama
+diz se este processo tem o necessário; `ExecutarAsync` chama
 `controle.IniciarAsync`, roda a sessão/processo fora de transação respeitando o token (encerramento ou posse perdida)
 e grava com `controle.ConcluirAsync(new ResultadoDaEtapaDto(...))` antes de entregar a resposta. Etapa de leitura usa
 `PoliticaDeRetomada.Automatica`; a etapa só é refeita sozinha se a política permitir.
+
+Implementado na #301 (AD-68) por `IFilaDeExecucoesAppService.EnfileirarTarefaAsync` (o bloco acima numa transação,
+com dedupe pela chave) e `ExecutorDeTarefasDaFila`. Diferença em relação ao esboço: o objetivo registrado no ledger é
+cortado e redigido quando parece segredo, então não basta para reexecutar com fidelidade; o pedido exato fica em
+memória, como o do job, e `PodeExecutar` só é verdadeiro no processo que o recebeu. Depois de um reinício, a tarefa
+é cancelada com aviso, nunca executada às cegas.

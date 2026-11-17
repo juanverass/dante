@@ -197,6 +197,18 @@ public sealed class CadastroDeAgentesAppService(
 
     // Confere no catálogo do driver e devolve os nomes como o catálogo os conhece. Sem modelo, o esforço é conferido
     // no modelo padrão do driver. Catálogo indisponível recusa: nunca grava um nome não verificado.
+    public async Task ConferirVersaoNoCatalogoAsync(VersaoDoAgenteDto versao, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(versao);
+        var configuracao = versao.Configuracao;
+        var (modelo, esforco) = await ConferirNoCatalogoAsync(configuracao.Driver, configuracao.Modelo,
+            configuracao.Esforco, cancellationToken);
+        if (!string.Equals(modelo, configuracao.Modelo, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(esforco, configuracao.Esforco, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException($"O catálogo do {configuracao.Driver} não oferece mais o modelo e o esforço da " +
+                $"versão {versao.Numero} exatamente como foram salvos; nada foi iniciado.");
+    }
+
     private async Task<(string? Modelo, string? Esforco)> ConferirNoCatalogoAsync(AgentKind driver, string? modelo,
         string? esforco, CancellationToken cancellationToken)
     {

@@ -41,7 +41,8 @@ public sealed partial class TelegramPollingService(
     IContinuidadeDoBrain? continuidade = null,
     TelegramPlanilhas? planilhas = null,
     ILeitorDeCheckouts? checkouts = null,
-    ExecutorDeJobsDaFila? filaDeJobs = null, TelegramAgentes? agentes = null) : BackgroundService
+    ExecutorDeJobsDaFila? filaDeJobs = null, TelegramAgentes? agentes = null,
+    ExecutorDeTarefasDaFila? filaDeTarefas = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private static readonly TimeSpan PollRetryDelay = TimeSpan.FromSeconds(3);

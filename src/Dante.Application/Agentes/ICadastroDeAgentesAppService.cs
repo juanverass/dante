@@ -23,4 +23,8 @@ public interface ICadastroDeAgentesAppService
     Task<AgenteDto> ArquivarAsync(string handle, CancellationToken cancellationToken = default);
     // Agente ativo e a versão atual, para congelar numa sessão ou execução nova; nunca cai para outro agente.
     Task<ResolucaoDeAgenteDto> ResolverAsync(string handle, CancellationToken cancellationToken = default);
+    // Revalidação ao executar (AD-25/26): o catálogo da CLI ainda oferece o modelo e o esforço da versão congelada,
+    // com os mesmos nomes. ArgumentException: não oferece mais (definitivo); InvalidOperationException: catálogo
+    // indisponível (transitório).
+    Task ConferirVersaoNoCatalogoAsync(VersaoDoAgenteDto versao, CancellationToken cancellationToken = default);
 }

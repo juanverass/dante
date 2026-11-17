@@ -58,7 +58,8 @@ internal static class TelegramCommandHelp
         new("/tarefa", "AGENTE E CONTEXTO", "Peça uma tarefa somente leitura a um agente registrado.",
             "/tarefa revisor @exemplo revise o README",
             "/tarefa <handle> [@alias] pedido. Roda sempre em modo plan, mesmo que o agente permita escrita: lê e analisa, " +
-            "sem alterar arquivos. A execução durável de tarefas depende da fila durável e ainda não está habilitada."),
+            "sem alterar arquivos. Entra na fila durável (resposta \"Tarefa E… enfileirada\") e o resultado chega quando a " +
+            "etapa termina; depois de um reinício do Worker, a tarefa pendente é cancelada com aviso."),
         new("/use", "AGENTE E CONTEXTO", "Consulte ou salve o contexto padrão; a sessão ativa mantém seu repositório.",
             "/use\n/use @exemplo\n/use general", "Preferência persistente. @alias deve estar cadastrado; general usa o workspace geral. " +
             "Um @alias explícito no pedido é override só daquela execução e não muda essa preferência."),

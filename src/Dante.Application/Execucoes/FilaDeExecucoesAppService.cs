@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Dante.Application.Agentes;
 using Dante.Domain.Execucoes;
 
 namespace Dante.Application.Execucoes;
@@ -38,6 +39,36 @@ public sealed class FilaDeExecucoesAppService(
             idExecucao = execucao.Id;
         }, cancellationToken);
         return new JobNaFilaDto(job.Numero, idExecucao, true);
+    }
+
+    public async Task<ExecucaoNaFilaDto> EnfileirarTarefaAsync(PlanoDaTarefa plano, long numero, string canal,
+        long idDoUsuarioNoCanal, string chaveDeDeduplicacao, CancellationToken cancellationToken = default,
+        IdentidadeDoProcessador? origem = null)
+    {
+        ArgumentNullException.ThrowIfNull(plano);
+        ValidarChave(chaveDeDeduplicacao);
+        if (await fila.ObterPorChaveAsync(chaveDeDeduplicacao, cancellationToken) is { IdExecucao: { } idExistente })
+        {
+            var existente = await execucoes.ObterPorIdAsync(idExistente, cancellationToken) ??
+                throw new InvalidOperationException("Execução do trabalho não registrada no ledger.");
+            return new ExecucaoNaFilaDto(existente.Numero, existente.Codigo, existente.Id, false);
+        }
+        var agora = fila.Agora;
+        // Somente leitura: o domínio e a montagem recusam etapa de escrita antes de qualquer gravação.
+        var (execucao, novas) = MontagemDaTarefa.CriarExecucao(plano, numero, canal, idDoUsuarioNoCanal, agora);
+        await execucoes.AdicionarAsync(execucao, cancellationToken);
+        foreach (var etapa in novas) await etapas.AdicionarAsync(etapa, cancellationToken);
+        await eventos.AdicionarAsync(EventoDeOrquestracao.DaExecucao(execucao, TipoDeEventoDeOrquestracao.ExecucaoCriada,
+            JsonSerializer.Serialize(new Dictionary<string, string?>
+            {
+                ["tipo"] = execucao.Tipo.ToString(),
+                ["agente"] = plano.Handle,
+                ["versao"] = plano.Versao.Numero.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            }), agora), cancellationToken);
+        await fila.EnfileirarAsync(TrabalhoDaFila.AvancarExecucao(execucao, novas[0], chaveDeDeduplicacao, agora,
+            origem: origem?.Origem), cancellationToken);
+        await unidade.SalvarAlteracoesAsync(cancellationToken);
+        return new ExecucaoNaFilaDto(execucao.Numero, execucao.Codigo, execucao.Id, true);
     }
 
     public async Task<JobNaFilaDto?> ObterJobPorChaveAsync(string chaveDeDeduplicacao,

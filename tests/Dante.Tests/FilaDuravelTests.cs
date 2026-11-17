@@ -52,7 +52,11 @@ public sealed class FilaDuravelTests
         using var provider = services.BuildServiceProvider();
         // Resolver não abre conexão: o banco fictício não existe.
         Assert.Same(provider.GetRequiredService<ProcessadorDaFila>(), hospedados[1].ImplementationFactory!(provider));
-        Assert.Same(provider.GetRequiredService<ExecutorDeJobsDaFila>(), Assert.Single(provider.GetServices<IExecutorDeEtapa>()));
+        // Um executor por tipo de execução: jobs (Avulsa, #300) e tarefas (Tarefa, #301), os mesmos singletons.
+        var executores = provider.GetServices<IExecutorDeEtapa>().ToArray();
+        Assert.Equal([TipoDeExecucao.Avulsa, TipoDeExecucao.Tarefa], executores.Select(e => e.Tipo));
+        Assert.Same(provider.GetRequiredService<ExecutorDeJobsDaFila>(), executores[0]);
+        Assert.Same(provider.GetRequiredService<ExecutorDeTarefasDaFila>(), executores[1]);
     }
 
     [Fact]

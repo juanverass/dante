@@ -175,8 +175,8 @@ public sealed class TelegramAgentesTests : IAsyncDisposable
         Assert.Empty(jobs.GetVisible());
     }
 
-    // Caso explícito da Issue: agente com escrita e perfil padrão auto; a tarefa é somente leitura e nada executa
-    // enquanto a fila durável não está ligada.
+    // Caso explícito da Issue: agente com escrita e perfil padrão auto; a tarefa é somente leitura e, sem a fila durável
+    // composta neste Worker, nada executa (não existe caminho paralelo à fila).
     [Fact]
     public async Task TarefaEhSempreSomenteLeituraMesmoComAgenteDeEscrita()
     {
@@ -186,7 +186,7 @@ public sealed class TelegramAgentesTests : IAsyncDisposable
         var resposta = await Send("/tarefa dev @first ajuste o README");
         Assert.Contains("Tarefa para o agente dev v1 (@first) validada", resposta);
         Assert.Contains("somente leitura (plan)", resposta);
-        Assert.Contains("ainda não está habilitada", resposta);
+        Assert.Contains("não está habilitada neste Worker", resposta);
         Assert.Contains("nada foi executado", resposta);
         Assert.Contains("Uso: /tarefa", await Send("/tarefa dev"));
         Assert.Contains("Uso: /tarefa", await Send("/tarefa dev @first"));

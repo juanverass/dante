@@ -49,7 +49,10 @@ public sealed record SessionStartRequest(
     AgentModelSelection? ModelSelection = null,
     ContextoDeFerramentas? BrainConversation = null,
     // Registered agent whose version the session freezes (AD-68); null keeps the built-in behavior.
-    AgenteDaSessao? RegisteredAgent = null);
+    AgenteDaSessao? RegisteredAgent = null,
+    // Reserved session of a task step (AD-68): its events go only to this observer, it never becomes the owner's
+    // active session and the owner's commands do not reach it. Null keeps every session exactly as before.
+    IAgentSessionEventSink? Observer = null);
 
 // DiscardedMessages: queued messages dropped by an interrupt.
 public sealed record SessionResult(

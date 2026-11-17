@@ -34,6 +34,8 @@ public sealed class ComposicaoDaOrquestracaoTests
         Assert.DoesNotContain(services, s => s.ImplementationType == typeof(EncerramentoDoLedger));
         // Cadastro de agentes (AD-68): mesma condição; sem ele, /agentes, /agente e /tarefa respondem indisponível.
         Assert.DoesNotContain(services, s => s.ServiceType == typeof(Dante.Worker.Telegram.TelegramAgentes));
+        // Sem a fila, /tarefa não tem executor: nada é criado nem executado.
+        Assert.DoesNotContain(services, s => s.ServiceType == typeof(ExecutorDeTarefasDaFila));
         Assert.Equal(banco is not null, services.Any(s => s.ServiceType == typeof(OrquestracaoDbContext)));
         Assert.False(WorkerComposition.OrquestracaoHabilitada(configuracao));
     }
@@ -46,6 +48,9 @@ public sealed class ComposicaoDaOrquestracaoTests
             .AddWorker(configuracao);
         Assert.Single(services, s => s.ServiceType == typeof(EspelhoDoLedger) && s.Lifetime == ServiceLifetime.Singleton);
         Assert.Single(services, s => s.ServiceType == typeof(Dante.Worker.Telegram.TelegramAgentes));
+        // /tarefa (AD-68): o executor de Tarefa entra na fila ao lado do de jobs; é o único caminho que a executa.
+        Assert.Single(services, s => s.ServiceType == typeof(ExecutorDeTarefasDaFila) && s.Lifetime == ServiceLifetime.Singleton);
+        Assert.Equal(2, services.Count(s => s.ServiceType == typeof(IExecutorDeEtapa)));
         // O encerramento do ledger para por último: registrado antes dos demais hosted services.
         var hospedados = services.Where(s => s.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService))
             .Select(s => s.ImplementationType).ToArray();

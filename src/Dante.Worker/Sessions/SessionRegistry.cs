@@ -68,7 +68,8 @@ public sealed class SessionRegistry(
                 entry = new Entry(session, driver, request.Profile, request.ModelSelection)
                 {
                     LedgerNumber = mirrored ? reserved : null,
-                    RegisteredAgent = request.RegisteredAgent
+                    RegisteredAgent = request.RegisteredAgent,
+                    Observer = request.Observer
                 };
                 sessions.Add(session.Id, entry);
                 if (entry.LedgerNumber is { } number)
@@ -135,9 +136,13 @@ public sealed class SessionRegistry(
         }
 
         entry.Pump = Task.Run(() => PumpAsync(entry));
-        lock (gate)
+        // A reserved session (task step, AD-68) is never the owner's active one: ordinary messages keep their route.
+        if (request.Observer is null)
         {
-            activeSessions[request.OwnerUserId] = entry.Session.Id;
+            lock (gate)
+            {
+                activeSessions[request.OwnerUserId] = entry.Session.Id;
+            }
         }
 
         // Messages sent to the session id while it was starting are waiting in its queue.
@@ -344,12 +349,21 @@ public sealed class SessionRegistry(
         "para cancelar a compactação.";
 
     // sessionId null routes to the user's active session.
-    public async Task<SessionSubmitResult> SubmitAsync(long userId, string? sessionId, AgentInput input,
-        MessageDelivery delivery = MessageDelivery.Queue, CancellationToken cancellationToken = default)
+    public Task<SessionSubmitResult> SubmitAsync(long userId, string? sessionId, AgentInput input,
+        MessageDelivery delivery = MessageDelivery.Queue, CancellationToken cancellationToken = default) =>
+        SubmitCoreAsync(userId, sessionId, input, delivery, reserved: false, cancellationToken);
+
+    // Task step (AD-68): only the executor that started the reserved session sends its turn.
+    internal Task<SessionSubmitResult> SubmitReservedAsync(long ownerUserId, string sessionId, AgentInput input,
+        CancellationToken cancellationToken = default) =>
+        SubmitCoreAsync(ownerUserId, sessionId, input, MessageDelivery.Queue, reserved: true, cancellationToken);
+
+    private async Task<SessionSubmitResult> SubmitCoreAsync(long userId, string? sessionId, AgentInput input,
+        MessageDelivery delivery, bool reserved, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentException.ThrowIfNullOrWhiteSpace(input.Text);
-        var entry = Find(userId, sessionId, out var error);
+        var entry = Find(userId, sessionId, out var error, reserved);
         if (entry is null)
         {
             return SessionSubmitResult.Reject(error!, sessionId);
@@ -546,10 +560,19 @@ public sealed class SessionRegistry(
         return new SessionResult(true, Snapshot(entry), DiscardedMessages: discarded);
     }
 
-    public async Task<SessionResult> CloseAsync(long userId, string? sessionId,
-        CancellationToken cancellationToken = default)
+    public Task<SessionResult> CloseAsync(long userId, string? sessionId,
+        CancellationToken cancellationToken = default) =>
+        CloseCoreAsync(userId, sessionId, reserved: false, cancellationToken);
+
+    // Task step (AD-68): the executor closes the reserved session it started, whatever the turn did.
+    internal Task<SessionResult> CloseReservedAsync(long ownerUserId, string sessionId,
+        CancellationToken cancellationToken = default) =>
+        CloseCoreAsync(ownerUserId, sessionId, reserved: true, cancellationToken);
+
+    private async Task<SessionResult> CloseCoreAsync(long userId, string? sessionId, bool reserved,
+        CancellationToken cancellationToken)
     {
-        var entry = Find(userId, sessionId, out var error);
+        var entry = Find(userId, sessionId, out var error, reserved);
         if (entry is null)
         {
             return SessionResult.Reject(error!);
@@ -630,8 +653,17 @@ public sealed class SessionRegistry(
     }
 
     // Routes an approval or input answer to the session whose turn raised the request; only the owner may answer.
-    public async Task<SessionResult> RespondAsync(long userId, string requestId, AgentUserResponse response,
-        CancellationToken cancellationToken = default)
+    public Task<SessionResult> RespondAsync(long userId, string requestId, AgentUserResponse response,
+        CancellationToken cancellationToken = default) =>
+        RespondCoreAsync(userId, requestId, response, reserved: false, cancellationToken);
+
+    // Task step (AD-68): requests of a reserved session are answered only by its executor.
+    internal Task<SessionResult> RespondReservedAsync(long ownerUserId, string requestId, AgentUserResponse response,
+        CancellationToken cancellationToken = default) =>
+        RespondCoreAsync(ownerUserId, requestId, response, reserved: true, cancellationToken);
+
+    private async Task<SessionResult> RespondCoreAsync(long userId, string requestId, AgentUserResponse response,
+        bool reserved, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
         ArgumentNullException.ThrowIfNull(response);
@@ -639,7 +671,8 @@ public sealed class SessionRegistry(
         lock (gate)
         {
             entry = sessions.Values.FirstOrDefault(candidate =>
-                candidate.Session.PendingRequestIds.Contains(requestId, StringComparer.OrdinalIgnoreCase));
+                candidate.Session.PendingRequestIds.Contains(requestId, StringComparer.OrdinalIgnoreCase) &&
+                (candidate.Observer is null) != reserved);
         }
 
         if (entry is null)
@@ -1026,14 +1059,17 @@ public sealed class SessionRegistry(
         if (entry.LedgerNumber is { } number && ProjecaoDeEventosDaSessao.Projetar(number, agentEvent) is { } projected)
             ledger!.Registrar($"{projected.Tipo} da sessão {entry.Session.Id}", (l, token) =>
                 l.RegistrarEventoDaSessaoAsync(projected, token));
-        if (sink is null)
+        // A reserved session talks only to its executor (AD-68): nothing of the task reaches Telegram before the
+        // result is recorded under the queue's lease.
+        var target = entry.Observer ?? sink;
+        if (target is null)
         {
             return;
         }
 
         try
         {
-            await sink.PublishAsync(Snapshot(entry), agentEvent, lifetime.Token);
+            await target.PublishAsync(Snapshot(entry), agentEvent, lifetime.Token);
         }
         catch (Exception exception)
         {
@@ -1042,7 +1078,8 @@ public sealed class SessionRegistry(
         }
     }
 
-    private Entry? Find(long userId, string? sessionId, out string? error)
+    // reserved: the caller is the executor of a reserved session (AD-68). The owner's commands never reach one.
+    private Entry? Find(long userId, string? sessionId, out string? error, bool reserved = false)
     {
         lock (gate)
         {
@@ -1056,6 +1093,13 @@ public sealed class SessionRegistry(
             if (!sessions.TryGetValue(sessionId, out var entry) || entry.Session.OwnerUserId != userId)
             {
                 error = $"Sessão {sessionId} não encontrada. {RestartNotice}";
+                return null;
+            }
+
+            if ((entry.Observer is not null) != reserved)
+            {
+                error = reserved ? $"A sessão {sessionId} não é reservada."
+                    : $"A sessão {entry.Session.Id} executa uma tarefa e não recebe comandos.";
                 return null;
             }
 
@@ -1208,6 +1252,8 @@ public sealed class SessionRegistry(
         public long? LedgerNumber { get; init; }
         // Registered agent version frozen at start (AD-68); null for the built-ins.
         public AgenteDaSessao? RegisteredAgent { get; init; }
+        // Executor of a reserved session (task step, AD-68): receives its events instead of the sink.
+        public IAgentSessionEventSink? Observer { get; init; }
         // Cancelled by a close: the pump never waits on Upstream for a session whose close is waiting for the pump.
         public CancellationTokenSource Closing { get; } = new();
         public Task? Pump { get; set; }

@@ -2510,9 +2510,29 @@ Decisão:
   (qualquer que seja a versão) e uma etapa `TurnoDeAgente` sem `Escrita`, retomada `Automatica`. Fail-closed em três
   camadas: o domínio recusa criar etapa de escrita em execução nova (`EscritaSemWorktreeException`),
   `GuardaDeEscrita.Exigir` recusa no executor escrita e perfil diferente de `plan`, e a sessão da tarefa tem teto
-  `plan`. O checkout principal nunca recebe escrita de execução nova. O despacho durável pertence à fila da #300:
-  até a integração, `DespacharTarefaAsync` (ponto único) responde que a execução durável não está habilitada e nada
-  é criado nem executado. Tarefa com agente embutido é recusada (use `/claude`/`/codex`).
+  `plan`. O checkout principal nunca recebe escrita de execução nova. Tarefa com agente embutido é recusada (use
+  `/claude`/`/codex`).
+* **Despacho pela fila (AD-67)**: `DespacharTarefaAsync` é o ponto único. Numa transação
+  (`IFilaDeExecucoesAppService.EnfileirarTarefaAsync`): número reservado, `MontagemDaTarefa.CriarExecucao`, execução
+  com a versão congelada, etapa, evento `ExecucaoCriada` (tipo, handle, número da versão) e trabalho `AvancarExecucao`
+  com a chave `telegram:<chat>:<mensagem>` (mesma deduplicação dos jobs; corrida → `ConflitoDeConcorrenciaException`,
+  nada criado). Só depois o usuário recebe "Tarefa E… enfileirada"; até essa confirmação o processador espera, e uma
+  confirmação que falha termina a execução `Falhou` sem processo. O `ExecutorDeTarefasDaFila` (`TipoDeExecucao.Tarefa`)
+  confere a cada tentativa, antes de qualquer processo: `GuardaDeEscrita.Exigir`; execução apontando para a versão do
+  pedido e etapa com driver/modelo/esforço dela; agente ainda resolvível (desativado ou hash divergente → recusa); e
+  modelo/esforço da versão de novo no catálogo da CLI (`ConferirVersaoNoCatalogoAsync`). Recusa definitiva → etapa e
+  execução `Falhou` com aviso; catálogo ou banco indisponível → backoff da fila, contando tentativa. Então a etapa vai a
+  `EmExecucao` sob posse, uma **sessão reservada** (`SessionStartRequest.Observer`) roda um turno com o pedido fora de
+  transação e é encerrada, e o resultado é gravado sob posse **antes** da entrega (`DeliverJobAsync`, código `E…`;
+  saída omitida se o ambiente do repositório tem segredos). Posse perdida ou encerramento cancelam a sessão: nada é
+  gravado nem respondido, e a retomada `Automatica` refaz a leitura no mesmo processo.
+* **Sessão reservada**: nunca vira a sessão ativa do dono (mensagem comum, `/session select|stop|close|mode`,
+  respostas e `/steer` não a alcançam); seus eventos vão só ao executor, nunca ao Telegram; pedidos de aprovação são
+  negados pelo executor (somente leitura). Sem observador, toda sessão continua exatamente como antes. Aparece em
+  `/session list` e conta no limite `ExecucoesSimultaneas` da versão.
+* **Reinício**: o pedido (texto exato e ambiente do repositório) fica só em memória, como o do job; o ledger guarda o
+  objetivo cortado e redigido, insuficiente para reexecutar com fidelidade. Depois de um reinício, a tarefa que este
+  processo não tem é cancelada com aviso (origem deste host) e nunca executada às cegas.
 * **Segredos**: o cadastro não tem campo de credencial; handle, instruções, nome e descrição com aparência de
   segredo (`ProtecaoDeSegredos`) são recusados; listas da versão são somente leitura também em memória; o objetivo registrado da tarefa é redigido.
 * **Telegram**: `/agentes [todos]`, `/agente criar|ver|editar|nome|descricao|desativar|reativar|arquivar`, `/tarefa`.
@@ -2528,7 +2548,8 @@ Consequências:
 
 Código: `Dante.Domain/Agentes`, `Dante.Application/Agentes`, `Dante.Application/Execucoes/GuardaDeEscrita.cs`,
 `Dante.Infrastructure/Modulos/Agentes`, migration `CadastroDeAgentes`, `Sessions/AgenteDaSessao.cs`,
-`Sessions/SolicitacaoDaTarefa.cs`, `Telegram/TelegramAgentes.cs`, `Telegram/TelegramPollingService.Agentes.cs`.
+`Sessions/SolicitacaoDaTarefa.cs`, `Telegram/TelegramAgentes.cs`, `Telegram/TelegramPollingService.Agentes.cs`,
+`Worker/Execucoes/{ExecutorDeTarefasDaFila,ObservadorDaTarefa}.cs`.
 Testes: `AgentesDominioTests`, `CadastroDeAgentesAppServiceTests`, `TelegramAgentesTests`,
-`CadastroDeAgentesPostgreSqlTests`.
+`CadastroDeAgentesPostgreSqlTests`, `SessaoReservadaTests`, `TarefaPelaFilaEndToEndTests`.
 

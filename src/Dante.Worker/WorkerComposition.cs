@@ -80,6 +80,9 @@ internal static class WorkerComposition
         services.AddSingleton<MetricasDaFila>();
         services.AddSingleton<ExecutorDeJobsDaFila>();
         services.AddSingleton<IExecutorDeEtapa>(provider => provider.GetRequiredService<ExecutorDeJobsDaFila>());
+        // /tarefa (AD-68): o executor de TipoDeExecucao.Tarefa; a fila é o único caminho que executa uma tarefa.
+        services.AddSingleton<ExecutorDeTarefasDaFila>();
+        services.AddSingleton<IExecutorDeEtapa>(provider => provider.GetRequiredService<ExecutorDeTarefasDaFila>());
         services.AddSingleton<ProcessadorDaFila>();
         services.AddHostedService(provider => provider.GetRequiredService<ProcessadorDaFila>());
         return services;

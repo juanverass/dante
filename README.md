@@ -738,7 +738,7 @@ Revise o diff com rigor e aponte riscos.
 /agente ver revisor                       configuração e versões
 /agente editar revisor effort=high        cria a versão 2; sessões abertas mantêm a delas
 /session start revisor @dante             conversa com o agente, na versão atual
-/tarefa revisor @dante revise o PR 301    tarefa somente leitura (ainda sem execução durável)
+/tarefa revisor @dante revise o PR 301    tarefa somente leitura, executada pela fila durável
 /agente desativar revisor                 nada novo começa; o que está ativo segue até o fim
 ```
 
@@ -746,7 +746,10 @@ Sem opções, um agente só lê (`plan`), não recebe ferramentas do D.A.N.T.E. 
 geral: modo máximo, escrita, ferramentas (`brain`, `planilhas`) e repositórios são concessões explícitas, e
 uma sessão nunca passa do máximo da versão. O handle é minúsculo, sem `@` (que continua sendo repositório) e
 nunca é reutilizado; arquivar é o fim do ciclo de vida. `/tarefa` roda sempre em `plan`, mesmo que o agente
-permita escrita, até existirem worktrees reservadas. Credenciais nunca entram no cadastro nem nas instruções.
+permita escrita, até existirem worktrees reservadas. A tarefa é gravada e enfileirada antes da confirmação
+("Tarefa E… enfileirada"); roda numa sessão reservada, que não vira a sessão ativa nem recebe comandos, e o
+resultado é registrado no ledger antes de ser entregue. Depois de um reinício do Worker, uma tarefa pendente é
+cancelada com aviso (o pedido não é guardado). Credenciais nunca entram no cadastro nem nas instruções.
 
 ## Repositório ativo
 

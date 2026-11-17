@@ -1,5 +1,9 @@
 using Dante.Worker.Brain;
 using Dante.Application.Agentes;
+using Dante.Application.Contextos;
+using Dante.Application.Execucoes;
+using Dante.Domain.Execucoes;
+using Dante.Worker.Execucoes;
 using Dante.Worker.Sessions;
 
 namespace Dante.Worker.Telegram;
@@ -147,23 +151,111 @@ public sealed partial class TelegramPollingService
         // Modelo e esforço da versão conferidos no catálogo agora, como em qualquer início (AD-25/26).
         if (await ResolveModelAsync(userId, configuracao.Driver, configuracao.Modelo ?? "default", chatId,
                 cancellationToken, configuracao.Esforco ?? "default") is null) return;
-        await SendReplyAsync(chatId, await DespacharTarefaAsync(plano, userId, chatId, cancellationToken),
-            cancellationToken);
+        await DespacharTarefaAsync(plano, userId, chatId, message.MessageId, resolved.Environment, cancellationToken);
     }
 
-    // PONTO ÚNICO DE INTEGRAÇÃO COM A FILA DURÁVEL (#300). Aqui a tarefa montada deve virar, numa só transação, a
-    // execução Tarefa e sua etapa (MontagemDaTarefa.CriarExecucao, com número de seq_numero_da_execucao) e o trabalho
-    // que a despacha pela IFilaDeTrabalho; o executor abre a sessão com SolicitacaoDaTarefa.Para(plano, ...) e chama
-    // GuardaDeEscrita.Exigir antes de iniciar cada etapa. Até lá, nada é criado nem executado: não existe caminho
-    // paralelo à fila.
-    private static Task<string> DespacharTarefaAsync(PlanoDaTarefa plano, long userId, long chatId,
-        CancellationToken cancellationToken)
+    // PONTO ÚNICO DE INTEGRAÇÃO COM A FILA DURÁVEL (AD-67). A tarefa montada vira, numa só transação, a execução
+    // Tarefa, sua etapa somente leitura, o evento de criação e o trabalho que a despacha (deduplicado pela mensagem do
+    // Telegram); só depois o usuário recebe a confirmação. A execução acontece quando o processador reivindica o
+    // trabalho: ExecutorDeTarefasDaFila confere guarda, versão congelada, agente e catálogo e chama RunTarefaAsync.
+    // Sem a fila composta, nada é criado nem executado: não existe caminho paralelo.
+    private async Task DespacharTarefaAsync(PlanoDaTarefa plano, long userId, long chatId, long messageId,
+        ResolvedRepositoryEnvironment? ambiente, CancellationToken cancellationToken)
     {
-        _ = (userId, chatId, cancellationToken);
-        return Task.FromResult(
-            $"Tarefa para o agente {plano.Handle} v{plano.Versao.Numero} ({plano.Contexto.Descricao}) validada. " +
-            MontagemDaTarefa.AvisoDeLeitura + "\n" +
-            "A execução durável de tarefas ainda não está habilitada neste Worker (depende da fila durável); " +
-            "nada foi executado.");
+        var descricao = $"agente {plano.Handle} v{plano.Versao.Numero} ({plano.Contexto.Descricao})";
+        if (filaDeTarefas is null)
+        {
+            await SendReplyAsync(chatId, $"Tarefa para o {descricao} validada. " + MontagemDaTarefa.AvisoDeLeitura +
+                "\nA execução durável de tarefas não está habilitada neste Worker (depende da fila durável); " +
+                "nada foi executado.", cancellationToken);
+            return;
+        }
+        // Telegram always sends message_id; without one there is nothing to deduplicate by, and the task gets its own key.
+        var chave = messageId > 0 ? $"telegram:{chatId}:{messageId}" : $"telegram:{chatId}:sem-id:{Guid.NewGuid():N}";
+        var criada = await filaDeTarefas.CriarAsync(plano, userId, chave, cancellationToken);
+        if (criada is not { Numero: { } numero, Codigo: { } codigo })
+        {
+            await SendReplyAsync(chatId, criada.Recusa!, cancellationToken);
+            return;
+        }
+        // Until released, the processor waits; any exit without release ends the task as failed, never runs it.
+        var liberada = false;
+        try
+        {
+            await SendReplyAsync(chatId, $"Tarefa {codigo} enfileirada: {descricao}. {MontagemDaTarefa.AvisoDeLeitura}",
+                cancellationToken);
+            filaDeTarefas.Liberar(numero, (controle, token) =>
+                RunTarefaAsync(codigo, plano, ambiente, userId, chatId, controle, token));
+            liberada = true;
+        }
+        finally
+        {
+            if (!liberada) filaDeTarefas.Abortar(numero, "Falha ao confirmar o recebimento da tarefa.");
+        }
+    }
+
+    // Uma etapa da Tarefa: a etapa vai a EmExecucao sob posse, a sessão reservada (perfil plan, versão congelada,
+    // concessões da versão) roda um turno com o pedido fora de qualquer transação e é encerrada; o resultado é gravado
+    // sob posse e só então entregue. Posse perdida ou encerramento cancelam o token: nada é gravado nem respondido.
+    private async Task RunTarefaAsync(string codigo, PlanoDaTarefa plano, ResolvedRepositoryEnvironment? ambiente,
+        long userId, long chatId, ExecucaoSobPosse controle, CancellationToken cancellationToken)
+    {
+        await controle.IniciarAsync(cancellationToken);
+        ResultadoDaEtapaDto resultado;
+        string? saida = null;
+        if (sessions is null)
+            resultado = new ResultadoDaEtapaDto(EstadoDaEtapa.Falhou, Erro: "Sessões de agente indisponíveis neste Worker.");
+        else
+        {
+            var observador = new ObservadorDaTarefa(sessions, userId);
+            var iniciada = await sessions.StartAsync(SolicitacaoDaTarefa.Para(plano, userId, ambiente?.Values) with
+            {
+                Observer = observador
+            }, cancellationToken);
+            if (!iniciada.Accepted || iniciada.Session is not { } sessao)
+                resultado = new ResultadoDaEtapaDto(EstadoDaEtapa.Falhou, Erro: iniciada.Error ?? "Sessão não iniciada.");
+            else
+            {
+                try
+                {
+                    var envio = await sessions.SubmitReservedAsync(userId, sessao.Id, new AgentInput(plano.Pedido, []),
+                        cancellationToken);
+                    if (envio.Outcome == SubmitOutcome.Rejected)
+                        resultado = new ResultadoDaEtapaDto(EstadoDaEtapa.Falhou, Erro: envio.Error);
+                    else
+                    {
+                        var (desfecho, erro) = await observador.Turno.WaitAsync(cancellationToken);
+                        saida = observador.UltimaMensagem;
+                        resultado = desfecho == AgentTurnOutcome.Completed
+                            ? new ResultadoDaEtapaDto(EstadoDaEtapa.Concluida)
+                            : new ResultadoDaEtapaDto(EstadoDaEtapa.Falhou,
+                                Erro: erro ?? (desfecho == AgentTurnOutcome.Interrupted ? "Turno interrompido." : "Turno falhou."));
+                    }
+                }
+                finally
+                {
+                    await sessions.CloseReservedAsync(userId, sessao.Id, CancellationToken.None);
+                }
+            }
+        }
+        // Gravado antes de qualquer resposta; posse perdida lança e nada é entregue (AD-67).
+        await controle.ConcluirAsync(resultado, CancellationToken.None);
+        var cabecalho = $"Tarefa {codigo} ({plano.Handle} v{plano.Versao.Numero}, {plano.Contexto.Descricao})";
+        var resposta = resultado.EstadoFinal == EstadoDaEtapa.Concluida
+            ? ambiente?.HasSecrets == true
+                ? $"{cabecalho} concluída. Saída omitida para proteger segredos do ambiente."
+                : $"{cabecalho} concluída.\n\n{OutputOrFallback(saida ?? "")}"
+            : ambiente?.HasSecrets == true
+                ? $"{cabecalho} falhou. Detalhes omitidos para proteger segredos do ambiente."
+                : $"{cabecalho} falhou.\n\n{resultado.Erro}";
+        try
+        {
+            await delivery.DeliverJobAsync(codigo, userId, chatId, resposta, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning("Falha ao informar o resultado da tarefa {Execucao} ({ErrorType}).", codigo,
+                exception.GetType().Name);
+        }
     }
 }

@@ -15,6 +15,14 @@ public interface IFilaDeExecucoesAppService
 
     Task<JobNaFilaDto?> ObterJobPorChaveAsync(string chaveDeDeduplicacao, CancellationToken cancellationToken = default);
 
+    // Outbox da /tarefa (AD-68): execução Tarefa com a versão do agente congelada, etapa somente leitura
+    // (MontagemDaTarefa.CriarExecucao), evento de criação e trabalho AvancarExecucao numa transação, com o número já
+    // reservado. Mesma deduplicação de EnfileirarJobAsync: chave existente devolve a execução dela (Novo=false); numa
+    // corrida, ConflitoDeConcorrenciaException e nada é criado. Plano com escrita é recusado antes de gravar.
+    Task<ExecucaoNaFilaDto> EnfileirarTarefaAsync(Dante.Application.Agentes.PlanoDaTarefa plano, long numero, string canal,
+        long idDoUsuarioNoCanal, string chaveDeDeduplicacao, CancellationToken cancellationToken = default,
+        IdentidadeDoProcessador? origem = null);
+
     // Leitura: o que fazer com o trabalho reivindicado.
     Task<AvaliacaoDoTrabalhoDto> AvaliarAsync(TrabalhoReivindicado trabalho, CancellationToken cancellationToken = default);
 
