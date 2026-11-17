@@ -85,6 +85,11 @@ etapa de escrita exige worktree reservada. Só os fluxos legados (sessão comum,
 - **Dependências**: 1, 2.
 - **Critérios**: toda execução ativa aparece; cancelar encerra processo (AD-17/63) e registra autor e motivo; listas mostram fatos sem conteúdo sensível.
 - **Testes**: consultas por estado, autorização por dono, redaction.
+- **Implementação (#305, AD-74)**: casos de uso de consulta e cancelamento na Application, neutros de interface, com o
+  Telegram como primeiro adaptador. Cancelamento durável pelo evento `CancelamentoSolicitado`, honrado sob posse por quem
+  tem o trabalho. **Pausa e retomada ficaram de fora**: não há estado, checkpoint nem pedido durável que as garantam.
+  O cancelamento de uma Tarefa encerra a sessão reservada pelo token do executor; a parada por scope (AD-63) segue a
+  contenção já existente.
 
 ### 5. Worktrees, concorrência e tarefas com escrita — complexidade alta
 

@@ -2553,3 +2553,79 @@ Código: `Dante.Domain/Agentes`, `Dante.Application/Agentes`, `Dante.Application
 Testes: `AgentesDominioTests`, `CadastroDeAgentesAppServiceTests`, `TelegramAgentesTests`,
 `CadastroDeAgentesPostgreSqlTests`, `SessaoReservadaTests`, `TarefaPelaFilaEndToEndTests`.
 
+
+## AD-74 — Acompanhamento e cancelamento de execuções na Application, neutros de interface (#305)
+
+Status: vigente, etapa 4 do roadmap da Epic #296. Complementa a AD-66 (consultas sobre o ledger) e a AD-67 (o
+cancelamento respeita posse e fencing da fila). Depende do mesmo banco e da mesma chave `Orquestracao:Habilitada`;
+nenhuma migration nova.
+
+Contexto: com o ledger e a fila, execuções sobrevivem ao reinício, mas não havia como o dono consultá-las nem cancelar
+uma Tarefa (`E…`). Cancelar só o token do executor seria pior que nada: a etapa sem resultado voltaria à fila e a
+retomada `Automatica` a reexecutaria. O registro de jobs em memória não guardava o dono, e `/status` e `/cancel` não
+isolavam os usuários da allowlist. O Telegram é a primeira interface; um chat próprio ou a WebApi (etapa 10) virão
+depois e não podem reimplementar autorização, estados nem cancelamento.
+
+Decisão:
+
+* **Casos de uso na Application, neutros de interface.** `IAcompanhamentoDeExecucoesAppService` (listar, detalhar,
+  aguardando, painel) e `IControleDeExecucoesAppService` (cancelar) recebem um `ProprietarioDaExecucao` (canal +
+  usuário, a mesma autoridade de origem gravada na execução) e devolvem contratos sem tipo, comando ou texto de
+  interface. Execução de outro proprietário (ou de outro canal, ou com o prefixo do outro tipo) é indistinguível de
+  inexistente. O adaptador Telegram (`TelegramExecucoes`) só interpreta, chama o caso de uso num escopo e formata.
+* **Redaction na Application, antes de devolver.** O contexto sai só como modo e aliases (o diretório gravado nunca);
+  objetivo, motivo e erro viram uma linha, são cortados e, se o texto inteiro parecer segredo
+  (`ProtecaoDeSegredos`), são substituídos. A saída do agente não é persistida e não é exibida.
+* **Espera sem posição inventada.** `MotivoDaEspera`: na fila, aguardando nova tentativa (trabalho pendente com
+  tentativa anterior e disponibilidade futura), interrompida, bloqueada, aguardando aprovação/entrada/delegações.
+  Com `SKIP LOCKED`, prioridade, backoff e reivindicações concorrentes não há posição estável, então nenhuma é exibida.
+* **Pedido de cancelamento durável = evento `CancelamentoSolicitado`** (append-only, `dados` com autor e motivo). Numa
+  transação, o caso de uso trava os trabalhos ativos da execução (`FOR UPDATE`, sem `SKIP LOCKED`) e só depois a
+  execução, na mesma ordem das gravações sob posse (sem deadlock):
+  * **sem posse** (trabalho `Pendente`, ou execução interrompida/bloqueada sem trabalho ativo): execução e etapas não
+    terminais `Cancelada` com o motivo, trabalho `Descartado`, pedido e transições como eventos. A reivindicação
+    concorrente pula as linhas travadas; depois do commit, não há mais o que reivindicar;
+  * **com posse** (trabalho `Reivindicado`): quem pede não altera execução, etapa nem trabalho. Grava só o evento (não
+    toca a linha da execução, então não conflita com o `xmin` do dono) e, depois do commit, sinaliza o processo local;
+  * já terminal: `JaEncerrada`; pedido já registrado: `JaSolicitada`. Pedidos simultâneos se serializam pela trava do
+    trabalho: uma transição e um pedido no máximo.
+* **Quem tem a posse honra o pedido.** `AvaliarAsync` devolve `Cancelar` (antes até do limite de tentativas), inclusive
+  depois de um lease vencido, em vez de executar ou retomar; `IniciarEtapaAsync` recusa
+  (`CancelamentoSolicitadoException`) sem gravar; `ConcluirEtapaAsync` grava `Cancelada` no lugar do resultado e devolve
+  o estado gravado; `CancelarSolicitadaAsync` grava `Cancelada` sob posse e descarta o trabalho. Posse perdida não grava
+  nada (fencing da AD-67).
+* **Sinal em memória só como atalho.** `CanalDeCancelamento` (singleton da Application, sem estado durável): o
+  `ProcessadorDaFila` registra um token por execução nova antes de conferir o pedido no ledger (fecha a corrida com um
+  pedido gravado depois da avaliação), confere de novo a cada heartbeat e na conclusão. Um sinal perdido, ou um pedido
+  gravado por outro processo, atrasa o cancelamento em até um heartbeat, nunca o perde. O job legado (`Avulsa`) não
+  entra nesse caminho.
+* **No máximo um aviso por transição.** O aviso sai só depois de a transição ser gravada, e só por quem a gravou
+  (`ExecucaoInterrompidaDto.PorCancelamento`); repetição, reavaliação e concorrência não avisam de novo. Não há outbox de
+  notificações: uma falha entre o commit e o envio perde o aviso. O estado no ledger continua consultável.
+* **Jobs legados isolados por dono.** `JobRegistry` grava o dono na criação; a sobrecarga do usuário de `TryCancel` e
+  `GetVisible` só alcança os jobs dele (job de outro, ou sem dono registrado, é "não encontrado"); a do sistema (posse
+  perdida) continua sem dono. `/status`, `/cancel J…` e a lista de quem acessa um vinculado usam a do usuário.
+  `/cancel J…` continua no registro em memória; um `J…` que o registro não tem (interrompido num boot anterior) vai ao
+  caso de uso, que o cancela só sem posse.
+* **Sem pausa nem retomada.** Não há estado `Pausada`, a CLI não tem checkpoint e o pedido de jobs e tarefas fica só em
+  memória: depois de um reinício, retomar terminaria cancelado. `ConfirmarRetomadaAsync` não é exposto e passa a recusar
+  execução com pedido de cancelamento.
+
+Consequências:
+
+* uma interface nova (chat próprio, WebApi autenticada) consome os mesmos casos de uso informando o próprio canal e
+  identidade; nada de autorização ou estado é duplicado no adaptador;
+* a Application ganha um terceiro singleton (`CanalDeCancelamento`), registrado por ela mesma;
+* a etapa da Tarefa ainda não registra o vínculo com a sessão reservada no ledger (`EtapaDaExecucao.VincularSessao`
+  existe sem chamador): o detalhe mostra `S…` quando o vínculo existir;
+* a listagem por proprietário não tem índice próprio (`canal`, `id_do_usuario_no_canal`, `criada_em`); entra com uma
+  migration quando o volume justificar;
+* a conferência do pedido no heartbeat é uma leitura por heartbeat de execução nova em andamento.
+
+Código: `Dante.Domain/Execucoes/{Execucao.cs (TentarInterpretarCodigo), TipoDeEventoDeOrquestracao.cs}`,
+`Dante.Application/Execucoes/{AcompanhamentoDeExecucoesAppService, ControleDeExecucoesAppService, CanalDeCancelamento,
+PedidoDeCancelamento, FilaDeExecucoesAppService}.cs`, `Dante.Infrastructure/Fila/FilaDeTrabalhoPostgreSql.cs`,
+`Dante.Worker/Execucoes/ProcessadorDaFila.cs`, `Dante.Worker/Jobs/JobRegistry.cs`,
+`Dante.Worker/Telegram/{TelegramExecucoes, TelegramPollingService.Execucoes}.cs`.
+Testes: `AcompanhamentoDeExecucoesTests`, `AcompanhamentoDeExecucoesPostgreSqlTests`, `ExecucoesNoTelegramTests`,
+`TarefaPelaFilaEndToEndTests`.

@@ -50,7 +50,7 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   `/status` de sessões vivas mostram, por repositório, branch, arquivos sem commit e commits não enviados;
   `unlink`/`remove` listam sessões e jobs que ainda acessam o vinculado e como encerrá-los;
 - `/repo env set|bind|list|remove` com segredos por referência ao host;
-- `/status` com contexto de cada job e `/cancel <jobId>`;
+- `/status` com contexto de cada job e `/cancel <jobId>`, ambos só com os jobs do próprio usuário (#305);
 - configurações do assistente em `~/.dante/settings.json` (agente padrão, Claude quando
   não configurado; repositório ativo, modo padrão, modelos e esforço por usuário);
 - `/agent` e `/agent set claude|codex` para consultar e alterar o agente padrão; com sessão ativa, `/agent` e
@@ -268,7 +268,7 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
 
 - **Epic #296 — Plataforma multiagente**: proposta aprovada (#297, PR #298); ledger de execuções (#299, AD-66)
   integrado; fila durável e recuperação após reinício (#300, AD-67) integrada; cadastro de agentes e `/tarefa` pela
-  fila (#301, AD-68) em revisão.
+  fila (#301, AD-68) integrado; acompanhamento e cancelamento de execuções (#305, AD-74) em revisão.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -666,7 +666,8 @@ execuções, etapas, dependências, eventos-chave com sequência global e regist
 domínio e `xmin`. `JobRegistry` e `SessionRegistry` espelham jobs (execução `Avulsa`, código `J…`) e sessões
 (`S…`) quando `Orquestracao:Habilitada=true` e há banco; códigos vêm de sequências e não se repetem após reinício.
 O runtime continua em memória e o espelho nunca bloqueia nem falha job ou sessão. Migration só por
-`--orquestracao migrate`. Desligado por padrão; não ativado no homelab. Sem comandos de consulta no Telegram ainda.
+`--orquestracao migrate`. Desligado por padrão; não ativado no homelab. Consultas e cancelamento pelo dono: ver
+[Acompanhamento de execuções](#acompanhamento-e-cancelamento-de-execuções-305-ad-74).
 
 ## Fila durável e recuperação (#300, AD-67)
 
@@ -696,6 +697,21 @@ de conferir guarda de escrita, versão, agente ativo e catálogo; o resultado é
 Deduplicada pela mensagem do Telegram; um pedido por vez (slot da fila). Depois de um reinício, a tarefa pendente é
 cancelada com aviso (o pedido não é guardado). Exige banco e `Orquestracao:Habilitada`; desligado no homelab. Sessões
 registram handle, hash e versão do agente no ledger.
+
+## Acompanhamento e cancelamento de execuções (#305, AD-74)
+
+Casos de uso na Application, neutros de interface (`IAcompanhamentoDeExecucoesAppService`,
+`IControleDeExecucoesAppService`), sempre filtrados pelo proprietário (canal + usuário): execução de outro dono é
+indistinguível de inexistente. O Telegram é o primeiro adaptador: `/execucoes [todas]` (ativas e últimas encerradas:
+código, tipo, agente `handle vN` ou driver, estado, etapa, idade), `/execucao <J…|E…>` (etapas, tentativa, agente,
+modelo/esforço, contexto só por `@alias`, objetivo/motivo/erro redigidos e cortados; sem saída do agente),
+`/aguardando` (na fila, aguardando nova tentativa, interrompida, bloqueada; sem posição numérica) e uma linha em
+`/status`. `/cancel <E…> [motivo]`: tarefa sem posse (na fila, interrompida, bloqueada) é cancelada na hora, sem
+processo; tarefa em execução recebe o pedido durável (evento `CancelamentoSolicitado`, autor e motivo), que só quem tem
+a posse honra (antes de iniciar, no heartbeat, na conclusão), encerrando a sessão reservada e gravando `Cancelada` sob
+fencing, sem reexecução; o sinal em memória só acelera. No máximo um aviso por transição, sem garantia de entrega (sem
+outbox). Sem pausa nem retomada. Sem `Orquestracao:Habilitada`, os comandos novos respondem que não estão habilitados.
+Sem migration nova. O vínculo etapa → sessão da Tarefa ainda não é gravado, então o detalhe não mostra o `S…` dela.
 
 ## Administração de banco e migrations (#199)
 
