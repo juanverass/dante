@@ -216,6 +216,46 @@ public sealed class TelegramAgentesTests : IAsyncDisposable
             SolicitacaoDaTarefa.Para(plano with { Perfil = AgentPermissionProfile.Auto }, 123));
     }
 
+    // #308: /grupo e /grupos chegam ao cadastro de grupos; a ativação é uma decisão explícita com o hash exibido.
+    [Fact]
+    public async Task GrupoPeloTelegramCriaVersionaEAtivaComHash()
+    {
+        await using var service = await StartAsync();
+        Assert.Contains("criado (v1)", await Send(
+            "/agente criar codex-dev driver=codex escrita=sim modo=auto maximo=auto capacidades=implementar"));
+        Assert.Contains("criado (v1)", await Send("/agente criar codex-rev driver=codex capacidades=revisar"));
+        Assert.Contains("Nenhum grupo cadastrado", await Send("/grupos"));
+        var criado = await Send("/grupo criar eng roteiro=implementar:dev,revisar:rev,corrigir:dev,aprovar rodadas=2 " +
+            "repos=@dante\ndev=codex-dev escrita: implementa a tarefa\nrev=codex-rev: revisa o diff");
+        Assert.Contains("Grupo eng criado (v1), ainda não ativado.", criado);
+        Assert.Contains("Roteiro: implementar (dev) → revisar (rev) → corrigir (dev) → aprovação humana", criado);
+        Assert.Contains("- dev: codex-dev (escrita) — implementa a tarefa", criado);
+        Assert.Contains("- rev: codex-rev (leitura) — revisa o diff", criado);
+        var comando = criado.Split('\n').Single(linha => linha.StartsWith("Para usá-la", StringComparison.Ordinal));
+        var ativar = comando[comando.IndexOf("/grupo ativar", StringComparison.Ordinal)..];
+        Assert.Contains("sem versão ativa", await Send("/grupos"));
+        Assert.Contains("o hash exibido", await Send("/grupo ativar eng v1"));
+        Assert.Contains("hash confirmado", await Send("/grupo ativar eng v1 000000000000"));
+        Assert.Contains("v1 ativada", await Send(ativar));
+        Assert.Contains("ativa v1", await Send("/grupos"));
+        // Escrita para o revisor, roteiro fora da forma e participante embutido: recusas do caso de uso, em texto.
+        Assert.Contains("não pode ter escrita", await Send(
+            "/grupo editar eng\ndev=codex-dev escrita\nrev=codex-rev escrita"));
+        Assert.Contains("Roteiro não suportado", await Send("/grupo editar eng roteiro=revisar:rev,implementar:dev,aprovar"));
+        Assert.Contains("embutido", await Send("/grupo editar eng\ndev=codex escrita\nrev=codex-rev"));
+        var editado = await Send("/grupo editar eng rodadas=3");
+        Assert.Contains("agora tem a v2, ainda não ativada; execuções novas seguem com a v1.", editado);
+        var detalhe = await Send("/grupo ver eng");
+        Assert.Contains("Versão atual v2", detalhe);
+        Assert.Contains("Versão ativa v1", detalhe);
+        Assert.Contains("Ativações: v1", detalhe);
+        Assert.Contains("desativado", await Send("/grupo desativar eng"));
+        Assert.Contains("arquivado", await Send("/grupo arquivar eng"));
+        Assert.Contains("não é reutilizado", await Send(
+            "/grupo criar eng roteiro=implementar:dev,revisar:rev,aprovar\ndev=codex-dev escrita\nrev=codex-rev"));
+        Assert.StartsWith("Uso: /grupo", await Send("/grupo qualquer"));
+    }
+
     [Fact]
     public async Task SemCadastroOsComandosNovosFicamIndisponiveisEOsLegadosNaoMudam()
     {
@@ -223,6 +263,8 @@ public sealed class TelegramAgentesTests : IAsyncDisposable
         Assert.Contains("indisponíveis", await Send("/agentes"));
         Assert.Contains("indisponíveis", await Send("/agente criar dev driver=claude"));
         Assert.Contains("indisponíveis", await Send("/tarefa dev leia"));
+        Assert.Contains("indisponíveis", await Send("/grupos"));
+        Assert.Contains("indisponíveis", await Send("/grupo criar eng roteiro=implementar:dev,revisar:rev,aprovar"));
         Assert.StartsWith("Uso: /session start", await Send("/session start revisor"));
         Assert.Contains("Agente padrão alterado para Codex", await Send("/agent set codex"));
         await LegadosAsync(AgentKind.Codex);
@@ -274,16 +316,21 @@ public sealed class TelegramAgentesTests : IAsyncDisposable
         sessions = new SessionRegistry(drivers, NullLogger<SessionRegistry>.Instance, delivery,
             toolServers: new Ferramentas());
         TelegramAgentes? agentes = null;
+        TelegramGrupos? grupos = null;
         if (comCadastro)
         {
             var provider = portas.Provider(catalogo);
             descartaveis.Add(provider);
             agentes = new TelegramAgentes(provider.GetRequiredService<IServiceScopeFactory>());
+            // Grupos (#308) sobre as mesmas portas de agentes.
+            var providerDeGrupos = new CadastroDeGruposEmMemoria(portas).Provider();
+            descartaveis.Add(providerDeGrupos);
+            grupos = new TelegramGrupos(providerDeGrupos.GetRequiredService<IServiceScopeFactory>());
         }
         var service = new TelegramPollingService(api, options, new TelegramUserAuthorizer(options), runner, runner,
             jobs, NullLogger<TelegramPollingService>.Instance, registro,
             new GeneralWorkspace(Path.Combine(root, "general")), new AssistantSettingsStore(Path.Combine(root, "settings.json")),
-            sessions, delivery, catalogo, agentes: agentes);
+            sessions, delivery, catalogo, agentes: agentes, grupos: grupos);
         await service.StartAsync(CancellationToken.None);
         return new ServiceHandle(service);
     }

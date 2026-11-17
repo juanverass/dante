@@ -42,7 +42,8 @@ public sealed partial class TelegramPollingService(
     TelegramPlanilhas? planilhas = null,
     ILeitorDeCheckouts? checkouts = null,
     ExecutorDeJobsDaFila? filaDeJobs = null, TelegramAgentes? agentes = null,
-    ExecutorDeTarefasDaFila? filaDeTarefas = null, TelegramExecucoes? execucoes = null) : BackgroundService
+    ExecutorDeTarefasDaFila? filaDeTarefas = null, TelegramExecucoes? execucoes = null,
+    TelegramGrupos? grupos = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private static readonly TimeSpan PollRetryDelay = TimeSpan.FromSeconds(3);
@@ -294,6 +295,15 @@ public sealed partial class TelegramPollingService(
         {
             await SendLongMessageAsync(message.Chat.Id, await HandleAgentesCommandAsync(message.From!.Id,
                 command.Equals("/agentes", StringComparison.OrdinalIgnoreCase), prompt, cancellationToken), cancellationToken);
+            return;
+        }
+
+        // Groups of registered agents (AD-69, #308): versioned catalog and human activation.
+        if (string.Equals(command, "/grupos", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(command, "/grupo", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendLongMessageAsync(message.Chat.Id, await HandleGruposCommandAsync(message.From!.Id,
+                command.Equals("/grupos", StringComparison.OrdinalIgnoreCase), prompt, cancellationToken), cancellationToken);
             return;
         }
 

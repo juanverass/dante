@@ -1,8 +1,10 @@
 using Dante.Application.Agentes;
 using Dante.Application.Execucoes;
+using Dante.Application.Grupos;
 using Dante.Infrastructure.Data.Orquestracao;
 using Dante.Infrastructure.Modulos.Agentes;
 using Dante.Infrastructure.Modulos.Execucoes;
+using Dante.Infrastructure.Modulos.Grupos;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Dante.Infrastructure.Composicao;
@@ -26,5 +28,9 @@ internal static class OrquestracaoServiceCollectionExtensions
         // Cadastro de agentes (AD-68): mesmo contexto e mesma unidade de trabalho do ledger.
         services.AddScoped<IAgenteRepository, AgenteRepository>();
         services.AddScoped<IVersaoDoAgenteRepository, VersaoDoAgenteRepository>();
+        // Grupos de agentes (AD-69): idem.
+        services.AddScoped<IGrupoDeAgentesRepository, GrupoDeAgentesRepository>();
+        services.AddScoped<IVersaoDoGrupoRepository, VersaoDoGrupoRepository>();
+        services.AddScoped<IAtivacaoDeVersaoDoGrupoRepository, AtivacaoDeVersaoDoGrupoRepository>();
     }
 }

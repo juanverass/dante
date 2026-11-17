@@ -121,7 +121,8 @@ public sealed class MapeamentoTests
         var mappings = typeof(ConfiguracaoMapeamento).Assembly.GetTypes()
             .Where(t => t.Name.EndsWith("Mapping", StringComparison.Ordinal)).ToArray();
         Assert.Equal(["Agente", "CandidatoDeConhecimento", "Conhecimento", "ContextoDeTrabalho", "DocumentoFonte",
-            "EspacoDeConhecimento", "Execucao", "Projeto", "RelacaoDeConhecimento", "SessaoDeAgente", "VersaoDoAgente"], mappings.Select(t => t.Name[..^"Mapping".Length]).Order());
+            "EspacoDeConhecimento", "Execucao", "GrupoDeAgentes", "Projeto", "RelacaoDeConhecimento", "SessaoDeAgente",
+            "VersaoDoAgente"], mappings.Select(t => t.Name[..^"Mapping".Length]).Order());
         Assert.All(mappings, t =>
         {
             Assert.True(t.IsAbstract && t.IsSealed && !t.IsPublic, $"{t.Name} deve ser internal static.");

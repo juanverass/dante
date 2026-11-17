@@ -5,6 +5,7 @@ using Dante.Application.ContextosDeTrabalho;
 using Dante.Application.DocumentosFonte;
 using Dante.Application.EspacosDeConhecimento;
 using Dante.Application.Execucoes;
+using Dante.Application.Grupos;
 using Dante.Application.Projetos;
 using Dante.Application.RelacoesDeConhecimento;
 
@@ -27,5 +28,6 @@ internal static class MapeamentosDaApplication
         SessaoDeAgenteMapping.Registrar(configuracao);
         AgenteMapping.Registrar(configuracao);
         VersaoDoAgenteMapping.Registrar(configuracao);
+        GrupoDeAgentesMapping.Registrar(configuracao);
     }
 }

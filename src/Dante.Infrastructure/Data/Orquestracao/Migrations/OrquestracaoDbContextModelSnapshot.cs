@@ -872,6 +872,257 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Dante.Domain.Grupos.AtivacaoDeVersaoDoGrupo", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("Em")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("em");
+
+                    b.Property<string>("HashAprovado")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_aprovado")
+                        .IsFixedLength();
+
+                    b.Property<long>("IdDoAutor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("id_do_autor");
+
+                    b.Property<Guid>("IdGrupo")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_grupo");
+
+                    b.Property<Guid>("IdVersaoDoGrupo")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_versao_do_grupo");
+
+                    b.Property<int>("NumeroDaVersao")
+                        .HasColumnType("integer")
+                        .HasColumnName("numero_da_versao");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdVersaoDoGrupo");
+
+                    b.HasIndex("IdGrupo", "Em");
+
+                    b.ToTable("ativacoes_de_grupo", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_ativacoes_de_grupo_hash", "hash_aprovado ~ '^[0-9a-f]{64}$'");
+                        });
+                });
+
+            modelBuilder.Entity("Dante.Domain.Grupos.GrupoDeAgentes", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("AtualizadoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("atualizado_em");
+
+                    b.Property<DateTimeOffset>("CriadoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("criado_em");
+
+                    b.Property<string>("Descricao")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("descricao");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("integer")
+                        .HasColumnName("estado");
+
+                    b.Property<long>("IdDoCriador")
+                        .HasColumnType("bigint")
+                        .HasColumnName("id_do_criador");
+
+                    b.Property<Guid?>("IdVersaoAtiva")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_versao_ativa");
+
+                    b.Property<Guid?>("IdVersaoAtual")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_versao_atual");
+
+                    b.Property<string>("Nome")
+                        .IsRequired()
+                        .HasMaxLength(31)
+                        .HasColumnType("character varying(31)")
+                        .HasColumnName("nome");
+
+                    b.Property<int?>("NumeroDaVersaoAtiva")
+                        .HasColumnType("integer")
+                        .HasColumnName("numero_da_versao_ativa");
+
+                    b.Property<int>("NumeroDaVersaoAtual")
+                        .HasColumnType("integer")
+                        .HasColumnName("numero_da_versao_atual");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Estado");
+
+                    b.HasIndex("Nome")
+                        .IsUnique();
+
+                    b.ToTable("grupos_de_agentes", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_grupos_de_agentes_nome", "nome ~ '^[a-z][a-z0-9-]{1,30}$'");
+
+                            t.HasCheckConstraint("ck_grupos_de_agentes_versao_ativa", "(id_versao_ativa IS NULL) = (numero_da_versao_ativa IS NULL) AND (numero_da_versao_ativa IS NULL OR numero_da_versao_ativa BETWEEN 1 AND numero_da_versao_atual)");
+
+                            t.HasCheckConstraint("ck_grupos_de_agentes_versao_atual", "numero_da_versao_atual >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Dante.Domain.Grupos.ParticipanteDaVersaoDoGrupo", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("IdAgente")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_agente");
+
+                    b.Property<Guid>("IdVersaoDoGrupo")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_versao_do_grupo");
+
+                    b.Property<string>("Papel")
+                        .IsRequired()
+                        .HasMaxLength(31)
+                        .HasColumnType("character varying(31)")
+                        .HasColumnName("papel");
+
+                    b.Property<bool>("PodeEscrever")
+                        .HasColumnType("boolean")
+                        .HasColumnName("pode_escrever");
+
+                    b.Property<string>("Responsabilidades")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("responsabilidades");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdAgente");
+
+                    b.HasIndex("IdVersaoDoGrupo", "Papel")
+                        .IsUnique();
+
+                    b.ToTable("participantes_de_grupo", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_participantes_de_grupo_papel", "papel ~ '^[a-z][a-z0-9-]{1,30}$'");
+                        });
+                });
+
+            modelBuilder.Entity("Dante.Domain.Grupos.VersaoDoGrupo", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CriadaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("criada_em");
+
+                    b.Property<int?>("DuracaoMaximaEmMinutos")
+                        .HasColumnType("integer")
+                        .HasColumnName("duracao_maxima_em_minutos");
+
+                    b.Property<string>("HashDaConfiguracao")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_da_configuracao")
+                        .IsFixedLength();
+
+                    b.Property<long>("IdDoAutor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("id_do_autor");
+
+                    b.Property<Guid>("IdGrupo")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_grupo");
+
+                    b.Property<int>("Modo")
+                        .HasColumnType("integer")
+                        .HasColumnName("modo");
+
+                    b.Property<int>("Numero")
+                        .HasColumnType("integer")
+                        .HasColumnName("numero");
+
+                    b.Property<int>("ParalelismoMaximo")
+                        .HasColumnType("integer")
+                        .HasColumnName("paralelismo_maximo");
+
+                    b.Property<string[]>("RepositoriosPermitidos")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("repositorios_permitidos");
+
+                    b.Property<int>("RodadasDeRevisaoMaximas")
+                        .HasColumnType("integer")
+                        .HasColumnName("rodadas_de_revisao_maximas");
+
+                    b.Property<string[]>("Roteiro")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("roteiro");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdGrupo", "Numero")
+                        .IsUnique();
+
+                    b.ToTable("versoes_de_grupo", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_versoes_de_grupo_duracao", "duracao_maxima_em_minutos IS NULL OR duracao_maxima_em_minutos > 0");
+
+                            t.HasCheckConstraint("ck_versoes_de_grupo_hash", "hash_da_configuracao ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("ck_versoes_de_grupo_numero_positivo", "numero > 0");
+
+                            t.HasCheckConstraint("ck_versoes_de_grupo_paralelismo", "paralelismo_maximo = 1");
+
+                            t.HasCheckConstraint("ck_versoes_de_grupo_rodadas", "rodadas_de_revisao_maximas BETWEEN 0 AND 5");
+                        });
+                });
+
             modelBuilder.Entity("Dante.Domain.Agentes.VersaoDoAgente", b =>
                 {
                     b.HasOne("Dante.Domain.Agentes.Agente", null)
@@ -986,6 +1237,50 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasForeignKey("IdEtapa", "IdExecucao")
                         .HasPrincipalKey("Id", "IdExecucao")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Dante.Domain.Grupos.AtivacaoDeVersaoDoGrupo", b =>
+                {
+                    b.HasOne("Dante.Domain.Grupos.GrupoDeAgentes", null)
+                        .WithMany()
+                        .HasForeignKey("IdGrupo")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Grupos.VersaoDoGrupo", null)
+                        .WithMany()
+                        .HasForeignKey("IdVersaoDoGrupo")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Dante.Domain.Grupos.ParticipanteDaVersaoDoGrupo", b =>
+                {
+                    b.HasOne("Dante.Domain.Agentes.Agente", null)
+                        .WithMany()
+                        .HasForeignKey("IdAgente")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Grupos.VersaoDoGrupo", null)
+                        .WithMany("Participantes")
+                        .HasForeignKey("IdVersaoDoGrupo")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Dante.Domain.Grupos.VersaoDoGrupo", b =>
+                {
+                    b.HasOne("Dante.Domain.Grupos.GrupoDeAgentes", null)
+                        .WithMany()
+                        .HasForeignKey("IdGrupo")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Dante.Domain.Grupos.VersaoDoGrupo", b =>
+                {
+                    b.Navigation("Participantes");
                 });
 #pragma warning restore 612, 618
         }
