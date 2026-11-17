@@ -48,6 +48,8 @@ public sealed class InteractiveAgentProcess : IAsyncDisposable
     private readonly object limpezaGate = new();
     private Task? limpezaNativa;
     public bool ContencaoNativa => contido is not null;
+    // Scope dante-agent-* do processo, registrado no ledger para a recuperação após reinício (AD-67).
+    public string? UnidadeDeContencao => contido?.Contencao.Unidade;
     public string? AvisoDeContencao => ContencaoNativa ? null :
         "Modo compatibilidade: limpeza limitada aos descendentes observados; filhos entre snapshots podem sobreviver.";
     private readonly Func<int, DateTime, CancellationToken, Task> encerrarDescendente;

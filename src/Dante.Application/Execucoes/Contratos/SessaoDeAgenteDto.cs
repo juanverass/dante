@@ -19,6 +19,9 @@ public sealed record SessaoDeAgenteDto
     public string? ModeloInformado { get; init; }
     public string? IdUpstream { get; init; }
     public Guid? IdExecucao { get; init; }
+    public Guid? BootDoWorker { get; init; }
+    public string? MaquinaDoWorker { get; init; }
+    public string? UnidadeDeContencao { get; init; }
     public string? MotivoDoFim { get; init; }
     public DateTimeOffset CriadaEm { get; init; }
     public DateTimeOffset? IniciadaEm { get; init; }

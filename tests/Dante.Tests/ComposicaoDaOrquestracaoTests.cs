@@ -79,7 +79,8 @@ public sealed class ComposicaoDaOrquestracaoTests
     public void ModeloDoLedgerTemSchemaEHistoricoPropriosSemTocarOBrain()
     {
         using var ledger = new OrquestracaoDbContext(OrquestracaoDbContextFactory.Opcoes(BancoFicticio));
-        Assert.Equal(["DependenciaDeEtapa", "EtapaDaExecucao", "EventoDeOrquestracao", "Execucao", "SessaoDeAgente"],
+        Assert.Equal(["DependenciaDeEtapa", "EtapaDaExecucao", "EventoDeOrquestracao", "Execucao", "SessaoDeAgente",
+                "TrabalhoDaFila"],
             ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
         Assert.All(ledger.Model.GetEntityTypes(), e =>
         {

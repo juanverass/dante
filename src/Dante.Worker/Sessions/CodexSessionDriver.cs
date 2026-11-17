@@ -131,7 +131,7 @@ public sealed class CodexSessionDriver(
                 effectiveEffort = options.ModelSelection?.Effort ?? GetString(thread, "reasoningEffort");
             }
 
-            return new AgentSessionStarted(id, agent.ProcessId, GetString(thread, "model"));
+            return new AgentSessionStarted(id, agent.ProcessId, GetString(thread, "model"), agent.UnidadeDeContencao);
         }
         catch
         {

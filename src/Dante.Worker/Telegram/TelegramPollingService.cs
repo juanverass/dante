@@ -2,6 +2,8 @@ using Dante.Worker.Brain;
 using Dante.Application.Agentes;
 using Dante.Application.Anexos;
 using Dante.Application.Uso;
+using Dante.Application.Execucoes;
+using Dante.Worker.Execucoes;
 using Dante.Infrastructure.Agentes;
 using Dante.Infrastructure.Contextos;
 using Dante.Worker.Artifacts;
@@ -38,7 +40,8 @@ public sealed partial class TelegramPollingService(
     TelegramBrain? brain = null,
     IContinuidadeDoBrain? continuidade = null,
     TelegramPlanilhas? planilhas = null,
-    ILeitorDeCheckouts? checkouts = null) : BackgroundService
+    ILeitorDeCheckouts? checkouts = null,
+    ExecutorDeJobsDaFila? filaDeJobs = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private static readonly TimeSpan PollRetryDelay = TimeSpan.FromSeconds(3);
@@ -470,6 +473,12 @@ public sealed partial class TelegramPollingService(
             cancellationToken);
         if (modelSelection is null) return;
         var context = resolution.Context!;
+        // Durable queue (AD-67): only with Orquestracao:Habilitada; same replies, the job runs when it is claimed.
+        if (filaDeJobs is not null)
+        {
+            await EnqueueJobAsync(message, resolution, context, modelSelection, cancellationToken);
+            return;
+        }
         var (job, jobToken) = await jobs.CreateAsync(agent, context, message.From.Id, cancellationToken, modelSelection);
         // The pending images go with this one-shot and live in the job's directory until it ends (AD-29).
         var images = Adopt(message.From.Id, AttachmentContext(message.From.Id), job.Id, newScope: true);
@@ -1658,7 +1667,7 @@ public sealed partial class TelegramPollingService(
     private async Task RunJobAsync(string id, string agent, bool isCodex, string prompt,
         JobExecutionContext context, ResolvedRepositoryEnvironment? repositoryEnvironment, AgentModelSelection selection,
         IReadOnlyList<Attachment> images, long userId, long chatId, CancellationToken jobToken,
-        CancellationToken stoppingToken)
+        CancellationToken stoppingToken, ExecucaoSobPosse? posse = null)
     {
         AgentProcessResult? result = null;
         var status = AgentProcessStatus.Cancelled;
@@ -1668,6 +1677,8 @@ public sealed partial class TelegramPollingService(
         {
             if (jobs.TryStart(id))
             {
+                // Queued job (AD-67): step and execution go to running under the work item's lease first.
+                if (posse is not null) await posse.IniciarAsync(jobToken);
                 // Audio and video become transcript and frames inside the job, so /cancel stops the tools (#96).
                 if (MediaPreparer.NeedsPreparation(images))
                 {
@@ -1699,6 +1710,11 @@ public sealed partial class TelegramPollingService(
             status = AgentProcessStatus.Failed;
             errorMessage = exception.Message;
         }
+        catch (PosseDoTrabalhoPerdidaException)
+        {
+            status = AgentProcessStatus.Failed;
+            errorMessage = "A execução foi assumida por outro processador da fila; o agente não foi iniciado.";
+        }
         catch (Exception exception)
         {
             status = AgentProcessStatus.Failed;
@@ -1708,6 +1724,8 @@ public sealed partial class TelegramPollingService(
         }
 
         var completed = jobs.Complete(id, status, result?.ExitCode, errorMessage);
+        // The result is recorded before it is delivered; a lost lease records nothing (AD-67).
+        if (posse is not null) await RecordQueuedResultAsync(posse, completed);
         ReleaseJobImages(userId, id, received);
         var label = completed.Context.Descricao;
         var report = await CheckoutReportAsync(completed.Context, stoppingToken);

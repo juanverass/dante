@@ -131,6 +131,8 @@ internal static class Program
                 return 0;
             case "fake-codex":
                 return FakeCodex.Run(args);
+            case "processador-da-fila":
+                return await ProcessadorDaFilaDoProbe.RunAsync(args);
             default:
                 return 2;
         }
