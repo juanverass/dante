@@ -43,6 +43,15 @@ public sealed class ExecucaoSobPosse
         Iniciada = true;
     }
 
+    // Sessão do ledger (S…) que executa a etapa (#305), gravada sob posse antes do turno. Posse perdida lança
+    // PosseDoTrabalhoPerdidaException e nada é gravado.
+    public async Task VincularSessaoAsync(long numeroDaSessao, CancellationToken cancellationToken)
+    {
+        await using var escopo = escopos.CreateAsyncScope();
+        await escopo.ServiceProvider.GetRequiredService<IFilaDeExecucoesAppService>()
+            .VincularSessaoAsync(posse, Alvo.IdEtapa, numeroDaSessao, cancellationToken);
+    }
+
     // Grava o resultado e encerra o trabalho numa transação, antes de qualquer efeito seguinte (entrega da resposta).
     // O heartbeat para antes: renovar a linha travada pela gravação só a atrasaria.
     public async Task ConcluirAsync(ResultadoDaEtapaDto resultado, CancellationToken cancellationToken)

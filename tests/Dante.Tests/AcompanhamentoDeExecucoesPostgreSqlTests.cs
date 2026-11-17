@@ -381,6 +381,69 @@ public sealed class AcompanhamentoDeExecucoesPostgreSqlTests(Xunit.Abstractions.
         Assert.False(await AppAsync(provider, app => app.ConfirmarRetomadaAsync(job.Numero)));
     }
 
+    // Vínculo etapa → sessão (#305): gravado sob posse e exibido pelo detalhe como o código S… real. Sessão de outro
+    // dono ou inexistente é recusada sem gravar nada.
+    [PostgreSqlFact]
+    public async Task SessaoDaEtapaGravadaSobPosseEExibidaNoDetalhe()
+    {
+        await using var banco = await FilaAsync();
+        await using var provider = Provider(banco.ConnectionString);
+        var versao = await VersaoAsync(provider);
+        var (execucao, etapa) = await TarefaAsync(provider, versao, "telegram:1:1");
+        var trabalho = (await ReivindicarAsync(provider, Processador()))!;
+        var sessao = await SessaoDoLedgerAsync(provider, Dono);
+        var alheia = await SessaoDoLedgerAsync(provider, Outro);
+
+        // Antes do início, a etapa não recebe sessão.
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            AppAsync(provider, app => app.VincularSessaoAsync(trabalho.Posse, etapa.Id, sessao)));
+        await AppAsync(provider, app => app.IniciarEtapaAsync(trabalho.Posse, etapa.Id));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            AppAsync(provider, app => app.VincularSessaoAsync(trabalho.Posse, etapa.Id, alheia)));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            AppAsync(provider, app => app.VincularSessaoAsync(trabalho.Posse, etapa.Id, sessao + 1000)));
+        Assert.Null((await ExecucaoAsync(provider, execucao.Numero)).Etapas[0].IdSessaoDeAgente);
+
+        await AppAsync(provider, app => app.VincularSessaoAsync(trabalho.Posse, etapa.Id, sessao));
+        Assert.Equal(EstadoDoTrabalho.Reivindicado, (await TrabalhoAsync(provider, "telegram:1:1")).Estado);
+        Assert.Equal(EstadoDaEtapa.Concluida, await AppAsync(provider, app =>
+            app.ConcluirEtapaAsync(trabalho.Posse, etapa.Id, new ResultadoDaEtapaDto(EstadoDaEtapa.Concluida, 0))));
+
+        // O vínculo sobrevive à conclusão e chega ao detalhe do dono como o código S… da sessão.
+        await using var escopo = provider.CreateAsyncScope();
+        var detalhe = await escopo.ServiceProvider.GetRequiredService<IAcompanhamentoDeExecucoesAppService>()
+            .ObterAsync(new ProprietarioDaExecucao("telegram", Dono), execucao.Codigo);
+        Assert.Equal($"S{sessao:D6}", Assert.Single(detalhe!.Etapas).Sessao);
+    }
+
+    // Fencing do vínculo: o processo cujo lease venceu não grava a sessão; quem reivindicou depois não herda nada dela.
+    [PostgreSqlFact]
+    public async Task PosseAntigaNaoVinculaSessao()
+    {
+        await using var banco = await FilaAsync();
+        var relogio = new RelogioManual(DateTimeOffset.UtcNow);
+        await using var provider = Provider(banco.ConnectionString, relogio);
+        var versao = await VersaoAsync(provider);
+        var (execucao, etapa) = await TarefaAsync(provider, versao, "telegram:1:1");
+        var antigo = (await ReivindicarAsync(provider, Processador("a"), LeaseCurto))!;
+        await AppAsync(provider, app => app.IniciarEtapaAsync(antigo.Posse, etapa.Id));
+        var sessao = await SessaoDoLedgerAsync(provider, Dono);
+
+        // Lease vencido, ainda sem nova reivindicação: já recusado.
+        relogio.Avancar(LeaseCurto + TimeSpan.FromSeconds(1));
+        await Assert.ThrowsAsync<PosseDoTrabalhoPerdidaException>(() =>
+            AppAsync(provider, app => app.VincularSessaoAsync(antigo.Posse, etapa.Id, sessao)));
+        // Nova geração reivindicada: a posse antiga continua recusada.
+        var novo = (await ReivindicarAsync(provider, Processador("b"), LeaseCurto))!;
+        Assert.Equal(antigo.Geracao + 1, novo.Geracao);
+        await Assert.ThrowsAsync<PosseDoTrabalhoPerdidaException>(() =>
+            AppAsync(provider, app => app.VincularSessaoAsync(antigo.Posse, etapa.Id, sessao)));
+
+        var lida = await ExecucaoAsync(provider, execucao.Numero);
+        Assert.Null(lida.Etapas[0].IdSessaoDeAgente);
+        Assert.Equal((EstadoDaExecucao.EmExecucao, EstadoDaEtapa.EmExecucao), (lida.Estado, lida.Etapas[0].Estado));
+    }
+
     // ---- apoio ----
 
     private static async Task<CancelamentoDeExecucaoDto> CancelarAsync(IServiceProvider provider, long usuario, string codigo,
@@ -401,6 +464,17 @@ public sealed class AcompanhamentoDeExecucoesPostgreSqlTests(Xunit.Abstractions.
         })).ToArray();
         largada.Set();
         return await Task.WhenAll(tarefas);
+    }
+
+    private static async Task<long> SessaoDoLedgerAsync(IServiceProvider provider, long dono)
+    {
+        await using var escopo = provider.CreateAsyncScope();
+        var ledger = escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>();
+        var numero = await ledger.ReservarNumeroDeSessaoAsync();
+        await ledger.RegistrarSessaoCriadaAsync(new SessaoRegistradaDto(numero, AgentKind.Claude, "telegram", dono,
+            Dante.Application.Contextos.JobExecutionContext.General("/g"), AgentPermissionProfile.Plan, null, null,
+            DateTimeOffset.UtcNow));
+        return numero;
     }
 
     private static async Task<Guid> VersaoAsync(IServiceProvider provider)

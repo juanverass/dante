@@ -218,6 +218,9 @@ public sealed partial class TelegramPollingService
             {
                 try
                 {
+                    // A etapa aponta para a sessão que a executa (#305), sob posse e antes do turno: posse perdida lança
+                    // aqui, nada é enviado ao agente e a sessão é encerrada abaixo.
+                    await VincularSessaoAsync(codigo, controle, userId, sessao.Id, cancellationToken);
                     var envio = await sessions.SubmitReservedAsync(userId, sessao.Id, new AgentInput(plano.Pedido, []),
                         cancellationToken);
                     if (envio.Outcome == SubmitOutcome.Rejected)
@@ -270,6 +273,28 @@ public sealed partial class TelegramPollingService
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             logger.LogWarning("Falha ao informar o resultado da tarefa {Execucao} ({ErrorType}).", codigo,
+                exception.GetType().Name);
+        }
+    }
+
+    // Vínculo etapa → sessão (#305). Posse perdida e cancelamento propagam. Sem espelho no ledger (número do contador
+    // local) ou com a gravação do espelho falhada, a tarefa segue sem o vínculo: o S… é informativo, e a posse decide.
+    private async Task VincularSessaoAsync(string codigo, ExecucaoSobPosse controle, long userId, string idSessao,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (await sessions!.LedgerNumberWrittenAsync(userId, idSessao, cancellationToken) is not { } numero)
+            {
+                logger.LogWarning("Sessão {SessionId} da tarefa {Execucao} sem registro no ledger; etapa sem vínculo.",
+                    idSessao, codigo);
+                return;
+            }
+            await controle.VincularSessaoAsync(numero, cancellationToken);
+        }
+        catch (InvalidOperationException exception) when (exception is not PosseDoTrabalhoPerdidaException)
+        {
+            logger.LogWarning("Sessão {SessionId} não vinculada à tarefa {Execucao} ({ErrorType}).", idSessao, codigo,
                 exception.GetType().Name);
         }
     }

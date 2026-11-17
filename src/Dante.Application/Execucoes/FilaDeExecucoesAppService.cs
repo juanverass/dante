@@ -14,7 +14,8 @@ public sealed class FilaDeExecucoesAppService(
     IEtapaDaExecucaoRepository etapas,
     IDependenciaDeEtapaRepository dependencias,
     IEventoDeOrquestracaoRepository eventos,
-    IUnitOfWorkDaOrquestracao unidade) : IFilaDeExecucoesAppService
+    IUnitOfWorkDaOrquestracao unidade,
+    ISessaoDeAgenteRepository sessoes) : IFilaDeExecucoesAppService
 {
     public const string MotivoDeResultadoIncerto =
         "Resultado incerto: a etapa foi interrompida durante uma ação externa e não é repetida automaticamente. " +
@@ -118,6 +119,22 @@ public sealed class FilaDeExecucoesAppService(
             // um pedido concorrente ou já está visível aqui ou só é gravado depois do início.
             if (await PedidoAsync(execucao.Id, token) is not null) throw new CancelamentoSolicitadoException();
             await IniciarAsync(execucao, etapa, fila.Agora, token);
+            await unidade.SalvarAlteracoesAsync(token);
+        }, null, cancellationToken: cancellationToken);
+
+    public Task VincularSessaoAsync(PosseDoTrabalho posse, Guid idEtapa, long numeroDaSessao,
+        CancellationToken cancellationToken = default) =>
+        fila.GravarComPosseAsync(posse, async token =>
+        {
+            var (execucao, etapa) = await CarregarAsync(idEtapa, token);
+            if (etapa.Estado != EstadoDaEtapa.EmExecucao)
+                throw new InvalidOperationException("Só uma etapa em execução recebe a sessão que a executa.");
+            var sessao = await sessoes.ObterPorNumeroAsync(numeroDaSessao, token) ??
+                throw new InvalidOperationException("Sessão não registrada no ledger.");
+            // A sessão da etapa é do dono da execução, no mesmo canal; nunca a de outro usuário.
+            if (sessao.Canal != execucao.Canal || sessao.IdDoDono != execucao.IdDoUsuarioNoCanal)
+                throw new InvalidOperationException("A sessão não pertence ao dono da execução.");
+            etapa.VincularSessao(sessao, null);
             await unidade.SalvarAlteracoesAsync(token);
         }, null, cancellationToken: cancellationToken);
 

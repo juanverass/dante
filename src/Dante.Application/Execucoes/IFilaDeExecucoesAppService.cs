@@ -29,6 +29,12 @@ public interface IFilaDeExecucoesAppService
     // Etapa e execução para EmExecucao (CAS por posse), antes de iniciar o processo. O trabalho continua reivindicado.
     Task IniciarEtapaAsync(PosseDoTrabalho posse, Guid idEtapa, CancellationToken cancellationToken = default);
 
+    // Sessão do ledger (S…) que executa a etapa em curso (#305), gravada sob posse depois de a sessão reservada ser
+    // aberta e antes de o turno ser enviado. O trabalho continua reivindicado. Posse perdida: nada é gravado.
+    // Etapa fora de EmExecucao, sessão inexistente ou de outro dono: InvalidOperationException, nada é gravado.
+    Task VincularSessaoAsync(PosseDoTrabalho posse, Guid idEtapa, long numeroDaSessao,
+        CancellationToken cancellationToken = default);
+
     // Resultado da etapa, transição da execução, eventos, próximo trabalho (se houver próxima etapa) e fim do trabalho
     // atual numa única transação, antes de qualquer efeito seguinte (entrega da resposta). Com pedido de cancelamento
     // do dono registrado (#305), grava Cancelada no lugar do resultado. Devolve o estado final gravado da etapa.

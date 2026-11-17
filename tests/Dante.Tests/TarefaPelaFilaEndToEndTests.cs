@@ -217,9 +217,20 @@ public sealed class TarefaPelaFilaEndToEndTests
         var detalhe = await a.Send($"/execucao {codigo}", 4);
         Assert.Contains("Contexto: @first", detalhe);
         Assert.Contains("Pedido: leia o README", detalhe);
-        // A etapa da Tarefa ainda não registra o vínculo com a sessão reservada no ledger (o espelho da sessão é
-        // best-effort); quando houver, o detalhe mostra "sessão S…".
-        Assert.Contains("1. em execução · tentativa 1 · claude opus · leitura", detalhe);
+        // A etapa aponta para a sessão reservada que a executa: o S… exibido é o da sessão real no ledger, do dono,
+        // vinculada sob posse antes do turno.
+        var sessao = Regex.Match(detalhe, @"1\. em execução · tentativa 1 · claude opus · leitura · sessão (S\d{6})");
+        Assert.True(sessao.Success, detalhe);
+        var emCurso = await ExecucaoAsync(a.Provider, numero);
+        await using (var escopo = a.Provider.CreateAsyncScope())
+        {
+            var registrada = await escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>()
+                .ObterSessaoAsync(long.Parse(sessao.Groups[1].Value[1..]));
+            Assert.NotNull(registrada);
+            Assert.Equal((sessao.Groups[1].Value, "telegram", 123L, emCurso.Etapas[0].IdSessaoDeAgente),
+                (registrada!.Codigo, registrada.Canal, registrada.IdDoDono, (Guid?)registrada.Id));
+            Assert.Equal(AgentPermissionProfile.Plan, registrada.Perfil);
+        }
         Assert.Contains($"Cancelar: /cancel {codigo} [motivo]", detalhe);
         Assert.DoesNotContain(a.Primeiro, detalhe);
         Assert.Equal("Nenhuma execução aguardando.", await a.Send("/aguardando", 5));
@@ -240,6 +251,8 @@ public sealed class TarefaPelaFilaEndToEndTests
         Assert.Equal($"{codigo} já está encerrada (cancelada).", await a.Send($"/cancel {codigo}", 8));
         Assert.Single(a.Drivers.Created);
         Assert.Contains($"{codigo} · tarefa · dev v1 · cancelada", await a.Send("/execucoes", 9));
+        // O vínculo sobrevive ao cancelamento, e o encerramento da sessão segue normal.
+        Assert.Contains($"sessão {sessao.Groups[1].Value}", await a.Send($"/execucao {codigo}", 10));
     }
 
     [PostgreSqlFact]
