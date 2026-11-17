@@ -1,3 +1,4 @@
+using Dante.Application.SegurancaDoBrain;
 using Dante.Application.Execucoes;
 using Dante.Domain.Execucoes;
 
@@ -61,14 +62,44 @@ public sealed class AcompanhamentoDeExecucoesTests
     }
 
     [Fact]
+    public void MotivoComCredencialCortadaPeloLimiteNaoGuardaFragmento()
+    {
+        // A credencial começa antes do limite e termina depois: cortado primeiro, o pedaço "ghp_" + 16 caracteres não
+        // casaria com o padrão (exige 20+) e seria guardado. Protegido o texto integral, nenhum fragmento sobra.
+        const string credencial = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        var prefixo = new string('m', 179) + " ";
+        Assert.True(prefixo.Length < PedidoDeCancelamento.TamanhoMaximoDoMotivo);
+        Assert.True(prefixo.Length + credencial.Length > PedidoDeCancelamento.TamanhoMaximoDoMotivo);
+        Assert.False(ProtecaoDeSegredos.ContemSegredo(
+            (prefixo + credencial)[..PedidoDeCancelamento.TamanhoMaximoDoMotivo]));
+
+        var seguro = PedidoDeCancelamento.MotivoSeguro(prefixo + credencial + " depois do corte");
+
+        Assert.Equal("[conteúdo protegido]", seguro);
+        Assert.DoesNotContain("ghp_", seguro);
+        Assert.DoesNotContain("ABCDEFGH", seguro);
+    }
+
+    [Fact]
+    public void TextoProtegidoTambemRespeitaOTamanho()
+    {
+        var protegido = AcompanhamentoDeExecucoesAppService.Seguro("senha=abcd1234 " + new string('z', 300), 12);
+        Assert.Equal("[conteúdo p…", protegido);
+        Assert.Equal(12, protegido!.Length);
+        Assert.Equal("[conteúdo protegido]", AcompanhamentoDeExecucoesAppService.Seguro("senha=abcd1234", 200));
+    }
+
+    [Fact]
     public void TextoExibidoESeguroInteiroAntesDoCorte()
     {
         Assert.Null(AcompanhamentoDeExecucoesAppService.Seguro(null, 10));
         Assert.Equal("a b", AcompanhamentoDeExecucoesAppService.Seguro("a\r\nb", 10));
         Assert.Equal("aaaaaaaaa…", AcompanhamentoDeExecucoesAppService.Seguro(new string('a', 50), 10));
-        // O segredo está depois do ponto de corte: o texto inteiro é protegido, não só a parte exibida.
-        Assert.Equal("[conteúdo protegido]",
-            AcompanhamentoDeExecucoesAppService.Seguro(new string('x', 20) + " ghp_abcdefghijklmnopqrstuvwxyz0123", 10));
+        // O segredo está depois do ponto de corte: o texto inteiro é protegido, não só a parte exibida; o texto
+        // protegido também respeita o tamanho pedido.
+        var protegido = AcompanhamentoDeExecucoesAppService.Seguro(new string('x', 20) + " ghp_abcdefghijklmnopqrstuvwxyz0123", 10);
+        Assert.Equal("[conteúdo…", protegido);
+        Assert.DoesNotContain("x", protegido);
     }
 
     [Fact]

@@ -4,7 +4,8 @@ using Dante.Application.SegurancaDoBrain;
 namespace Dante.Application.Execucoes;
 
 // Dados do evento CancelamentoSolicitado (#305): autor (canal:usuário) e motivo, nunca outro conteúdo. O motivo vem
-// de quem pede: é cortado, vira uma linha e é substituído quando parece segredo.
+// de quem pede: o texto integral é inspecionado e substituído quando parece segredo, e só então vira uma linha e é
+// cortado. Cortar antes poderia partir uma credencial e deixar o pedaço que sobra irreconhecível pelo padrão.
 internal static class PedidoDeCancelamento
 {
     public const int TamanhoMaximoDoMotivo = 200;
@@ -12,9 +13,9 @@ internal static class PedidoDeCancelamento
     public static string? MotivoSeguro(string? motivo)
     {
         if (string.IsNullOrWhiteSpace(motivo)) return null;
-        var linha = string.Join(' ', motivo.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        if (linha.Length > TamanhoMaximoDoMotivo) linha = linha[..TamanhoMaximoDoMotivo];
-        return ProtecaoDeSegredos.Redigir(linha);
+        var redigido = ProtecaoDeSegredos.Redigir(motivo)!;
+        var linha = string.Join(' ', redigido.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return linha.Length > TamanhoMaximoDoMotivo ? linha[..TamanhoMaximoDoMotivo] : linha;
     }
 
     public static string Dados(ProprietarioDaExecucao autor, string? motivoSeguro) =>

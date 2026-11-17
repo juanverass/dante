@@ -169,13 +169,15 @@ public sealed class AcompanhamentoDeExecucoesAppService(
         return agente is null ? null : $"{agente.Handle} v{versao!.Numero}";
     }
 
-    // Texto vindo de fora (erro de processo, motivo, pedido do usuário): uma linha, cortado e trocado quando parece
-    // segredo. A proteção vale para o texto inteiro antes do corte, para um segredo não escapar pela metade.
+    // Texto vindo de fora (erro de processo, motivo, pedido do usuário): trocado quando parece segredo, depois uma
+    // linha e cortado. A proteção vale para o texto inteiro antes do corte, para um segredo não escapar pela metade; o
+    // corte vale também para o texto já protegido, que nunca passa do tamanho pedido.
     internal static string? Seguro(string? texto, int tamanhoMaximo)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(tamanhoMaximo, 2);
         if (string.IsNullOrWhiteSpace(texto)) return null;
-        if (ProtecaoDeSegredos.ContemSegredo(texto)) return ProtecaoDeSegredos.Redigir(texto);
-        var linha = string.Join(' ', texto.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        var redigido = ProtecaoDeSegredos.Redigir(texto)!;
+        var linha = string.Join(' ', redigido.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         return linha.Length <= tamanhoMaximo ? linha : linha[..(tamanhoMaximo - 1)] + "…";
     }
 

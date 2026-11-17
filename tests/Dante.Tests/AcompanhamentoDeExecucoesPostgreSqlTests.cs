@@ -444,6 +444,35 @@ public sealed class AcompanhamentoDeExecucoesPostgreSqlTests(Xunit.Abstractions.
         Assert.Equal((EstadoDaExecucao.EmExecucao, EstadoDaEtapa.EmExecucao), (lida.Estado, lida.Etapas[0].Estado));
     }
 
+    // Credencial que começa antes do limite de 200 e seria partida pelo corte (#305): nem o evento gravado nem o
+    // detalhe guardam ou mostram qualquer fragmento dela.
+    [PostgreSqlFact]
+    public async Task MotivoComCredencialCortadaNaoGuardaNemExibeFragmento()
+    {
+        await using var banco = await FilaAsync();
+        await using var provider = Provider(banco.ConnectionString);
+        var versao = await VersaoAsync(provider);
+        var (execucao, _) = await TarefaAsync(provider, versao, "telegram:1:1");
+        const string credencial = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        var motivo = new string('m', 179) + "\n" + credencial + " fim";
+
+        await CancelarAsync(provider, Dono, execucao.Codigo, motivo);
+
+        var lida = await ExecucaoAsync(provider, execucao.Numero);
+        var pedido = Assert.Single(lida.Eventos, e => e.Tipo == TipoDeEventoDeOrquestracao.CancelamentoSolicitado);
+        await using var escopo = provider.CreateAsyncScope();
+        var detalhe = (await escopo.ServiceProvider.GetRequiredService<IAcompanhamentoDeExecucoesAppService>()
+            .ObterAsync(new ProprietarioDaExecucao("telegram", Dono), execucao.Codigo))!;
+        foreach (var texto in new[] { pedido.Dados, lida.Motivo, lida.Etapas[0].Motivo, detalhe.MotivoDoCancelamento,
+                     detalhe.Motivo, detalhe.Etapas[0].Motivo })
+        {
+            Assert.DoesNotContain("ghp_", texto ?? "");
+            Assert.DoesNotContain("ABCDEFGH", texto ?? "");
+        }
+        Assert.Equal("[conteúdo protegido]", detalhe.MotivoDoCancelamento);
+        Assert.Equal("Cancelada pelo dono: [conteúdo protegido]", lida.Motivo);
+    }
+
     // ---- apoio ----
 
     private static async Task<CancelamentoDeExecucaoDto> CancelarAsync(IServiceProvider provider, long usuario, string codigo,
