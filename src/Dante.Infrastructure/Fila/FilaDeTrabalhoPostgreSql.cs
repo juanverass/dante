@@ -193,6 +193,38 @@ public sealed class FilaDeTrabalhoPostgreSql(OrquestracaoDbContext context, Time
         }, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<TrabalhoDaFila>> TravarAtivosDaExecucaoAsync(Guid idExecucao,
+        CancellationToken cancellationToken = default)
+    {
+        if (context.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Travar os trabalhos da execução exige uma transação.");
+        return await context.Set<TrabalhoDaFila>().FromSql(
+                $"SELECT *, xmin FROM orquestracao.trabalhos_da_fila WHERE id_execucao = {idExecucao} AND estado IN (0, 1) ORDER BY id FOR UPDATE")
+            .AsNoTracking().ToListAsync(cancellationToken);
+    }
+
+    public async Task<bool> DescartarPendenteAsync(Guid idTrabalho, string motivo,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(motivo);
+        if (context.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Descartar o trabalho travado exige a transação que o travou.");
+        var conexao = (NpgsqlConnection)context.Database.GetDbConnection();
+        await using var comando = Comando(conexao, $"UPDATE {Tabela} SET estado = {(int)EstadoDoTrabalho.Descartado}, " +
+            $"encerrado_em = @agora, ultimo_erro = @motivo WHERE id = @id AND estado = {Pendente}");
+        comando.Parameters.AddWithValue("id", idTrabalho);
+        comando.Parameters.AddWithValue("agora", Agora);
+        comando.Parameters.AddWithValue("motivo", Corte(motivo)!);
+        return await comando.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
+    public async Task<IReadOnlyList<TrabalhoDaFila>> ListarAtivosAsync(IReadOnlyCollection<Guid> idsExecucao,
+        CancellationToken cancellationToken = default) =>
+        idsExecucao.Count == 0 ? [] : await context.Set<TrabalhoDaFila>().AsNoTracking()
+            .Where(x => x.IdExecucao != null && idsExecucao.Contains(x.IdExecucao.Value) &&
+                        (x.Estado == EstadoDoTrabalho.Pendente || x.Estado == EstadoDoTrabalho.Reivindicado))
+            .ToListAsync(cancellationToken);
+
     // Comandos fora de transação usam a conexão do contexto e a devolvem ao pool em seguida.
     private async Task<T> ComConexaoAsync<T>(Func<NpgsqlConnection, Task<T>> acao, CancellationToken cancellationToken)
     {

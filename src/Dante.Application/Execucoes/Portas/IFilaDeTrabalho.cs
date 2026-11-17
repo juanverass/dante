@@ -56,4 +56,17 @@ public interface IFilaDeTrabalho
     // (morto: o Worker é instância única no host). A geração não muda; a próxima reivindicação a incrementa, e o boot
     // antigo, se ainda existir, perde a posse. Retorna quantos foram devolvidos.
     Task<int> DevolverDeBootsAnterioresAsync(IdentidadeDoProcessador atual, CancellationToken cancellationToken = default);
+
+    // Cancelamento pelo dono (#305), dentro de ExecutarEmTransacaoAsync: trava (FOR UPDATE, sem SKIP LOCKED) os
+    // trabalhos não terminais da execução até o fim da transação e os devolve sem rastreamento. Uma reivindicação
+    // concorrente pula as linhas travadas; uma reivindicação já confirmada aparece como Reivindicado.
+    Task<IReadOnlyList<TrabalhoDaFila>> TravarAtivosDaExecucaoAsync(Guid idExecucao,
+        CancellationToken cancellationToken = default);
+
+    // Na mesma transação que travou o trabalho: Pendente → Descartado. Falso se ele não estava mais pendente.
+    Task<bool> DescartarPendenteAsync(Guid idTrabalho, string motivo, CancellationToken cancellationToken = default);
+
+    // Leitura sem rastreamento dos trabalhos não terminais de várias execuções (#305), para classificar a espera.
+    Task<IReadOnlyList<TrabalhoDaFila>> ListarAtivosAsync(IReadOnlyCollection<Guid> idsExecucao,
+        CancellationToken cancellationToken = default);
 }

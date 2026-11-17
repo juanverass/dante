@@ -29,6 +29,10 @@ public sealed class ExecucaoSobPosse
     public bool Iniciada { get; private set; }
     public bool Concluida { get; private set; }
 
+    // Estado da etapa efetivamente gravado. Pode diferir do resultado pedido: com pedido de cancelamento do dono
+    // registrado (#305), a gravação termina Cancelada e o resultado é descartado.
+    public Dante.Domain.Execucoes.EstadoDaEtapa? EstadoFinal { get; private set; }
+
     // Etapa e execução para EmExecucao, antes de iniciar o processo.
     public async Task IniciarAsync(CancellationToken cancellationToken)
     {
@@ -46,7 +50,7 @@ public sealed class ExecucaoSobPosse
         if (Concluida) throw new InvalidOperationException("Etapa já concluída.");
         await pararHeartbeat();
         await using var escopo = escopos.CreateAsyncScope();
-        await escopo.ServiceProvider.GetRequiredService<IFilaDeExecucoesAppService>()
+        EstadoFinal = await escopo.ServiceProvider.GetRequiredService<IFilaDeExecucoesAppService>()
             .ConcluirEtapaAsync(posse, Alvo.IdEtapa, resultado, cancellationToken);
         Concluida = true;
     }

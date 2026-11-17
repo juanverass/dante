@@ -55,7 +55,7 @@ public sealed class ExecutorDeJobsDaFila(
             return new CriacaoNaFila(null, default, FilaIndisponivel);
         }
         if (await espelho.ReservarNumeroDeExecucaoAsync(jobs.LastNumber, stoppingToken) is not { } numero ||
-            jobs.CreateQueued(numero, agent, context, stoppingToken, modelSelection) is not { } criado)
+            jobs.CreateQueued(numero, agent, context, stoppingToken, modelSelection, userId) is not { } criado)
             return new CriacaoNaFila(null, default, FilaIndisponivel);
         var (job, token) = criado;
         // Antes do commit: o processador pode reivindicar assim que o trabalho existir.
@@ -133,6 +133,7 @@ public sealed class ExecutorDeJobsDaFila(
         var codigo = interrupcao.Alvo.Codigo;
         var texto = interrupcao.NovoEstado switch
         {
+            EstadoDaExecucao.Cancelada when interrupcao.PorCancelamento => $"{codigo} cancelado ({interrupcao.Motivo}).",
             EstadoDaExecucao.Cancelada =>
                 $"{codigo} não chegou a iniciar antes do reinício do Worker e foi cancelado: o pedido do job não é guardado. Reenvie se ainda precisar.",
             EstadoDaExecucao.Pendente => $"{codigo} foi interrompido e será retomado automaticamente.",

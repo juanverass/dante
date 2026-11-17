@@ -15,5 +15,8 @@ public enum TipoDeEventoDeOrquestracao
     AprovacaoSolicitada,
     EntradaSolicitada,
     SolicitacaoResolvida,
-    SolicitacaoEncerrada
+    SolicitacaoEncerrada,
+    // Pedido de cancelamento do dono (#305): append-only, com autor e motivo. É a fonte durável do pedido; quem tem a
+    // posse do trabalho o honra e grava Cancelada. Não muda estado por si.
+    CancelamentoSolicitado
 }

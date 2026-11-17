@@ -110,7 +110,8 @@ public sealed class ExecutorDeTarefasDaFila(
             logger.LogWarning("Tarefa {Execucao} recusada antes de iniciar: {Motivo}", alvo.Codigo, recusa);
             await controle.ConcluirAsync(new ResultadoDaEtapaDto(EstadoDaEtapa.Falhou, Erro: recusa), CancellationToken.None);
             entradas.TryRemove(alvo.NumeroDaExecucao, out _);
-            await AvisarAsync(alvo, $"Tarefa {alvo.Codigo} não foi iniciada: {recusa}", cancellationToken);
+            await AvisarAsync(alvo, controle.EstadoFinal == EstadoDaEtapa.Cancelada
+                ? Cancelada(alvo.Codigo, null) : $"Tarefa {alvo.Codigo} não foi iniciada: {recusa}", CancellationToken.None);
             return;
         }
         try
@@ -135,6 +136,7 @@ public sealed class ExecutorDeTarefasDaFila(
         if (interrupcao.NovoEstado != EstadoDaExecucao.Pendente) entradas.TryRemove(alvo.NumeroDaExecucao, out _);
         var texto = interrupcao.NovoEstado switch
         {
+            EstadoDaExecucao.Cancelada when interrupcao.PorCancelamento => Cancelada(alvo.Codigo, interrupcao.Motivo),
             EstadoDaExecucao.Cancelada =>
                 $"Tarefa {alvo.Codigo} não pôde continuar depois do reinício do Worker e foi cancelada: o pedido da " +
                 "tarefa não é guardado. Reenvie se ainda precisar.",
@@ -201,6 +203,10 @@ public sealed class ExecutorDeTarefasDaFila(
             logger.LogWarning("Falha ao avisar sobre a tarefa {Execucao} ({ErrorType}).", alvo.Codigo, exception.GetType().Name);
         }
     }
+
+    // Aviso do cancelamento pedido pelo dono (#305), dado uma vez, depois da transição gravada.
+    internal static string Cancelada(string codigo, string? motivo) =>
+        $"Tarefa {codigo} cancelada{(motivo is null ? "" : $" ({motivo})")}. Nenhum resultado será entregue.";
 
     private CriacaoDaTarefa Duplicada(string? codigo)
     {

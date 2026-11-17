@@ -17,12 +17,15 @@ public sealed class ProcessadorDaFila(
     MetricasDaFila metricas,
     ILogger<ProcessadorDaFila> logger,
     IOuvinteDaFila? ouvinte = null,
-    TimeProvider? relogio = null) : BackgroundService
+    TimeProvider? relogio = null,
+    CanalDeCancelamento? canal = null) : BackgroundService
 {
     // Espera mínima entre voltas: um trabalho visível mas travado por outro processador não vira busy loop.
     private static readonly TimeSpan EsperaMinima = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan EsperaMaximaAposFalha = TimeSpan.FromSeconds(30);
     private readonly TimeProvider relogio = relogio ?? TimeProvider.System;
+    // Atalho em memória do cancelamento pelo dono (#305); o pedido durável é conferido no ledger de qualquer forma.
+    private readonly CanalDeCancelamento? canal = canal ?? CanalDaComposicao(escopos);
     private readonly OpcoesDaFila opcoes = opcoes;
     private readonly MetricasDaFila metricas = metricas;
     private readonly ILogger<ProcessadorDaFila> logger = logger;
@@ -190,7 +193,8 @@ public sealed class ProcessadorDaFila(
             // Limite antes de executar ou retomar: a reivindicação já contou esta tentativa, inclusive quando recuperou
             // o lease vencido de um processo morto (SIGKILL) que nunca devolveu o trabalho. Além do limite, nenhum
             // executor é iniciado e a política da etapa decide o estado terminal.
-            if (avaliacao.Acao != AcaoDoTrabalho.Descartar && Esgotado(trabalho))
+            // Pedido de cancelamento do dono (#305) vence o limite: nada é executado nem retomado de qualquer forma.
+            if (avaliacao.Acao is not (AcaoDoTrabalho.Descartar or AcaoDoTrabalho.Cancelar) && Esgotado(trabalho))
             {
                 await EncerrarPorTentativasEsgotadasAsync(trabalho, avaliacao.Alvo!,
                     $"Tentativas esgotadas na fila ({trabalho.MaximoDeTentativas}): a tentativa anterior não terminou.");
@@ -203,6 +207,9 @@ public sealed class ProcessadorDaFila(
                         .DescartarAsync(trabalho.Posse, avaliacao.Motivo ?? "Nada a avançar.", CancellationToken.None));
                     metricas.Descartados.Add(1);
                     logger.LogInformation("Trabalho {IdTrabalho} descartado: {Motivo}", trabalho.Id, avaliacao.Motivo);
+                    break;
+                case AcaoDoTrabalho.Cancelar:
+                    await CancelarAsync(trabalho, avaliacao.Alvo!);
                     break;
                 case AcaoDoTrabalho.Interromper:
                     var interrupcao = await EmEscopoAsync(s => s.GetRequiredService<IFilaDeExecucoesAppService>()
@@ -259,9 +266,21 @@ public sealed class ProcessadorDaFila(
             return;
         }
 
+        // Cancelamento pelo dono (#305): o token desta execução é registrado antes de conferir o pedido no ledger. Um
+        // pedido gravado depois da avaliação ou chega pelo sinal (registro já feito) ou aparece nesta conferência; o
+        // heartbeat e a conclusão o conferem de novo, então o sinal nunca é o único caminho.
+        var cancelavel = alvo.Tipo != TipoDeExecucao.Avulsa;
+        using var cancelamento = new CancellationTokenSource();
+        using var registro = cancelavel ? canal?.Registrar(alvo.NumeroDaExecucao, cancelamento) : null;
+        if (cancelavel && await CancelamentoSolicitadoAsync(alvo))
+        {
+            await CancelarAsync(trabalho, alvo);
+            return;
+        }
         using var posseCancelada = new CancellationTokenSource();
-        using var execucao = CancellationTokenSource.CreateLinkedTokenSource(posseCancelada.Token, encerramento);
-        var heartbeat = new Heartbeat(this, trabalho, posseCancelada);
+        using var execucao = CancellationTokenSource.CreateLinkedTokenSource(posseCancelada.Token, encerramento,
+            cancelamento.Token);
+        var heartbeat = new Heartbeat(this, trabalho, posseCancelada, cancelavel ? alvo : null, cancelamento);
         var controle = new ExecucaoSobPosse(escopos, trabalho, alvo, posseCancelada.Token, heartbeat.PararAsync);
         string? falha = null;
         try
@@ -298,6 +317,13 @@ public sealed class ProcessadorDaFila(
                 trabalho.Id, trabalho.Geracao);
             return;
         }
+        // Sem resultado gravado e com pedido do dono (sinal local ou registrado no ledger): Cancelada sob posse, nunca
+        // de volta à fila (a retomada automática reexecutaria a etapa).
+        if (cancelavel && (cancelamento.IsCancellationRequested || await CancelamentoSolicitadoAsync(alvo)))
+        {
+            await CancelarAsync(trabalho, alvo);
+            return;
+        }
         // Falha do executor: backoff contando tentativa (esgotadas, a execução falha), mesmo que a etapa tenha iniciado,
         // para uma falha persistente não girar pela retomada automática.
         if (falha is not null && !encerramento.IsCancellationRequested)
@@ -325,6 +351,28 @@ public sealed class ProcessadorDaFila(
             trabalho.Id, trabalho.Tentativas, trabalho.MaximoDeTentativas, alvo.Codigo, alvo.NumeroDaEtapa,
             alvo.PoliticaDeRetomada, encerrada.NovoEstado);
         await AvisarAsync(alvo, encerrada);
+    }
+
+    // Pedido do dono honrado por quem tem a posse (#305). O aviso sai só depois da transição gravada, e só se esta
+    // gravação a fez: repetição e reavaliação não avisam de novo.
+    private async Task CancelarAsync(TrabalhoReivindicado trabalho, AlvoDoTrabalhoDto alvo)
+    {
+        var cancelada = await EmEscopoAsync(s => s.GetRequiredService<IFilaDeExecucoesAppService>()
+            .CancelarSolicitadaAsync(trabalho.Posse, alvo, CancellationToken.None));
+        metricas.Cancelados.Add(1);
+        logger.LogInformation("Execução {Execucao} (etapa {Etapa}) cancelada a pedido do dono pelo trabalho {IdTrabalho} (geração {Geracao}); estado {NovoEstado}.",
+            alvo.Codigo, alvo.NumeroDaEtapa, trabalho.Id, trabalho.Geracao, cancelada.NovoEstado);
+        if (cancelada.PorCancelamento) await AvisarAsync(alvo, cancelada);
+    }
+
+    private async Task<bool> CancelamentoSolicitadoAsync(AlvoDoTrabalhoDto alvo) =>
+        await EmEscopoAsync(s => s.GetRequiredService<IFilaDeExecucoesAppService>()
+            .CancelamentoSolicitadoAsync(alvo.IdExecucao, CancellationToken.None));
+
+    private static CanalDeCancelamento? CanalDaComposicao(IServiceScopeFactory escopos)
+    {
+        using var escopo = escopos.CreateScope();
+        return escopo.ServiceProvider.GetService<CanalDeCancelamento>();
     }
 
     private const string MotivoSemExecutorLocal =
@@ -411,15 +459,22 @@ public sealed class ProcessadorDaFila(
     {
         private readonly CancellationTokenSource parar = new();
         private readonly CancellationTokenSource perdida;
+        private readonly AlvoDoTrabalhoDto? cancelavel;
+        private readonly CancellationTokenSource? cancelamento;
         private readonly ProcessadorDaFila processador;
         private readonly Task laco;
         private readonly CancellationTokenRegistration aviso;
         private int parado;
 
-        internal Heartbeat(ProcessadorDaFila processador, TrabalhoReivindicado trabalho, CancellationTokenSource perdida)
+        // cancelavel: a execução cujo pedido de cancelamento do dono é conferido a cada renovação (#305), para que um
+        // pedido gravado por outro processo, ou um sinal perdido, encerre a etapa em até um heartbeat.
+        internal Heartbeat(ProcessadorDaFila processador, TrabalhoReivindicado trabalho, CancellationTokenSource perdida,
+            AlvoDoTrabalhoDto? cancelavel = null, CancellationTokenSource? cancelamento = null)
         {
             this.processador = processador;
             this.perdida = perdida;
+            this.cancelavel = cancelavel;
+            this.cancelamento = cancelamento;
             aviso = perdida.Token.Register(() =>
             {
                 if (Volatile.Read(ref parado) == 1) return;
@@ -475,6 +530,29 @@ public sealed class ProcessadorDaFila(
             }
         }
 
+        private async Task ConferirCancelamentoAsync()
+        {
+            if (cancelavel is null || cancelamento is null || cancelamento.IsCancellationRequested) return;
+            try
+            {
+                if (await processador.EmEscopoAsync(s => s.GetRequiredService<IFilaDeExecucoesAppService>()
+                        .CancelamentoSolicitadoAsync(cancelavel.IdExecucao, parar.Token)))
+                    await cancelamento.CancelAsync();
+            }
+            catch (OperationCanceledException) when (parar.IsCancellationRequested)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            catch (Exception exception)
+            {
+                // Só atrasa: a conclusão confere o pedido de novo, sob posse.
+                processador.logger.LogWarning("Conferência do cancelamento de {Execucao} falhou ({ErrorType}).",
+                    cancelavel.Codigo, exception.GetType().Name);
+            }
+        }
+
         private async Task RenovarAsync(TrabalhoReivindicado trabalho)
         {
             var opcoes = processador.opcoes;
@@ -517,7 +595,11 @@ public sealed class ProcessadorDaFila(
                             trabalho.Id, exception.GetType().Name, leaseAte);
                     }
                 }
-                if (renovado && !perdida.IsCancellationRequested) continue;
+                if (renovado && !perdida.IsCancellationRequested)
+                {
+                    await ConferirCancelamentoAsync();
+                    continue;
+                }
                 if (parar.IsCancellationRequested) return;
                 await perdida.CancelAsync();
                 return;

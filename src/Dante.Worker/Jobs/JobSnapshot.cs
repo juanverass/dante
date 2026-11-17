@@ -14,4 +14,5 @@ public sealed record JobSnapshot(
     int? ExitCode,
     string? ErrorMessage,
     JobExecutionContext Context,
-    AgentModelSelection? ModelSelection = null);
+    AgentModelSelection? ModelSelection = null,
+    long? OwnerId = null);

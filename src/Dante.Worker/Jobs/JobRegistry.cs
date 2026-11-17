@@ -8,7 +8,9 @@ namespace Dante.Worker.Jobs;
 
 // Runtime of one-shot jobs (AD-06). With the execution ledger enabled (AD-66), each job is also mirrored as an
 // Avulsa execution: the J… number comes from the database sequence and never repeats after a restart. The registry
-// stays the source of the live state; the mirror never blocks or fails a job.
+// stays the source of the live state; the mirror never blocks or fails a job. Each job records the user who asked
+// for it: listing and cancelling on behalf of a user only reach that user's jobs (#305); a job of someone else
+// answers exactly as one that does not exist.
 public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
 {
     private const int RecentCompletedLimit = 20;
@@ -18,8 +20,8 @@ public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
 
     // The model is fixed when the job is created (#77); null keeps the CLI default. Never mirrored: local counter.
     public (JobSnapshot Snapshot, CancellationToken Token) Create(string agent, JobExecutionContext context,
-        CancellationToken stoppingToken, AgentModelSelection? modelSelection = null) =>
-        Add(agent, context, stoppingToken, modelSelection, null, null);
+        CancellationToken stoppingToken, AgentModelSelection? modelSelection = null, long? ownerId = null) =>
+        Add(agent, context, stoppingToken, modelSelection, null, null, ownerId);
 
     // Same as Create, for the user who asked; with the ledger, reserves the number in the database first. A database
     // that does not answer keeps the legacy behavior: local counter, no mirror.
@@ -30,7 +32,7 @@ public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
         long used;
         lock (gate) used = lastNumber;
         var reserved = ledger is null ? null : await ledger.ReservarNumeroDeExecucaoAsync(used, stoppingToken);
-        return Add(agent, context, stoppingToken, modelSelection, reserved, userId);
+        return Add(agent, context, stoppingToken, modelSelection, reserved, userId, userId);
     }
 
     // Highest J… number used by this process (local counter or reservation).
@@ -43,21 +45,22 @@ public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
     // transaction as its work item, so it is never mirrored here. Null when the number is not above the ones already
     // used (a stale reservation would repeat an id).
     public (JobSnapshot Snapshot, CancellationToken Token)? CreateQueued(long number, string agent,
-        JobExecutionContext context, CancellationToken stoppingToken, AgentModelSelection? modelSelection = null)
+        JobExecutionContext context, CancellationToken stoppingToken, AgentModelSelection? modelSelection = null,
+        long? ownerId = null)
     {
         lock (gate)
         {
             if (number <= lastNumber) return null;
             lastNumber = number;
             var job = new Job(number, $"J{number:D6}", agent, context,
-                CancellationTokenSource.CreateLinkedTokenSource(stoppingToken), modelSelection);
+                CancellationTokenSource.CreateLinkedTokenSource(stoppingToken), modelSelection) { OwnerId = ownerId };
             jobs.Add(job.Id, job);
             return (Snapshot(job), job.Cancellation.Token);
         }
     }
 
     private (JobSnapshot Snapshot, CancellationToken Token) Add(string agent, JobExecutionContext context,
-        CancellationToken stoppingToken, AgentModelSelection? modelSelection, long? reserved, long? userId)
+        CancellationToken stoppingToken, AgentModelSelection? modelSelection, long? reserved, long? userId, long? ownerId)
     {
         lock (gate)
         {
@@ -69,7 +72,11 @@ public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
             var number = mirrored ? reserved!.Value : lastNumber + 1;
             lastNumber = number;
             var job = new Job(number, $"J{number:D6}", agent, context,
-                CancellationTokenSource.CreateLinkedTokenSource(stoppingToken), modelSelection) { Mirrored = mirrored };
+                CancellationTokenSource.CreateLinkedTokenSource(stoppingToken), modelSelection)
+            {
+                Mirrored = mirrored,
+                OwnerId = ownerId
+            };
             jobs.Add(job.Id, job);
             if (mirrored)
             {
@@ -103,11 +110,18 @@ public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
         }
     }
 
-    public bool TryCancel(string id, out JobSnapshot? snapshot)
+    // Cancellation by the system (lost queue ownership, shutdown paths): no owner check.
+    public bool TryCancel(string id, out JobSnapshot? snapshot) => TryCancel(id, null, out snapshot);
+
+    // Cancellation asked by a user: a job of someone else (or without a recorded owner) is "not found".
+    public bool TryCancel(string id, long ownerId, out JobSnapshot? snapshot) => TryCancel(id, (long?)ownerId, out snapshot);
+
+    private bool TryCancel(string id, long? ownerId, out JobSnapshot? snapshot)
     {
         lock (gate)
         {
-            if (!jobs.TryGetValue(id, out var job) || job.Status is not (JobStatus.Queued or JobStatus.Running))
+            if (!jobs.TryGetValue(id, out var job) || (ownerId is { } owner && job.OwnerId != owner) ||
+                job.Status is not (JobStatus.Queued or JobStatus.Running))
             {
                 snapshot = null;
                 return false;
@@ -152,11 +166,17 @@ public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
         }
     }
 
-    public IReadOnlyList<JobSnapshot> GetVisible()
+    public IReadOnlyList<JobSnapshot> GetVisible() => Visible(null);
+
+    // Only the jobs the user asked for (#305).
+    public IReadOnlyList<JobSnapshot> GetVisible(long ownerId) => Visible(ownerId);
+
+    private IReadOnlyList<JobSnapshot> Visible(long? ownerId)
     {
         lock (gate)
         {
             return jobs.Values
+                .Where(job => ownerId is not { } owner || job.OwnerId == owner)
                 .OrderByDescending(job => job.CreatedAtUtc)
                 .ThenByDescending(job => job.Id, StringComparer.Ordinal)
                 .Select(Snapshot)
@@ -179,7 +199,7 @@ public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
 
     private static JobSnapshot Snapshot(Job job) => new(job.Id, job.Agent, job.Status,
         job.CreatedAtUtc, job.StartedAtUtc, job.FinishedAtUtc,
-        job.CancellationRequested, job.ExitCode, job.ErrorMessage, job.Context, job.ModelSelection);
+        job.CancellationRequested, job.ExitCode, job.ErrorMessage, job.Context, job.ModelSelection, job.OwnerId);
 
     private sealed class Job(long number, string id, string agent, JobExecutionContext context,
         CancellationTokenSource cancellation, AgentModelSelection? modelSelection)
@@ -187,6 +207,7 @@ public sealed class JobRegistry(EspelhoDoLedger? ledger = null)
         public long Number { get; } = number;
         public string Id { get; } = id;
         public bool Mirrored { get; init; }
+        public long? OwnerId { get; init; }
         public string Agent { get; } = agent;
         public JobExecutionContext Context { get; } = context;
         public CancellationTokenSource Cancellation { get; } = cancellation;

@@ -240,6 +240,21 @@ public sealed partial class TelegramPollingService
         }
         // Gravado antes de qualquer resposta; posse perdida lança e nada é entregue (AD-67).
         await controle.ConcluirAsync(resultado, CancellationToken.None);
+        // O dono pediu cancelamento antes da conclusão (#305): a gravação descartou o resultado; um único aviso, e a
+        // saída do agente não é entregue.
+        if (controle.EstadoFinal == EstadoDaEtapa.Cancelada && resultado.EstadoFinal != EstadoDaEtapa.Cancelada)
+        {
+            try
+            {
+                await botApi.SendMessageAsync(chatId, ExecutorDeTarefasDaFila.Cancelada(codigo, null), CancellationToken.None);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                logger.LogWarning("Falha ao avisar o cancelamento da tarefa {Execucao} ({ErrorType}).", codigo,
+                    exception.GetType().Name);
+            }
+            return;
+        }
         var cabecalho = $"Tarefa {codigo} ({plano.Handle} v{plano.Versao.Numero}, {plano.Contexto.Descricao})";
         var resposta = resultado.EstadoFinal == EstadoDaEtapa.Concluida
             ? ambiente?.HasSecrets == true

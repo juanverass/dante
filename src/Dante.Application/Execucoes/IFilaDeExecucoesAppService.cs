@@ -30,9 +30,20 @@ public interface IFilaDeExecucoesAppService
     Task IniciarEtapaAsync(PosseDoTrabalho posse, Guid idEtapa, CancellationToken cancellationToken = default);
 
     // Resultado da etapa, transição da execução, eventos, próximo trabalho (se houver próxima etapa) e fim do trabalho
-    // atual numa única transação, antes de qualquer efeito seguinte (entrega da resposta).
-    Task ConcluirEtapaAsync(PosseDoTrabalho posse, Guid idEtapa, ResultadoDaEtapaDto resultado,
+    // atual numa única transação, antes de qualquer efeito seguinte (entrega da resposta). Com pedido de cancelamento
+    // do dono registrado (#305), grava Cancelada no lugar do resultado. Devolve o estado final gravado da etapa.
+    // Também IniciarEtapaAsync confere o pedido: com ele registrado, lança CancelamentoSolicitadoException sem gravar.
+    Task<Dante.Domain.Execucoes.EstadoDaEtapa> ConcluirEtapaAsync(PosseDoTrabalho posse, Guid idEtapa,
+        ResultadoDaEtapaDto resultado, CancellationToken cancellationToken = default);
+
+    // Pedido de cancelamento do dono (#305) honrado por quem tem a posse: etapa não terminal e execução Cancelada com o
+    // motivo do pedido, trabalho Descartado, numa transação sob posse. Execução já terminal: só o trabalho termina, e o
+    // resultado volta com PorCancelamento=false (nenhuma transição gravada, nenhum aviso a dar).
+    Task<ExecucaoInterrompidaDto> CancelarSolicitadaAsync(PosseDoTrabalho posse, AlvoDoTrabalhoDto alvo,
         CancellationToken cancellationToken = default);
+
+    // Leitura: há pedido de cancelamento registrado para a execução? Conferida no heartbeat de quem tem a posse.
+    Task<bool> CancelamentoSolicitadoAsync(Guid idExecucao, CancellationToken cancellationToken = default);
 
     // A tentativa anterior estava em execução quando a posse se perdeu: etapa e execução interrompidas, e a política
     // da etapa decide. Automatica: nova tentativa enfileirada; ComConfirmacao: fica Interrompida até
@@ -58,6 +69,6 @@ public interface IFilaDeExecucoesAppService
 
     // Confirmação explícita de retomada de uma execução Interrompida ou Bloqueada: nova tentativa da etapa interrompida
     // e novo trabalho, com chave de deduplicação por tentativa (confirmar duas vezes não executa duas vezes).
-    // Falso quando a execução não existe ou não está esperando confirmação.
+    // Falso quando a execução não existe, não está esperando confirmação ou tem pedido de cancelamento (#305).
     Task<bool> ConfirmarRetomadaAsync(long numero, CancellationToken cancellationToken = default);
 }
