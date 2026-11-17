@@ -42,7 +42,7 @@ public sealed partial class TelegramPollingService(
     TelegramPlanilhas? planilhas = null,
     ILeitorDeCheckouts? checkouts = null,
     ExecutorDeJobsDaFila? filaDeJobs = null, TelegramAgentes? agentes = null,
-    ExecutorDeTarefasDaFila? filaDeTarefas = null) : BackgroundService
+    ExecutorDeTarefasDaFila? filaDeTarefas = null, TelegramExecucoes? execucoes = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private static readonly TimeSpan PollRetryDelay = TimeSpan.FromSeconds(3);
@@ -303,6 +303,22 @@ public sealed partial class TelegramPollingService(
             return;
         }
 
+        // Execution tracking (#305): the adapter only parses, calls the application use cases and formats.
+        if (string.Equals(command, "/execucoes", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(command, "/execucao", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(command, "/aguardando", StringComparison.OrdinalIgnoreCase))
+        {
+            var userId = message.From!.Id;
+            var reply = execucoes is null ? TelegramExecucoes.Desabilitado : command.ToLowerInvariant() switch
+            {
+                "/execucoes" => await execucoes.ListarAsync(userId, prompt, cancellationToken),
+                "/execucao" => await execucoes.DetalharAsync(userId, prompt, cancellationToken),
+                _ => await execucoes.AguardandoAsync(userId, prompt, cancellationToken)
+            };
+            await SendLongMessageAsync(message.Chat.Id, reply, cancellationToken);
+            return;
+        }
+
         if (string.Equals(command, "/use", StringComparison.OrdinalIgnoreCase))
         {
             await SendReplyAsync(message.Chat.Id, HandleUseCommand(message.From!.Id, prompt),
@@ -313,10 +329,14 @@ public sealed partial class TelegramPollingService(
 
         if (string.Equals(command, "/status", StringComparison.OrdinalIgnoreCase))
         {
-            var visible = jobs.GetVisible();
+            // Only the requesting user's jobs (#305), like the sessions below.
+            var visible = jobs.GetVisible(message.From!.Id);
             var response = visible.Count == 0
                 ? "Nenhum job registrado."
                 : string.Join('\n', visible.Select(FormatJob));
+            if (execucoes is not null &&
+                await execucoes.ResumoParaStatusAsync(message.From.Id, cancellationToken) is { } execucoesAtivas)
+                response += "\n\n" + execucoesAtivas;
             // Sessions are listed apart from jobs (AD-16), and only the requesting user's own.
             var ownSessions = sessions?.List(message.From!.Id) ?? [];
             if (ownSessions.Count > 0)
@@ -440,16 +460,8 @@ public sealed partial class TelegramPollingService(
 
         if (string.Equals(command, "/cancel", StringComparison.OrdinalIgnoreCase))
         {
-            if (prompt.Length == 0 || prompt.IndexOfAny([' ', '\t', '\r', '\n']) >= 0)
-            {
-                await SendReplyAsync(message.Chat.Id, "Uso: /cancel <jobId>", cancellationToken);
-                return;
-            }
-
-            var response = jobs.TryCancel(prompt, out var cancelled)
-                ? $"Cancelamento solicitado para {cancelled!.Id} ({cancelled.Context.Descricao})."
-                : $"Job {prompt} não encontrado ou já encerrado.";
-            await SendReplyAsync(message.Chat.Id, response, cancellationToken);
+            await SendReplyAsync(message.Chat.Id, await HandleCancelCommandAsync(message.From!.Id, prompt,
+                cancellationToken), cancellationToken);
             return;
         }
 
@@ -1595,7 +1607,7 @@ public sealed partial class TelegramPollingService(
             .Where(session => session.State is not (AgentSessionState.Failed or AgentSessionState.Closing or
                 AgentSessionState.Closed) && Reaches(session.Context))
             .Select(session => $"sessão {session.Id} (encerre com /session close {session.Id})")
-            .Concat(jobs.GetVisible().Where(job => job.Status is JobStatus.Queued or JobStatus.Running && Reaches(job.Context))
+            .Concat(jobs.GetVisible(userId).Where(job => job.Status is JobStatus.Queued or JobStatus.Running && Reaches(job.Context))
                 .Select(job => $"job {job.Id} (cancele com /cancel {job.Id})"))
             .ToArray();
     }

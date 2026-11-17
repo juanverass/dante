@@ -197,6 +197,88 @@ public sealed class TarefaPelaFilaEndToEndTests
 
     // Worker mínimo: banco descartável, ledger + fila + cadastro reais, processador real com os executores de job e de
     // tarefa, Telegram e sessões falsos.
+    // #305: os comandos chamam os casos de uso da Application. Consulta sem diretório; /cancel E… de uma tarefa em
+    // execução grava só o pedido, e o dono da posse encerra a sessão reservada e grava Cancelada; um único aviso, nenhum
+    // resultado entregue e nenhuma reexecução.
+    [PostgreSqlFact]
+    public async Task TarefaEmExecucaoEAcompanhadaECanceladaPeloTelegramUmaVez()
+    {
+        await using var banco = await FilaAsync();
+        await using var a = await Ambiente.CriarAsync(banco);
+        await a.IniciarAsync();
+        Assert.StartsWith("Agente dev criado (v1)", await a.Send(CriarDev, 1));
+        var codigo = Regex.Match(await a.Send("/tarefa dev @first leia o README", 2), @"E\d+").Value;
+        var numero = long.Parse(codigo[1..]);
+        var driver = await a.DriverComAsync("turn:leia o README");
+        await PollAsync(async () => (await ExecucaoAsync(a.Provider, numero)).Estado == EstadoDaExecucao.EmExecucao);
+
+        var lista = await a.Send("/execucoes", 3);
+        Assert.Contains($"{codigo} · tarefa · dev v1 · em execução · etapa 1/1", lista);
+        var detalhe = await a.Send($"/execucao {codigo}", 4);
+        Assert.Contains("Contexto: @first", detalhe);
+        Assert.Contains("Pedido: leia o README", detalhe);
+        // A etapa aponta para a sessão reservada que a executa: o S… exibido é o da sessão real no ledger, do dono,
+        // vinculada sob posse antes do turno.
+        var sessao = Regex.Match(detalhe, @"1\. em execução · tentativa 1 · claude opus · leitura · sessão (S\d{6})");
+        Assert.True(sessao.Success, detalhe);
+        var emCurso = await ExecucaoAsync(a.Provider, numero);
+        await using (var escopo = a.Provider.CreateAsyncScope())
+        {
+            var registrada = await escopo.ServiceProvider.GetRequiredService<ILedgerDeExecucoesAppService>()
+                .ObterSessaoAsync(long.Parse(sessao.Groups[1].Value[1..]));
+            Assert.NotNull(registrada);
+            Assert.Equal((sessao.Groups[1].Value, "telegram", 123L, emCurso.Etapas[0].IdSessaoDeAgente),
+                (registrada!.Codigo, registrada.Canal, registrada.IdDoDono, (Guid?)registrada.Id));
+            Assert.Equal(AgentPermissionProfile.Plan, registrada.Perfil);
+        }
+        Assert.Contains($"Cancelar: /cancel {codigo} [motivo]", detalhe);
+        Assert.DoesNotContain(a.Primeiro, detalhe);
+        Assert.Equal("Nenhuma execução aguardando.", await a.Send("/aguardando", 5));
+        Assert.Contains("Execuções: 1 em andamento, 0 aguardando (/execucoes, /aguardando).", await a.Send("/status", 6));
+
+        Assert.Equal($"Cancelamento de {codigo} solicitado. A execução em andamento será encerrada e você receberá um aviso.",
+            await a.Send($"/cancel {codigo} mudei de ideia", 7));
+        Assert.Equal($"Tarefa {codigo} cancelada (Cancelada pelo dono: mudei de ideia). Nenhum resultado será entregue.",
+            await a.ProximaAsync());
+        await Eventually(() => driver.Disposed);
+        var final = await ExecucaoAsync(a.Provider, numero);
+        Assert.Equal((EstadoDaExecucao.Cancelada, EstadoDaEtapa.Cancelada), (final.Estado, final.Etapas[0].Estado));
+        Assert.Equal(EstadoDoTrabalho.Descartado, (await TrabalhoAsync(a.Provider, "telegram:123:2")).Estado);
+
+        // Nada mais chega: o turno que terminaria depois não entrega resultado, e a etapa não roda de novo.
+        driver.Emit(new MessageCompletedEvent("m1", "tarde demais"));
+        driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
+        Assert.Equal($"{codigo} já está encerrada (cancelada).", await a.Send($"/cancel {codigo}", 8));
+        Assert.Single(a.Drivers.Created);
+        Assert.Contains($"{codigo} · tarefa · dev v1 · cancelada", await a.Send("/execucoes", 9));
+        // O vínculo sobrevive ao cancelamento, e o encerramento da sessão segue normal.
+        Assert.Contains($"sessão {sessao.Groups[1].Value}", await a.Send($"/execucao {codigo}", 10));
+    }
+
+    [PostgreSqlFact]
+    public async Task TarefaNaFilaCanceladaPeloTelegramNuncaAbreSessao()
+    {
+        await using var banco = await FilaAsync();
+        await using var a = await Ambiente.CriarAsync(banco);
+        await a.IniciarAsync(processador: false);
+        Assert.StartsWith("Agente dev criado (v1)", await a.Send(CriarDev, 1));
+        var codigo = Regex.Match(await a.Send("/tarefa dev @first leia", 2), @"E\d+").Value;
+        var aguardando = await a.Send("/aguardando", 3);
+        Assert.Contains($"{codigo} · tarefa · dev v1 · pendente", aguardando);
+        Assert.Contains("na fila, aguardando um slot de execução", aguardando);
+        Assert.DoesNotContain("posição", aguardando);
+        Assert.Contains("Execuções: 0 em andamento, 1 aguardando", await a.Send("/status", 4));
+
+        Assert.Equal($"{codigo} cancelada. Nenhum processo foi iniciado.", await a.Send($"/cancel {codigo}", 5));
+        Assert.Equal("Execução E999999 não encontrada. Veja /execucoes.", await a.Send("/cancel E999999", 6));
+        await a.IniciarProcessadorAsync();
+        await Task.Delay(1000);
+        Assert.Empty(a.Drivers.Created);
+        // Nenhum aviso extra: a próxima mensagem é a resposta do próximo comando.
+        Assert.Equal("Nenhuma execução aguardando.", await a.Send("/aguardando", 7));
+        Assert.Equal(EstadoDaExecucao.Cancelada, (await ExecucaoAsync(a.Provider, long.Parse(codigo[1..]))).Estado);
+    }
+
     private sealed class Ambiente : IAsyncDisposable
     {
         private readonly string raiz = Path.Combine(Path.GetTempPath(), "dante-tarefa-" + Guid.NewGuid().ToString("N"));
@@ -249,7 +331,8 @@ public sealed class TarefaPelaFilaEndToEndTests
             servico = new TelegramPollingService(Api, options, new TelegramUserAuthorizer(options), runner, runner, Jobs,
                 NullLogger<TelegramPollingService>.Instance, registro, new GeneralWorkspace(Path.Combine(raiz, "general")),
                 new AssistantSettingsStore(Path.Combine(raiz, "settings.json")), Sessoes, delivery, Catalogo,
-                filaDeJobs: executorDeJobs, agentes: new TelegramAgentes(Escopos), filaDeTarefas: executorDeTarefas);
+                filaDeJobs: executorDeJobs, agentes: new TelegramAgentes(Escopos), filaDeTarefas: executorDeTarefas,
+                execucoes: new TelegramExecucoes(Escopos, NullLogger<TelegramExecucoes>.Instance));
             await servico.StartAsync(CancellationToken.None);
             if (processador) await IniciarProcessadorAsync();
         }

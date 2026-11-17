@@ -22,6 +22,9 @@ internal static class WorkerComposition
         // Cadastro de agentes (AD-68): mesma condição do ledger; sem ele, /agentes, /agente e /tarefa respondem
         // indisponível e /session start segue só com claude|codex.
         if (OrquestracaoHabilitada(configuration)) services.AddSingleton<TelegramAgentes>();
+        // Acompanhamento e controle de execuções (#305): mesma condição; sem ele, /execucoes, /execucao e /aguardando
+        // respondem que não está habilitado, e /cancel segue só com os jobs em memória.
+        if (OrquestracaoHabilitada(configuration)) services.AddSingleton<TelegramExecucoes>();
         services.AddSingleton<JobRegistry>();
         services.AddSingleton<RegistroDeOperacoesBrain>();
         services.AddSingleton(provider => new TelegramBrain(provider.GetRequiredService<IServiceScopeFactory>(), configuration, provider.GetRequiredService<RegistroDeOperacoesBrain>()));

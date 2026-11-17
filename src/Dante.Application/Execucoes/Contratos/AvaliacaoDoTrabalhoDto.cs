@@ -2,12 +2,14 @@ namespace Dante.Application.Execucoes;
 
 // Executar: a etapa está pronta para rodar. Interromper: a tentativa anterior estava em execução quando a posse se
 // perdeu (reinício do Worker, lease vencido) e a política de retomada decide o que fazer. Descartar: não há o que
-// avançar (execução encerrada, esperando humano, ou trabalho sem alvo).
+// avançar (execução encerrada, esperando humano, ou trabalho sem alvo). Cancelar: o dono pediu cancelamento (#305) e
+// quem reivindicou grava Cancelada sob posse, em vez de executar ou retomar.
 public enum AcaoDoTrabalho
 {
     Executar,
     Interromper,
-    Descartar
+    Descartar,
+    Cancelar
 }
 
 // Origem: "host/boot" de quem enfileirou, quando o trabalho a registra.

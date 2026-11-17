@@ -81,8 +81,20 @@ internal static class TelegramCommandHelp
             "/claude explique arquitetura hexagonal", "/claude [@alias] pedido. Sem alias, usa o contexto padrão; alias explícito vale só para esse job."),
         new("/codex", "EXECUÇÃO AVULSA", "Execute um job one-shot com Codex; não altera a conversa nem as preferências.",
             "/codex @exemplo revise o README", "/codex [@alias] pedido. Sem alias, usa o contexto padrão; alias explícito vale só para esse job."),
-        new("/cancel", "EXECUÇÃO AVULSA", "Solicite cancelamento de um job; para um turno interativo, use /session stop.",
-            "/cancel J000001"),
+        new("/cancel", "EXECUÇÃO AVULSA", "Cancele um job seu ou uma tarefa; para um turno interativo, use /session stop.",
+            "/cancel J000001\n/cancel E42 não preciso mais",
+            "/cancel <J…|E…> [motivo]. Só alcança execuções suas. Uma tarefa ainda na fila é cancelada na hora, sem iniciar " +
+            "processo; uma em andamento recebe o pedido, que fica registrado, e o D.A.N.T.E. avisa quando ela for encerrada. " +
+            "Execução encerrada não muda. Não há pausa nem retomada."),
+
+        new("/execucoes", "ACOMPANHAMENTO", "Liste suas execuções: as ativas e as últimas encerradas.",
+            "/execucoes\n/execucoes todas", "Mostra código, tipo, agente, estado, etapa e idade. todas inclui mais encerradas. " +
+            "Exige o ledger de execuções habilitado no Worker."),
+        new("/execucao", "ACOMPANHAMENTO", "Veja o detalhe de uma execução sua: etapas, sessão, motivo e erro.",
+            "/execucao E42\n/execucao J000001", "Mostra etapas (estado, tentativa, agente, modelo, sessão), contexto pelo " +
+            "@alias e erro com proteção de segredos. A saída do agente não é guardada e não aparece aqui."),
+        new("/aguardando", "ACOMPANHAMENTO", "Veja quais execuções suas estão esperando e por quê.", "/aguardando",
+            "Na fila, aguardando nova tentativa, interrompida ou bloqueada. Não há posição numérica: a fila não garante ordem estável."),
 
         new("/repos", "REPOSITÓRIOS", "Liste os repositórios cadastrados.", "/repos"),
         new("/repo", "REPOSITÓRIOS", "Cadastre, consulte, vincule ou remova repositórios e configurações persistentes de ambiente.",

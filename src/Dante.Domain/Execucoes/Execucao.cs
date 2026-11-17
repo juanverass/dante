@@ -85,6 +85,24 @@ public sealed class Execucao : EntidadeBase
 
     public static bool PodeTransitar(EstadoDaExecucao de, EstadoDaExecucao para) => Transicoes[de].Contains(para);
 
+    // Código exibido → número e tipo: J… é sempre o job legado (Avulsa) e E… uma execução nova. Zeros à esquerda são
+    // aceitos (J000123), maiúsculas ou minúsculas. Falso para qualquer outra forma.
+    public static bool TentarInterpretarCodigo(string? codigo, out long numero, out bool avulsa)
+    {
+        numero = 0;
+        avulsa = false;
+        if (string.IsNullOrWhiteSpace(codigo) || codigo.Length is < 2 or > 20) return false;
+        var prefixo = char.ToUpperInvariant(codigo[0]);
+        if (prefixo is not ('J' or 'E')) return false;
+        var digitos = codigo.AsSpan(1);
+        foreach (var c in digitos)
+            if (c is < '0' or > '9') return false;
+        if (!long.TryParse(digitos, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture,
+                out numero) || numero < 1) return false;
+        avulsa = prefixo == 'J';
+        return true;
+    }
+
     public void Iniciar(DateTimeOffset quando)
     {
         Transitar(EstadoDaExecucao.EmExecucao);

@@ -92,13 +92,15 @@ public sealed class ApplicationCompositionTests
         Assert.Same(fake, Assert.Single(services, s => s.ServiceType == typeof(PoliticaDeSensibilidade)).ImplementationInstance);
     }
 
-    // Mapping e policy são singletons sem estado de requisição; autorização, AppServices e casos da conversa são
-    // scoped, porque dependem de repositories/UoW scoped. Nenhum serviço próprio é transient.
+    // Mapping e policy são singletons sem estado de requisição; o canal de cancelamento (#305) é singleton porque é o
+    // atalho em memória do processo entre o caso de uso e quem tem a posse. Autorização, AppServices e casos da
+    // conversa são scoped, porque dependem de repositories/UoW scoped. Nenhum serviço próprio é transient.
     [Fact]
     public void LifetimesDaApplicationSaoCoerentes()
     {
         var services = new ServiceCollection().AddApplication();
-        Type[] singletons = [typeof(Dante.Application.Mapeamento.IMapsterTypeAdapter), typeof(PoliticaDeSensibilidade)];
+        Type[] singletons = [typeof(Dante.Application.Mapeamento.IMapsterTypeAdapter), typeof(PoliticaDeSensibilidade),
+            typeof(Dante.Application.Execucoes.CanalDeCancelamento)];
         Assert.All(services, s => Assert.Equal(singletons.Contains(s.ServiceType) ? ServiceLifetime.Singleton : ServiceLifetime.Scoped, s.Lifetime));
 
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });

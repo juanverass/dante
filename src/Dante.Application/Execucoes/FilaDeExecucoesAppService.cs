@@ -14,7 +14,8 @@ public sealed class FilaDeExecucoesAppService(
     IEtapaDaExecucaoRepository etapas,
     IDependenciaDeEtapaRepository dependencias,
     IEventoDeOrquestracaoRepository eventos,
-    IUnitOfWorkDaOrquestracao unidade) : IFilaDeExecucoesAppService
+    IUnitOfWorkDaOrquestracao unidade,
+    ISessaoDeAgenteRepository sessoes) : IFilaDeExecucoesAppService
 {
     public const string MotivoDeResultadoIncerto =
         "Resultado incerto: a etapa foi interrompida durante uma ação externa e não é repetida automaticamente. " +
@@ -95,6 +96,9 @@ public sealed class FilaDeExecucoesAppService(
         if (execucao is null || etapa is null) return new(AcaoDoTrabalho.Descartar, null, "Execução ou etapa inexistente.");
         var alvo = Alvo(execucao, etapa);
         if (execucao.Terminal) return new(AcaoDoTrabalho.Descartar, alvo, "Execução já encerrada.");
+        // Pedido do dono (#305): nem executa nem retoma; quem reivindicou grava Cancelada sob posse.
+        if (await PedidoAsync(execucao.Id, cancellationToken) is { } pedido)
+            return new(AcaoDoTrabalho.Cancelar, alvo, PedidoDeCancelamento.MotivoDaTransicao(PedidoDeCancelamento.Motivo(pedido.Dados)));
         return etapa.Estado switch
         {
             EstadoDaEtapa.Pendente or EstadoDaEtapa.Pronta when execucao.Estado is EstadoDaExecucao.Pendente or
@@ -111,20 +115,47 @@ public sealed class FilaDeExecucoesAppService(
             var (execucao, etapa) = await CarregarAsync(idEtapa, token);
             if (etapa.Estado is not (EstadoDaEtapa.Pendente or EstadoDaEtapa.Pronta))
                 throw new TransicaoInvalidaException("etapa", etapa.Estado.ToString(), EstadoDaEtapa.EmExecucao.ToString());
+            // O pedido gravado antes do início impede qualquer processo (#305); a linha do trabalho está travada, então
+            // um pedido concorrente ou já está visível aqui ou só é gravado depois do início.
+            if (await PedidoAsync(execucao.Id, token) is not null) throw new CancelamentoSolicitadoException();
             await IniciarAsync(execucao, etapa, fila.Agora, token);
             await unidade.SalvarAlteracoesAsync(token);
         }, null, cancellationToken: cancellationToken);
 
-    public Task ConcluirEtapaAsync(PosseDoTrabalho posse, Guid idEtapa, ResultadoDaEtapaDto resultado,
-        CancellationToken cancellationToken = default)
+    public Task VincularSessaoAsync(PosseDoTrabalho posse, Guid idEtapa, long numeroDaSessao,
+        CancellationToken cancellationToken = default) =>
+        fila.GravarComPosseAsync(posse, async token =>
+        {
+            var (execucao, etapa) = await CarregarAsync(idEtapa, token);
+            if (etapa.Estado != EstadoDaEtapa.EmExecucao)
+                throw new InvalidOperationException("Só uma etapa em execução recebe a sessão que a executa.");
+            var sessao = await sessoes.ObterPorNumeroAsync(numeroDaSessao, token) ??
+                throw new InvalidOperationException("Sessão não registrada no ledger.");
+            // A sessão da etapa é do dono da execução, no mesmo canal; nunca a de outro usuário.
+            if (sessao.Canal != execucao.Canal || sessao.IdDoDono != execucao.IdDoUsuarioNoCanal)
+                throw new InvalidOperationException("A sessão não pertence ao dono da execução.");
+            etapa.VincularSessao(sessao, null);
+            await unidade.SalvarAlteracoesAsync(token);
+        }, null, cancellationToken: cancellationToken);
+
+    public async Task<EstadoDaEtapa> ConcluirEtapaAsync(PosseDoTrabalho posse, Guid idEtapa,
+        ResultadoDaEtapaDto resultado, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(resultado);
         if (resultado.EstadoFinal is not (EstadoDaEtapa.Concluida or EstadoDaEtapa.Falhou or EstadoDaEtapa.Cancelada))
             throw new ArgumentException("Estado final da etapa inválido.", nameof(resultado));
-        return fila.GravarComPosseAsync(posse, async token =>
+        var estadoFinal = resultado.EstadoFinal;
+        await fila.GravarComPosseAsync(posse, async token =>
         {
             var (execucao, etapa) = await CarregarAsync(idEtapa, token);
             var agora = fila.Agora;
+            // Pedido do dono registrado antes da conclusão (#305): o resultado é descartado e a etapa termina Cancelada.
+            string? motivoDoPedido = null;
+            if (await PedidoAsync(execucao.Id, token) is { } pedido)
+            {
+                motivoDoPedido = PedidoDeCancelamento.MotivoDaTransicao(PedidoDeCancelamento.Motivo(pedido.Dados));
+                resultado = resultado with { EstadoFinal = EstadoDaEtapa.Cancelada };
+            }
             // Falha ou conclusão antes do início (o job legado falha antes de iniciar quando os anexos não estão
             // disponíveis): a tentativa conta como iniciada e termina no mesmo instante, como no ledger da #299.
             if (resultado.EstadoFinal != EstadoDaEtapa.Cancelada && etapa.Estado is EstadoDaEtapa.Pendente or EstadoDaEtapa.Pronta)
@@ -146,15 +177,53 @@ public sealed class FilaDeExecucoesAppService(
                     execucao.Falhar(erro, agora);
                     break;
                 default:
-                    etapa.Cancelar(null, resultado.CodigoDeSaida, agora);
-                    if (!execucao.Terminal) execucao.Cancelar(null, agora);
+                    etapa.Cancelar(motivoDoPedido, resultado.CodigoDeSaida, agora);
+                    if (!execucao.Terminal) execucao.Cancelar(motivoDoPedido, agora);
                     break;
             }
             await TransicaoAsync(execucao, etapa, etapaAntes, agora, token);
             if (execucao.Estado != execucaoAntes) await TransicaoAsync(execucao, null, execucaoAntes, agora, token);
             await unidade.SalvarAlteracoesAsync(token);
+            estadoFinal = etapa.Estado;
         }, EstadoDoTrabalho.Concluido, cancellationToken: cancellationToken);
+        return estadoFinal;
     }
+
+    public async Task<ExecucaoInterrompidaDto> CancelarSolicitadaAsync(PosseDoTrabalho posse, AlvoDoTrabalhoDto alvo,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(alvo);
+        var novoEstado = EstadoDaExecucao.Cancelada;
+        var motivo = PedidoDeCancelamento.MotivoDaTransicao(null);
+        var transitou = false;
+        await fila.GravarComPosseAsync(posse, async token =>
+        {
+            var (execucao, etapa) = await CarregarAsync(alvo.IdEtapa, token);
+            var pedido = await PedidoAsync(execucao.Id, token) ??
+                throw new InvalidOperationException("Execução sem pedido de cancelamento registrado.");
+            motivo = PedidoDeCancelamento.MotivoDaTransicao(PedidoDeCancelamento.Motivo(pedido.Dados));
+            novoEstado = execucao.Estado;
+            if (execucao.Terminal) return;
+            var agora = fila.Agora;
+            var etapaAntes = etapa.Estado;
+            var execucaoAntes = execucao.Estado;
+            if (!etapa.Terminal)
+            {
+                etapa.Cancelar(motivo, null, agora);
+                await TransicaoAsync(execucao, etapa, etapaAntes, agora, token);
+            }
+            execucao.Cancelar(motivo, agora);
+            await TransicaoAsync(execucao, null, execucaoAntes, agora, token);
+            novoEstado = execucao.Estado;
+            await unidade.SalvarAlteracoesAsync(token);
+            transitou = true;
+        }, EstadoDoTrabalho.Descartado, ControleDeExecucoesAppService.MotivoDoDescarte, cancellationToken: cancellationToken);
+        // PorCancelamento só quando esta gravação fez a transição: execução já terminal não gera aviso.
+        return new ExecucaoInterrompidaDto(alvo, novoEstado, motivo, PorCancelamento: transitou);
+    }
+
+    public async Task<bool> CancelamentoSolicitadoAsync(Guid idExecucao, CancellationToken cancellationToken = default) =>
+        await PedidoAsync(idExecucao, cancellationToken) is not null;
 
     public async Task<ExecucaoInterrompidaDto> InterromperAsync(PosseDoTrabalho posse, AlvoDoTrabalhoDto alvo,
         string motivo, CancellationToken cancellationToken = default)
@@ -272,6 +341,7 @@ public sealed class FilaDeExecucoesAppService(
         LedgerDeExecucoesValidator.ValidarNumero(numero);
         var execucao = await execucoes.ObterPorNumeroAsync(numero, cancellationToken);
         if (execucao is not { Estado: EstadoDaExecucao.Interrompida or EstadoDaExecucao.Bloqueada }) return false;
+        if (await PedidoAsync(execucao.Id, cancellationToken) is not null) return false;
         var etapa = (await etapas.ListarDaExecucaoAsync(execucao.Id, cancellationToken))
             .FirstOrDefault(e => e.Estado == EstadoDaEtapa.Interrompida);
         if (etapa is null) return false;
@@ -306,6 +376,11 @@ public sealed class FilaDeExecucoesAppService(
         etapa.Iniciar(agora);
         await TransicaoAsync(execucao, etapa, etapaAntes, agora, cancellationToken);
     }
+
+    // O primeiro pedido de cancelamento registrado para a execução (#305), lido do banco a cada chamada.
+    private async Task<EventoDeOrquestracao?> PedidoAsync(Guid idExecucao, CancellationToken cancellationToken) =>
+        (await eventos.ConsultarDoTipoAsync([idExecucao], TipoDeEventoDeOrquestracao.CancelamentoSolicitado,
+            cancellationToken)).FirstOrDefault();
 
     private async Task<(Execucao Execucao, EtapaDaExecucao Etapa)> CarregarAsync(Guid idEtapa,
         CancellationToken cancellationToken)

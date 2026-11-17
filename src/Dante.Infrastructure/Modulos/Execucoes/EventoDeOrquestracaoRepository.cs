@@ -28,4 +28,10 @@ public sealed class EventoDeOrquestracaoRepository(OrquestracaoDbContext context
         CancellationToken cancellationToken = default) =>
         await DbSet.Where(x => x.IdSessaoDeAgente == idSessaoDeAgente).OrderBy(x => x.Sequencia)
             .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<EventoDeOrquestracao>> ConsultarDoTipoAsync(IReadOnlyCollection<Guid> idsExecucao,
+        TipoDeEventoDeOrquestracao tipo, CancellationToken cancellationToken = default) =>
+        idsExecucao.Count == 0 ? [] : await DbSet.AsNoTracking()
+            .Where(x => x.IdExecucao != null && idsExecucao.Contains(x.IdExecucao.Value) && x.Tipo == tipo)
+            .OrderBy(x => x.Sequencia).ToListAsync(cancellationToken);
 }

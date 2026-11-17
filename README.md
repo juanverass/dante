@@ -751,6 +751,26 @@ permita escrita, até existirem worktrees reservadas. A tarefa é gravada e enfi
 resultado é registrado no ledger antes de ser entregue. Depois de um reinício do Worker, uma tarefa pendente é
 cancelada com aviso (o pedido não é guardado). Credenciais nunca entram no cadastro nem nas instruções.
 
+## Acompanhamento de execuções
+
+Com o mesmo banco e `Orquestracao:Habilitada=true`, cada usuário acompanha e cancela as **próprias** execuções
+(jobs `J…` e tarefas `E…`); uma execução de outra pessoa responde como inexistente.
+
+```text
+/execucoes                     ativas e últimas encerradas (todas: mais encerradas)
+/execucao E42                  etapas, tentativa, agente, modelo, sessão S…, contexto (@alias), motivo e erro
+/aguardando                    o que espera e por quê: fila, nova tentativa, interrompida, bloqueada
+/cancel E42 não preciso mais   cancela a tarefa (com motivo opcional, registrado no ledger)
+```
+
+Uma tarefa ainda na fila é cancelada na hora, sem iniciar processo. Uma em andamento recebe o pedido, que fica
+registrado no ledger; quem a executa encerra a sessão, grava o cancelamento e avisa uma vez, sem entregar resultado
+nem repetir a tarefa. Os avisos de mudança de estado são no máximo um por transição, mas não têm garantia de entrega:
+o estado continua consultável por `/execucao`. Erros e pedidos aparecem redigidos e cortados, o contexto só pelo
+`@alias` (nunca o caminho), e a saída do agente não é guardada. Não há pausa nem retomada. Sem o ledger, esses
+comandos respondem que não estão habilitados; `/status` e `/cancel J…` continuam funcionando em memória, só com os
+jobs do próprio usuário.
+
 ## Repositório ativo
 
 Cada usuário autorizado pode manter um repositório ativo para as próximas mensagens, sem
@@ -1190,9 +1210,12 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/use` | Exibe o contexto ativo do usuário e a sessão ativa que recebe as mensagens comuns |
 | `/use @alias` | Define o repositório ativo |
 | `/use general` | Volta ao General Mode |
-| `/status` | Exibe jobs, sessões próprias e estado da entrega recente ao Telegram |
+| `/status` | Exibe seus jobs, suas sessões, o resumo das suas execuções (com o ledger) e o estado da entrega recente ao Telegram |
 | `/uso claude\|codex` | Consulta o uso da cota da assinatura: janela de sessão, semana e tempo até a janela de sessão renovar |
-| `/cancel <jobId>` | Solicita cancelamento de um job |
+| `/cancel <J…\|E…> [motivo]` | Cancela um job seu ou uma tarefa sua (tarefa exige o ledger) |
+| `/execucoes [todas]` | Lista suas execuções no ledger: ativas e últimas encerradas |
+| `/execucao <J…\|E…>` | Detalhe de uma execução sua: etapas, estado, sessão `S…` da tarefa, motivo e erro redigido |
+| `/aguardando` | Suas execuções que esperam, e por quê |
 | `/session start [claude\|codex] [@alias] [manual\|auto\|plan] [model=<modelo>] [effort=<nível>]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e modo selecionados se omitidos |
 | `/session list` | Lista as suas sessões |
 | `/session select <id\|none>` | Seleciona uma sessão; `none` faz a próxima mensagem abrir uma sessão nova |

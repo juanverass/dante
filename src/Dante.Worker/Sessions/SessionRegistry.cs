@@ -358,6 +358,18 @@ public sealed class SessionRegistry(
         CancellationToken cancellationToken = default) =>
         SubmitCoreAsync(ownerUserId, sessionId, input, MessageDelivery.Queue, reserved: true, cancellationToken);
 
+    // Task step (#305): the ledger number (S…) of a reserved session, once its creation record is written, so the step
+    // can point to it. Null when the session is not mirrored (no ledger, or the number came from the local counter).
+    internal async Task<long?> LedgerNumberWrittenAsync(long ownerUserId, string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        var entry = Find(ownerUserId, sessionId, out _, reserved: true);
+        if (entry?.LedgerNumber is not { } number || ledger is null) return null;
+        // The mirror writes in order: once flushed, the creation record queued at start is in the ledger (or failed).
+        await ledger.DescarregarAsync(cancellationToken);
+        return number;
+    }
+
     private async Task<SessionSubmitResult> SubmitCoreAsync(long userId, string? sessionId, AgentInput input,
         MessageDelivery delivery, bool reserved, CancellationToken cancellationToken)
     {

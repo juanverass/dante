@@ -75,7 +75,7 @@ public sealed class TelegramJobCommandTests
         try
         {
             api.Enqueue("/cancel");
-            Assert.Equal("Uso: /cancel <jobId>", await api.NextMessageAsync());
+            Assert.Equal("Uso: /cancel <J…|E…> [motivo]", await api.NextMessageAsync());
             api.Enqueue("/cancel unknown");
             Assert.Contains("não encontrado", await api.NextMessageAsync());
             api.Enqueue("/claude done");

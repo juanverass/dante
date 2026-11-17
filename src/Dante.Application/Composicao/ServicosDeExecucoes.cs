@@ -16,5 +16,12 @@ internal static class ServicosDeExecucoes
             ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.FilaDeExecucoesAppService>(provider));
         services.TryAddScoped<Dante.Application.Execucoes.IRecuperacaoDeExecucoesAppService>(provider =>
             ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.RecuperacaoDeExecucoesAppService>(provider));
+        // Acompanhamento e controle pelo proprietário (#305), neutros de interface. O canal de cancelamento é o atalho
+        // em memória entre o caso de uso e quem tem a posse neste processo; o pedido durável é o evento no ledger.
+        services.TryAddSingleton<Dante.Application.Execucoes.CanalDeCancelamento>();
+        services.TryAddScoped<Dante.Application.Execucoes.IAcompanhamentoDeExecucoesAppService>(provider =>
+            ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.AcompanhamentoDeExecucoesAppService>(provider));
+        services.TryAddScoped<Dante.Application.Execucoes.IControleDeExecucoesAppService>(provider =>
+            ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.ControleDeExecucoesAppService>(provider));
     }
 }
