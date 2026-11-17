@@ -10,7 +10,8 @@ public sealed class ControleDeExecucoesAppService(
     IEtapaDaExecucaoRepository etapas,
     IEventoDeOrquestracaoRepository eventos,
     IUnitOfWorkDaOrquestracao unidade,
-    CanalDeCancelamento canal) : IControleDeExecucoesAppService
+    CanalDeCancelamento canal,
+    IReservaDeWorktreeRepository reservas) : IControleDeExecucoesAppService
 {
     public const string MotivoDoDescarte = "cancelada pelo dono";
 
@@ -73,6 +74,9 @@ public sealed class ControleDeExecucoesAppService(
             foreach (var trabalho in ativos)
                 if (!await fila.DescartarPendenteAsync(trabalho.Id, MotivoDoDescarte, token))
                     throw new ConflitoDeConcorrenciaDaFila();
+            // Interrompida com worktree (escrita, #307): a reserva deixa de ocupar capacidade; a limpeza preserva o
+            // diretório se houver alterações.
+            await LiberacaoDeWorktrees.LiberarSeEncerradaAsync(reservas, eventos, execucao, agora, token);
             await unidade.SalvarAlteracoesAsync(token);
             resultado = new(ResultadoDoCancelamento.Cancelada, execucao.Codigo, execucao.Estado);
         }, cancellationToken);

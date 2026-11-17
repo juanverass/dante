@@ -54,8 +54,8 @@ public sealed class ApplicationArchitectureTests
         Assert.False(Infrastructure.GetType("Dante.Infrastructure.Agentes.IContencaoDeAgente")!.IsPublic);
         var repositories = Infrastructure.GetTypes().Where(t => t is { IsClass: true, IsAbstract: false, IsGenericTypeDefinition: false } &&
             t.Name.EndsWith("Repository", StringComparison.Ordinal) && t.Namespace!.StartsWith("Dante.Infrastructure.Modulos.", StringComparison.Ordinal)).ToArray();
-        // 8 do Brain + 5 do ledger de execuções (AD-66) + 2 do cadastro de agentes (AD-68).
-        Assert.Equal(15, repositories.Length);
+        // 8 do Brain + 5 do ledger de execuções (AD-66) + 2 do cadastro de agentes (AD-68) + reservas de worktree (AD-71).
+        Assert.Equal(16, repositories.Length);
         Assert.All(repositories, adapter =>
         {
             var porta = Assert.Single(adapter.GetInterfaces(), i => i.Name == "I" + adapter.Name);

@@ -175,7 +175,11 @@ public sealed class HexagonalArchitectureTests
             .Select(propriedade => $"{tipo.Name}.{propriedade.Name}")
             .Concat(tipo.GetFields(membros).Select(campo => $"{tipo.Name}.{campo.Name}")).Prepend(tipo.Name));
         // #138: Secreto é uma classificação semântica, sem credencial/ambiente do host.
-        Assert.DoesNotContain(nomes, nome => nome != "Sensibilidade.Secreto" && operacional.IsMatch(nome));
+        // #307 (AD-71): a única exceção de caminho é a reserva de worktree, que é o registro de um recurso do host e
+        // precisa guardar exatamente os caminhos reservados: derivá-los de configuração mutável poderia dar como
+        // removida uma worktree que ainda existe. Só os caminhos dela; nenhum outro tipo do domínio ganha caminho.
+        Assert.DoesNotContain(nomes, nome => nome != "Sensibilidade.Secreto" && operacional.IsMatch(nome) &&
+            !Regex.IsMatch(nome, @"^ReservaDeWorktree\.(<)?(Caminho|CaminhoDoRepositorio|TamanhoMaximoDoCaminho)(>k__BackingField)?$"));
         Assert.Equal("Dante.Application", typeof(JobExecutionContext).Assembly.GetName().Name);
         Assert.Equal("Dante.Application", typeof(ResolvedRepositoryEnvironment).Assembly.GetName().Name);
         Assert.Equal("Dante.Infrastructure", typeof(RepositoryDefinition).Assembly.GetName().Name);

@@ -9,10 +9,11 @@ namespace Dante.Tests;
 public sealed class InfrastructureArchitectureTests
 {
     // Cada contexto tem migrations e snapshot próprios, na sua pasta: Brain em Data/Migrations e o ledger de execuções
-    // (AD-66 ledger, AD-68 agentes, AD-67 fila) em Data/Orquestracao/Migrations. Nenhuma migration fica sem contexto.
+    // (AD-66 ledger, AD-68 agentes, AD-67 fila, AD-71 worktrees) em Data/Orquestracao/Migrations. Nenhuma migration fica
+    // sem contexto.
     [Theory]
     [InlineData(typeof(DanteDbContext), 14, "Dante.Infrastructure.Data.Migrations", "Data/Migrations")]
-    [InlineData(typeof(Dante.Infrastructure.Data.Orquestracao.OrquestracaoDbContext), 3,
+    [InlineData(typeof(Dante.Infrastructure.Data.Orquestracao.OrquestracaoDbContext), 4,
         "Dante.Infrastructure.Data.Orquestracao.Migrations", "Data/Orquestracao/Migrations")]
     public void MigrationsESnapshotPertencemSomenteAInfrastructure(Type contexto, int quantidade, string ns, string pasta)
     {

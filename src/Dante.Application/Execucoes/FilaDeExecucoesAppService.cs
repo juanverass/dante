@@ -15,7 +15,8 @@ public sealed class FilaDeExecucoesAppService(
     IDependenciaDeEtapaRepository dependencias,
     IEventoDeOrquestracaoRepository eventos,
     IUnitOfWorkDaOrquestracao unidade,
-    ISessaoDeAgenteRepository sessoes) : IFilaDeExecucoesAppService
+    ISessaoDeAgenteRepository sessoes,
+    IReservaDeWorktreeRepository reservas) : IFilaDeExecucoesAppService
 {
     public const string MotivoDeResultadoIncerto =
         "Resultado incerto: a etapa foi interrompida durante uma ação externa e não é repetida automaticamente. " +
@@ -183,6 +184,7 @@ public sealed class FilaDeExecucoesAppService(
             }
             await TransicaoAsync(execucao, etapa, etapaAntes, agora, token);
             if (execucao.Estado != execucaoAntes) await TransicaoAsync(execucao, null, execucaoAntes, agora, token);
+            await LiberarWorktreesAsync(execucao, agora, token);
             await unidade.SalvarAlteracoesAsync(token);
             estadoFinal = etapa.Estado;
         }, EstadoDoTrabalho.Concluido, cancellationToken: cancellationToken);
@@ -215,6 +217,7 @@ public sealed class FilaDeExecucoesAppService(
             execucao.Cancelar(motivo, agora);
             await TransicaoAsync(execucao, null, execucaoAntes, agora, token);
             novoEstado = execucao.Estado;
+            await LiberarWorktreesAsync(execucao, agora, token);
             await unidade.SalvarAlteracoesAsync(token);
             transitou = true;
         }, EstadoDoTrabalho.Descartado, ControleDeExecucoesAppService.MotivoDoDescarte, cancellationToken: cancellationToken);
@@ -308,6 +311,7 @@ public sealed class FilaDeExecucoesAppService(
             await TransicaoAsync(execucao, etapa, etapaAntes, agora, token);
             if (execucao.Estado != execucaoIniciada) await TransicaoAsync(execucao, null, execucaoIniciada, agora, token);
             novoEstado = execucao.Estado;
+            await LiberarWorktreesAsync(execucao, agora, token);
             await unidade.SalvarAlteracoesAsync(token);
         }, EstadoDoTrabalho.Falhou, motivo, cancellationToken: cancellationToken);
         return new ExecucaoInterrompidaDto(alvo, novoEstado, motivoFinal);
@@ -328,6 +332,7 @@ public sealed class FilaDeExecucoesAppService(
             execucao.Cancelar(motivo, agora);
             await TransicaoAsync(execucao, etapa, etapaAntes, agora, token);
             await TransicaoAsync(execucao, null, execucaoAntes, agora, token);
+            await LiberarWorktreesAsync(execucao, agora, token);
             await unidade.SalvarAlteracoesAsync(token);
         }, EstadoDoTrabalho.Descartado, motivo, cancellationToken: cancellationToken);
         return new ExecucaoInterrompidaDto(alvo, EstadoDaExecucao.Cancelada, motivo);
@@ -376,6 +381,10 @@ public sealed class FilaDeExecucoesAppService(
         etapa.Iniciar(agora);
         await TransicaoAsync(execucao, etapa, etapaAntes, agora, cancellationToken);
     }
+
+    // Execução que acabou de ficar terminal libera as próprias worktrees na mesma transação (#307, AD-71).
+    private Task LiberarWorktreesAsync(Execucao execucao, DateTimeOffset agora, CancellationToken cancellationToken) =>
+        LiberacaoDeWorktrees.LiberarSeEncerradaAsync(reservas, eventos, execucao, agora, cancellationToken);
 
     // O primeiro pedido de cancelamento registrado para a execução (#305), lido do banco a cada chamada.
     private async Task<EventoDeOrquestracao?> PedidoAsync(Guid idExecucao, CancellationToken cancellationToken) =>
