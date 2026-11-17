@@ -171,7 +171,7 @@ Detalhes de uso: [README](../../README.md).
 
 ## Limitações atuais
 
-- jobs e sessões vivem em memória e se perdem ao reiniciar; com o ledger ligado (`Orquestracao:Habilitada`, AD-66), o histórico e os códigos `J…`/`S…` persistem, e os jobs passam pela fila durável (AD-67): um por vez, recusados sem banco, e após reinício o job interrompido não é repetido (o pedido não é guardado); sessões continuam espelhadas best-effort e não são retomadas;
+- jobs e sessões vivem em memória e se perdem ao reiniciar; com o ledger ligado (`Orquestracao:Habilitada`, AD-66), o histórico e os códigos `J…`/`S…` persistem, e os jobs passam pela fila durável (AD-67): um por vez, recusados sem banco, e após reinício o job interrompido não é repetido (o pedido não é guardado); o mesmo vale para `/tarefa` (somente leitura, cancelada com aviso depois de um reinício); sessões continuam espelhadas best-effort e não são retomadas;
 - `/uso claude` depende do `get_usage` **experimental** do Claude Code (pode mudar a cada versão; formato desconhecido
   vira "CLI sem suporte") e a CLI pode responder com leitura própria de até 1 min, ou até 1 h quando o serviço falha,
   sem informar a idade; contas por API key ou provedor de nuvem não têm cota de assinatura nas duas CLIs (AD-31);
@@ -267,7 +267,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
 - **Epic #118 — Limpar e compactar contexto**: o spike #119 comprovou, nas duas CLIs reais, compactação e limpeza no mesmo processo da sessão — Claude por `/compact`/`/clear` no stream-json, Codex por `thread/compact/start` e nova thread — e definiu contrato e regras (AD-32, [`docs/spikes/clear-compact`](../spikes/clear-compact/README.md)); `/clear` (#120) e `/compact` (#121) entregues; aguarda revisão e fechamento humano.
 
 - **Epic #296 — Plataforma multiagente**: proposta aprovada (#297, PR #298); ledger de execuções (#299, AD-66)
-  integrado; fila durável e recuperação após reinício (#300, AD-67) em revisão; cadastro de agentes (#301) em paralelo.
+  integrado; fila durável e recuperação após reinício (#300, AD-67) integrada; cadastro de agentes e `/tarefa` pela
+  fila (#301, AD-68) em revisão.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -677,7 +678,24 @@ aberta durante a CLI; resultado gravado sob posse antes da entrega. Na inicializ
 `dante-agent-*` registrados por sessões de boot anterior (desconhecidos só relatados), interrompe as sessões desse boot
 e devolve os trabalhos; a etapa interrompida segue a política (`Automatica`, `ComConfirmacao`, `Nunca`). Migration
 `FilaDuravel` só por `--orquestracao migrate`; não aplicada no banco canônico nem ativada no homelab. Sem a chave, o
-Worker compõe exatamente o legado.
+Worker compõe exatamente o legado. O limite de tentativas vale antes de executar ou retomar, inclusive depois de um
+lease vencido; esgotado, a política da etapa decide o estado terminal. Além dos jobs, a fila executa as tarefas da
+`/tarefa` (#301).
+
+## Cadastro de agentes (#301, AD-68)
+
+`Agente` (handle imutável, único e nunca reutilizado; ativo/desativado/arquivado) e `VersaoDoAgente` imutável com
+hash SHA-256 da configuração canônica, no schema `orquestracao` (migration `CadastroDeAgentes`, triggers de
+imutabilidade). `claude`/`codex` continuam embutidos, materializados das preferências. Telegram: `/agentes`,
+`/agente criar|ver|editar|nome|descricao|desativar|reativar|arquivar`, `/session start <handle>` (versão
+congelada; perfil, repositórios, ferramentas e sessões simultâneas limitados pela versão) e `/tarefa <handle>
+[@alias] <texto>`, que grava uma execução `Tarefa` somente leitura (perfil `plan`, sem etapa de escrita, versão do
+agente congelada) e o seu trabalho numa transação e responde "Tarefa E… enfileirada". O `ProcessadorDaFila` a executa
+numa sessão reservada (não vira a ativa, não recebe comandos, eventos só para o executor, aprovações negadas) depois
+de conferir guarda de escrita, versão, agente ativo e catálogo; o resultado é gravado sob posse antes de ser entregue.
+Deduplicada pela mensagem do Telegram; um pedido por vez (slot da fila). Depois de um reinício, a tarefa pendente é
+cancelada com aviso (o pedido não é guardado). Exige banco e `Orquestracao:Habilitada`; desligado no homelab. Sessões
+registram handle, hash e versão do agente no ledger.
 
 ## Administração de banco e migrations (#199)
 

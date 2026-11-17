@@ -1,5 +1,7 @@
 using Dante.Application.Agentes;
 using Dante.Application.Anexos;
+using Dante.Worker.Brain;
+using Dante.Worker.Planilhas;
 using Dante.Application.Execucoes;
 using Dante.Domain.Execucoes;
 using Dante.Worker.Execucoes;
@@ -51,6 +53,11 @@ public sealed class SessionRegistry(
                 return SessionResult.Reject("O Worker está sendo encerrado; não é possível iniciar sessões.");
             }
 
+            // A registered agent's version is the ceiling of the session (AD-68): checked here, before any driver
+            // exists, whatever the caller already checked.
+            if (request.RegisteredAgent is { } registeredAgent && RefuseRegistered(request, registeredAgent) is { } refusal)
+                return SessionResult.Reject(refusal);
+
             driver = drivers.Create(request.Agent);
             // A mode the agent cannot map is refused before any process starts (#76).
             if (driver.Capabilities.Modes.Contains(request.Profile))
@@ -60,14 +67,24 @@ public sealed class SessionRegistry(
                     request.Context, driver.Capabilities, ids, requestTimeout);
                 entry = new Entry(session, driver, request.Profile, request.ModelSelection)
                 {
-                    LedgerNumber = mirrored ? reserved : null
+                    LedgerNumber = mirrored ? reserved : null,
+                    RegisteredAgent = request.RegisteredAgent,
+                    Observer = request.Observer
                 };
                 sessions.Add(session.Id, entry);
                 if (entry.LedgerNumber is { } number)
                 {
+                    // The agent is frozen in the record too: the registered version, or the built-in materialized from
+                    // the preferences this session starts with (AD-68).
+                    var agent = request.RegisteredAgent;
                     var registered = new SessaoRegistradaDto(number, request.Agent, LedgerChannel.Telegram,
                         request.OwnerUserId, request.Context, request.Profile, request.ModelSelection?.Model,
-                        request.ModelSelection?.Effort, entry.CreatedAtUtc, ledger!.Identidade?.Boot, ledger.Identidade?.Host);
+                        request.ModelSelection?.Effort, entry.CreatedAtUtc,
+                        BootDoWorker: ledger!.Identidade?.Boot, MaquinaDoWorker: ledger.Identidade?.Host,
+                        HandleDoAgente: agent?.Handle ?? AgentesEmbutidos.Handle(request.Agent),
+                        HashDaConfiguracaoDoAgente: agent?.Versao.HashDaConfiguracao ?? AgentesEmbutidos
+                            .Materializar(request.Agent, request.ModelSelection, request.Profile).Hash(),
+                        IdVersaoDoAgente: agent?.Versao.Id);
                     ledger!.Registrar($"criação da sessão {id}", (l, token) => l.RegistrarSessaoCriadaAsync(registered, token));
                 }
             }
@@ -91,9 +108,10 @@ public sealed class SessionRegistry(
                 request.EnvironmentVariables,
                 request.Profile,
                 request.ModelSelection,
-                toolServers is null ? null : await toolServers.ForSessionAsync(entry.Session.Id, request, cancellationToken),
+                Granted(request, toolServers is null ? null
+                    : await toolServers.ForSessionAsync(entry.Session.Id, request, cancellationToken)),
                 request.Context.RepositoriosVinculados.Select(linked => linked.Caminho).ToArray(),
-                ContratoMultirrepositorio.Para(request.Context)),
+                Instructions(request)),
                 cancellationToken);
             entry.ReportedModel = started.Model;
             entry.Session.MarkStarted(started);
@@ -118,9 +136,13 @@ public sealed class SessionRegistry(
         }
 
         entry.Pump = Task.Run(() => PumpAsync(entry));
-        lock (gate)
+        // A reserved session (task step, AD-68) is never the owner's active one: ordinary messages keep their route.
+        if (request.Observer is null)
         {
-            activeSessions[request.OwnerUserId] = entry.Session.Id;
+            lock (gate)
+            {
+                activeSessions[request.OwnerUserId] = entry.Session.Id;
+            }
         }
 
         // Messages sent to the session id while it was starting are waiting in its queue.
@@ -143,6 +165,9 @@ public sealed class SessionRegistry(
                     "Aguarde a conclusão ou use /session stop para interromper explicitamente.");
             if (!entry.Driver.Capabilities.Modes.Contains(profile))
                 return SessionResult.Reject($"O modo {AgentSessionModes.Name(profile)} não é suportado pelo {snapshot.Agent}.");
+            // A session never goes past the maximum of its agent's version (AD-68).
+            if (entry.RegisteredAgent is { } registered && !registered.PermitePerfil(profile))
+                return SessionResult.Reject(AboveMaximum(registered, profile));
             if (entry.Driver.Capabilities.ModeSwitch == AgentModeSwitch.Unsupported)
                 return SessionResult.Reject($"Esta sessão {snapshot.Agent} não permite trocar o modo sem reiniciar. " +
                     $"Use /session start {snapshot.Agent.ToString().ToLowerInvariant()} {AgentSessionModes.Name(profile)} para abrir uma nova sessão.");
@@ -324,12 +349,21 @@ public sealed class SessionRegistry(
         "para cancelar a compactação.";
 
     // sessionId null routes to the user's active session.
-    public async Task<SessionSubmitResult> SubmitAsync(long userId, string? sessionId, AgentInput input,
-        MessageDelivery delivery = MessageDelivery.Queue, CancellationToken cancellationToken = default)
+    public Task<SessionSubmitResult> SubmitAsync(long userId, string? sessionId, AgentInput input,
+        MessageDelivery delivery = MessageDelivery.Queue, CancellationToken cancellationToken = default) =>
+        SubmitCoreAsync(userId, sessionId, input, delivery, reserved: false, cancellationToken);
+
+    // Task step (AD-68): only the executor that started the reserved session sends its turn.
+    internal Task<SessionSubmitResult> SubmitReservedAsync(long ownerUserId, string sessionId, AgentInput input,
+        CancellationToken cancellationToken = default) =>
+        SubmitCoreAsync(ownerUserId, sessionId, input, MessageDelivery.Queue, reserved: true, cancellationToken);
+
+    private async Task<SessionSubmitResult> SubmitCoreAsync(long userId, string? sessionId, AgentInput input,
+        MessageDelivery delivery, bool reserved, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentException.ThrowIfNullOrWhiteSpace(input.Text);
-        var entry = Find(userId, sessionId, out var error);
+        var entry = Find(userId, sessionId, out var error, reserved);
         if (entry is null)
         {
             return SessionSubmitResult.Reject(error!, sessionId);
@@ -526,10 +560,19 @@ public sealed class SessionRegistry(
         return new SessionResult(true, Snapshot(entry), DiscardedMessages: discarded);
     }
 
-    public async Task<SessionResult> CloseAsync(long userId, string? sessionId,
-        CancellationToken cancellationToken = default)
+    public Task<SessionResult> CloseAsync(long userId, string? sessionId,
+        CancellationToken cancellationToken = default) =>
+        CloseCoreAsync(userId, sessionId, reserved: false, cancellationToken);
+
+    // Task step (AD-68): the executor closes the reserved session it started, whatever the turn did.
+    internal Task<SessionResult> CloseReservedAsync(long ownerUserId, string sessionId,
+        CancellationToken cancellationToken = default) =>
+        CloseCoreAsync(ownerUserId, sessionId, reserved: true, cancellationToken);
+
+    private async Task<SessionResult> CloseCoreAsync(long userId, string? sessionId, bool reserved,
+        CancellationToken cancellationToken)
     {
-        var entry = Find(userId, sessionId, out var error);
+        var entry = Find(userId, sessionId, out var error, reserved);
         if (entry is null)
         {
             return SessionResult.Reject(error!);
@@ -557,6 +600,11 @@ public sealed class SessionRegistry(
         {
             return SessionResult.Reject($"A sessão {session.Id} já está sendo encerrada.");
         }
+
+        // This close holds Upstream and waits for the pump below. A pump that has just applied a turn completion may be
+        // about to take Upstream to start the next queued message: cancelling its wait lets it end instead of waiting
+        // for this close forever (a deadlock since #65, made likely by a task step closing right after its turn).
+        await entry.Closing.CancelAsync();
 
         await PublishClosedInputsAsync(entry, inputs);
 
@@ -605,8 +653,17 @@ public sealed class SessionRegistry(
     }
 
     // Routes an approval or input answer to the session whose turn raised the request; only the owner may answer.
-    public async Task<SessionResult> RespondAsync(long userId, string requestId, AgentUserResponse response,
-        CancellationToken cancellationToken = default)
+    public Task<SessionResult> RespondAsync(long userId, string requestId, AgentUserResponse response,
+        CancellationToken cancellationToken = default) =>
+        RespondCoreAsync(userId, requestId, response, reserved: false, cancellationToken);
+
+    // Task step (AD-68): requests of a reserved session are answered only by its executor.
+    internal Task<SessionResult> RespondReservedAsync(long ownerUserId, string requestId, AgentUserResponse response,
+        CancellationToken cancellationToken = default) =>
+        RespondCoreAsync(ownerUserId, requestId, response, reserved: true, cancellationToken);
+
+    private async Task<SessionResult> RespondCoreAsync(long userId, string requestId, AgentUserResponse response,
+        bool reserved, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
         ArgumentNullException.ThrowIfNull(response);
@@ -614,7 +671,8 @@ public sealed class SessionRegistry(
         lock (gate)
         {
             entry = sessions.Values.FirstOrDefault(candidate =>
-                candidate.Session.PendingRequestIds.Contains(requestId, StringComparer.OrdinalIgnoreCase));
+                candidate.Session.PendingRequestIds.Contains(requestId, StringComparer.OrdinalIgnoreCase) &&
+                (candidate.Observer is null) != reserved);
         }
 
         if (entry is null)
@@ -737,6 +795,18 @@ public sealed class SessionRegistry(
     }
 
     // Only the owner's sessions: live ones and the most recently ended.
+    // Live sessions of one registered agent, of every owner (AD-68): what keeps running after it is deactivated.
+    public IReadOnlyList<AgentSessionSnapshot> ListLiveOfRegisteredAgent(string handle)
+    {
+        lock (gate)
+        {
+            return sessions.Values
+                .Where(entry => entry.RegisteredAgent?.Handle == handle && !IsEnded(entry.Session.State))
+                .Select(Snapshot)
+                .ToArray();
+        }
+    }
+
     public IReadOnlyList<AgentSessionSnapshot> List(long userId)
     {
         lock (gate)
@@ -830,7 +900,8 @@ public sealed class SessionRegistry(
                 await PublishAsync(entry, stamped);
                 if (stamped is TurnCompletedEvent)
                 {
-                    await StartNextQueuedAsync(entry, lifetime.Token);
+                    using var next = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, entry.Closing.Token);
+                    await StartNextQueuedAsync(entry, next.Token);
                 }
 
                 if (session.State == AgentSessionState.Failed)
@@ -988,14 +1059,17 @@ public sealed class SessionRegistry(
         if (entry.LedgerNumber is { } number && ProjecaoDeEventosDaSessao.Projetar(number, agentEvent) is { } projected)
             ledger!.Registrar($"{projected.Tipo} da sessão {entry.Session.Id}", (l, token) =>
                 l.RegistrarEventoDaSessaoAsync(projected, token));
-        if (sink is null)
+        // A reserved session talks only to its executor (AD-68): nothing of the task reaches Telegram before the
+        // result is recorded under the queue's lease.
+        var target = entry.Observer ?? sink;
+        if (target is null)
         {
             return;
         }
 
         try
         {
-            await sink.PublishAsync(Snapshot(entry), agentEvent, lifetime.Token);
+            await target.PublishAsync(Snapshot(entry), agentEvent, lifetime.Token);
         }
         catch (Exception exception)
         {
@@ -1004,7 +1078,8 @@ public sealed class SessionRegistry(
         }
     }
 
-    private Entry? Find(long userId, string? sessionId, out string? error)
+    // reserved: the caller is the executor of a reserved session (AD-68). The owner's commands never reach one.
+    private Entry? Find(long userId, string? sessionId, out string? error, bool reserved = false)
     {
         lock (gate)
         {
@@ -1018,6 +1093,13 @@ public sealed class SessionRegistry(
             if (!sessions.TryGetValue(sessionId, out var entry) || entry.Session.OwnerUserId != userId)
             {
                 error = $"Sessão {sessionId} não encontrada. {RestartNotice}";
+                return null;
+            }
+
+            if ((entry.Observer is not null) != reserved)
+            {
+                error = reserved ? $"A sessão {sessionId} não é reservada."
+                    : $"A sessão {entry.Session.Id} executa uma tarefa e não recebe comandos.";
                 return null;
             }
 
@@ -1098,9 +1180,56 @@ public sealed class SessionRegistry(
                 entry.ReportedModel)
             {
                 PendingProfile = entry.PendingProfile, UpstreamSessionId = session.UpstreamSessionId,
-                Compacting = entry.Compaction is not null
+                Compacting = entry.Compaction is not null, RegisteredAgent = entry.RegisteredAgent
             };
         }
+    }
+
+    // Caller holds the gate. Profile, driver, repositories and the agent's simultaneous limit (AD-68).
+    private string? RefuseRegistered(SessionStartRequest request, AgenteDaSessao registered)
+    {
+        var configuration = registered.Configuracao;
+        if (configuration.Driver != request.Agent)
+            return $"O agente {registered.Descricao} usa {configuration.Driver}, não {request.Agent}.";
+        if (!registered.PermitePerfil(request.Profile)) return AboveMaximum(registered, request.Profile);
+        // Modelo e esforço são os da versão congelada: o registro aponta para ela, então o processo também.
+        var selection = request.ModelSelection ?? AgentModelSelection.CliDefault;
+        if (!string.Equals(selection.Model, configuration.Modelo, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(selection.Effort, configuration.Esforco, StringComparison.OrdinalIgnoreCase))
+            return $"Modelo e esforço da sessão diferem da versão {registered.Descricao}; nada foi iniciado.";
+        if (!MontagemDaTarefa.ReposPermitidos(configuration, request.Context))
+            return MontagemDaTarefa.RecusaDeRepositorio(registered.Handle, configuration, request.Context);
+        if (configuration.Limites.ExecucoesSimultaneas is { } limit && sessions.Values.Count(other =>
+                other.RegisteredAgent?.Handle == registered.Handle && !IsEnded(other.Session.State)) >= limit)
+            return $"O agente {registered.Handle} já tem {limit} sessão(ões) simultânea(s), o limite da versão.";
+        return null;
+    }
+
+    private static string AboveMaximum(AgenteDaSessao registered, AgentPermissionProfile profile) =>
+        $"O modo {AgentSessionModes.Name(profile)} passa do máximo do agente {registered.Descricao} " +
+        $"({AgentSessionModes.Name(registered.PerfilMaximo)}).";
+
+    // A registered agent receives only the D.A.N.T.E. tool servers its version grants; an unknown server is never
+    // granted. Built-ins keep everything, as before.
+    private static IReadOnlyList<AgentToolServer>? Granted(SessionStartRequest request,
+        IReadOnlyList<AgentToolServer>? servers)
+    {
+        if (servers is null || request.RegisteredAgent is not { } registered) return servers;
+        return servers.Where(server => server.Name switch
+        {
+            ServidorMcpDoBrain.Nome => registered.Configuracao.PermiteFerramenta(FerramentaDoDante.Brain),
+            ServidorMcpDePlanilhas.Nome => registered.Configuracao.PermiteFerramenta(FerramentaDoDante.Planilhas),
+            _ => false
+        }).ToArray();
+    }
+
+    // Multi-repository contract first (AD-58), then the registered agent's role (AD-68); both after the conversation
+    // contract the drivers always put first.
+    private static string? Instructions(SessionStartRequest request)
+    {
+        var context = ContratoMultirrepositorio.Para(request.Context);
+        var agent = request.RegisteredAgent?.Instrucoes;
+        return context is null ? agent : agent is null ? context : context + "\n" + agent;
     }
 
     private static bool IsEnded(AgentSessionState state) =>
@@ -1121,6 +1250,12 @@ public sealed class SessionRegistry(
         public DateTimeOffset? EndedAtUtc { get; set; }
         // Number of the session in the execution ledger; null when not mirrored.
         public long? LedgerNumber { get; init; }
+        // Registered agent version frozen at start (AD-68); null for the built-ins.
+        public AgenteDaSessao? RegisteredAgent { get; init; }
+        // Executor of a reserved session (task step, AD-68): receives its events instead of the sink.
+        public IAgentSessionEventSink? Observer { get; init; }
+        // Cancelled by a close: the pump never waits on Upstream for a session whose close is waiting for the pump.
+        public CancellationTokenSource Closing { get; } = new();
         public Task? Pump { get; set; }
         public AgentTurnOutcome? LastTurnOutcome { get; set; }
         // Turns that ended since the session started or was cleared: without any, there is nothing to compact (#121).

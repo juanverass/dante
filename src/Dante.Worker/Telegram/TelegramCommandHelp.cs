@@ -20,8 +20,10 @@ internal static class TelegramCommandHelp
             "Janela de sessão renova em: 2h 13min"),
 
         new("/session", "CONVERSA E SESSÕES", "Gerencie suas sessões e a conversa ativa; efeito apenas na sessão.",
-            "/session start codex manual\n/session list\n/session select S000003\n/session select none\n/session stop\n/session close S000003",
+            "/session start codex manual\n/session start revisor @exemplo\n/session list\n/session select S000003\n/session select none\n/session stop\n/session close S000003",
             "start [claude|codex] [@alias] [manual|auto|plan] [model=nome|default] [effort=nível|default] abre e seleciona uma sessão. " +
+            "start <handle> abre com um agente registrado (veja /agentes): congela a versão atual dele, com modo padrão, " +
+            "modelo e esforço da versão; um modo explícito só pode restringir. " +
             "Opções omitidas usam suas preferências; overrides valem só para essa sessão. list lista suas sessões; " +
             "select escolhe a sessão; none desmarca. stop [id] interrompe o turno e descarta a fila; close [id] encerra o processo. " +
             "Sem id, stop e close usam a sessão ativa."),
@@ -41,6 +43,23 @@ internal static class TelegramCommandHelp
 
         new("/agent", "AGENTE E CONTEXTO", "Consulte ou salve o agente padrão; a sessão ativa mantém seu agente.",
             "/agent\n/agent set claude", "set aceita claude ou codex. Preferência persistente para novas conversas e execuções sem agente explícito."),
+        new("/agentes", "AGENTE E CONTEXTO", "Liste os agentes embutidos (claude, codex) e os registrados.",
+            "/agentes\n/agentes todos", "todos inclui os arquivados. Agentes registrados exigem o banco do D.A.N.T.E. habilitado."),
+        new("/agente", "AGENTE E CONTEXTO", "Crie, consulte, edite (nova versão), desative, reative ou arquive um agente registrado.",
+            "/agente criar revisor driver=codex capacidades=revisar repos=@exemplo\n/agente ver revisor\n" +
+            "/agente editar revisor modo=plan effort=high\n/agente desativar revisor\n/agente arquivar revisor",
+            "criar <handle> driver=claude|codex [model=] [effort=] [modo=plan|manual|auto] [maximo=] [escrita=sim|nao] " +
+            "[capacidades=implementar,revisar,pesquisar,planejar] [ferramentas=brain,planilhas] [repos=@alias,…|*] " +
+            "[simultaneas=N] [tokens=N] [turnos=N] [minutos=N]; as instruções do papel vão nas linhas seguintes. " +
+            "Sem opções, o agente só lê (plan), não recebe ferramentas e só trabalha no workspace geral. Handle: minúsculo, " +
+            "sem @ (que é repositório), único e nunca reutilizado. editar cria uma versão nova; sessões abertas mantêm a " +
+            "delas. nome|descricao <handle> <texto> mudam a apresentação sem versão. desativar recusa novas sessões e " +
+            "tarefas sem interromper as ativas; arquivar exige desativado e sem sessão ativa. Credenciais nunca entram no cadastro."),
+        new("/tarefa", "AGENTE E CONTEXTO", "Peça uma tarefa somente leitura a um agente registrado.",
+            "/tarefa revisor @exemplo revise o README",
+            "/tarefa <handle> [@alias] pedido. Roda sempre em modo plan, mesmo que o agente permita escrita: lê e analisa, " +
+            "sem alterar arquivos. Entra na fila durável (resposta \"Tarefa E… enfileirada\") e o resultado chega quando a " +
+            "etapa termina; depois de um reinício do Worker, a tarefa pendente é cancelada com aviso."),
         new("/use", "AGENTE E CONTEXTO", "Consulte ou salve o contexto padrão; a sessão ativa mantém seu repositório.",
             "/use\n/use @exemplo\n/use general", "Preferência persistente. @alias deve estar cadastrado; general usa o workspace geral. " +
             "Um @alias explícito no pedido é override só daquela execução e não muda essa preferência."),

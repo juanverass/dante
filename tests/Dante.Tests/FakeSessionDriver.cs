@@ -154,10 +154,15 @@ internal sealed class FakeSessionDriver(AgentDriverCapabilities capabilities) : 
         return Task.CompletedTask;
     }
 
+    // Runs inside DisposeAsync, synchronously: lets a test act at the exact point where the registry disposes the
+    // driver (for a close: after it took the session and right before it waits for the pump).
+    public Action? OnDispose { get; set; }
+
     public ValueTask DisposeAsync()
     {
         Disposed = true;
         events.Writer.TryComplete();
+        OnDispose?.Invoke();
         return ValueTask.CompletedTask;
     }
 }

@@ -14,6 +14,7 @@ public sealed record ExecucaoDto
     public long IdDoUsuarioNoCanal { get; init; }
     public string Contexto { get; init; } = "";
     public string? Objetivo { get; init; }
+    public Guid? IdVersaoDoAgente { get; init; }
     public string? Erro { get; init; }
     public string? Motivo { get; init; }
     public DateTimeOffset CriadaEm { get; init; }

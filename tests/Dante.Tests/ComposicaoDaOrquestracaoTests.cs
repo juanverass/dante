@@ -32,6 +32,10 @@ public sealed class ComposicaoDaOrquestracaoTests
             .AddWorker(configuracao);
         Assert.DoesNotContain(services, s => s.ServiceType == typeof(EspelhoDoLedger));
         Assert.DoesNotContain(services, s => s.ImplementationType == typeof(EncerramentoDoLedger));
+        // Cadastro de agentes (AD-68): mesma condição; sem ele, /agentes, /agente e /tarefa respondem indisponível.
+        Assert.DoesNotContain(services, s => s.ServiceType == typeof(Dante.Worker.Telegram.TelegramAgentes));
+        // Sem a fila, /tarefa não tem executor: nada é criado nem executado.
+        Assert.DoesNotContain(services, s => s.ServiceType == typeof(ExecutorDeTarefasDaFila));
         Assert.Equal(banco is not null, services.Any(s => s.ServiceType == typeof(OrquestracaoDbContext)));
         Assert.False(WorkerComposition.OrquestracaoHabilitada(configuracao));
     }
@@ -43,6 +47,10 @@ public sealed class ComposicaoDaOrquestracaoTests
         var services = new ServiceCollection().AddLogging().AddApplication().AddInfrastructure(configuracao)
             .AddWorker(configuracao);
         Assert.Single(services, s => s.ServiceType == typeof(EspelhoDoLedger) && s.Lifetime == ServiceLifetime.Singleton);
+        Assert.Single(services, s => s.ServiceType == typeof(Dante.Worker.Telegram.TelegramAgentes));
+        // /tarefa (AD-68): o executor de Tarefa entra na fila ao lado do de jobs; é o único caminho que a executa.
+        Assert.Single(services, s => s.ServiceType == typeof(ExecutorDeTarefasDaFila) && s.Lifetime == ServiceLifetime.Singleton);
+        Assert.Equal(2, services.Count(s => s.ServiceType == typeof(IExecutorDeEtapa)));
         // O encerramento do ledger para por último: registrado antes dos demais hosted services.
         var hospedados = services.Where(s => s.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService))
             .Select(s => s.ImplementationType).ToArray();
@@ -79,13 +87,14 @@ public sealed class ComposicaoDaOrquestracaoTests
     public void ModeloDoLedgerTemSchemaEHistoricoPropriosSemTocarOBrain()
     {
         using var ledger = new OrquestracaoDbContext(OrquestracaoDbContextFactory.Opcoes(BancoFicticio));
-        Assert.Equal(["DependenciaDeEtapa", "EtapaDaExecucao", "EventoDeOrquestracao", "Execucao", "SessaoDeAgente",
-                "TrabalhoDaFila"],
-            ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
+        // Ledger (AD-66), fila (AD-67) e cadastro de agentes (AD-68) no mesmo schema e histórico.
+        Assert.Equal(["Agente", "DependenciaDeEtapa", "EtapaDaExecucao", "EventoDeOrquestracao", "Execucao", "SessaoDeAgente",
+            "TrabalhoDaFila", "VersaoDoAgente"], ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
         Assert.All(ledger.Model.GetEntityTypes(), e =>
         {
             Assert.Equal("orquestracao", e.GetSchema());
-            Assert.Equal($"Dante.Infrastructure.Modulos.Execucoes", typeof(OrquestracaoDbContext).Assembly.GetTypes()
+            Assert.Equal(e.ClrType.Namespace == "Dante.Domain.Agentes" ? "Dante.Infrastructure.Modulos.Agentes"
+                : "Dante.Infrastructure.Modulos.Execucoes", typeof(OrquestracaoDbContext).Assembly.GetTypes()
                 .Single(t => t.Name == e.ClrType.Name + "DbMapping").Namespace);
             Assert.Equal("xmin", e.FindProperty("Versao")!.GetColumnName());
             Assert.True(e.FindProperty("Versao")!.IsConcurrencyToken);
@@ -97,7 +106,7 @@ public sealed class ComposicaoDaOrquestracaoTests
         Assert.DoesNotContain("CREATE EXTENSION", script);
 
         using var brain = new DanteDbContext(new DbContextOptionsBuilder<DanteDbContext>().UseNpgsql(BancoFicticio).Options);
-        Assert.DoesNotContain(brain.Model.GetEntityTypes(), e => e.ClrType.Namespace == "Dante.Domain.Execucoes");
+        Assert.DoesNotContain(brain.Model.GetEntityTypes(), e => e.ClrType.Namespace is "Dante.Domain.Execucoes" or "Dante.Domain.Agentes");
         Assert.DoesNotContain("orquestracao", brain.GetService<IMigrator>().GenerateScript());
     }
 

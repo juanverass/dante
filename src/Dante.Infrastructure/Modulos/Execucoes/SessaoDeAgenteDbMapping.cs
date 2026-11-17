@@ -30,9 +30,16 @@ public sealed class SessaoDeAgenteDbMapping : EntidadeConfiguration<SessaoDeAgen
         b.Property(x => x.CriadaEm).HasColumnName("criada_em");
         b.Property(x => x.IniciadaEm).HasColumnName("iniciada_em");
         b.Property(x => x.EncerradaEm).HasColumnName("encerrada_em");
+        b.Property(x => x.HandleDoAgente).HasColumnName("handle_do_agente")
+            .HasMaxLength(Dante.Domain.Agentes.Agente.TamanhoMaximoDoHandle);
+        b.Property(x => x.HashDaConfiguracaoDoAgente).HasColumnName("hash_da_configuracao_do_agente")
+            .HasMaxLength(Dante.Domain.Agentes.VersaoDoAgente.TamanhoDoHash).IsFixedLength();
+        b.Property(x => x.IdVersaoDoAgente).HasColumnName("id_versao_do_agente");
         b.Ignore(x => x.Codigo);
         b.Ignore(x => x.Terminal);
         b.HasOne<Execucao>().WithMany().HasForeignKey(x => x.IdExecucao).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Dante.Domain.Agentes.VersaoDoAgente>().WithMany().HasForeignKey(x => x.IdVersaoDoAgente)
+            .OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => x.Numero).IsUnique();
         b.HasIndex(x => x.Estado);
         b.HasIndex(x => x.UnidadeDeContencao);

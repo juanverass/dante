@@ -19,6 +19,7 @@ internal static class ExecucaoMapping
             IdDoUsuarioNoCanal = execucao.IdDoUsuarioNoCanal,
             Contexto = execucao.Contexto,
             Objetivo = execucao.Objetivo,
+            IdVersaoDoAgente = execucao.IdVersaoDoAgente,
             Erro = execucao.Erro,
             Motivo = execucao.Motivo,
             CriadaEm = execucao.CriadaEm,

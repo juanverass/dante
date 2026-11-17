@@ -38,11 +38,16 @@ public sealed class Execucao : EntidadeBase
     }
 
     // contexto: o contexto de execução congelado (AD-11) já serializado pela Application.
+    // idVersaoDoAgente: versão congelada do agente responsável (AD-68); obrigatória numa Tarefa.
     public Execucao(long numero, TipoDeExecucao tipo, string canal, long idDoUsuarioNoCanal, string contexto,
-        string? objetivo, DateTimeOffset criadaEm)
+        string? objetivo, DateTimeOffset criadaEm, Guid? idVersaoDoAgente = null)
     {
         if (numero < 1) throw new ArgumentOutOfRangeException(nameof(numero), "Número da execução deve ser positivo.");
         if (!Enum.IsDefined(tipo)) throw new ArgumentOutOfRangeException(nameof(tipo), "Tipo de execução inválido.");
+        if (idVersaoDoAgente == Guid.Empty) throw new ArgumentException("Versão do agente inválida.", nameof(idVersaoDoAgente));
+        if (tipo == TipoDeExecucao.Tarefa && idVersaoDoAgente is null)
+            throw new ArgumentException("Tarefa exige a versão do agente responsável.", nameof(idVersaoDoAgente));
+        IdVersaoDoAgente = idVersaoDoAgente;
         Numero = numero;
         Tipo = tipo;
         Canal = TextoObrigatorio(canal, TamanhoMaximoDoCanal, nameof(canal));
@@ -70,8 +75,13 @@ public sealed class Execucao : EntidadeBase
     public DateTimeOffset? IniciadaEm { get; private set; }
     public DateTimeOffset? EncerradaEm { get; private set; }
 
+    // Versão do agente responsável, congelada na criação; editar o agente depois não a altera.
+    public Guid? IdVersaoDoAgente { get; private set; }
+
     public string Codigo => Tipo == TipoDeExecucao.Avulsa ? $"J{Numero:D6}" : $"E{Numero}";
     public bool Terminal => Transicoes[Estado].Length == 0;
+    // Execuções novas (tudo que não é o job legado) não escrevem fora de uma worktree reservada (AD-68, AD-71 proposta).
+    public bool Nova => Tipo != TipoDeExecucao.Avulsa;
 
     public static bool PodeTransitar(EstadoDaExecucao de, EstadoDaExecucao para) => Transicoes[de].Contains(para);
 

@@ -22,6 +22,9 @@ public sealed record SessaoDeAgenteDto
     public Guid? BootDoWorker { get; init; }
     public string? MaquinaDoWorker { get; init; }
     public string? UnidadeDeContencao { get; init; }
+    public string? HandleDoAgente { get; init; }
+    public string? HashDaConfiguracaoDoAgente { get; init; }
+    public Guid? IdVersaoDoAgente { get; init; }
     public string? MotivoDoFim { get; init; }
     public DateTimeOffset CriadaEm { get; init; }
     public DateTimeOffset? IniciadaEm { get; init; }

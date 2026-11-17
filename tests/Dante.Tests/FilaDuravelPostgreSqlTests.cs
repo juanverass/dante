@@ -889,13 +889,15 @@ public sealed class FilaDuravelPostgreSqlTests
 
     // Sempre com unidades falsas: nenhum teste lista ou para unidades systemd reais.
     internal static ServiceProvider Provider(string connectionString, TimeProvider? relogio = null,
-        IUnidadesDeContencao? unidades = null)
+        IUnidadesDeContencao? unidades = null, Action<IServiceCollection>? configurar = null)
     {
         var services = new ServiceCollection().AddLogging();
         if (relogio is not null) services.AddSingleton(relogio);
         services.AddApplication().AddInfrastructure(new ConfigurationBuilder().AddInMemoryCollection(
             new Dictionary<string, string?> { ["ConnectionStrings:Dante"] = connectionString }).Build());
         services.AddSingleton(unidades ?? new UnidadesFalsas());
+        // Substituições do teste (ex.: catálogo de modelos falso, para nenhuma CLI real ser consultada).
+        configurar?.Invoke(services);
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
     }
 

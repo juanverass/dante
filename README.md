@@ -725,6 +725,32 @@ concede acesso irrestrito (`full`), e o D.A.N.T.E. nunca escolhe um modo por inf
 `/permissions` continua disponível como interface de baixo nível e lê e grava o mesmo
 padrão do `/mode`. As execuções one-shot (`/claude`, `/codex`) não usam modos.
 
+## Agentes registrados
+
+Além de `claude` e `codex` (embutidos, que seguem `/model`, `/effort` e `/mode`), é possível cadastrar
+agentes com papel próprio. Exigem o banco do D.A.N.T.E. e `Orquestracao:Habilitada=true`; sem isso, os
+comandos respondem que o cadastro está indisponível e nada mais muda.
+
+```text
+/agente criar revisor driver=codex capacidades=revisar repos=@dante
+Revise o diff com rigor e aponte riscos.
+/agentes                                  lista embutidos e registrados
+/agente ver revisor                       configuração e versões
+/agente editar revisor effort=high        cria a versão 2; sessões abertas mantêm a delas
+/session start revisor @dante             conversa com o agente, na versão atual
+/tarefa revisor @dante revise o PR 301    tarefa somente leitura, executada pela fila durável
+/agente desativar revisor                 nada novo começa; o que está ativo segue até o fim
+```
+
+Sem opções, um agente só lê (`plan`), não recebe ferramentas do D.A.N.T.E. e só trabalha no workspace
+geral: modo máximo, escrita, ferramentas (`brain`, `planilhas`) e repositórios são concessões explícitas, e
+uma sessão nunca passa do máximo da versão. O handle é minúsculo, sem `@` (que continua sendo repositório) e
+nunca é reutilizado; arquivar é o fim do ciclo de vida. `/tarefa` roda sempre em `plan`, mesmo que o agente
+permita escrita, até existirem worktrees reservadas. A tarefa é gravada e enfileirada antes da confirmação
+("Tarefa E… enfileirada"); roda numa sessão reservada, que não vira a sessão ativa nem recebe comandos, e o
+resultado é registrado no ledger antes de ser entregue. Depois de um reinício do Worker, uma tarefa pendente é
+cancelada com aviso (o pedido não é guardado). Credenciais nunca entram no cadastro nem nas instruções.
+
 ## Repositório ativo
 
 Cada usuário autorizado pode manter um repositório ativo para as próximas mensagens, sem
