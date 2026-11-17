@@ -18,7 +18,8 @@ public sealed class ProcessadorDaFila(
     ILogger<ProcessadorDaFila> logger,
     IOuvinteDaFila? ouvinte = null,
     TimeProvider? relogio = null,
-    CanalDeCancelamento? canal = null) : BackgroundService
+    CanalDeCancelamento? canal = null,
+    OpcoesDeWorktrees? worktrees = null) : BackgroundService
 {
     // Espera mínima entre voltas: um trabalho visível mas travado por outro processador não vira busy loop.
     private static readonly TimeSpan EsperaMinima = TimeSpan.FromMilliseconds(50);
@@ -153,6 +154,7 @@ public sealed class ProcessadorDaFila(
                         unidade);
                 foreach (var unidade in relatorio.FalhasAoParar)
                     logger.LogWarning("Falha ao parar a unidade {Unidade} de um boot anterior.", unidade);
+                if (worktrees is not null) await LimparWorktreesAsync(stoppingToken, recuperacao: true);
                 recuperacao.TrySetResult();
                 return;
             }
@@ -175,6 +177,33 @@ public sealed class ProcessadorDaFila(
                 }
                 espera = espera * 2 > EsperaMaximaAposFalha ? EsperaMaximaAposFalha : espera * 2;
             }
+        }
+    }
+
+    // Worktrees de execuções encerradas (#307): removidas se limpas, preservadas com motivo se não; diretórios
+    // desconhecidos sob a raiz só relatados. Falha aqui não impede a fila: a próxima passada tenta de novo.
+    private async Task LimparWorktreesAsync(CancellationToken stoppingToken, bool recuperacao = false)
+    {
+        if (worktrees is null) return;
+        try
+        {
+            var relatorio = await EmEscopoAsync(s => s.GetRequiredService<IReservasDeWorktreeAppService>()
+                .LimparAsync(identidade.Host, stoppingToken));
+            logger.LogInformation(
+                "Limpeza de worktrees ({Momento}): {Liberadas} reserva(s) de execução encerrada liberada(s), {Removidas} removida(s), {Preservadas} preservada(s) com alterações, {Falhas} falha(s) ao remover, {Desconhecidas} diretório(s) desconhecido(s) relatado(s), nunca removido(s).",
+                recuperacao ? "recuperação" : "fim de etapa", relatorio.Liberadas, relatorio.Removidas, relatorio.Preservadas,
+                relatorio.FalhasAoRemover, relatorio.Desconhecidos.Count);
+            foreach (var desconhecido in relatorio.Desconhecidos)
+                logger.LogWarning("Diretório {Caminho} sob a raiz de worktrees sem reserva no ledger: relatado, não removido.",
+                    desconhecido);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            // Fica para a próxima passada: as reservas continuam liberadas no ledger.
+            logger.LogWarning("Limpeza de worktrees falhou ({ErrorType}).", exception.GetType().Name);
         }
     }
 
@@ -222,6 +251,9 @@ public sealed class ProcessadorDaFila(
                     await ExecutarAsync(trabalho, avaliacao.Alvo!, avaliacao.Origem);
                     break;
             }
+            // Etapa de escrita (#307): conclusão, falha, cancelamento ou interrupção podem ter liberado worktrees; a
+            // limpeza só toca reservas liberadas (execução encerrada), então rodar sempre é seguro.
+            if (avaliacao.Alvo is { Escrita: true }) await LimparWorktreesAsync(encerramento);
         }
         catch (PosseDoTrabalhoPerdidaException)
         {
@@ -283,6 +315,7 @@ public sealed class ProcessadorDaFila(
         var heartbeat = new Heartbeat(this, trabalho, posseCancelada, cancelavel ? alvo : null, cancelamento);
         var controle = new ExecucaoSobPosse(escopos, trabalho, alvo, posseCancelada.Token, heartbeat.PararAsync);
         string? falha = null;
+        string? semCapacidade = null;
         try
         {
             logger.LogInformation("Etapa {Etapa} de {Execucao} em execução pelo trabalho {IdTrabalho} (geração {Geracao}).",
@@ -292,6 +325,11 @@ public sealed class ProcessadorDaFila(
         catch (PosseDoTrabalhoPerdidaException)
         {
             // Tratado abaixo, pelo estado do controle.
+        }
+        catch (CapacidadeDeWorktreesIndisponivelException exception)
+        {
+            // Limite de escrita atingido (#307): nada foi reservado nem iniciado; não é falha da execução.
+            semCapacidade = exception.Message;
         }
         catch (Exception exception) when (!posseCancelada.IsCancellationRequested)
         {
@@ -322,6 +360,15 @@ public sealed class ProcessadorDaFila(
         if (cancelavel && (cancelamento.IsCancellationRequested || await CancelamentoSolicitadoAsync(alvo)))
         {
             await CancelarAsync(trabalho, alvo);
+            return;
+        }
+        if (semCapacidade is not null && !encerramento.IsCancellationRequested)
+        {
+            metricas.SemCapacidade.Add(1);
+            await DevolverAsync(trabalho, relogio.GetUtcNow() + (worktrees?.EsperaPorCapacidade ?? opcoes.Polling),
+                "capacidade de worktrees", false);
+            logger.LogInformation("Trabalho {IdTrabalho} de {Execucao} devolvido sem contar tentativa: {Motivo}", trabalho.Id,
+                alvo.Codigo, semCapacidade);
             return;
         }
         // Falha do executor: backoff contando tentativa (esgotadas, a execução falha), mesmo que a etapa tenha iniciado,

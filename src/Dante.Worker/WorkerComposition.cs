@@ -86,10 +86,33 @@ internal static class WorkerComposition
         // /tarefa (AD-68): o executor de TipoDeExecucao.Tarefa; a fila é o único caminho que executa uma tarefa.
         services.AddSingleton<ExecutorDeTarefasDaFila>();
         services.AddSingleton<IExecutorDeEtapa>(provider => provider.GetRequiredService<ExecutorDeTarefasDaFila>());
+        // Worktrees de execução de escrita (#307, AD-71). O limite global fica em 1 até a ativação autorizada da AD-63:
+        // a composição recusa qualquer valor maior (OpcoesDeWorktrees.Validar sem paralelismo autorizado).
+        // O gerenciador Git vem da Infrastructure e lê estas opções.
+        services.AddSingleton(OpcoesDeWorktrees(configuration));
         services.AddSingleton<ProcessadorDaFila>();
         services.AddHostedService(provider => provider.GetRequiredService<ProcessadorDaFila>());
         return services;
     }
+
+    // Orquestracao:Worktrees:{Raiz, LimiteGlobal, LimitePorRepositorio}; ausentes ficam no padrão (~/.dante/worktrees,
+    // 1 e 1). Limite global acima de 1 impede a inicialização: elevar exige alteração e autorização próprias (AD-63).
+    internal static OpcoesDeWorktrees OpcoesDeWorktrees(IConfiguration configuration)
+    {
+        var secao = configuration.GetSection("Orquestracao:Worktrees");
+        var padrao = new OpcoesDeWorktrees();
+        var opcoes = padrao with
+        {
+            Raiz = secao["Raiz"] is { Length: > 0 } raiz ? raiz : padrao.Raiz,
+            LimiteGlobal = Inteiro(secao["LimiteGlobal"]) ?? padrao.LimiteGlobal,
+            LimitePorRepositorio = Inteiro(secao["LimitePorRepositorio"]) ?? padrao.LimitePorRepositorio
+        };
+        opcoes.Validar(paralelismoAutorizado: false);
+        return opcoes;
+    }
+
+    private static int? Inteiro(string? valor) => string.IsNullOrWhiteSpace(valor) ? null
+        : int.Parse(valor, System.Globalization.CultureInfo.InvariantCulture);
 
     // Orquestracao:Fila:{LeaseSegundos, HeartbeatSegundos, PollingSegundos, Slots}; ausentes ficam no padrão
     // (60/20/5 e 1 slot). Valores inválidos impedem a inicialização em vez de virar padrão silencioso.

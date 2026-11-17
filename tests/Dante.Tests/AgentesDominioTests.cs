@@ -213,15 +213,18 @@ public sealed class AgentesDominioTests
         Assert.True(AgentesEmbutidos.Descrever(AgentKind.Claude).Embutido);
     }
 
+    // #307: etapa de escrita de execução nova existe (roda só numa worktree, conferida por quem executa), mas nunca é
+    // retomada automaticamente: escrita não é idempotente.
     [Fact]
-    public void TarefaExigeVersaoENaoAceitaEtapaDeEscrita()
+    public void TarefaExigeVersaoEEscritaSoComRetomadaPorConfirmacao()
     {
         Assert.Throws<ArgumentException>(() => new Execucao(1, TipoDeExecucao.Tarefa, "telegram", 1, "{}", "x", Agora));
         var tarefa = new Execucao(1, TipoDeExecucao.Tarefa, "telegram", 1, "{}", "x", Agora, Guid.NewGuid());
         Assert.Equal("E1", tarefa.Codigo);
         Assert.True(tarefa.Nova);
-        Assert.Throws<EscritaSemWorktreeException>(() => new EtapaDaExecucao(tarefa, 1, TipoDeEtapa.TurnoDeAgente, true,
-            PoliticaDeRetomada.ComConfirmacao, Agora));
+        Assert.Throws<InvalidOperationException>(() => new EtapaDaExecucao(tarefa, 1, TipoDeEtapa.TurnoDeAgente, true,
+            PoliticaDeRetomada.Automatica, Agora));
+        Assert.True(new EtapaDaExecucao(tarefa, 1, TipoDeEtapa.TurnoDeAgente, true, PoliticaDeRetomada.ComConfirmacao, Agora).Escrita);
         Assert.False(new EtapaDaExecucao(tarefa, 1, TipoDeEtapa.TurnoDeAgente, false, PoliticaDeRetomada.Automatica, Agora).Escrita);
         // O job legado continua escrevendo no checkout principal, como hoje.
         var avulsa = new Execucao(2, TipoDeExecucao.Avulsa, "telegram", 1, "{}", null, Agora);
@@ -236,10 +239,11 @@ public sealed class AgentesDominioTests
         GuardaDeEscrita.Exigir(tarefa, leitura, AgentPermissionProfile.Plan);
         Assert.Throws<InvalidOperationException>(() => GuardaDeEscrita.Exigir(tarefa, leitura, AgentPermissionProfile.Manual));
         Assert.Throws<InvalidOperationException>(() => GuardaDeEscrita.Exigir(tarefa, leitura, AgentPermissionProfile.Auto));
-        // Uma etapa de escrita que chegasse ao executor por outro caminho (dado gravado, materialização) é recusada.
-        var escrita = new EtapaDaExecucao(tarefa, 2, TipoDeEtapa.TurnoDeAgente, false, PoliticaDeRetomada.Automatica, Agora);
-        typeof(EtapaDaExecucao).GetProperty(nameof(EtapaDaExecucao.Escrita))!.SetValue(escrita, true);
-        Assert.Throws<EscritaSemWorktreeException>(() => GuardaDeEscrita.Exigir(tarefa, escrita, AgentPermissionProfile.Plan));
+        // Etapa de escrita (#307): nunca em plan e nunca sem worktree pronta da própria execução.
+        var escrita = new EtapaDaExecucao(tarefa, 2, TipoDeEtapa.TurnoDeAgente, true, PoliticaDeRetomada.ComConfirmacao, Agora);
+        Assert.Throws<InvalidOperationException>(() => GuardaDeEscrita.Exigir(tarefa, escrita, AgentPermissionProfile.Plan));
+        Assert.Throws<EscritaSemWorktreeException>(() => GuardaDeEscrita.Exigir(tarefa, escrita, AgentPermissionProfile.Auto));
+        Assert.Throws<EscritaSemWorktreeException>(() => GuardaDeEscrita.Exigir(tarefa, escrita, AgentPermissionProfile.Auto, []));
         var outra = new Execucao(3, TipoDeExecucao.Tarefa, "telegram", 1, "{}", "x", Agora, Guid.NewGuid());
         Assert.Throws<InvalidOperationException>(() => GuardaDeEscrita.Exigir(outra, leitura, AgentPermissionProfile.Plan));
         // Avulsa (legado) não muda.

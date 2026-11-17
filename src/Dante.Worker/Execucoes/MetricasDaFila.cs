@@ -20,6 +20,7 @@ public sealed class MetricasDaFila : IDisposable
         Descartados = medidor.CreateCounter<long>("dante.fila.descartados");
         Esgotados = medidor.CreateCounter<long>("dante.fila.esgotados");
         Cancelados = medidor.CreateCounter<long>("dante.fila.cancelados");
+        SemCapacidade = medidor.CreateCounter<long>("dante.fila.sem_capacidade_de_worktree");
         UnidadesParadas = medidor.CreateCounter<long>("dante.fila.recuperacao.unidades_paradas");
         UnidadesDesconhecidas = medidor.CreateCounter<long>("dante.fila.recuperacao.unidades_desconhecidas");
     }
@@ -33,6 +34,7 @@ public sealed class MetricasDaFila : IDisposable
     public Counter<long> Descartados { get; }
     public Counter<long> Esgotados { get; }
     public Counter<long> Cancelados { get; }
+    public Counter<long> SemCapacidade { get; }
     public Counter<long> UnidadesParadas { get; }
     public Counter<long> UnidadesDesconhecidas { get; }
 

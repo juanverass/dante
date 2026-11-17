@@ -164,8 +164,11 @@ internal static class FakeCodex
                         ["approvalsReviewer"] = args.Contains("wrong-reviewer") ? "user" :
                             args.Contains("missing-reviewer") ? null : (string?)parameters["approvalsReviewer"],
                         ["model"] = (string?)parameters["model"] ?? "fake-model",
+                        // Like 0.166: the effective cwd at the top level too (#307).
+                        ["cwd"] = (string?)parameters["cwd"],
                         // Like 0.159.3: the effective sandbox, with the writable_roots override applied (#232).
-                        // ignore-writable-roots plays an older server that drops it.
+                        // ignore-writable-roots plays an older server that drops it; ignore-confinement one that drops
+                        // the /tmp exclusions and the network switch of the override (#307).
                         ["sandbox"] = (string?)parameters["sandbox"] == "read-only"
                             ? new JsonObject { ["type"] = "readOnly", ["networkAccess"] = false }
                             : new JsonObject
@@ -173,7 +176,9 @@ internal static class FakeCodex
                                 ["type"] = "workspaceWrite",
                                 ["writableRoots"] = args.Contains("ignore-writable-roots") ? new JsonArray()
                                     : parameters["config"]?["sandbox_workspace_write"]?["writable_roots"]?.DeepClone() ?? new JsonArray(),
-                                ["networkAccess"] = false, ["excludeTmpdirEnvVar"] = false, ["excludeSlashTmp"] = false
+                                ["networkAccess"] = Flag(parameters, "network_access", false),
+                                ["excludeTmpdirEnvVar"] = !args.Contains("ignore-confinement") && Flag(parameters, "exclude_tmpdir_env_var", false),
+                                ["excludeSlashTmp"] = !args.Contains("ignore-confinement") && Flag(parameters, "exclude_slash_tmp", false)
                             }
                     });
                     break;
@@ -553,6 +558,9 @@ internal static class FakeCodex
 
         return 0;
     }
+
+    private static bool Flag(JsonNode? parameters, string name, bool fallback) =>
+        parameters?["config"]?["sandbox_workspace_write"]?[name] is JsonValue value ? value.GetValue<bool>() : fallback;
 
     private static string Describe(JsonArray input) => string.Join("|", input.Select(item =>
         (string?)item!["type"] switch

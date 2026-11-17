@@ -50,6 +50,8 @@ public sealed class CodexSessionDriver(
     // Checkouts of the linked repositories (AD-58): writable roots of every workspace-write thread and mode switch.
     private IReadOnlyList<string> writableRoots = [];
     private string? effectiveEffort;
+    // Confined write step (#307): fixed policy for the whole session, no mode switch and no clear.
+    private bool confinada;
     private bool closing;
     private bool ended;
     private long nextRequestId;
@@ -67,14 +69,25 @@ public sealed class CodexSessionDriver(
             throw new InvalidOperationException("Este driver já iniciou uma sessão.");
         }
 
-        var (approvalPolicy, sandbox) = Policy(options.Profile);
+        if (options.EscritaConfinada && (options.Profile == AgentPermissionProfile.Plan || options.IsGeneral ||
+                                         options.ToolServers is { Count: > 0 }))
+            throw new AgentProtocolException("Sessão de escrita confinada inválida; nada foi iniciado.");
+        var naoConfiaveis = options.ProjetosNaoConfiaveis ?? [];
+        // A main checkout is never the working directory nor a writable root of a confined session.
+        if (options.EscritaConfinada && naoConfiaveis.Any(projeto =>
+                string.Equals(projeto, options.WorkingDirectory, StringComparison.Ordinal) ||
+                (options.AdditionalDirectories ?? []).Contains(projeto, StringComparer.Ordinal)))
+            throw new AgentProtocolException("Sessão de escrita confinada com checkout principal gravável; nada foi iniciado.");
+        var (approvalPolicy, sandbox) = options.EscritaConfinada ? ConfinedPolicy : Policy(options.Profile);
         var approvalsReviewer = options.Profile == AgentPermissionProfile.Auto ? "auto_review" : "user";
         var roots = DiretoriosVinculados.Validar(options.AdditionalDirectories, options.IsGeneral).ToArray();
-        // The prompt never goes on the command line: turns are JSON-RPC requests on stdin.
+        // The prompt never goes on the command line: turns are JSON-RPC requests on stdin. A confined session also
+        // empties the MCP servers of the user's configuration: they would run outside the sandbox.
         var request = new AgentProcessRequest(
             AgentKind.Codex,
             options.WorkingDirectory,
-            ["app-server", "--listen", "stdio://", .. McpConfig(options.ToolServers)],
+            ["app-server", "--listen", "stdio://", .. McpConfig(options.ToolServers),
+                .. options.EscritaConfinada ? (string[])["-c", "mcp_servers={}"] : []],
             options.IsGeneral,
             options.EnvironmentVariables);
         var agent = await launcher.StartAsync(request, cancellationToken: cancellationToken);
@@ -84,6 +97,7 @@ public sealed class CodexSessionDriver(
             profile = options.Profile;
             workingDirectory = options.WorkingDirectory;
             writableRoots = roots;
+            confinada = options.EscritaConfinada;
             effort = options.ModelSelection?.Effort;
             conversationInstructions = ContratoDaConversaParaAgentes.ParaSessao(options.ToolServers,
                 options.ContextInstructions);
@@ -112,8 +126,15 @@ public sealed class CodexSessionDriver(
             };
             // Without a selection the CLI picks its own default model (#77); thread/start reports it either way.
             if (options.ModelSelection?.Model is { } selectedModel) threadParameters["model"] = selectedModel;
-            AddWritableRoots(threadParameters, roots);
+            if (options.EscritaConfinada) AddConfinement(threadParameters, roots, naoConfiaveis);
+            else AddWritableRoots(threadParameters, roots);
             var thread = await SendRequestAsync("thread/start", threadParameters, cancellationToken);
+            // The effective policy reported by the thread, not the request, decides (#307): anything other than exactly
+            // the confined sandbox refuses the session before the first turn.
+            if (options.EscritaConfinada && !ConfirmsConfinement(thread, options.WorkingDirectory, roots))
+                throw new AgentProtocolException(
+                    "O Codex não confirmou o confinamento de escrita (sandbox só nas worktrees, sem /tmp, sem rede e sem " +
+                    "aprovações); nada foi enviado ao agente.");
             // A session that cannot write to the linked repositories would fail the task halfway (AD-58).
             if (!ConfirmsWritableRoots(thread, options.Profile, roots))
                 throw new AgentProtocolException("O Codex não confirmou o acesso aos repositórios vinculados. Atualize a CLI ou remova o vínculo.");
@@ -147,6 +168,7 @@ public sealed class CodexSessionDriver(
         lock (gate)
         {
             _ = RequireThread();
+            if (confinada) throw new AgentModeRejectedException("A sessão de escrita confinada não troca de modo.");
             if (activeTurnId is not null || pendingRequests.Count != 0)
                 throw new InvalidOperationException("Aguarde o turno do Codex terminar antes de trocar o modo.");
             pendingProfile = requested == profile ? null : requested;
@@ -168,6 +190,7 @@ public sealed class CodexSessionDriver(
         lock (gate)
         {
             previous = RequireThread();
+            if (confinada) throw new AgentContextUnchangedException("A sessão de escrita confinada não limpa a conversa.");
             if (activeTurnId is not null || pendingRequests.Count != 0 || pendingProfile is not null)
                 throw new AgentContextUnchangedException("A sessão do Codex não está ociosa; a conversa não foi limpa.");
             (current, currentModel, directory, roots) = (profile, model, workingDirectory, writableRoots);
@@ -598,6 +621,54 @@ public sealed class CodexSessionDriver(
         AgentPermissionProfile.Plan => ("on-request", "read-only"),
         _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Perfil de permissão desconhecido.")
     };
+
+    // Confined write step (#307): workspace-write never asks (no interactive approval or escalation without the gateway
+    // #311); failures inside the sandbox are returned to the model.
+    private static readonly (string ApprovalPolicy, string Sandbox) ConfinedPolicy = ("never", "workspace-write");
+
+    // The worktrees are the only writable roots besides the working directory; /tmp and TMPDIR are excluded and the
+    // network is off. The shared Git directory of the repositories is outside every root, so it stays read-only:
+    // commit, ref updates and the main checkout are denied by the sandbox, as the live test shows (codex-cli 0.166).
+    // The repositories of the worktrees are declared untrusted: codex-cli 0.166 otherwise persists trust for the main
+    // repository in ~/.codex/config.toml on thread/start (a write by the CLI itself, outside the sandbox) and would load
+    // project config from it. The live evidence checks the user's config stays byte for byte the same.
+    private static void AddConfinement(JsonObject parameters, IReadOnlyList<string> roots, IReadOnlyList<string> untrusted) =>
+        parameters["config"] = new JsonObject
+        {
+            ["sandbox_workspace_write"] = new JsonObject
+            {
+                ["writable_roots"] = Roots(roots),
+                ["exclude_slash_tmp"] = true,
+                ["exclude_tmpdir_env_var"] = true,
+                ["network_access"] = false
+            },
+            ["projects"] = new JsonObject(untrusted.Distinct(StringComparer.Ordinal).Select(project =>
+                KeyValuePair.Create(project, (JsonNode?)new JsonObject { ["trust_level"] = "untrusted" })))
+        };
+
+    // The same confinement as a SandboxPolicy object (command/exec, turn/start): used by the live evidence that runs real
+    // commands under it, so the policy proved is the one this driver confirms.
+    internal static JsonObject ConfinedSandboxPolicy(IReadOnlyList<string> roots) => new()
+    {
+        ["type"] = "workspaceWrite",
+        ["writableRoots"] = Roots(roots),
+        ["networkAccess"] = false,
+        ["excludeTmpdirEnvVar"] = true,
+        ["excludeSlashTmp"] = true
+    };
+
+    internal static bool ConfirmsConfinement(JsonObject thread, string workingDirectory, IReadOnlyList<string> roots) =>
+        GetString(thread, "approvalPolicy") == ConfinedPolicy.ApprovalPolicy &&
+        GetString(thread, "cwd") == workingDirectory &&
+        thread["sandbox"] is JsonObject sandbox && GetString(sandbox, "type") == "workspaceWrite" &&
+        SameRoots(sandbox["writableRoots"] as JsonArray, roots) &&
+        IsTrue(sandbox, "excludeSlashTmp") && IsTrue(sandbox, "excludeTmpdirEnvVar") && IsFalse(sandbox, "networkAccess");
+
+    private static bool IsTrue(JsonObject node, string name) =>
+        node[name] is JsonValue value && value.GetValueKind() == JsonValueKind.True;
+
+    private static bool IsFalse(JsonObject node, string name) =>
+        node[name] is JsonValue value && value.GetValueKind() == JsonValueKind.False;
 
     // Linked repositories reach thread/start as the sandbox_workspace_write.writable_roots override (codex-cli 0.159.3).
     private static void AddWritableRoots(JsonObject parameters, IReadOnlyList<string> roots)

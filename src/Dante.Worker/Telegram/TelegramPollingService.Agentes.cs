@@ -99,11 +99,13 @@ public sealed partial class TelegramPollingService
     }
 
     // /tarefa <handle> [@alias] <texto> (AD-68): valida agente, contexto e concessões e monta a execução Tarefa
-    // somente leitura (perfil plan, nenhuma etapa de escrita, versão congelada). O despacho durável depende da fila
-    // da #300 e passa só por DespacharTarefaAsync.
+    // somente leitura (perfil plan, nenhuma etapa de escrita, versão congelada). /tarefa <handle> @alias escrever
+    // <texto> (#307) é o único pedido de escrita: exige o @alias explícito e é validado (capacidade, perfil padrão,
+    // driver com confinamento) antes de enfileirar. O despacho durável depende da fila da #300 e passa só por
+    // DespacharTarefaAsync.
     private async Task HandleTarefaCommandAsync(TelegramMessage message, string prompt, CancellationToken cancellationToken)
     {
-        const string usage = "Uso: /tarefa <handle> [@alias] <pedido>";
+        const string usage = "Uso: /tarefa <handle> [@alias] <pedido> | /tarefa <handle> @alias escrever <pedido>";
         var (userId, chatId) = (message.From!.Id, message.Chat.Id);
         if (agentes is null)
         {
@@ -138,10 +140,26 @@ public sealed partial class TelegramPollingService
                 cancellationToken);
             return;
         }
+        // O marcador vem logo depois do @alias explícito; sem alias, "escrever" é só o começo de um pedido de leitura
+        // recusado com a orientação, para nunca virar escrita no repositório ativo por engano.
+        var (escrita, pedido) = PedidoDeEscrita(resolved.Prompt);
+        if (escrita && !rest.TrimStart().StartsWith('@'))
+        {
+            await SendReplyAsync(chatId, "Tarefa de escrita exige o repositório explícito: /tarefa <handle> @alias escrever <pedido>.",
+                cancellationToken);
+            return;
+        }
+        if (escrita && pedido.Length == 0)
+        {
+            await SendReplyAsync(chatId, usage, cancellationToken);
+            return;
+        }
         PlanoDaTarefa plano;
         try
         {
-            plano = MontagemDaTarefa.Montar(resolucao.Handle, resolucao.Versao, resolved.Context!, resolved.Prompt);
+            plano = escrita
+                ? MontagemDaTarefa.MontarEscrita(resolucao.Handle, resolucao.Versao, resolved.Context!, pedido)
+                : MontagemDaTarefa.Montar(resolucao.Handle, resolucao.Versao, resolved.Context!, resolved.Prompt);
         }
         catch (ArgumentException exception)
         {
@@ -154,6 +172,19 @@ public sealed partial class TelegramPollingService
         await DespacharTarefaAsync(plano, userId, chatId, message.MessageId, resolved.Environment, cancellationToken);
     }
 
+    private static (bool Escrita, string Pedido) PedidoDeEscrita(string prompt)
+    {
+        var texto = prompt.TrimStart();
+        var marcador = MontagemDaTarefa.MarcadorDeEscrita;
+        if (!texto.StartsWith(marcador, StringComparison.Ordinal) ||
+            (texto.Length > marcador.Length && !char.IsWhiteSpace(texto[marcador.Length])))
+            return (false, prompt);
+        return (true, texto[marcador.Length..].Trim());
+    }
+
+    private static string Aviso(PlanoDaTarefa plano) =>
+        plano.Escrita ? MontagemDaTarefa.AvisoDeEscrita : MontagemDaTarefa.AvisoDeLeitura;
+
     // PONTO ÚNICO DE INTEGRAÇÃO COM A FILA DURÁVEL (AD-67). A tarefa montada vira, numa só transação, a execução
     // Tarefa, sua etapa somente leitura, o evento de criação e o trabalho que a despacha (deduplicado pela mensagem do
     // Telegram); só depois o usuário recebe a confirmação. A execução acontece quando o processador reivindica o
@@ -165,7 +196,7 @@ public sealed partial class TelegramPollingService
         var descricao = $"agente {plano.Handle} v{plano.Versao.Numero} ({plano.Contexto.Descricao})";
         if (filaDeTarefas is null)
         {
-            await SendReplyAsync(chatId, $"Tarefa para o {descricao} validada. " + MontagemDaTarefa.AvisoDeLeitura +
+            await SendReplyAsync(chatId, $"Tarefa para o {descricao} validada. " + Aviso(plano) +
                 "\nA execução durável de tarefas não está habilitada neste Worker (depende da fila durável); " +
                 "nada foi executado.", cancellationToken);
             return;
@@ -182,7 +213,7 @@ public sealed partial class TelegramPollingService
         var liberada = false;
         try
         {
-            await SendReplyAsync(chatId, $"Tarefa {codigo} enfileirada: {descricao}. {MontagemDaTarefa.AvisoDeLeitura}",
+            await SendReplyAsync(chatId, $"Tarefa {codigo} enfileirada: {descricao}. {Aviso(plano)}",
                 cancellationToken);
             filaDeTarefas.Liberar(numero, (controle, token) =>
                 RunTarefaAsync(codigo, plano, ambiente, userId, chatId, controle, token));
@@ -208,7 +239,9 @@ public sealed partial class TelegramPollingService
         else
         {
             var observador = new ObservadorDaTarefa(sessions, userId);
-            var iniciada = await sessions.StartAsync(SolicitacaoDaTarefa.Para(plano, userId, ambiente?.Values) with
+            // Escrita (#307): só as worktrees prontas da execução, nunca o checkout principal.
+            var iniciada = await sessions.StartAsync(SolicitacaoDaTarefa.Para(plano, userId, ambiente?.Values,
+                plano.Escrita ? controle.Worktrees : null) with
             {
                 Observer = observador
             }, cancellationToken);
@@ -259,6 +292,9 @@ public sealed partial class TelegramPollingService
             return;
         }
         var cabecalho = $"Tarefa {codigo} ({plano.Handle} v{plano.Versao.Numero}, {plano.Contexto.Descricao})";
+        // Onde ficaram as alterações: a branch de cada worktree (removida depois se ficou limpa, preservada se não).
+        if (plano.Escrita && controle.Worktrees.Count > 0)
+            cabecalho += $" [worktree: {string.Join(", ", controle.Worktrees.Select(w => $"{w.Alias} {w.Branch}"))}]";
         var resposta = resultado.EstadoFinal == EstadoDaEtapa.Concluida
             ? ambiente?.HasSecrets == true
                 ? $"{cabecalho} concluída. Saída omitida para proteger segredos do ambiente."
