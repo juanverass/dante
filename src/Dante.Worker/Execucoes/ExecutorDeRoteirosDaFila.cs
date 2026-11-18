@@ -37,6 +37,10 @@ public sealed class ExecutorDeRoteirosDaFila(
     public const int LimiteDoDiffNoPrompt = 60_000;
     public static readonly TimeSpan PrazoDoTurno = TimeSpan.FromMinutes(60);
 
+    // Sessões do roteiro não herdam o ambiente do Worker (token do Telegram, banco…): um dicionário vazio faz o
+    // lançador manter só a allowlist mínima para a CLI rodar (PATH, HOME, locale, proxies), sem /repo env.
+    private static readonly IReadOnlyDictionary<string, string> AmbienteMinimo = new Dictionary<string, string>();
+
     // Objetivo original (pode conter o que a redação protegeu) só em memória, deste processo: nunca persistido.
     private readonly ConcurrentDictionary<long, string> objetivos = new();
 
@@ -194,7 +198,7 @@ public sealed class ExecutorDeRoteirosDaFila(
         }
         var principal = controle.Worktrees.Single(w => w.Principal);
         var pedido = new SessionStartRequest(roteiro.IdDoUsuarioNoCanal, configuracao.Driver,
-            JobExecutionContext.Repository(principal.Alias, principal.Caminho), null, perfil,
+            JobExecutionContext.Repository(principal.Alias, principal.Caminho), AmbienteMinimo, perfil,
             new AgentModelSelection(configuracao.Modelo, configuracao.Esforco),
             RegisteredAgent: new AgenteDaSessao(participante.Handle, versao, Instrucoes(roteiro, participante, escreve: true))
             {
@@ -229,7 +233,7 @@ public sealed class ExecutorDeRoteirosDaFila(
         var escopoDaRevisao = new EscopoDaRevisaoDto(alvo.IdExecucao, roteiro.Codigo, alvo.IdEtapa, passo.Rodada, alteracoes.Hash);
         var configuracao = versao.Configuracao;
         var pedido = new SessionStartRequest(roteiro.IdDoUsuarioNoCanal, configuracao.Driver,
-            JobExecutionContext.Repository(principal.Alias, principal.Caminho), null, AgentPermissionProfile.Plan,
+            JobExecutionContext.Repository(principal.Alias, principal.Caminho), AmbienteMinimo, AgentPermissionProfile.Plan,
             new AgentModelSelection(configuracao.Modelo, configuracao.Esforco),
             RegisteredAgent: new AgenteDaSessao(participante.Handle, versao, Instrucoes(roteiro, participante, escreve: false))
             {

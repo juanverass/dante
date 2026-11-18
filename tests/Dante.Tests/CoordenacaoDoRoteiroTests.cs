@@ -154,66 +154,146 @@ public sealed class CoordenacaoDoRoteiroTests : IDisposable
         Assert.Equal(criados, drivers.Created.Count);
     }
 
-    // A revisão confinada só começa quando o thread/start confirma: sandbox readOnly sem rede, approvalPolicy never e o
-    // cwd pedido. Os servidores do usuário são esvaziados e só o dante_coordenacao é declarado, depois.
+    // Review do PR #317: a revisão confinada lê só a worktree, o mínimo de runtime e o diretório do Codex, por um perfil
+    // de permissões imposto pelo sandbox do SO; ferramentas que agem fora do sandbox ficam desligadas; a política nunca
+    // escala o sandbox. Só começa quando o thread/start confirma o perfil ativo, a política, o cwd e a ausência de rede.
     [Fact]
-    public async Task RevisaoConfinadaDoCodexSoComOSandboxSomenteLeituraConfirmado()
+    public async Task RevisaoConfinadaDoCodexSoComOPerfilDeLeituraConfirmado()
     {
         var servidor = new AgentToolServer(ServidorMcpDeCoordenacao.Nome, "dotnet", ["dante.dll", "--mcp-coordenacao", "--pipe", "p"],
             new Dictionary<string, string> { ["DANTE_COORDENACAO_TOKEN"] = "t" }, ["estado_da_execucao"]);
         var launcher = new ProbeLauncher();
-        await using (var driver = new CodexSessionDriver(launcher))
+        await using (var driver = new CodexSessionDriver(launcher, runtimeDoCodex: () => "/opt/codex/bin"))
         {
             await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan,
                 ToolServers: [servidor], LeituraConfinada: true, ProjetosNaoConfiaveis: ["/repos/dante"]));
             var argumentos = Assert.Single(launcher.Requests).Arguments;
             Assert.Equal(["app-server", "--listen", "stdio://", "-c", "mcp_servers={}"], argumentos.Take(5));
             Assert.Contains("mcp_servers.dante_coordenacao.command=\"dotnet\"", argumentos);
+            foreach (var restricao in new[] { "features.apps=false", "features.view_image=false", "features.multi_agent=false",
+                         "features.goals=false", "web_search=\"disabled\"", "default_permissions=\"dante_revisao\"" })
+                Assert.Contains(restricao, argumentos);
+            // Só a worktree, o mínimo de runtime e o diretório do Codex são legíveis; nenhuma escrita.
+            Assert.Equal($"permissions.dante_revisao.filesystem={{\":minimal\" = \"read\", " +
+                $"{JsonSerializer.Serialize(AppContext.BaseDirectory)} = \"read\", \"/opt/codex/bin\" = \"read\"}}",
+                argumentos.Single(a => a.StartsWith("permissions.", StringComparison.Ordinal)));
             await Assert.ThrowsAsync<AgentModeRejectedException>(() => driver.ChangeModeAsync(AgentPermissionProfile.Manual));
         }
-        var comRede = new ProbeLauncher("read-network");
-        await using (var driver = new CodexSessionDriver(comRede))
+        // Servidor que não reporta o perfil ativo (versão antiga) ou que mantém rede: recusado depois de iniciar.
+        foreach (var cenario in new[] { "sem-perfil", "read-network" })
+        {
+            await using var driver = new CodexSessionDriver(new ProbeLauncher(cenario), runtimeDoCodex: () => "/opt/codex/bin");
             Assert.Contains("confinamento da revisão", (await Assert.ThrowsAsync<AgentProtocolException>(() =>
                 driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan,
                     LeituraConfinada: true)))).Message);
-        // Fora de plan, geral, com raízes extras, com outro servidor, junto com escrita ou no checkout principal: sem processo.
+        }
+        // Fora de plan, geral, com raízes extras, com outro servidor, junto com escrita, no checkout principal ou sem o
+        // executável do Codex localizado: sem processo.
         var semProcesso = new ProbeLauncher();
-        foreach (var opcoes in new[]
+        foreach (var (opcoes, runtime) in new (AgentSessionStartOptions, string?)[]
                  {
-                     new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Auto, LeituraConfinada: true),
-                     new AgentSessionStartOptions(AppContext.BaseDirectory, IsGeneral: true, Profile: AgentPermissionProfile.Plan, LeituraConfinada: true),
-                     new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan, LeituraConfinada: true,
-                         AdditionalDirectories: ["/wt/outra"]),
-                     new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan, LeituraConfinada: true,
-                         ToolServers: [servidor with { Name = "dante_brain" }]),
-                     new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Auto, LeituraConfinada: true,
-                         EscritaConfinada: true),
-                     new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan, LeituraConfinada: true,
-                         ProjetosNaoConfiaveis: [AppContext.BaseDirectory])
+                     (new(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Auto, LeituraConfinada: true), "/opt/codex/bin"),
+                     (new(AppContext.BaseDirectory, IsGeneral: true, Profile: AgentPermissionProfile.Plan, LeituraConfinada: true), "/opt/codex/bin"),
+                     (new(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan, LeituraConfinada: true,
+                         AdditionalDirectories: ["/wt/outra"]), "/opt/codex/bin"),
+                     (new(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan, LeituraConfinada: true,
+                         ToolServers: [servidor with { Name = "dante_brain" }]), "/opt/codex/bin"),
+                     (new(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Auto, LeituraConfinada: true,
+                         EscritaConfinada: true), "/opt/codex/bin"),
+                     (new(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan, LeituraConfinada: true,
+                         ProjetosNaoConfiaveis: [AppContext.BaseDirectory]), "/opt/codex/bin"),
+                     (new(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan, LeituraConfinada: true), null),
+                     (new(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan, LeituraConfinada: true), "relativo/bin")
                  })
         {
-            await using var outro = new CodexSessionDriver(semProcesso);
+            await using var outro = new CodexSessionDriver(semProcesso, runtimeDoCodex: () => runtime);
             await Assert.ThrowsAsync<AgentProtocolException>(() => outro.StartAsync(opcoes));
         }
         Assert.Empty(semProcesso.Requests);
     }
 
+    // Review do PR #317: na revisão confinada, a aprovação MCP é decidida pelo driver, sem chegar a ninguém: só a
+    // ferramenta entregar_resultado do dante_coordenacao, na thread da própria sessão, é aceita; outra ferramenta, outro
+    // servidor ou outra thread são recusados. Fora da revisão, plan continua recusando e as demais sessões perguntam.
+    [Theory]
+    [InlineData("mcp-veredito", "accept")]
+    [InlineData("mcp-outra", "decline")]
+    [InlineData("mcp-outro-servidor", "decline")]
+    [InlineData("mcp-outra-thread", "decline")]
+    public async Task RevisaoConfinadaSoAutorizaAEntregaDoVeredito(string cenario, string acao)
+    {
+        await using var driver = new CodexSessionDriver(new ProbeLauncher(), runtimeDoCodex: () => "/opt/codex/bin");
+        await driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan,
+            LeituraConfinada: true));
+        await using var eventos = driver.ReadEventsAsync().GetAsyncEnumerator();
+        await driver.StartTurnAsync(cenario);
+        var turno = await TurnoAsync(eventos);
+        Assert.Empty(turno.OfType<ApprovalRequestedEvent>());
+        Assert.Equal($"mcp:{acao}", turno.OfType<MessageCompletedEvent>().Single().Text);
+    }
+
+    [Fact]
+    public async Task ForaDaRevisaoAEntregaDoVereditoNaoTemAutorizacaoEspecial()
+    {
+        await using (var plano = new CodexSessionDriver(new ProbeLauncher()))
+        {
+            await plano.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan));
+            await using var eventos = plano.ReadEventsAsync().GetAsyncEnumerator();
+            await plano.StartTurnAsync("mcp-veredito");
+            Assert.Equal("mcp:decline", (await TurnoAsync(eventos)).OfType<MessageCompletedEvent>().Single().Text);
+        }
+        await using var comum = new CodexSessionDriver(new ProbeLauncher());
+        await comum.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory));
+        await using var deComum = comum.ReadEventsAsync().GetAsyncEnumerator();
+        await comum.StartTurnAsync("mcp-veredito");
+        // Uma sessão comum pergunta à pessoa, como qualquer ferramenta MCP que escreve.
+        var pedido = await ProximoAsync<ApprovalRequestedEvent>(deComum);
+        await comum.RespondAsync(pedido.UpstreamRequestId, new AgentApprovalResponse(AgentApprovalDecision.Deny));
+    }
+
+    private static async Task<List<AgentEvent>> TurnoAsync(IAsyncEnumerator<AgentEvent> eventos)
+    {
+        var lidos = new List<AgentEvent>();
+        using var prazo = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        while (await eventos.MoveNextAsync().AsTask().WaitAsync(prazo.Token))
+        {
+            lidos.Add(eventos.Current);
+            if (eventos.Current is TurnCompletedEvent) return lidos;
+        }
+        return lidos;
+    }
+
+    private static async Task<T> ProximoAsync<T>(IAsyncEnumerator<AgentEvent> eventos) where T : AgentEvent
+    {
+        using var prazo = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        while (await eventos.MoveNextAsync().AsTask().WaitAsync(prazo.Token))
+            if (eventos.Current is T achado) return achado;
+        throw new InvalidOperationException("Evento não recebido.");
+    }
+
     [Theory]
     [InlineData("ok", true)]
     [InlineData("approval", false)]
+    [InlineData("approval-texto", false)]
     [InlineData("cwd", false)]
     [InlineData("network", false)]
+    [InlineData("sem-perfil", false)]
+    [InlineData("outro-perfil", false)]
     [InlineData("write", false)]
     [InlineData("sem-rede-informada", true)]
     public void ConfinamentoDaRevisaoSoComAPoliticaEfetivaExata(string variacao, bool confirmado)
     {
         var sandbox = new JsonObject { ["type"] = variacao == "write" ? "workspaceWrite" : "readOnly" };
         if (variacao != "sem-rede-informada") sandbox["networkAccess"] = variacao == "network";
+        var politica = CodexSessionDriver.PoliticaDaRevisao();
+        if (variacao == "approval") politica["granular"]!["sandbox_approval"] = true;
         var thread = new JsonObject
         {
-            ["approvalPolicy"] = variacao == "approval" ? "on-request" : "never",
+            ["approvalPolicy"] = variacao == "approval-texto" ? "never" : politica,
             ["cwd"] = variacao == "cwd" ? "/repos/dante" : "/wt/dante/E7",
-            ["sandbox"] = sandbox
+            ["sandbox"] = sandbox,
+            ["activePermissionProfile"] = variacao == "sem-perfil" ? null
+                : new JsonObject { ["id"] = variacao == "outro-perfil" ? ":read-only" : "dante_revisao" }
         };
         Assert.Equal(confirmado, CodexSessionDriver.ConfirmsReadConfinement(thread, "/wt/dante/E7"));
     }

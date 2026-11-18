@@ -17,6 +17,8 @@ internal static class Program
                 return 0;
             case "fake-claude":
                 return FakeClaude.Run(args);
+            case "fake-mcp-aprovacao":
+                return FakeMcpComAprovacao.Run(args);
             case "echo":
                 Console.WriteLine(args[1]);
                 Console.Error.WriteLine("probe stderr");

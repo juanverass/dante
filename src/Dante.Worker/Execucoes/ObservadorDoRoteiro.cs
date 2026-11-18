@@ -49,6 +49,11 @@ public sealed class ObservadorDoRoteiro(SessionRegistry sessoes, long idDoDono) 
                     new AgentApprovalResponse(AgentApprovalDecision.Deny, MotivoDaNegacao), CancellationToken.None),
                     CancellationToken.None);
                 break;
+            case UserInputRequestedEvent pergunta:
+                // Ninguém responde a um passo de roteiro: respostas vazias, para o turno seguir em vez de esperar.
+                _ = Task.Run(() => sessoes.RespondReservedAsync(idDoDono, pergunta.RequestId,
+                    new AgentInputResponse(new Dictionary<string, string>()), CancellationToken.None), CancellationToken.None);
+                break;
             case TurnCompletedEvent fim:
                 lock (gate) turno.TrySetResult((fim.Outcome, fim.Error));
                 break;

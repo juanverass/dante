@@ -57,6 +57,8 @@ public sealed class RoteiroPelaFilaEndToEndTests
             (opcoes.EscritaConfinada, opcoes.LeituraConfinada, opcoes.Profile, opcoes.WorkingDirectory));
         Assert.Empty(opcoes.ToolServers ?? []);
         Assert.Equal([a.Primeiro], opcoes.ProjetosNaoConfiaveis);
+        // Sem o ambiente do Worker: o lançador fica só com a allowlist mínima.
+        Assert.Empty(opcoes.EnvironmentVariables!);
         Assert.Contains("crie o endpoint de saúde", implementador.Calls.Single(c => c.StartsWith("turn:")));
         File.WriteAllText(Path.Combine(worktree, "saude.txt"), "GET /saude\n");
         Concluir(implementador, "Endpoint criado.");
@@ -67,6 +69,7 @@ public sealed class RoteiroPelaFilaEndToEndTests
         Assert.Equal((true, false, AgentPermissionProfile.Plan, worktree),
             (leitura.LeituraConfinada, leitura.EscritaConfinada, leitura.Profile, leitura.WorkingDirectory));
         Assert.Equal([ServidorMcpDeCoordenacao.Nome], (leitura.ToolServers ?? []).Select(s => s.Name));
+        Assert.Empty(leitura.EnvironmentVariables!);
         Assert.Contains("saude.txt", revisor.Calls.Single(c => c.StartsWith("turn:")));
         var resposta = await EntregarAsync(revisor, "requer_correcoes", "falta o teste", ["adicione o teste do endpoint"]);
         Assert.Contains("registrado", resposta);
@@ -108,6 +111,48 @@ public sealed class RoteiroPelaFilaEndToEndTests
         Assert.Equal(impressao, RepositorioGitDeTeste.Impressao(a.Primeiro));
         var estado = await ExecucaoAsync(a.Provider, long.Parse(codigo[1..]));
         Assert.Equal(EstadoDaExecucao.Concluida, estado.Estado);
+    }
+
+    // Review do PR #316 de ponta a ponta: o revisor aprovou H e o gate abriu; a worktree muda para H2; aprovar com H não
+    // decide nada (gate pendente); /execucao revisar faz uma nova revisão, numa sessão nova, do conteúdo atual (a
+    // reserva continua aguardando a decisão); o novo gate é de H2, e só então a aprovação vale.
+    [PostgreSqlFact]
+    public async Task ArtefatoAlteradoNoGateExigeNovaRevisaoAntesDaDecisao()
+    {
+        await using var banco = await FilaAsync();
+        await using var a = await Ambiente.CriarAsync(banco);
+        await a.IniciarAsync();
+        await a.GrupoAtivoAsync(rodadas: 1);
+        var codigo = Regex.Match(await a.Send("/grupo eng @first crie o arquivo", 10), @"E\d+").Value;
+        var worktree = Path.Combine(a.RaizDasWorktrees, "first", codigo);
+        var implementador = await a.DriverAsync(c => c.StartsWith("turn:Tarefa do grupo"));
+        File.WriteAllText(Path.Combine(worktree, "a.txt"), "versão revisada\n");
+        Concluir(implementador, "Feito.");
+        var revisor = await a.DriverAsync(c => c.StartsWith("turn:Revisão da rodada 0"), implementador);
+        await EntregarAsync(revisor, "aprovado", "ok", []);
+        Concluir(revisor, "ok");
+        var h = Regex.Match(await a.MensagemAsync(m => m.Contains("aguarda sua decisão")), @"hash ([0-9a-f]{12})").Groups[1].Value;
+
+        File.WriteAllText(Path.Combine(worktree, "a.txt"), "alterada depois da revisão\n");
+        var divergencia = await a.Send($"/execucao aprovar {codigo} {h}", 11);
+        Assert.Contains("mudou depois da revisão", divergencia);
+        Assert.Equal(EstadoDaExecucao.AguardandoAprovacao, (await ExecucaoAsync(a.Provider, long.Parse(codigo[1..]))).Estado);
+        Assert.Contains("nova revisão da rodada 0", await a.Send($"/execucao revisar {codigo}", 12));
+
+        var segundo = await a.DriverAsync(c => c.StartsWith("turn:Revisão da rodada 0"), revisor);
+        Assert.True(segundo.StartOptions!.LeituraConfinada);
+        // O prompt da nova revisão é do conteúdo atual: outro hash, o arquivo novo a ler na worktree.
+        var prompt = segundo.Calls.Single(c => c.StartsWith("turn:"));
+        Assert.Contains("a.txt", prompt);
+        Assert.DoesNotContain($"hash {h}", prompt);
+        await EntregarAsync(segundo, "aprovado", "ok de novo", []);
+        Concluir(segundo, "ok");
+        var novoAviso = await a.MensagemAsync(m => m.Contains("aguarda sua decisão") && !m.Contains($"hash {h}"));
+        var h2 = Regex.Match(novoAviso, @"hash ([0-9a-f]{12})").Groups[1].Value;
+        Assert.NotEqual(h, h2);
+        Assert.Contains("aprovada (rodada 0) e encerrada", await a.Send($"/execucao aprovar {codigo} {h2}", 13));
+        Assert.Equal(EstadoDaExecucao.Concluida, (await ExecucaoAsync(a.Provider, long.Parse(codigo[1..]))).Estado);
+        Assert.Equal(2, (await a.VereditosAsync(codigo)).Count);
     }
 
     [PostgreSqlFact]
