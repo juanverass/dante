@@ -2771,6 +2771,98 @@ Testes: `GruposDominioTests`, `CadastroDeGruposAppServiceTests`, `GruposDeAgente
 `CoordenacaoDoRoteiroTests`, `RoteiroPelaFilaEndToEndTests` e a evidência opt-in
 `LiveCodexSandboxEvidenceTests.RevisaoConfinadaDoCodexSoLeEEntregaOVereditoPeloCoordenacao` (`DANTE_LIVE_CODEX_SANDBOX=1`).
 
+## AD-70 — Delegação rastreada entre execuções, com contratos tipados e hierarquia no ledger (#309)
+
+Status: vigente na parte de domínio e persistência (etapa 7 do roadmap da Epic #296, PR 1 da #309). Proposta aprovada
+na #297 (PR #298) e planejamento da #309. Complementa a AD-66 (as colunas de raiz, pai e profundidade adiadas lá entram
+aqui), a AD-68 (concessões de delegação na versão do agente) e a AD-69 (a fundação do `dante_coordenacao`, que a #309
+amplia sem outro servidor nem outro IPC). Depende do mesmo banco e da mesma chave `Orquestracao:Habilitada`; migration
+`Delegacoes`, não aplicada no banco canônico. **Nada é exposto em tempo de execução nesta entrega**: o executor das
+delegações, a fila, a suspensão e retomada da origem, o prazo, o cancelamento em cascata, as ferramentas MCP e os
+comandos vêm nos PRs 2 e 3 da #309 e completam esta AD.
+
+Contexto: a delegação precisa ser uma linha rastreada, ligada a uma execução subordinada comum, e não uma mensagem
+entre agentes. Para isso o ledger precisa da hierarquia de execuções, de um contrato de entrada e saída que o servidor
+valide e de regras que nunca ampliem permissões, aplicadas antes de qualquer processo.
+
+Decisão:
+
+* **Hierarquia no ledger**: `Execucao` ganha `IdExecucaoPai`, `IdExecucaoRaiz` e `Profundidade`, e o tipo `Delegada`.
+  Toda execução criada pelo construtor é raiz (sem pai, profundidade 0, raiz = ela mesma); a `Delegada` nasce só pela
+  `Delegacao`, filha da execução de origem, com a raiz dela, profundidade + 1, a mesma autoridade (canal e pessoa) e o
+  mesmo contexto congelado (quem delega não escolhe repositório, diretório nem dono) e a versão do destinatário como
+  responsável. O banco confere tudo isso na inserção (trigger) e recusa alterar hierarquia, tipo e autoridade depois:
+  o pai sempre existe antes do filho e a ligação é fixa, então um ciclo na árvore é impossível. Backfill: toda
+  execução existente vira raiz de profundidade 0 que aponta para si mesma; a FK da raiz é criada pela migration, fora
+  do modelo do EF (uma FK para a própria linha faria o EF ver um ciclo). As colunas não têm default: o trigger completa
+  raiz e profundidade só de uma raiz gravada sem elas (SQL escrito para o schema anterior continua válido).
+* **Delegação** (`delegacoes`): origem e etapa de origem (FK composta), subordinada (única), raiz, agente e versão
+  (com hash) do solicitante e do destinatário, contrato, entrada canônica e hash, objetivo redigido (o bruto nunca é
+  gravado; o hash é do objetivo normalizado com a raiz como sal), critérios, prazo para iniciar e duração, cadeia de
+  agentes da raiz até o solicitante, chave de deduplicação, estado, resultado canônico com hash, autor (a versão
+  destinatária), sessão e hash do artefato lido. Estados `Solicitada → Aceita → EmAndamento → Respondida | Falhou |
+  Expirada | Cancelada | Recusada`; Aceita é a validação e o enfileiramento, não o início. Só `Respondida` tem
+  resultado, gravado uma vez pelo autor congelado; depois de terminal nada muda. O banco recusa transição inválida,
+  alteração de identidade, de pedido ou de qualquer coisa numa delegação terminal, e exclusão.
+* **Contratos tipados, catálogo fechado** (`ContratosDeDelegacao`): `consulta.v1` (pergunta e referências →
+  resposta, confiança, evidências e pendências; capacidade `pesquisar` ou `revisar`) e `revisao.v1` (hash do artefato,
+  foco e referências → veredito, resumo, itens e evidências; capacidade `revisar`; `requer_correcoes` exige itens; o
+  resultado vale só para o artefato pedido). Campos declarados no código, schema JSON gerado deles, validação no
+  servidor (tipo, tamanho, opções, campos desconhecidos e repetidos recusados) e forma canônica (chaves em ordem, todos
+  os campos presentes, texto normalizado), gravada como texto, não jsonb, para o hash ser do conteúdo exato. Nenhum
+  campo é caminho: referências são códigos de execução (`E123`, `E123#2`) ou hashes, e a única referência a arquivo
+  (evidência) é relativa, sem `.`/`..`, sem barra inicial, `~` ou `\`. Um contrato novo é uma versão nova no catálogo
+  e na constraint do banco; o agente nunca define schema.
+* **Regras por interseção, no domínio, antes de qualquer gravação** (`Delegacao.Criar`; recusa =
+  `DelegacaoRecusadaException` com motivo, nada criado): origem é a etapa de leitura em curso de uma `Tarefa` ou
+  `Delegada` (nunca o job legado, um passo de roteiro nem uma etapa de escrita) e o solicitante é o agente congelado
+  nela, com versão íntegra; sem escrita; contrato do catálogo; sem autodelegação nem ciclo (o destinatário não está na
+  cadeia, cujo tamanho e último elemento são conferidos); profundidade, fan-out (filhas da origem) e orçamento (filhas
+  da raiz) dentro dos limites; destinatário em `PodeConsultar` do solicitante, ativo, na versão atual e íntegra, com a
+  capacidade do contrato; cada repositório do contexto da origem permitido aos dois agentes; prazo e duração dentro do
+  limite do solicitante; entrada válida pelo contrato; objetivo e critérios dentro do tamanho.
+* **Escrita proibida nesta etapa**: `Escrita` é sempre falso, recusado no domínio e por check no banco. Delegar
+  escrita depende das worktrees (#307) **e** do gateway de aprovação (#311).
+* **Concessões na versão do agente**: `FerramentaDoDante.Coordenacao`, `PodeConsultar` (handles, ordenados, sem o
+  próprio, exige a concessão `coordenacao`) e `LimitesDeDelegacao` (profundidade, delegações por execução, minutos
+  para iniciar, minutos de duração, paralelismo). Teto global aprovado (`LimitesDeDelegacao.Teto`): **profundidade 1,
+  4 delegações por execução, 30 min para iniciar, 60 min de duração, paralelismo 1**; a versão só restringe, e nula
+  usa o teto. Os checks do banco usam o mesmo teto: elevá-lo exige nova decisão e migration. Sem orçamento de tokens.
+  Os embutidos `claude`/`codex` **não** recebem `coordenacao` (continuam com exatamente o que tinham). O cadastro ainda
+  não edita a delegação; uma edição herda a da versão atual (nunca a perde em silêncio).
+* **Formato do hash da versão do agente**: a delegação entra no JSON canônico só quando a versão a define
+  (`PodeConsultar` não vazio ou limites próprios), com `formato` 2 e o objeto `delegacao`; sem ela, o JSON é byte a
+  byte o do formato 1. Versões gravadas antes continuam reproduzindo o próprio hash (inclusive a do agente embutido) e
+  os grupos não mudam (o hash do grupo não inclui a configuração dos agentes). Conceder só `coordenacao`, sem
+  delegação, continua no formato 1. Uma versão adulterada que nem forma configuração válida é não íntegra (antes
+  lançava).
+* **Idempotência**: a identidade da unidade de trabalho é a chave de deduplicação, SHA-256 de raiz, número da etapa de
+  origem, contrato, hash do objetivo normalizado (Unicode NFC, espaços colapsados, minúsculas) e hash da entrada
+  canônica. Sem a tentativa (uma retomada da origem acha a mesma delegação) e **sem o destinatário**: repetir para o
+  mesmo agente devolve a existente; a mesma unidade para outro agente é recusada (`UnidadeJaAtribuida`). Um índice
+  único parcial `(raiz, chave)` entre as não terminais garante isso sob concorrência real: a segunda gravação falha
+  inteira (nem a subordinada fica). Encerrada a delegação, a mesma unidade pode ser pedida de novo.
+
+Consequências:
+
+* o ledger representa árvores de execução com proveniência raiz → origem → etapa → delegação → subordinada → versões,
+  e o banco a protege mesmo de gravações por fora do domínio;
+* o executor (PR 2) e as ferramentas (PR 3) só criam e conduzem delegações por estes métodos, e o resultado chega
+  validado pelo contrato;
+* profundidade 1 e paralelismo 1 estão fixados no código e no banco; com eles, fan-out e orçamento da raiz coincidem
+  (a origem de toda delegação é a raiz);
+* `FerramentaDoDante.Coordenacao` já pode ser concedida pelo cadastro existente, sem efeito: nenhuma sessão recebe o
+  servidor por ela até o PR 3.
+
+Código: `Dante.Domain/Execucoes/{Delegacao, ContratoDeDelegacao, EstadoDaDelegacao, Execucao, TipoDeExecucao}.cs`,
+`Dante.Domain/Agentes/{LimitesDeDelegacao, ConfiguracaoDoAgente, VersaoDoAgente, Agente, FerramentaDoDante}.cs`,
+`Dante.Application/Execucoes/Portas/IDelegacaoRepository.cs`, `Dante.Application/Agentes/{AgentesEmbutidos,
+CadastroDeAgentesAppService}.cs`, `Dante.Infrastructure/Modulos/Execucoes/{DelegacaoDbMapping, DelegacaoRepository,
+ExecucaoDbMapping}.cs`, `Dante.Infrastructure/Modulos/Agentes/VersaoDoAgenteDbMapping.cs`, migration `Delegacoes`.
+Testes: `DelegacoesDominioTests`, `CompatibilidadeDosHashesTests` (hashes calculados pelo código anterior à #309) e
+`DelegacoesPostgreSqlTests` (migration sobre dados do schema anterior, constraints, triggers, imutabilidade, exclusão
+e deduplicação concorrente).
+
 ## AD-71 — Worktree por execução de escrita, conjunto fechado de comandos Git e escrita só com sandbox de SO (#307)
 
 Status: vigente, etapa 5 do roadmap da Epic #296. Proposta aprovada na #297 (PR #298); decisões de escopo revisadas na
