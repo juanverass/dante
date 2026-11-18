@@ -2703,6 +2703,15 @@ banco canônico:
   (só aprovações de ferramenta MCP chegam ao cliente) e não herda o ambiente do Worker (allowlist mínima do lançador).
   A sessão só é aceita se o `thread/start` reportar `activePermissionProfile = dante_revisao`, essa política, o cwd e
   um resumo `readOnly` sem rede; versão que não reporta o perfil é recusada. Sem troca de modo nem limpeza.
+* **Ambiente dos comandos da revisão** (segunda revisão do PR #317): o processo do Codex mantém as credenciais de que o
+  app-server precisa para falar com o provedor, mas os comandos shell não herdam nada dele. A sessão impõe por
+  `-c` (que vence o `CODEX_HOME/config.toml` chave a chave) `shell_environment_policy` com `inherit="none"`,
+  `exclude=["*"]`, `include_only` = `PATH`, `LANG`, `LC_ALL`, `LC_CTYPE` e `TERM`, `PATH` fixo, sem perfil do shell, e
+  `allow_login_shell=false`. Tabelas se mesclam (o `set` do usuário sobrevive), por isso o `include_only`, aplicado
+  depois do `set`, é o que descarta o que o usuário injetar. Antes da thread, o driver lê a configuração efetiva
+  (`config/read`) e só segue com exatamente essa política: herança, filtros relaxados, shell de login, mecanismo de
+  filtro desconhecido, valor do usuário para um nome permitido ou CLI sem `config/read` recusam a revisão, sem
+  alternativa mais fraca. Sem a política, a configuração padrão do 0.166 já repassa as chaves ao shell (medido).
 * **Autorização restrita do veredito**: `entregar_resultado` continua classificada como não somente leitura
   (`readOnlyHint=false`), mas não destrutiva e de mundo fechado; com essas anotações o Codex 0.166 a executa sem pedir
   aprovação. Se uma versão ou configuração pedir (`mcpServer/elicitation/request`), o driver, só na revisão confinada,
@@ -2714,7 +2723,11 @@ banco canônico:
   encontra `.env` de outro diretório nem do checkout, `~/.codex/auth.json` nem `/srv`; a execução escalonada é recusada
   pela política; escrever é negado e ler a worktree passa; o veredito chega ao caso de uso pelo `dante_coordenacao`
   real, sem nenhum pedido de aprovação. Com um servidor de teste que exige aprovação, a elicitação real chega e o driver
-  aceita só `entregar_resultado`. `~/.codex/config.toml` intacto.
+  aceita só `entregar_resultado`. `~/.codex/config.toml` intacto. Com chaves de provedor, proxy autenticado e token falsos no ambiente do
+  Codex (o app-server autentica no provedor de teste com a chave), `env`, `printenv` e o `environ` de cada processo do
+  sandbox não mostram nenhum valor secreto, tanto com o `CODEX_HOME` de teste quanto com um `config.toml` pessoal
+  deliberadamente permissivo; o shell de login é recusado; o veredito chega. Controle negativo: sem a política, a chave
+  aparece no `env` já com a configuração padrão.
 * **Fundação do `dante_coordenacao`** (decisão E; a #309 a amplia, sem outro servidor nem outro IPC):
   * `ServidorMcpDeCoordenacao`: processo MCP stdio (`--mcp-coordenacao --pipe <nome>`) sem DI, banco nem rede; valida a
     forma das chamadas (ferramenta conhecida, só argumentos declarados, obrigatórios presentes) e encaminha ao Worker;

@@ -752,7 +752,8 @@ readquirido sob a trava na correção. Aprovar encerra sem commit, push ou PR e 
 `/grupo <nome> @alias <tarefa>` enfileira o roteiro; o `ExecutorDeRoteirosDaFila` roda um passo por trabalho, cada um
 numa sessão Codex reservada e separada: implementar e corrigir com escrita confinada na worktree; revisar com um perfil
 de permissões do Codex imposto pelo sandbox do SO (lê só a worktree, o mínimo de runtime e o executável do Codex; sem
-escrita, rede, conectores, imagens, subagentes, busca nem escalonamento), confirmado pelo `thread/start`, e o diff da
+escrita, rede, conectores, imagens, subagentes, busca nem escalonamento; comandos sem nenhuma variável herdada do
+processo, por `shell_environment_policy` imposta e conferida em `config/read`), confirmado pelo `thread/start`, e o diff da
 worktree no prompt, com hash canônico. O veredito só vale registrado pela ferramenta `entregar_resultado`, num canal por
 sessão (pipe exclusivo, token da sessão, escopo fixado pelo orquestrador), no caso de uso confiável: um por etapa,
 imutável, idempotente, sem credencial. Sem veredito, um lembrete e depois falha. O gate abre com o hash revisado e a
