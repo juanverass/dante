@@ -91,7 +91,7 @@ public sealed class ComposicaoDaOrquestracaoTests
         using var ledger = new OrquestracaoDbContext(OrquestracaoDbContextFactory.Opcoes(BancoFicticio));
         // Ledger (AD-66), fila (AD-67), cadastro de agentes (AD-68), grupos (AD-69) e reservas de worktree (AD-71) no
         // mesmo schema e histórico.
-        Assert.Equal(["Agente", "AtivacaoDeVersaoDoGrupo", "DependenciaDeEtapa", "EtapaDaExecucao", "EventoDeOrquestracao",
+        Assert.Equal(["Agente", "AtivacaoDeVersaoDoGrupo", "Delegacao", "DependenciaDeEtapa", "EtapaDaExecucao", "EventoDeOrquestracao",
             "Execucao", "GrupoDeAgentes", "ParticipanteDaExecucao", "ParticipanteDaVersaoDoGrupo", "PedidoDeAprovacao",
             "ReservaDeWorktree", "RoteiroDaExecucao", "SessaoDeAgente", "TrabalhoDaFila", "VereditoRegistrado", "VersaoDoAgente", "VersaoDoGrupo"], ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
         Assert.All(ledger.Model.GetEntityTypes(), e =>

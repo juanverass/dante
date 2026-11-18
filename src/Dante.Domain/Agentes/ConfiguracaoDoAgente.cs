@@ -9,9 +9,14 @@ namespace Dante.Domain.Agentes;
 // instruções sem espaços nas pontas e com quebras de linha \n. O hash é o SHA-256 do JSON canônico (chaves em ordem
 // fixa, enums pelo nome): duas configurações iguais têm o mesmo hash em qualquer máquina e em qualquer ordem de
 // entrada. Nada aqui é credencial; a configuração não tem campo para segredo.
+// Formato (AD-70): a delegação (PodeConsultar e LimitesDeDelegacao, #309) só entra no JSON canônico quando a versão a
+// define, e então o formato passa a 2. Sem ela, o JSON é byte a byte o do formato 1: as versões gravadas antes da #309
+// continuam reproduzindo o próprio hash, e uma versão nova sem delegação tem o mesmo hash que teria antes.
 public sealed class ConfiguracaoDoAgente
 {
     public const int VersaoDoFormato = 1;
+    public const int VersaoDoFormatoComDelegacao = 2;
+    public const int MaximoDeConsultados = 20;
     public const int TamanhoMaximoDasInstrucoes = 4000;
     public const int TamanhoMaximoDoModelo = 100;
     public const int MaximoDeRepositorios = 20;
@@ -23,7 +28,8 @@ public sealed class ConfiguracaoDoAgente
     public ConfiguracaoDoAgente(AgentKind driver, AgentPermissionProfile perfilPadrao, AgentPermissionProfile perfilMaximo,
         bool podeEscrever, string? modelo = null, string? esforco = null, string? instrucoes = null,
         IEnumerable<CapacidadeDoAgente>? capacidades = null, IEnumerable<FerramentaDoDante>? ferramentas = null,
-        IEnumerable<string>? repositorios = null, LimitesDoAgente? limites = null)
+        IEnumerable<string>? repositorios = null, LimitesDoAgente? limites = null,
+        IEnumerable<string>? podeConsultar = null, LimitesDeDelegacao? limitesDeDelegacao = null)
     {
         if (!Enum.IsDefined(driver)) throw new ArgumentOutOfRangeException(nameof(driver), "Driver inválido.");
         if (!Enum.IsDefined(perfilPadrao)) throw new ArgumentOutOfRangeException(nameof(perfilPadrao), "Perfil inválido.");
@@ -47,6 +53,12 @@ public sealed class ConfiguracaoDoAgente
         Repositorios = NormalizarRepositorios(repositorios);
         Limites = limites ?? LimitesDoAgente.Nenhum;
         Limites.Validar();
+        PodeConsultar = NormalizarConsultados(podeConsultar);
+        // Delegar é usar o dante_coordenacao: sem a concessão, nenhum destinatário vale.
+        if (PodeConsultar.Count > 0 && !Ferramentas.Contains(FerramentaDoDante.Coordenacao))
+            throw new ArgumentException("Consultar outros agentes exige a ferramenta coordenacao.", nameof(podeConsultar));
+        limitesDeDelegacao?.Validar();
+        LimitesDeDelegacao = limitesDeDelegacao;
     }
 
     public AgentKind Driver { get; }
@@ -60,6 +72,17 @@ public sealed class ConfiguracaoDoAgente
     public IReadOnlyList<FerramentaDoDante> Ferramentas { get; }
     public IReadOnlyList<string> Repositorios { get; }
     public LimitesDoAgente Limites { get; }
+    // Handles de agentes registrados que esta versão pode acionar por delegação (AD-70); vazio = nenhum.
+    public IReadOnlyList<string> PodeConsultar { get; }
+    // Nulo = sem limites próprios: vale o teto global (LimitesDeDelegacao.Teto).
+    public LimitesDeDelegacao? LimitesDeDelegacao { get; }
+
+    public LimitesDeDelegacao LimitesEfetivosDeDelegacao => LimitesDeDelegacao ?? LimitesDeDelegacao.Teto;
+
+    public bool DefineDelegacao => PodeConsultar.Count > 0 || LimitesDeDelegacao is not null;
+
+    public bool PodeDelegarPara(string handle) =>
+        Ferramentas.Contains(FerramentaDoDante.Coordenacao) && PodeConsultar.Contains(handle);
 
     public bool QualquerRepositorioPermitido => Repositorios.Contains(QualquerRepositorio);
 
@@ -90,12 +113,32 @@ public sealed class ConfiguracaoDoAgente
             json.WriteStartArray("capacidades");
             foreach (var capacidade in Capacidades) json.WriteStringValue(capacidade.ToString());
             json.WriteEndArray();
+            // Só no formato 2 (ver o comentário da classe): sem delegação, o JSON é o do formato 1.
+            if (DefineDelegacao)
+            {
+                json.WriteStartObject("delegacao");
+                json.WriteStartObject("limites");
+                if (LimitesDeDelegacao is { } limites)
+                {
+                    json.WriteNumber("delegacoesPorExecucao", limites.DelegacoesPorExecucao);
+                    json.WriteNumber("minutosDeDuracao", limites.MinutosDeDuracao);
+                    json.WriteNumber("minutosParaIniciar", limites.MinutosParaIniciar);
+                    json.WriteNumber("paralelismo", limites.Paralelismo);
+                    json.WriteNumber("profundidadeMaxima", limites.ProfundidadeMaxima);
+                }
+                json.WriteEndObject();
+                json.WriteStartArray("podeConsultar");
+                foreach (var handle in PodeConsultar) json.WriteStringValue(handle);
+                json.WriteEndArray();
+                json.WriteEndObject();
+            }
             json.WriteString("driver", Driver.ToString());
             json.WriteString("esforco", Esforco);
             json.WriteStartArray("ferramentas");
             foreach (var ferramenta in Ferramentas) json.WriteStringValue(ferramenta.ToString());
             json.WriteEndArray();
-            json.WriteString("formato", VersaoDoFormato.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            json.WriteString("formato", (DefineDelegacao ? VersaoDoFormatoComDelegacao : VersaoDoFormato)
+                .ToString(System.Globalization.CultureInfo.InvariantCulture));
             json.WriteString("instrucoes", Instrucoes);
             json.WriteStartObject("limites");
             Numero(json, "execucoesSimultaneas", Limites.ExecucoesSimultaneas);
@@ -147,6 +190,20 @@ public sealed class ConfiguracaoDoAgente
         if (lista.Any(valor => !Enum.IsDefined(valor))) throw new ArgumentOutOfRangeException(parametro, "Valor inválido.");
         Array.Sort(lista);
         // Somente leitura de verdade: um consumidor não converte de volta para array e altera a versão congelada.
+        return Array.AsReadOnly(lista);
+    }
+
+    // Handles de agentes registrados (mesmo formato do cadastro, reservados recusados), ordenados e sem repetição.
+    private static IReadOnlyList<string> NormalizarConsultados(IEnumerable<string>? valores)
+    {
+        var lista = (valores ?? []).Select(valor => valor?.Trim().ToLowerInvariant() ?? "")
+            .Distinct(StringComparer.Ordinal).ToArray();
+        foreach (var handle in lista)
+            if (!Agente.HandleValido(handle))
+                throw new ArgumentException($"Agente consultado inválido: {handle}.", nameof(valores));
+        if (lista.Length > MaximoDeConsultados)
+            throw new ArgumentException($"No máximo {MaximoDeConsultados} agentes consultados.", nameof(valores));
+        Array.Sort(lista, StringComparer.Ordinal);
         return Array.AsReadOnly(lista);
     }
 

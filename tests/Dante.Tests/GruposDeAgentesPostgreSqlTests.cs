@@ -207,8 +207,9 @@ public sealed class GruposDeAgentesPostgreSqlTests
             var funcoesAntes = await Escalar(banco,
                 "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'orquestracao'");
             await contexto.GetService<IMigrator>().MigrateAsync("20261117183118_ReservasDeWorktree");
-            // As 4 funções dos grupos, as 3 do gate e a dos vereditos (#308, migrations seguintes, desfeitas junto).
-            Assert.Equal(funcoesAntes - 8, await Escalar(banco,
+            // As 4 funções dos grupos, as 3 do gate, a dos vereditos (#308) e as 3 das delegações (#309): migrations
+            // seguintes, desfeitas junto.
+            Assert.Equal(funcoesAntes - 11, await Escalar(banco,
                 "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'orquestracao'"));
             Assert.Equal(0L, await Escalar(banco,
                 "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'orquestracao' AND table_name LIKE '%grupo%'"));

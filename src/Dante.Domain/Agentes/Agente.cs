@@ -67,6 +67,9 @@ public sealed class Agente : EntidadeBase
     {
         ArgumentNullException.ThrowIfNull(configuracao);
         if (Estado == EstadoDoAgente.Arquivado) throw new InvalidOperationException("Agente arquivado não recebe versões.");
+        // Autodelegação nunca é concedida (AD-70): o agente não consulta a si mesmo.
+        if (configuracao.PodeConsultar.Contains(Handle))
+            throw new ArgumentException($"O agente {Handle} não pode consultar a si mesmo.", nameof(configuracao));
         var versao = new VersaoDoAgente(this, NumeroDaVersaoAtual + 1, configuracao, idDoAutor, quando);
         IdVersaoAtual = versao.Id;
         NumeroDaVersaoAtual = versao.Numero;

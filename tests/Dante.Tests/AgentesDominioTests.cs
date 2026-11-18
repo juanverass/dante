@@ -205,7 +205,9 @@ public sealed class AgentesDominioTests
         Assert.Equal((AgentKind.Codex, "fake-mini", "xhigh", AgentPermissionProfile.Auto), (materializada.Driver,
             materializada.Modelo, materializada.Esforco, materializada.PerfilPadrao));
         Assert.True(materializada.PermitePerfil(AgentPermissionProfile.Auto) && materializada.PermiteRepositorio("@x"));
-        Assert.All(Enum.GetValues<FerramentaDoDante>(), ferramenta => Assert.True(materializada.PermiteFerramenta(ferramenta)));
+        // Tudo o que esses caminhos já usavam; a coordenação (AD-70, #309) é nova e não é concedida aos embutidos.
+        Assert.True(materializada.PermiteFerramenta(FerramentaDoDante.Brain) && materializada.PermiteFerramenta(FerramentaDoDante.Planilhas));
+        Assert.False(materializada.PermiteFerramenta(FerramentaDoDante.Coordenacao));
         // Preferências diferentes, hash diferente: a sessão registra qual configuração do embutido usou.
         Assert.NotEqual(materializada.Hash(), AgentesEmbutidos.Materializar(AgentKind.Codex, null, AgentPermissionProfile.Auto).Hash());
         Assert.Equal(materializada.Hash(), AgentesEmbutidos.Materializar(AgentKind.Codex,

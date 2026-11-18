@@ -17,6 +17,20 @@ public sealed class VersaoDoAgenteDbMapping : EntidadeConfiguration<VersaoDoAgen
         {
             t.HasCheckConstraint("ck_versoes_de_agente_numero_positivo", "numero > 0");
             t.HasCheckConstraint("ck_versoes_de_agente_hash", "hash_da_configuracao ~ '^[0-9a-f]{64}$'");
+            // Delegação (AD-70, #309): limites todos presentes ou todos ausentes, dentro do teto; paralelismo 1.
+            var teto = LimitesDeDelegacao.Teto;
+            t.HasCheckConstraint("ck_versoes_de_agente_limites_de_delegacao",
+                "(profundidade_maxima_de_delegacao IS NULL AND delegacoes_por_execucao IS NULL AND " +
+                "minutos_para_iniciar_delegacao IS NULL AND minutos_de_delegacao IS NULL AND paralelismo_de_delegacoes IS NULL) OR " +
+                "(profundidade_maxima_de_delegacao IS NOT NULL AND delegacoes_por_execucao IS NOT NULL AND " +
+                "minutos_para_iniciar_delegacao IS NOT NULL AND minutos_de_delegacao IS NOT NULL AND paralelismo_de_delegacoes IS NOT NULL AND " +
+                $"profundidade_maxima_de_delegacao BETWEEN 1 AND {teto.ProfundidadeMaxima} AND " +
+                $"delegacoes_por_execucao BETWEEN 1 AND {teto.DelegacoesPorExecucao} AND " +
+                $"minutos_para_iniciar_delegacao BETWEEN 1 AND {teto.MinutosParaIniciar} AND " +
+                $"minutos_de_delegacao BETWEEN 1 AND {teto.MinutosDeDuracao} AND " +
+                $"paralelismo_de_delegacoes BETWEEN 1 AND {teto.Paralelismo})");
+            t.HasCheckConstraint("ck_versoes_de_agente_consulta_com_coordenacao",
+                $"cardinality(pode_consultar) = 0 OR '{nameof(FerramentaDoDante.Coordenacao)}' = ANY (ferramentas)");
         });
         b.Property(x => x.IdAgente).HasColumnName("id_agente");
         b.Property(x => x.Numero).HasColumnName("numero");
@@ -39,6 +53,13 @@ public sealed class VersaoDoAgenteDbMapping : EntidadeConfiguration<VersaoDoAgen
         b.Property(x => x.TokensPorExecucao).HasColumnName("tokens_por_execucao");
         b.Property(x => x.TurnosPorEtapa).HasColumnName("turnos_por_etapa");
         b.Property(x => x.MinutosPorEtapa).HasColumnName("minutos_por_etapa");
+        b.Property(x => x.PodeConsultar).HasColumnName("pode_consultar").HasColumnType("text[]").HasDefaultValueSql("'{}'")
+            .HasConversion(x => x.ToArray(), x => Array.AsReadOnly(x), Comparador<string>());
+        b.Property(x => x.ProfundidadeMaximaDeDelegacao).HasColumnName("profundidade_maxima_de_delegacao");
+        b.Property(x => x.DelegacoesPorExecucao).HasColumnName("delegacoes_por_execucao");
+        b.Property(x => x.MinutosParaIniciarDelegacao).HasColumnName("minutos_para_iniciar_delegacao");
+        b.Property(x => x.MinutosDeDelegacao).HasColumnName("minutos_de_delegacao");
+        b.Property(x => x.ParalelismoDeDelegacoes).HasColumnName("paralelismo_de_delegacoes");
         b.Property(x => x.HashDaConfiguracao).HasColumnName("hash_da_configuracao").HasMaxLength(VersaoDoAgente.TamanhoDoHash)
             .IsFixedLength();
         b.Property(x => x.IdDoAutor).HasColumnName("id_do_autor");
