@@ -9,7 +9,8 @@ public sealed class RecuperacaoDeExecucoesAppService(
     ISessaoDeAgenteRepository sessoes,
     IEventoDeOrquestracaoRepository eventos,
     IUnitOfWorkDaOrquestracao unidade,
-    IUnidadesDeContencao unidades) : IRecuperacaoDeExecucoesAppService
+    IUnidadesDeContencao unidades,
+    IDelegacoesAppService? delegacoes = null) : IRecuperacaoDeExecucoesAppService
 {
     public const string MotivoDaSessaoInterrompida =
         "O Worker reiniciou: a sessão e o processo do agente não sobrevivem ao reinício.";
@@ -96,8 +97,11 @@ public sealed class RecuperacaoDeExecucoesAppService(
         }
 
         var devolvidos = await fila.DevolverDeBootsAnterioresAsync(atual, cancellationToken);
+        // Delegações (#309): uma origem que espera sem nenhuma delegação aberta é retomada pelo que o ledger já tem; a
+        // subordinada nunca é executada de novo. Normalmente a retomada sai na mesma transação do fim da subordinada.
+        var retomadas = delegacoes is null ? 0 : await delegacoes.RetomarOrigensProntasAsync(cancellationToken);
         return new RelatorioDeRecuperacaoDto(paradas, desconhecidas, falhas, listagemIndisponivel, interrompidas,
-            devolvidos, pendentes);
+            devolvidos, pendentes, retomadas);
     }
 
     // Boot diferente no mesmo host é um processo morto (o Worker é instância única no host, AD-28); em outro host,

@@ -30,5 +30,8 @@ internal static class ServicosDeExecucoes
         // Roteiro de grupo (#308): snapshot, progressão fixa e gate humano persistido.
         services.TryAddScoped<Dante.Application.Execucoes.IRoteirosAppService>(provider =>
             ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.RoteirosAppService>(provider));
+        // Delegação rastreada (#309, AD-70): solicitação serializada por raiz, ciclo da subordinada e retomada da origem.
+        services.TryAddScoped<Dante.Application.Execucoes.IDelegacoesAppService>(provider =>
+            ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.DelegacoesAppService>(provider));
     }
 }

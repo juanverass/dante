@@ -12,7 +12,8 @@ public sealed class ControleDeExecucoesAppService(
     IUnitOfWorkDaOrquestracao unidade,
     CanalDeCancelamento canal,
     IReservaDeWorktreeRepository reservas,
-    IPedidoDeAprovacaoRepository pedidos) : IControleDeExecucoesAppService
+    IPedidoDeAprovacaoRepository pedidos,
+    IDelegacaoRepository delegacoes) : IControleDeExecucoesAppService
 {
     public const string MotivoDoDescarte = "cancelada pelo dono";
 
@@ -32,8 +33,9 @@ public sealed class ControleDeExecucoesAppService(
         await fila.ExecutarEmTransacaoAsync(async token =>
         {
             // Trabalho antes da execução: mesma ordem de GravarComPosseAsync (trava o trabalho, depois grava a execução).
+            // Uma subordinada (#309) trava a origem antes de si mesma, a ordem única entre pai e filha.
             var ativos = await fila.TravarAtivosDaExecucaoAsync(encontrada.Id, token);
-            var execucao = await execucoes.ObterParaAtualizarAsync(encontrada.Id, token) ??
+            var execucao = await execucoes.TravarComAncestraisAsync(encontrada.Id, token) ??
                 throw new InvalidOperationException("Execução não registrada no ledger.");
             if (execucao.Terminal)
             {
@@ -82,6 +84,9 @@ public sealed class ControleDeExecucoesAppService(
             // Interrompida com worktree (escrita, #307): a reserva deixa de ocupar capacidade; a limpeza preserva o
             // diretório se houver alterações.
             await LiberacaoDeWorktrees.LiberarSeEncerradaAsync(reservas, eventos, execucao, agora, token);
+            // Delegações (#309): a da subordinada termina Cancelada e a origem pode ser retomada; uma origem cancelada pede o
+            // cancelamento das subordinadas abertas.
+            await CicloDaDelegacao.AoEncerrarAsync(new(delegacoes, execucoes, etapas, eventos, fila), execucao, agora, token);
             await unidade.SalvarAlteracoesAsync(token);
             resultado = new(ResultadoDoCancelamento.Cancelada, execucao.Codigo, execucao.Estado);
         }, cancellationToken);

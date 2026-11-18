@@ -20,4 +20,10 @@ public interface IDelegacaoRepository : IRepository<Delegacao>
     Task<int> ContarDaRaizAsync(Guid idExecucaoRaiz, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<Delegacao>> ListarDaRaizAsync(Guid idExecucaoRaiz, CancellationToken cancellationToken = default);
+
+    // Delegações criadas pela execução de origem (PR 2): a espera e a retomada da origem olham as da etapa que terminou.
+    Task<IReadOnlyList<Delegacao>> ListarDaOrigemAsync(Guid idExecucaoOrigem, CancellationToken cancellationToken = default);
+
+    // Recuperação (PR 2): origens em AguardandoDelegacoes sem nenhuma delegação não terminal, que já podem ser retomadas.
+    Task<IReadOnlyList<Guid>> ListarOrigensProntasParaRetomarAsync(CancellationToken cancellationToken = default);
 }

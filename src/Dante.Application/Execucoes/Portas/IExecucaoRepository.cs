@@ -16,6 +16,11 @@ public interface IExecucaoRepository : IRepository<Execucao>
     // trava o trabalho da execução trava o trabalho primeiro, na mesma ordem das gravações sob posse.
     Task<Execucao?> ObterParaAtualizarAsync(Guid id, CancellationToken cancellationToken = default);
 
+    // Delegação (#309): trava os ancestrais da raiz até o pai e só então a própria execução, todos FOR UPDATE até o fim
+    // da transação corrente. É a ordem única entre pai e filha: quem grava a subordinada e precisa da origem nunca trava
+    // a filha antes do pai. Quem também trava o trabalho trava o trabalho antes, como em ObterParaAtualizarAsync.
+    Task<Execucao?> TravarComAncestraisAsync(Guid id, CancellationToken cancellationToken = default);
+
     // Do proprietário, sem rastreamento, da mais recente para a mais antiga: todas as não terminais e até
     // limiteDeEncerradas das terminais.
     Task<IReadOnlyList<Execucao>> ListarDoProprietarioAsync(string canal, long idDoUsuarioNoCanal, int limiteDeEncerradas,

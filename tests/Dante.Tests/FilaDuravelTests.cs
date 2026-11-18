@@ -52,13 +52,16 @@ public sealed class FilaDuravelTests
         using var provider = services.BuildServiceProvider();
         // Resolver não abre conexão: o banco fictício não existe.
         Assert.Same(provider.GetRequiredService<ProcessadorDaFila>(), hospedados[1].ImplementationFactory!(provider));
-        // Um executor por tipo de execução: jobs (Avulsa, #300), tarefas (Tarefa, #301) e roteiros de grupo (Roteiro,
-        // #308), os mesmos singletons. Resolver o de roteiros não exige o registro de sessões (resolvido no passo).
+        // Um executor por tipo de execução: jobs (Avulsa, #300), tarefas (Tarefa, #301), roteiros de grupo (Roteiro,
+        // #308) e delegações (Delegada, #309), os mesmos singletons. Resolver os de roteiros, tarefas e delegações não
+        // exige o registro de sessões (resolvido quando a etapa roda).
         var executores = provider.GetServices<IExecutorDeEtapa>().ToArray();
-        Assert.Equal([TipoDeExecucao.Avulsa, TipoDeExecucao.Tarefa, TipoDeExecucao.Roteiro], executores.Select(e => e.Tipo));
+        Assert.Equal([TipoDeExecucao.Avulsa, TipoDeExecucao.Tarefa, TipoDeExecucao.Roteiro, TipoDeExecucao.Delegada],
+            executores.Select(e => e.Tipo));
         Assert.Same(provider.GetRequiredService<ExecutorDeJobsDaFila>(), executores[0]);
         Assert.Same(provider.GetRequiredService<ExecutorDeTarefasDaFila>(), executores[1]);
         Assert.Same(provider.GetRequiredService<ExecutorDeRoteirosDaFila>(), executores[2]);
+        Assert.Same(provider.GetRequiredService<ExecutorDeDelegacoesDaFila>(), executores[3]);
     }
 
     [Fact]
