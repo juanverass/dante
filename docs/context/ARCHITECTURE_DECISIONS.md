@@ -2690,13 +2690,31 @@ banco canônico:
     pelo destino declarado) e abre a **revisão confinada**; o diff vai no prompt (cortado em 60 000 caracteres, o hash
     cobre tudo). Sem veredito ao fim do turno, um lembrete; ainda sem, a etapa falha (texto livre nunca vale). O hash é
     recalculado depois do turno: worktree alterada durante a revisão invalida o veredito.
-* **Revisão confinada** (`AgenteDaSessao.LeituraConfinada`, `AgentSessionStartOptions.LeituraConfinada`): só sessão
-  reservada, em `plan`, num repositório, com escopo e com Codex (o `SessionRegistry` recusa o resto; o driver do Claude
-  recusa antes de qualquer processo). O Codex recebe `approvalPolicy=never`, `sandbox=read-only`, cwd = worktree, o
-  checkout como projeto não confiável, nenhuma raiz extra e `-c mcp_servers={}` antes de declarar só o
-  `dante_coordenacao`; a sessão só é aceita se o `thread/start` reportar exatamente `{type: readOnly}` sem rede, essa
-  política e o cwd. Sem troca de modo nem limpeza de contexto. Evidência opt-in com o Codex real (0.166, sem modelo):
-  ler a worktree passa; escrever nela, no checkout, no diretório Git comum, commit e `/tmp` são negados pelo SO.
+* **Revisão confinada** (`AgenteDaSessao.LeituraConfinada`, `AgentSessionStartOptions.LeituraConfinada`; refeita no
+  review do PR #317): só sessão reservada, em `plan`, num repositório, com escopo e com Codex (o `SessionRegistry`
+  recusa o resto; o driver do Claude recusa antes de qualquer processo). O confinamento de **leitura** é do sandbox do
+  SO, por um perfil de permissões do Codex (`default_permissions="dante_revisao"`,
+  `[permissions.dante_revisao.filesystem]` com `":minimal" = "read"`, a worktree e o diretório real do executável do
+  Codex, que o sandbox reexecuta, resolvido componente a componente): home, outros checkouts, `.env`, credenciais e o
+  resto do host **não existem** dentro do sandbox (bubblewrap no Linux); escrita e rede negadas. Não basta `read-only`:
+  ele lê o disco inteiro. A sessão também desliga o que age fora do sandbox ou amplia o alcance (`features.apps`,
+  `features.view_image`, `features.multi_agent`, `features.goals`, `web_search="disabled"`), esvazia os servidores
+  MCP do usuário antes de declarar só o `dante_coordenacao`, usa `approvalPolicy` granular que nunca escala o sandbox
+  (só aprovações de ferramenta MCP chegam ao cliente) e não herda o ambiente do Worker (allowlist mínima do lançador).
+  A sessão só é aceita se o `thread/start` reportar `activePermissionProfile = dante_revisao`, essa política, o cwd e
+  um resumo `readOnly` sem rede; versão que não reporta o perfil é recusada. Sem troca de modo nem limpeza.
+* **Autorização restrita do veredito**: `entregar_resultado` continua classificada como não somente leitura
+  (`readOnlyHint=false`), mas não destrutiva e de mundo fechado; com essas anotações o Codex 0.166 a executa sem pedir
+  aprovação. Se uma versão ou configuração pedir (`mcpServer/elicitation/request`), o driver, só na revisão confinada,
+  aceita exatamente `dante_coordenacao`/`entregar_resultado` na thread da própria sessão e recusa qualquer outra
+  ferramenta, servidor ou thread, sem levar o pedido a uma pessoa; fora dela, nada muda (`plan` recusa; as demais
+  sessões perguntam). Perguntas ao usuário num passo de roteiro recebem resposta vazia (ninguém as responde).
+* **Evidência opt-in com o Codex real** (0.166, `DANTE_LIVE_CODEX_SANDBOX=1`, sem chamada de modelo paga: provedor
+  Responses local roteirizado e `CODEX_HOME` temporário): num turno real conduzido pelo driver, o shell da revisão não
+  encontra `.env` de outro diretório nem do checkout, `~/.codex/auth.json` nem `/srv`; a execução escalonada é recusada
+  pela política; escrever é negado e ler a worktree passa; o veredito chega ao caso de uso pelo `dante_coordenacao`
+  real, sem nenhum pedido de aprovação. Com um servidor de teste que exige aprovação, a elicitação real chega e o driver
+  aceita só `entregar_resultado`. `~/.codex/config.toml` intacto.
 * **Fundação do `dante_coordenacao`** (decisão E; a #309 a amplia, sem outro servidor nem outro IPC):
   * `ServidorMcpDeCoordenacao`: processo MCP stdio (`--mcp-coordenacao --pipe <nome>`) sem DI, banco nem rede; valida a
     forma das chamadas (ferramenta conhecida, só argumentos declarados, obrigatórios presentes) e encaminha ao Worker;
@@ -2720,11 +2738,10 @@ Consequências:
 * implementar e revisar são processos Codex distintos com confinamentos distintos; nenhum agente faz commit, push, PR
   ou merge, e a entrega das alterações aprovadas (commit/PR por processo confiável) fica para depois, com o gateway
   #311;
-* o sandbox somente leitura do Codex lê o disco inteiro (como a leitura da `/tarefa` e a escrita confinada): o que
-  impede vazamento é rede desligada, nenhuma outra ferramenta e a recusa de credencial no veredito;
-* uma chamada de `entregar_resultado` feita pelo modelo dentro de um turno não foi exercida com o Codex real (exigiria
-  chamada de modelo); a evidência cobre o caminho direto (`mcpServer/tool/call`), e o observador nega qualquer pedido
-  de aprovação que chegue;
+* só a revisão tem confinamento de leitura: a leitura da `/tarefa` (`plan`) e a escrita confinada (#307) continuam
+  lendo o disco inteiro, e passar a elas o mesmo perfil fica para uma entrega própria;
+* o perfil de permissões depende do Codex 0.166 ou posterior (sem `activePermissionProfile` no `thread/start`, a
+  revisão é recusada: o roteiro falha em vez de revisar sem confinamento);
 * a forma do roteiro é fechada de propósito; outra forma exige mudar o domínio e esta AD.
 
 Código: `Dante.Domain/Grupos`, `Dante.Application/Grupos`, `Dante.Infrastructure/Modulos/Grupos`, migration

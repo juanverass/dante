@@ -799,8 +799,8 @@ Para pedir uma tarefa ao grupo, informe o repositório:
 ```
 
 O roteiro roda na fila durável, um passo de cada vez e cada passo numa sessão Codex própria: o implementador escreve
-numa worktree exclusiva; o revisor lê essa worktree num sandbox somente leitura, sem rede, e registra o veredito pela
-ferramenta do D.A.N.T.E. (texto livre não conta); o corretor ajusta a mesma worktree. Nenhum agente faz commit, push,
+numa worktree exclusiva; o revisor enxerga só essa worktree (o resto do disco, a home e outros repositórios não
+existem para ele), sem escrita nem rede, e registra o veredito pela ferramenta do D.A.N.T.E. (texto livre não conta); o corretor ajusta a mesma worktree. Nenhum agente faz commit, push,
 PR ou merge. Por enquanto, um repositório por roteiro (sem repositórios vinculados).
 
 Quando um roteiro chega à aprovação humana, `/execucao E…` mostra o resultado a decidir com o hash dele, e a decisão

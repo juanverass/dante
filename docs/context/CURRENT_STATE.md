@@ -750,13 +750,15 @@ readquirido sob a trava na correção. Aprovar encerra sem commit, push ou PR e 
 ## Executor do roteiro e dante_coordenacao (#308, AD-69 — terceira entrega)
 
 `/grupo <nome> @alias <tarefa>` enfileira o roteiro; o `ExecutorDeRoteirosDaFila` roda um passo por trabalho, cada um
-numa sessão Codex reservada e separada: implementar e corrigir com escrita confinada na worktree; revisar com sandbox
-de SO somente leitura confirmado pelo `thread/start` (sem rede, sem aprovação, só o `dante_coordenacao`) e o diff da
+numa sessão Codex reservada e separada: implementar e corrigir com escrita confinada na worktree; revisar com um perfil
+de permissões do Codex imposto pelo sandbox do SO (lê só a worktree, o mínimo de runtime e o executável do Codex; sem
+escrita, rede, conectores, imagens, subagentes, busca nem escalonamento), confirmado pelo `thread/start`, e o diff da
 worktree no prompt, com hash canônico. O veredito só vale registrado pela ferramenta `entregar_resultado`, num canal por
 sessão (pipe exclusivo, token da sessão, escopo fixado pelo orquestrador), no caso de uso confiável: um por etapa,
 imutável, idempotente, sem credencial. Sem veredito, um lembrete e depois falha. O gate abre com o hash revisado e a
-pessoa decide no `/execucao`. Um repositório por roteiro (vinculados recusados). Evidência opt-in com o Codex real:
-leitura passa, escrita, commit e `/tmp` são negados. Migration `VereditosDeRevisao` não aplicada no banco canônico.
+pessoa decide no `/execucao`. Um repositório por roteiro (vinculados recusados). Evidência opt-in com o Codex real num
+turno real (modelo de teste local): arquivos fora da worktree não existem no sandbox, escalonamento e escrita são
+negados, e o veredito chega pela ferramenta. Migration `VereditosDeRevisao` não aplicada no banco canônico.
 
 ## Worktrees por execução de escrita (#307, AD-71)
 
