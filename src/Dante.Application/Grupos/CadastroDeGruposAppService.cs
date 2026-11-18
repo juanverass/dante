@@ -155,6 +155,9 @@ public sealed class CadastroDeGruposAppService(
             throw new InvalidOperationException(grupo.Estado == EstadoDoGrupo.Arquivado
                 ? $"O grupo {grupo.Nome} já está arquivado."
                 : $"Desative o grupo {grupo.Nome} antes de arquivá-lo.");
+        if (await grupos.ContarExecucoesAtivasAsync(grupo.Id, cancellationToken) is > 0 and var ativas)
+            throw new InvalidOperationException(
+                $"O grupo {grupo.Nome} ainda tem {ativas} execução(ões) em andamento; arquive depois que terminarem.");
         grupo.Arquivar(relogio.GetUtcNow());
         return await GravarAsync(grupo, cancellationToken);
     }

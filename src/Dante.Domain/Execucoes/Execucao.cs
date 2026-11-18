@@ -39,15 +39,24 @@ public sealed class Execucao : EntidadeBase
 
     // contexto: o contexto de execução congelado (AD-11) já serializado pela Application.
     // idVersaoDoAgente: versão congelada do agente responsável (AD-68); obrigatória numa Tarefa.
+    // idVersaoDoGrupo: versão ativa do grupo, congelada (AD-69); obrigatória num Roteiro, que não tem agente único.
     public Execucao(long numero, TipoDeExecucao tipo, string canal, long idDoUsuarioNoCanal, string contexto,
-        string? objetivo, DateTimeOffset criadaEm, Guid? idVersaoDoAgente = null)
+        string? objetivo, DateTimeOffset criadaEm, Guid? idVersaoDoAgente = null, Guid? idVersaoDoGrupo = null)
     {
         if (numero < 1) throw new ArgumentOutOfRangeException(nameof(numero), "Número da execução deve ser positivo.");
         if (!Enum.IsDefined(tipo)) throw new ArgumentOutOfRangeException(nameof(tipo), "Tipo de execução inválido.");
         if (idVersaoDoAgente == Guid.Empty) throw new ArgumentException("Versão do agente inválida.", nameof(idVersaoDoAgente));
         if (tipo == TipoDeExecucao.Tarefa && idVersaoDoAgente is null)
             throw new ArgumentException("Tarefa exige a versão do agente responsável.", nameof(idVersaoDoAgente));
+        if (idVersaoDoGrupo == Guid.Empty) throw new ArgumentException("Versão do grupo inválida.", nameof(idVersaoDoGrupo));
+        if ((tipo == TipoDeExecucao.Roteiro) != (idVersaoDoGrupo is not null))
+            throw new ArgumentException("Só o roteiro aponta para a versão de um grupo, e ele sempre aponta.",
+                nameof(idVersaoDoGrupo));
+        if (tipo == TipoDeExecucao.Roteiro && idVersaoDoAgente is not null)
+            throw new ArgumentException("Roteiro congela a versão de cada participante, não de um agente único.",
+                nameof(idVersaoDoAgente));
         IdVersaoDoAgente = idVersaoDoAgente;
+        IdVersaoDoGrupo = idVersaoDoGrupo;
         Numero = numero;
         Tipo = tipo;
         Canal = TextoObrigatorio(canal, TamanhoMaximoDoCanal, nameof(canal));
@@ -77,6 +86,9 @@ public sealed class Execucao : EntidadeBase
 
     // Versão do agente responsável, congelada na criação; editar o agente depois não a altera.
     public Guid? IdVersaoDoAgente { get; private set; }
+
+    // Versão do grupo congelada na criação de um Roteiro (AD-69); ativar outra versão depois não a altera.
+    public Guid? IdVersaoDoGrupo { get; private set; }
 
     public string Codigo => Tipo == TipoDeExecucao.Avulsa ? $"J{Numero:D6}" : $"E{Numero}";
     public bool Terminal => Transicoes[Estado].Length == 0;
@@ -109,9 +121,12 @@ public sealed class Execucao : EntidadeBase
         IniciadaEm ??= quando;
     }
 
-    public void AguardarAprovacao() => Transitar(EstadoDaExecucao.AguardandoAprovacao);
+    // motivo: o que se espera da pessoa (exibido no acompanhamento).
+    public void AguardarAprovacao(string? motivo = null) =>
+        Transitar(EstadoDaExecucao.AguardandoAprovacao, TextoOpcional(motivo));
 
-    public void AguardarEntrada() => Transitar(EstadoDaExecucao.AguardandoEntrada);
+    public void AguardarEntrada(string? motivo = null) =>
+        Transitar(EstadoDaExecucao.AguardandoEntrada, TextoOpcional(motivo));
 
     public void AguardarDelegacoes() => Transitar(EstadoDaExecucao.AguardandoDelegacoes);
 

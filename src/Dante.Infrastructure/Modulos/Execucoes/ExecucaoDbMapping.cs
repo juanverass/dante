@@ -16,6 +16,10 @@ public sealed class ExecucaoDbMapping : EntidadeConfiguration<Execucao>
             // Tarefa (AD-68) sempre aponta para a versão exata do agente responsável.
             t.HasCheckConstraint("ck_execucoes_tarefa_com_versao",
                 $"tipo <> {(int)TipoDeExecucao.Tarefa} OR id_versao_do_agente IS NOT NULL");
+            // Roteiro (AD-69) e só ele aponta para a versão do grupo; nunca para um agente único.
+            t.HasCheckConstraint("ck_execucoes_roteiro_com_grupo",
+                $"(tipo = {(int)TipoDeExecucao.Roteiro}) = (id_versao_do_grupo IS NOT NULL) AND " +
+                $"(tipo <> {(int)TipoDeExecucao.Roteiro} OR id_versao_do_agente IS NULL)");
         });
         b.Property(x => x.Numero).HasColumnName("numero");
         b.Property(x => x.Tipo).HasColumnName("tipo");
@@ -30,10 +34,13 @@ public sealed class ExecucaoDbMapping : EntidadeConfiguration<Execucao>
         b.Property(x => x.IniciadaEm).HasColumnName("iniciada_em");
         b.Property(x => x.EncerradaEm).HasColumnName("encerrada_em");
         b.Property(x => x.IdVersaoDoAgente).HasColumnName("id_versao_do_agente");
+        b.Property(x => x.IdVersaoDoGrupo).HasColumnName("id_versao_do_grupo");
         b.Ignore(x => x.Codigo);
         b.Ignore(x => x.Terminal);
         b.Ignore(x => x.Nova);
         b.HasOne<Dante.Domain.Agentes.VersaoDoAgente>().WithMany().HasForeignKey(x => x.IdVersaoDoAgente)
+            .OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Dante.Domain.Grupos.VersaoDoGrupo>().WithMany().HasForeignKey(x => x.IdVersaoDoGrupo)
             .OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => x.Numero).IsUnique();
         b.HasIndex(x => x.Estado);

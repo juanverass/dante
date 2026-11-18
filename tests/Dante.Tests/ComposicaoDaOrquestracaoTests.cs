@@ -90,8 +90,8 @@ public sealed class ComposicaoDaOrquestracaoTests
         // Ledger (AD-66), fila (AD-67), cadastro de agentes (AD-68), grupos (AD-69) e reservas de worktree (AD-71) no
         // mesmo schema e histórico.
         Assert.Equal(["Agente", "AtivacaoDeVersaoDoGrupo", "DependenciaDeEtapa", "EtapaDaExecucao", "EventoDeOrquestracao",
-            "Execucao", "GrupoDeAgentes", "ParticipanteDaVersaoDoGrupo", "ReservaDeWorktree", "SessaoDeAgente", "TrabalhoDaFila",
-            "VersaoDoAgente", "VersaoDoGrupo"], ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
+            "Execucao", "GrupoDeAgentes", "ParticipanteDaExecucao", "ParticipanteDaVersaoDoGrupo", "PedidoDeAprovacao",
+            "ReservaDeWorktree", "RoteiroDaExecucao", "SessaoDeAgente", "TrabalhoDaFila", "VersaoDoAgente", "VersaoDoGrupo"], ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
         Assert.All(ledger.Model.GetEntityTypes(), e =>
         {
             Assert.Equal("orquestracao", e.GetSchema());

@@ -13,6 +13,13 @@ public interface IReservasDeWorktreeAppService
     Task<IReadOnlyList<WorktreeDaExecucaoDto>> ReservarAsync(PosseDoTrabalho posse, Guid idEtapa,
         IReadOnlyList<WorktreePlanejada> planejadas, string maquina, CancellationToken cancellationToken = default);
 
+    // Reaquisição do slot por uma etapa de escrita posterior da mesma execução (correção de um Roteiro, #308, decisão
+    // C): as reservas que continuaram ativas durante o gate, sem replanejar a worktree. Sob a mesma trava e os mesmos
+    // limites de ReservarAsync: sem capacidade, CapacidadeDeWorktreesIndisponivelException sem gravar (o processador
+    // espera sem contar tentativa). Sem reserva ativa, de outro host ou nenhuma principal: WorktreeInvalidaException.
+    Task<IReadOnlyList<WorktreeDaExecucaoDto>> ReadquirirAsync(PosseDoTrabalho posse, Guid idEtapa, string maquina,
+        CancellationToken cancellationToken = default);
+
     // Todas criadas e validadas: Reservada → Pronta, sob posse.
     Task<IReadOnlyList<WorktreeDaExecucaoDto>> MarcarProntasAsync(PosseDoTrabalho posse, Guid idExecucao,
         CancellationToken cancellationToken = default);

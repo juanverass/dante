@@ -77,6 +77,11 @@ internal sealed class CadastroDeGruposEmMemoria(CadastroDeAgentesEmMemoria agent
                 .Where(grupo => incluirArquivados || grupo.Estado != EstadoDoGrupo.Arquivado).ToArray());
     }
 
+    public int ExecucoesAtivas { get; set; }
+
+    public Task<int> ContarExecucoesAtivasAsync(Guid idGrupo, CancellationToken cancellationToken = default) =>
+        Task.FromResult(ExecucoesAtivas);
+
     public Task<VersaoDoGrupo?> ObterComParticipantesAsync(Guid id, CancellationToken cancellationToken = default)
     {
         lock (gate) return Task.FromResult(versoes.SingleOrDefault(versao => versao.Id == id));

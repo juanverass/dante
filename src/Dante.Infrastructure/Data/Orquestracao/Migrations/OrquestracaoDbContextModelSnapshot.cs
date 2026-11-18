@@ -306,6 +306,10 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasColumnType("character varying(32)")
                         .HasColumnName("id_turno");
 
+                    b.Property<Guid?>("IdVersaoDoAgente")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_versao_do_agente");
+
                     b.Property<DateTimeOffset?>("IniciadaEm")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("iniciada_em");
@@ -324,9 +328,22 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("numero");
 
+                    b.Property<string>("Papel")
+                        .HasMaxLength(31)
+                        .HasColumnType("character varying(31)")
+                        .HasColumnName("papel");
+
+                    b.Property<int?>("Passo")
+                        .HasColumnType("integer")
+                        .HasColumnName("passo");
+
                     b.Property<int>("PoliticaDeRetomada")
                         .HasColumnType("integer")
                         .HasColumnName("politica_de_retomada");
+
+                    b.Property<int?>("Rodada")
+                        .HasColumnType("integer")
+                        .HasColumnName("rodada");
 
                     b.Property<int>("Tentativa")
                         .HasColumnType("integer")
@@ -349,12 +366,16 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
 
                     b.HasIndex("IdSessaoDeAgente");
 
+                    b.HasIndex("IdVersaoDoAgente");
+
                     b.HasIndex("IdExecucao", "Numero")
                         .IsUnique();
 
                     b.ToTable("etapas_da_execucao", "orquestracao", t =>
                         {
                             t.HasCheckConstraint("ck_etapas_da_execucao_numero_positivo", "numero > 0");
+
+                            t.HasCheckConstraint("ck_etapas_da_execucao_passo_do_roteiro", "(passo IS NULL) = (rodada IS NULL) AND (rodada IS NULL OR rodada >= 0) AND (papel IS NULL) = (id_versao_do_agente IS NULL)");
 
                             t.HasCheckConstraint("ck_etapas_da_execucao_tentativa_positiva", "tentativa > 0");
                         });
@@ -468,6 +489,10 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id_versao_do_agente");
 
+                    b.Property<Guid?>("IdVersaoDoGrupo")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_versao_do_grupo");
+
                     b.Property<DateTimeOffset?>("IniciadaEm")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("iniciada_em");
@@ -502,6 +527,8 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
 
                     b.HasIndex("IdVersaoDoAgente");
 
+                    b.HasIndex("IdVersaoDoGrupo");
+
                     b.HasIndex("Numero")
                         .IsUnique();
 
@@ -509,7 +536,158 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         {
                             t.HasCheckConstraint("ck_execucoes_numero_positivo", "numero > 0");
 
+                            t.HasCheckConstraint("ck_execucoes_roteiro_com_grupo", "(tipo = 2) = (id_versao_do_grupo IS NOT NULL) AND (tipo <> 2 OR id_versao_do_agente IS NULL)");
+
                             t.HasCheckConstraint("ck_execucoes_tarefa_com_versao", "tipo <> 1 OR id_versao_do_agente IS NOT NULL");
+                        });
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.ParticipanteDaExecucao", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("HandleDoAgente")
+                        .IsRequired()
+                        .HasMaxLength(31)
+                        .HasColumnType("character varying(31)")
+                        .HasColumnName("handle_do_agente");
+
+                    b.Property<string>("HashDaConfiguracaoDoAgente")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_da_configuracao_do_agente")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("IdExecucao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_execucao");
+
+                    b.Property<Guid>("IdVersaoDoAgente")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_versao_do_agente");
+
+                    b.Property<int>("NumeroDaVersaoDoAgente")
+                        .HasColumnType("integer")
+                        .HasColumnName("numero_da_versao_do_agente");
+
+                    b.Property<string>("Papel")
+                        .IsRequired()
+                        .HasMaxLength(31)
+                        .HasColumnType("character varying(31)")
+                        .HasColumnName("papel");
+
+                    b.Property<bool>("PodeEscrever")
+                        .HasColumnType("boolean")
+                        .HasColumnName("pode_escrever");
+
+                    b.Property<string>("Responsabilidades")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("responsabilidades");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdVersaoDoAgente");
+
+                    b.HasIndex("IdExecucao", "Papel")
+                        .IsUnique();
+
+                    b.ToTable("participantes_da_execucao", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_participantes_da_execucao_hash", "hash_da_configuracao_do_agente ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("ck_participantes_da_execucao_versao", "numero_da_versao_do_agente > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.PedidoDeAprovacao", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CanalDoDecisor")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("canal_do_decisor");
+
+                    b.Property<DateTimeOffset>("CriadoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("criado_em");
+
+                    b.Property<DateTimeOffset?>("DecididoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decidido_em");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("integer")
+                        .HasColumnName("estado");
+
+                    b.Property<string>("HashDoArtefato")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_do_artefato")
+                        .IsFixedLength();
+
+                    b.Property<string>("HashDoSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_do_snapshot")
+                        .IsFixedLength();
+
+                    b.Property<long?>("IdDoDecisor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("id_do_decisor");
+
+                    b.Property<Guid>("IdEtapa")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_etapa");
+
+                    b.Property<Guid>("IdExecucao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_execucao");
+
+                    b.Property<string>("Motivo")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("motivo");
+
+                    b.Property<int>("Rodada")
+                        .HasColumnType("integer")
+                        .HasColumnName("rodada");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdEtapa")
+                        .IsUnique();
+
+                    b.HasIndex("IdExecucao")
+                        .IsUnique()
+                        .HasDatabaseName("ux_pedidos_de_aprovacao_pendente_por_execucao")
+                        .HasFilter("estado = 0");
+
+                    b.ToTable("pedidos_de_aprovacao", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_pedidos_de_aprovacao_decisao", "(estado = 0) = (decidido_em IS NULL) AND (estado IN (0, 4)) = (id_do_decisor IS NULL)");
+
+                            t.HasCheckConstraint("ck_pedidos_de_aprovacao_hashes", "hash_do_snapshot ~ '^[0-9a-f]{64}$' AND hash_do_artefato ~ '^[0-9a-f]{64}$'");
                         });
                 });
 
@@ -603,29 +781,120 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                     b.HasIndex("Caminho")
                         .IsUnique()
                         .HasDatabaseName("ux_reservas_de_worktree_caminho_ativa")
-                        .HasFilter("estado IN (0, 1)");
+                        .HasFilter("estado IN (0, 1, 6)");
 
                     b.HasIndex("CaminhoDoRepositorio", "Branch")
                         .IsUnique()
                         .HasDatabaseName("ux_reservas_de_worktree_branch_ativa")
-                        .HasFilter("estado IN (0, 1)");
+                        .HasFilter("estado IN (0, 1, 6)");
 
                     b.HasIndex("IdEtapa", "IdExecucao");
 
                     b.HasIndex("IdExecucao", "Alias")
                         .IsUnique()
                         .HasDatabaseName("ux_reservas_de_worktree_alias_ativa")
-                        .HasFilter("estado IN (0, 1)");
+                        .HasFilter("estado IN (0, 1, 6)");
 
                     b.HasIndex("MaquinaDoWorker", "Estado");
 
                     b.ToTable("reservas_de_worktree", "orquestracao", t =>
                         {
-                            t.HasCheckConstraint("ck_reservas_de_worktree_estado", "estado BETWEEN 0 AND 5");
+                            t.HasCheckConstraint("ck_reservas_de_worktree_estado", "estado BETWEEN 0 AND 6");
 
                             t.HasCheckConstraint("ck_reservas_de_worktree_fora_do_checkout", "caminho <> caminho_do_repositorio");
 
                             t.HasCheckConstraint("ck_reservas_de_worktree_sha", "char_length(sha_base) = 40");
+                        });
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.RoteiroDaExecucao", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("HashDaVersaoDoGrupo")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_da_versao_do_grupo")
+                        .IsFixedLength();
+
+                    b.Property<string>("HashDoObjetivoOriginal")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_do_objetivo_original")
+                        .IsFixedLength();
+
+                    b.Property<string>("HashDoSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_do_snapshot")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("IdExecucao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_execucao");
+
+                    b.Property<Guid>("IdGrupo")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_grupo");
+
+                    b.Property<Guid>("IdVersaoDoGrupo")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_versao_do_grupo");
+
+                    b.Property<string>("NomeDoGrupo")
+                        .IsRequired()
+                        .HasMaxLength(31)
+                        .HasColumnType("character varying(31)")
+                        .HasColumnName("nome_do_grupo");
+
+                    b.Property<int>("NumeroDaVersaoDoGrupo")
+                        .HasColumnType("integer")
+                        .HasColumnName("numero_da_versao_do_grupo");
+
+                    b.Property<bool>("ObjetivoAlteradoPelaRedacao")
+                        .HasColumnType("boolean")
+                        .HasColumnName("objetivo_alterado_pela_redacao");
+
+                    b.Property<string>("ObjetivoRedigido")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("character varying(8000)")
+                        .HasColumnName("objetivo_redigido");
+
+                    b.Property<string[]>("Passos")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("passos");
+
+                    b.Property<int>("RodadasDeRevisaoMaximas")
+                        .HasColumnType("integer")
+                        .HasColumnName("rodadas_de_revisao_maximas");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdExecucao")
+                        .IsUnique();
+
+                    b.HasIndex("IdGrupo");
+
+                    b.HasIndex("IdVersaoDoGrupo");
+
+                    b.ToTable("roteiros_da_execucao", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_roteiros_da_execucao_hashes", "hash_da_versao_do_grupo ~ '^[0-9a-f]{64}$' AND hash_do_snapshot ~ '^[0-9a-f]{64}$' AND hash_do_objetivo_original ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("ck_roteiros_da_execucao_rodadas", "rodadas_de_revisao_maximas >= 0");
                         });
                 });
 
@@ -1167,6 +1436,11 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .WithMany()
                         .HasForeignKey("IdSessaoDeAgente")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Dante.Domain.Agentes.VersaoDoAgente", null)
+                        .WithMany()
+                        .HasForeignKey("IdVersaoDoAgente")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Dante.Domain.Execucoes.EventoDeOrquestracao", b =>
@@ -1194,6 +1468,41 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .WithMany()
                         .HasForeignKey("IdVersaoDoAgente")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Dante.Domain.Grupos.VersaoDoGrupo", null)
+                        .WithMany()
+                        .HasForeignKey("IdVersaoDoGrupo")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.ParticipanteDaExecucao", b =>
+                {
+                    b.HasOne("Dante.Domain.Execucoes.Execucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Agentes.VersaoDoAgente", null)
+                        .WithMany()
+                        .HasForeignKey("IdVersaoDoAgente")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.PedidoDeAprovacao", b =>
+                {
+                    b.HasOne("Dante.Domain.Execucoes.EtapaDaExecucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdEtapa")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Execucoes.Execucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Dante.Domain.Execucoes.ReservaDeWorktree", b =>
@@ -1208,6 +1517,27 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .WithMany()
                         .HasForeignKey("IdEtapa", "IdExecucao")
                         .HasPrincipalKey("Id", "IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.RoteiroDaExecucao", b =>
+                {
+                    b.HasOne("Dante.Domain.Execucoes.Execucao", null)
+                        .WithOne()
+                        .HasForeignKey("Dante.Domain.Execucoes.RoteiroDaExecucao", "IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Grupos.GrupoDeAgentes", null)
+                        .WithMany()
+                        .HasForeignKey("IdGrupo")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Grupos.VersaoDoGrupo", null)
+                        .WithMany()
+                        .HasForeignKey("IdVersaoDoGrupo")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

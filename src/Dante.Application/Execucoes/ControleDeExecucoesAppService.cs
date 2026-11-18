@@ -11,7 +11,8 @@ public sealed class ControleDeExecucoesAppService(
     IEventoDeOrquestracaoRepository eventos,
     IUnitOfWorkDaOrquestracao unidade,
     CanalDeCancelamento canal,
-    IReservaDeWorktreeRepository reservas) : IControleDeExecucoesAppService
+    IReservaDeWorktreeRepository reservas,
+    IPedidoDeAprovacaoRepository pedidos) : IControleDeExecucoesAppService
 {
     public const string MotivoDoDescarte = "cancelada pelo dono";
 
@@ -68,6 +69,10 @@ public sealed class ControleDeExecucoesAppService(
                 etapa.Cancelar(motivoDaTransicao, null, agora);
                 await eventos.AdicionarAsync(Transicao(execucao, etapa, antes, etapa.Estado, agora), token);
             }
+            // Roteiro esperando a decisão humana (#308): o pedido pendente termina cancelado, e nenhuma decisão posterior
+            // vale para ele.
+            if (await pedidos.ObterPendenteAsync(execucao.Id, token) is { } pendente)
+                pendente.Cancelar(motivoDaTransicao, agora);
             var execucaoAntes = execucao.Estado;
             execucao.Cancelar(motivoDaTransicao, agora);
             await eventos.AdicionarAsync(Transicao(execucao, null, execucaoAntes, execucao.Estado, agora), token);

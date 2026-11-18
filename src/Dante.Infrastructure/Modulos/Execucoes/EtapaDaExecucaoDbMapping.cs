@@ -14,6 +14,10 @@ public sealed class EtapaDaExecucaoDbMapping : EntidadeConfiguration<EtapaDaExec
         {
             t.HasCheckConstraint("ck_etapas_da_execucao_numero_positivo", "numero > 0");
             t.HasCheckConstraint("ck_etapas_da_execucao_tentativa_positiva", "tentativa > 0");
+            // Passo de roteiro (AD-69): passo e rodada juntos; papel e versão do agente juntos, e só fora da aprovação.
+            t.HasCheckConstraint("ck_etapas_da_execucao_passo_do_roteiro",
+                "(passo IS NULL) = (rodada IS NULL) AND (rodada IS NULL OR rodada >= 0) AND " +
+                "(papel IS NULL) = (id_versao_do_agente IS NULL)");
         });
         b.Property(x => x.IdExecucao).HasColumnName("id_execucao");
         b.Property(x => x.Numero).HasColumnName("numero");
@@ -34,11 +38,17 @@ public sealed class EtapaDaExecucaoDbMapping : EntidadeConfiguration<EtapaDaExec
         b.Property(x => x.CriadaEm).HasColumnName("criada_em");
         b.Property(x => x.IniciadaEm).HasColumnName("iniciada_em");
         b.Property(x => x.EncerradaEm).HasColumnName("encerrada_em");
+        b.Property(x => x.Passo).HasColumnName("passo");
+        b.Property(x => x.Rodada).HasColumnName("rodada");
+        b.Property(x => x.Papel).HasColumnName("papel").HasMaxLength(Dante.Domain.Grupos.ConfiguracaoDoGrupo.TamanhoMaximoDoPapel);
+        b.Property(x => x.IdVersaoDoAgente).HasColumnName("id_versao_do_agente");
         b.Ignore(x => x.Terminal);
         // Chave alternativa: dependências apontam para (etapa, execução), e o banco recusa dependência entre execuções.
         b.HasAlternateKey(x => new { x.Id, x.IdExecucao });
         b.HasOne<Execucao>().WithMany().HasForeignKey(x => x.IdExecucao).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<SessaoDeAgente>().WithMany().HasForeignKey(x => x.IdSessaoDeAgente).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Dante.Domain.Agentes.VersaoDoAgente>().WithMany().HasForeignKey(x => x.IdVersaoDoAgente)
+            .OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => new { x.IdExecucao, x.Numero }).IsUnique();
         b.HasIndex(x => x.ChaveDeIdempotencia).IsUnique();
     }
