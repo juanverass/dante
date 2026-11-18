@@ -30,7 +30,17 @@ public sealed class Delegacao : EntidadeBase
 > leitura (escrita recusada no domínio e no banco até #307 + #311); teto global de profundidade 1, 4 delegações por
 > execução, 30 min para iniciar, 60 min de duração e paralelismo 1; a chave de deduplicação é por unidade de trabalho
 > (raiz, etapa de origem, contrato, objetivo normalizado e entrada canônica), **sem o destinatário**, e vale em
-> qualquer estado: a repetição devolve a original (mesmo terminal, sem reabri-la) e outro agente é recusado. Executor, fila, retorno, prazo, cascata e ferramentas: PRs 2 e 3 da #309.
+> qualquer estado: a repetição devolve a original (mesmo terminal, sem reabri-la) e outro agente é recusado.
+>
+> **Implementação (#309, AD-70 — PR 2, Application, fila e executor).** O fluxo abaixo vale com estas diferenças até o
+> PR 3: o pedido entra pelo caso de uso interno `IDelegacoesAppService.SolicitarAsync` (a ferramenta MCP é do PR 3),
+> serializado pela trava da raiz antes de contar e inserir; a subordinada é executada pelo `ExecutorDeDelegacoesDaFila`
+> na fila durável, numa sessão reservada em plan, sem ambiente do Worker nem ferramentas de coordenação; o resultado é o
+> JSON do contrato num bloco da última mensagem do turno (no PR 3, `entregar_resultado`), validado no servidor, com
+> evidências de arquivo conferidas no repositório e uma correção; a origem espera em `AguardandoDelegacoes` e é retomada
+> por uma **etapa nova** (sessão nova com prólogo do ledger, não a sessão antiga), montada só do ledger; o prazo é
+> conferido na reivindicação e no início (não há prorrogação enquanto a filha roda: a duração máxima conta do início);
+> o orçamento é só de quantidade (sem turnos nem tokens); `revisao.v1` é recusado até existir artefato verificável.
 
 A delegação **é uma linha**, não uma mensagem. A execução subordinada é uma `Execucao` comum do tipo `Delegada`:
 tem etapas, eventos, aprovações e aparece no acompanhamento.
