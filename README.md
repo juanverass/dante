@@ -770,6 +770,29 @@ escrita por vez (limite global 1 até a ativação autorizada da contenção AD-
 tentativa. Configuração opcional: `Orquestracao:Worktrees:{Raiz, LimiteGlobal, LimitePorRepositorio}` (limite
 global acima de 1 é recusado na inicialização).
 
+## Grupos de agentes
+
+Com o mesmo banco e `Orquestracao:Habilitada=true`, agentes registrados podem formar um grupo nomeado e versionado,
+com papéis explícitos e um roteiro fixo: implementar → revisar → corrigir (opcional, com rodadas limitadas) →
+aprovação humana. Nesta etapa os participantes são agentes **Codex**: quem implementa e corrige tem escrita e a
+capacidade `implementar`; quem revisa não tem escrita e tem a capacidade `revisar`.
+
+```text
+/grupo criar engenharia roteiro=implementar:dev,revisar:rev,corrigir:dev,aprovar rodadas=2 repos=@dante
+dev=codex-dev escrita: implementa a tarefa
+rev=codex-rev: revisa o diff
+/grupos                               lista os grupos e a versão ativa de cada um
+/grupo ver engenharia                 versões, participantes, hash e ativações
+/grupo ativar engenharia v1 <hash>    decisão humana: libera a versão para execuções novas
+/grupo editar engenharia rodadas=3    cria a v2, que só vale depois de ativada
+/grupo desativar engenharia           nada novo começa; o que começou segue até o fim
+```
+
+Cada edição cria uma versão imutável identificada por um hash; a versão nova só é usada depois de ativada com o hash
+exibido (ao menos 12 caracteres), e a ativação não concede nada além das permissões já dadas a cada agente. O nome é
+minúsculo e nunca reutilizado; arquivar exige desativar antes. A execução de uma tarefa por um grupo ainda não está
+disponível: entra nas próximas entregas da #308.
+
 ## Acompanhamento de execuções
 
 Com o mesmo banco e `Orquestracao:Habilitada=true`, cada usuário acompanha e cancela as **próprias** execuções

@@ -87,15 +87,20 @@ public sealed class ComposicaoDaOrquestracaoTests
     public void ModeloDoLedgerTemSchemaEHistoricoPropriosSemTocarOBrain()
     {
         using var ledger = new OrquestracaoDbContext(OrquestracaoDbContextFactory.Opcoes(BancoFicticio));
-        // Ledger (AD-66), fila (AD-67), cadastro de agentes (AD-68) e reservas de worktree (AD-71) no mesmo schema e
-        // histórico.
-        Assert.Equal(["Agente", "DependenciaDeEtapa", "EtapaDaExecucao", "EventoDeOrquestracao", "Execucao",
-            "ReservaDeWorktree", "SessaoDeAgente", "TrabalhoDaFila", "VersaoDoAgente"], ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
+        // Ledger (AD-66), fila (AD-67), cadastro de agentes (AD-68), grupos (AD-69) e reservas de worktree (AD-71) no
+        // mesmo schema e histórico.
+        Assert.Equal(["Agente", "AtivacaoDeVersaoDoGrupo", "DependenciaDeEtapa", "EtapaDaExecucao", "EventoDeOrquestracao",
+            "Execucao", "GrupoDeAgentes", "ParticipanteDaVersaoDoGrupo", "ReservaDeWorktree", "SessaoDeAgente", "TrabalhoDaFila",
+            "VersaoDoAgente", "VersaoDoGrupo"], ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
         Assert.All(ledger.Model.GetEntityTypes(), e =>
         {
             Assert.Equal("orquestracao", e.GetSchema());
-            Assert.Equal(e.ClrType.Namespace == "Dante.Domain.Agentes" ? "Dante.Infrastructure.Modulos.Agentes"
-                : "Dante.Infrastructure.Modulos.Execucoes", typeof(OrquestracaoDbContext).Assembly.GetTypes()
+            Assert.Equal(e.ClrType.Namespace switch
+            {
+                "Dante.Domain.Agentes" => "Dante.Infrastructure.Modulos.Agentes",
+                "Dante.Domain.Grupos" => "Dante.Infrastructure.Modulos.Grupos",
+                _ => "Dante.Infrastructure.Modulos.Execucoes"
+            }, typeof(OrquestracaoDbContext).Assembly.GetTypes()
                 .Single(t => t.Name == e.ClrType.Name + "DbMapping").Namespace);
             Assert.Equal("xmin", e.FindProperty("Versao")!.GetColumnName());
             Assert.True(e.FindProperty("Versao")!.IsConcurrencyToken);
@@ -107,7 +112,7 @@ public sealed class ComposicaoDaOrquestracaoTests
         Assert.DoesNotContain("CREATE EXTENSION", script);
 
         using var brain = new DanteDbContext(new DbContextOptionsBuilder<DanteDbContext>().UseNpgsql(BancoFicticio).Options);
-        Assert.DoesNotContain(brain.Model.GetEntityTypes(), e => e.ClrType.Namespace is "Dante.Domain.Execucoes" or "Dante.Domain.Agentes");
+        Assert.DoesNotContain(brain.Model.GetEntityTypes(), e => e.ClrType.Namespace is "Dante.Domain.Execucoes" or "Dante.Domain.Agentes" or "Dante.Domain.Grupos");
         Assert.DoesNotContain("orquestracao", brain.GetService<IMigrator>().GenerateScript());
     }
 

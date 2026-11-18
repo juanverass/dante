@@ -55,6 +55,20 @@ internal static class TelegramCommandHelp
             "sem @ (que é repositório), único e nunca reutilizado. editar cria uma versão nova; sessões abertas mantêm a " +
             "delas. nome|descricao <handle> <texto> mudam a apresentação sem versão. desativar recusa novas sessões e " +
             "tarefas sem interromper as ativas; arquivar exige desativado e sem sessão ativa. Credenciais nunca entram no cadastro."),
+        new("/grupos", "AGENTE E CONTEXTO", "Liste os grupos de agentes registrados.",
+            "/grupos\n/grupos todos", "todos inclui os arquivados. Grupos exigem o banco do D.A.N.T.E. habilitado."),
+        new("/grupo", "AGENTE E CONTEXTO", "Crie, consulte, edite (nova versão), ative, desative ou arquive um grupo de agentes.",
+            "/grupo criar engenharia roteiro=implementar:dev,revisar:rev,corrigir:dev,aprovar rodadas=2 repos=@exemplo\n" +
+            "/grupo ver engenharia\n/grupo ativar engenharia v1 <hash>\n/grupo editar engenharia rodadas=3",
+            "criar <nome> roteiro=implementar:<papel>,revisar:<papel>[,corrigir:<papel>],aprovar [rodadas=N] " +
+            "[repos=@alias,…] [duracao=minutos]; participantes nas linhas seguintes, um por linha: <papel>=<handle> " +
+            "[escrita] [: responsabilidades] (por exemplo dev=codex-dev escrita: implementa a tarefa e " +
+            "rev=codex-rev: revisa o diff). Nesta etapa os participantes são agentes Codex registrados: quem implementa " +
+            "e corrige tem escrita e a capacidade implementar; quem revisa não tem escrita e tem a capacidade revisar. " +
+            "editar cria uma versão nova, que só vale depois de ativar <nome> v<N> <hash> (o hash exibido, ao menos 12 " +
+            "caracteres): a ativação é a decisão humana e não concede nada além das permissões de cada agente. " +
+            "desativar recusa execuções novas sem interromper as iniciadas; arquivar exige desativado. Nome minúsculo, " +
+            "único e nunca reutilizado. Credenciais nunca entram no cadastro."),
         new("/tarefa", "AGENTE E CONTEXTO", "Peça uma tarefa somente leitura a um agente registrado.",
             "/tarefa revisor @exemplo revise o README",
             "/tarefa <handle> [@alias] pedido. Roda sempre em modo plan, mesmo que o agente permita escrita: lê e analisa, " +

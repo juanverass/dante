@@ -57,6 +57,8 @@
   coordenador é um papel atribuído a um agente registrado, com plano estruturado validado pelo orquestrador e
   aprovado pelo humano conforme a política. Nada de coordenador implícito ou permanente.
 - **Consequências**: o pipeline implementar → revisar → corrigir → aprovação vira um roteiro; o Brain não coordena.
+- **Cadastro implementado na #308**: ver a AD-69 vigente em `ARCHITECTURE_DECISIONS.md`, que fecha a forma do roteiro,
+  exige Codex para escrever e revisar e acrescenta a ativação humana da versão vinculada ao hash.
 
 ## AD-70 — Delegação rastreada e comunicação mediada por `dante_coordenacao`
 

@@ -16,6 +16,19 @@ public sealed partial class TelegramPollingService
     private const string AgentesIndisponiveis =
         "Agentes registrados indisponíveis: exigem o banco do D.A.N.T.E. e Orquestracao:Habilitada neste Worker.";
 
+    private const string GruposIndisponiveis =
+        "Grupos de agentes indisponíveis: exigem o banco do D.A.N.T.E. e Orquestracao:Habilitada neste Worker.";
+
+    // /grupos e /grupo (AD-69, #308): cadastro versionado e ativação humana. A execução de um grupo entra depois.
+    private async Task<string> HandleGruposCommandAsync(long userId, bool listar, string prompt,
+        CancellationToken cancellationToken)
+    {
+        if (grupos is null) return GruposIndisponiveis;
+        if (listar) return await grupos.ListarAsync(prompt, cancellationToken);
+        if (prompt.Length == 0) return await grupos.ListarAsync("", cancellationToken) + "\n\n" + TelegramGrupos.Uso;
+        return await grupos.AtenderAsync(userId, prompt, cancellationToken);
+    }
+
     private async Task<string> HandleAgentesCommandAsync(long userId, bool listar, string prompt,
         CancellationToken cancellationToken)
     {
