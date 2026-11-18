@@ -774,7 +774,8 @@ profundidade, fan-out, orçamento da raiz, destinatário concedido e ativo, capa
 limites) são aplicadas antes de gravar. Teto global: profundidade 1, 4 delegações, 30 min para iniciar, 60 min de
 duração, paralelismo 1. A versão do agente ganha `coordenacao`, `PodeConsultar` e limites, com o JSON canônico do
 formato 1 preservado quando a delegação não é definida (hashes antigos e de grupos inalterados). A mesma unidade de
-trabalho é uma só delegação não terminal (índice único parcial, conferido com gravações concorrentes reais). **Nada é
+trabalho é uma só delegação, em qualquer estado (índice único, conferido com gravações concorrentes reais): repetir para o
+mesmo agente devolve a original como está, mesmo terminal, e outro agente é recusado. **Nada é
 exposto em tempo de execução**: sem executor, fila, retorno à origem, prazo, cascata, ferramentas MCP nem comandos
 (PRs seguintes da #309). Migration `Delegacoes` não aplicada no banco canônico.
 

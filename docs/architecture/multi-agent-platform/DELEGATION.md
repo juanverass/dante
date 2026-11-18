@@ -29,8 +29,8 @@ public sealed class Delegacao : EntidadeBase
 > fechado (`consulta.v1`, `revisao.v1`) em vez de `Tipo`; o objetivo é guardado redigido, com hash do normalizado; só
 > leitura (escrita recusada no domínio e no banco até #307 + #311); teto global de profundidade 1, 4 delegações por
 > execução, 30 min para iniciar, 60 min de duração e paralelismo 1; a chave de deduplicação é por unidade de trabalho
-> (raiz, etapa de origem, contrato, objetivo normalizado e entrada canônica), **sem o destinatário**: a mesma unidade
-> para outro agente é recusada. Executor, fila, retorno, prazo, cascata e ferramentas: PRs 2 e 3 da #309.
+> (raiz, etapa de origem, contrato, objetivo normalizado e entrada canônica), **sem o destinatário**, e vale em
+> qualquer estado: a repetição devolve a original (mesmo terminal, sem reabri-la) e outro agente é recusado. Executor, fila, retorno, prazo, cascata e ferramentas: PRs 2 e 3 da #309.
 
 A delegação **é uma linha**, não uma mensagem. A execução subordinada é uma `Execucao` comum do tipo `Delegada`:
 tem etapas, eventos, aprovações e aparece no acompanhamento.

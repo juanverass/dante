@@ -2838,10 +2838,13 @@ Decisão:
   lançava).
 * **Idempotência**: a identidade da unidade de trabalho é a chave de deduplicação, SHA-256 de raiz, número da etapa de
   origem, contrato, hash do objetivo normalizado (Unicode NFC, espaços colapsados, minúsculas) e hash da entrada
-  canônica. Sem a tentativa (uma retomada da origem acha a mesma delegação) e **sem o destinatário**: repetir para o
-  mesmo agente devolve a existente; a mesma unidade para outro agente é recusada (`UnidadeJaAtribuida`). Um índice
-  único parcial `(raiz, chave)` entre as não terminais garante isso sob concorrência real: a segunda gravação falha
-  inteira (nem a subordinada fica). Encerrada a delegação, a mesma unidade pode ser pedida de novo.
+  canônica. Sem a tentativa (uma retomada da origem acha a mesma delegação) e **sem o destinatário**. A identidade vale
+  **em qualquer estado** (revisão do PR #318): repetir para o mesmo agente devolve a delegação existente como está,
+  inclusive terminal (o resultado de uma `Respondida`, o estado e o motivo das demais), sem reabri-la nem alterá-la; a
+  mesma unidade para outro agente é recusada (`UnidadeJaAtribuida`), também depois de a original terminar. Um índice
+  único **não parcial** `(raiz, chave)` garante isso no banco, inclusive sob gravações simultâneas: a segunda falha
+  inteira (nem a subordinada fica) e quem perdeu relê a original pela chave. Reexecutar ou reatribuir uma unidade será
+  uma operação explícita, auditada e com identidade própria, nunca efeito de a delegação ter terminado.
 
 Consequências:
 
@@ -2849,6 +2852,9 @@ Consequências:
   e o banco a protege mesmo de gravações por fora do domínio;
 * o executor (PR 2) e as ferramentas (PR 3) só criam e conduzem delegações por estes métodos, e o resultado chega
   validado pelo contrato;
+* o índice protege só a mesma chave: fan-out e orçamento da raiz são contagens informadas ao domínio, e a criação (PR
+  2) precisa serializar por raiz (trava transacional antes de contar e inserir), com teste PostgreSQL de duas chaves
+  diferentes disputando as últimas vagas;
 * profundidade 1 e paralelismo 1 estão fixados no código e no banco; com eles, fan-out e orçamento da raiz coincidem
   (a origem de toda delegação é a raiz);
 * `FerramentaDoDante.Coordenacao` já pode ser concedida pelo cadastro existente, sem efeito: nenhuma sessão recebe o
