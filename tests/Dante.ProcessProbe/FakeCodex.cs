@@ -142,6 +142,17 @@ internal static class FakeCodex
                     break;
                 case "initialized":
                     break;
+                // A configuração efetiva como o 0.166 a reporta, montada dos -c recebidos (só as chaves do ambiente
+                // dos comandos). Cenários: ambiente-herdado (o config.toml venceria), set-extra (valor do usuário
+                // para um nome permitido), login (shell de login ligado) e sem-config-read (versão sem o método).
+                case "config/read":
+                    if (args.Contains("sem-config-read"))
+                    {
+                        Fail("method not found");
+                        break;
+                    }
+                    Reply(new JsonObject { ["config"] = ConfiguracaoEfetiva(args), ["origins"] = new JsonObject() });
+                    break;
                 case "thread/start":
                     if (args.Contains("reject-thread"))
                     {
@@ -607,4 +618,36 @@ internal static class FakeCodex
             "localImage" => "localImage:" + (string?)item["path"],
             var other => other ?? "?"
         }));
+
+    private static JsonObject ConfiguracaoEfetiva(string[] args)
+    {
+        var politica = new JsonObject
+        {
+            ["inherit"] = "all", ["ignore_default_excludes"] = true, ["exclude"] = new JsonArray(),
+            ["include_only"] = new JsonArray(), ["set"] = new JsonObject(), ["filters"] = null,
+            ["experimental_use_profile"] = null
+        };
+        var configuracao = new JsonObject { ["shell_environment_policy"] = politica, ["allow_login_shell"] = true };
+        foreach (var arg in args)
+        {
+            var igual = arg.IndexOf('=');
+            if (igual < 0) continue;
+            var (chave, valor) = (arg[..igual], arg[(igual + 1)..]);
+            // Os valores usados pelo driver são JSON válido, exceto a tabela inline {PATH = "..."}.
+            JsonNode? Valor() => JsonNode.Parse(System.Text.RegularExpressions.Regex.Replace(valor,
+                @"([{,]\s*)([A-Za-z_]+)\s*=", "$1\"$2\":"));
+            if (chave == "allow_login_shell") configuracao["allow_login_shell"] = Valor();
+            else if (chave.StartsWith("shell_environment_policy.", StringComparison.Ordinal))
+            {
+                var nome = chave["shell_environment_policy.".Length..];
+                if (nome == "set")
+                    foreach (var (k, v) in Valor()!.AsObject()) ((JsonObject)politica["set"]!)[k] = v?.DeepClone();
+                else politica[nome] = Valor();
+            }
+        }
+        if (args.Contains("ambiente-herdado")) politica["inherit"] = "all";
+        if (args.Contains("set-extra")) ((JsonObject)politica["set"]!)["lang"] = "sk-do-usuario";
+        if (args.Contains("login")) configuracao["allow_login_shell"] = true;
+        return configuracao;
+    }
 }

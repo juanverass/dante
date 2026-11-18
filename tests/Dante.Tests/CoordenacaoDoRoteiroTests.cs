@@ -179,6 +179,22 @@ public sealed class CoordenacaoDoRoteiroTests : IDisposable
                 argumentos.Single(a => a.StartsWith("permissions.", StringComparison.Ordinal)));
             await Assert.ThrowsAsync<AgentModeRejectedException>(() => driver.ChangeModeAsync(AgentPermissionProfile.Manual));
         }
+        // Ambiente dos comandos: política imposta pela sessão, sem herança, só a allowlist, sem shell de login.
+        var politica = CodexSessionDriver.PoliticaDeAmbienteDaRevisao();
+        Assert.Equal(["shell_environment_policy.inherit=\"none\"", "shell_environment_policy.ignore_default_excludes=false",
+                "shell_environment_policy.exclude=[\"*\"]",
+                "shell_environment_policy.include_only=[\"PATH\",\"LANG\",\"LC_ALL\",\"LC_CTYPE\",\"TERM\"]",
+                "shell_environment_policy.experimental_use_profile=false",
+                "shell_environment_policy.set={PATH = \"/usr/local/bin:/usr/bin:/bin\"}", "allow_login_shell=false"],
+            politica.Where((_, i) => i % 2 == 1));
+        var iniciado = new ProbeLauncher();
+        await using (var comPolitica = new CodexSessionDriver(iniciado, runtimeDoCodex: () => "/opt/codex/bin"))
+        {
+            await comPolitica.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan,
+                LeituraConfinada: true));
+            var recebidos = Assert.Single(iniciado.Requests).Arguments;
+            foreach (var item in politica) Assert.Contains(item, recebidos);
+        }
         // Servidor que não reporta o perfil ativo (versão antiga) ou que mantém rede: recusado depois de iniciar.
         foreach (var cenario in new[] { "sem-perfil", "read-network" })
         {
@@ -210,6 +226,59 @@ public sealed class CoordenacaoDoRoteiroTests : IDisposable
             await Assert.ThrowsAsync<AgentProtocolException>(() => outro.StartAsync(opcoes));
         }
         Assert.Empty(semProcesso.Requests);
+    }
+
+    // Review do PR #317: a política de ambiente dos comandos precisa estar na configuração efetiva antes da thread.
+    // Config do usuário vencendo, valor do usuário para um nome permitido, shell de login ligado ou CLI sem config/read:
+    // a revisão não começa (nenhum turno, nenhuma thread).
+    [Theory]
+    [InlineData("ambiente-herdado")]
+    [InlineData("set-extra")]
+    [InlineData("login")]
+    [InlineData("sem-config-read")]
+    public async Task RevisaoNaoComecaSemOAmbienteIsoladoConfirmado(string cenario)
+    {
+        await using var driver = new CodexSessionDriver(new ProbeLauncher(cenario), runtimeDoCodex: () => "/opt/codex/bin");
+        Assert.Contains("ambiente isolado", (await Assert.ThrowsAsync<AgentProtocolException>(() =>
+            driver.StartAsync(new AgentSessionStartOptions(AppContext.BaseDirectory, Profile: AgentPermissionProfile.Plan,
+                LeituraConfinada: true)))).Message);
+    }
+
+    [Theory]
+    [InlineData("ok", true)]
+    [InlineData("inherit", false)]
+    [InlineData("excludes-padrao-ignorados", false)]
+    [InlineData("include-amplo", false)]
+    [InlineData("exclude-vazio", false)]
+    [InlineData("perfil-do-shell", false)]
+    [InlineData("login", false)]
+    [InlineData("filters", false)]
+    [InlineData("path-do-usuario", false)]
+    [InlineData("term-do-usuario", false)]
+    [InlineData("set-alheio", true)]
+    [InlineData("sem-politica", false)]
+    public void AmbienteDaRevisaoSoComAPoliticaEfetivaExata(string variacao, bool confirmado)
+    {
+        var politica = new JsonObject
+        {
+            ["inherit"] = variacao == "inherit" ? "core" : "none",
+            ["ignore_default_excludes"] = variacao == "excludes-padrao-ignorados",
+            ["exclude"] = variacao == "exclude-vazio" ? new JsonArray() : new JsonArray("*"),
+            ["include_only"] = variacao == "include-amplo" ? new JsonArray("*")
+                : new JsonArray("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM"),
+            ["experimental_use_profile"] = variacao == "perfil-do-shell",
+            ["filters"] = variacao == "filters" ? new JsonArray("x") : null,
+            ["set"] = new JsonObject { ["PATH"] = variacao == "path-do-usuario" ? "/tmp/meu:/usr/bin" : "/usr/local/bin:/usr/bin:/bin" }
+        };
+        // Um valor do usuário para um nome fora da allowlist é descartado pelo include_only; para um nome permitido, não.
+        if (variacao == "term-do-usuario") ((JsonObject)politica["set"]!)["term"] = "sk-segredo";
+        if (variacao == "set-alheio") ((JsonObject)politica["set"]!)["OPENAI_API_KEY"] = "sk-segredo";
+        var configuracao = new JsonObject
+        {
+            ["shell_environment_policy"] = variacao == "sem-politica" ? null : politica,
+            ["allow_login_shell"] = variacao == "login"
+        };
+        Assert.Equal(confirmado, CodexSessionDriver.ConfirmsShellEnvironment(configuracao));
     }
 
     // Review do PR #317: na revisão confinada, a aprovação MCP é decidida pelo driver, sem chegar a ninguém: só a

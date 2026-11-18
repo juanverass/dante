@@ -168,6 +168,101 @@ public sealed class LiveCodexSandboxEvidenceTests(ITestOutputHelper output)
         Assert.Equal(configAntes, Hash(configDoCodex));
     }
 
+    // Review do PR #317 (ambiente): o processo do Codex recebe credenciais falsas (chaves de provedor, proxy autenticado,
+    // token) e o app-server autentica no provedor com uma delas; os comandos shell da revisão rodam `env`, `printenv`
+    // e leem o environ de todo processo visível. Duas vezes: com o CODEX_HOME de teste e com um config.toml pessoal
+    // deliberadamente permissivo (herança total, filtros desligados, include_only "*", set injetando variável, shell de
+    // login e perfil do shell ligados). Nenhum valor secreto aparece; o turno e o veredito seguem funcionando.
+    [LiveCodexSandboxFact]
+    public async Task ComandosDaRevisaoNaoRecebemCredenciaisDoAmbienteNemComConfigPermissiva()
+    {
+        var segredos = new Dictionary<string, string>
+        {
+            ["OPENAI_API_KEY"] = "sk-falso-openai-308-AAAAAAAAAAAAAAAAAAAA",
+            ["ANTHROPIC_API_KEY"] = "sk-ant-falso-308-BBBBBBBBBBBB",
+            ["HTTP_PROXY"] = "http://usuario308:senhaproxy308@proxy.invalid:3128",
+            ["HTTPS_PROXY"] = "http://usuario308:senhaproxy308@proxy.invalid:3128",
+            ["http_proxy"] = "http://usuario308:senhaproxy308@proxy.invalid:3128",
+            ["DANTE_TOKEN_FALSO"] = "tok-falso-308"
+        };
+        // O app-server fala com o provedor local direto (não pelo proxy falso).
+        var ambiente = new Dictionary<string, string>(segredos) { ["NO_PROXY"] = "127.0.0.1,localhost", ["no_proxy"] = "127.0.0.1,localhost" };
+        const string permissiva = """
+            allow_login_shell = true
+            [shell_environment_policy]
+            inherit = "all"
+            ignore_default_excludes = true
+            exclude = []
+            include_only = ["*"]
+            experimental_use_profile = true
+            set = { VAZAMENTO_DO_SET = "set-falso-308", OPENAI_API_KEY = "sk-do-set-308", PATH = "/tmp/caminho-do-usuario:/usr/bin:/bin" }
+            """;
+        var configDoCodex = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "config.toml");
+        var configAntes = Hash(configDoCodex);
+        foreach (var (rotulo, configExtra) in new[] { ("padrão", ""), ("permissiva", permissiva) })
+        {
+            using var temp = new RepositorioGitDeTeste(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache", "dante-live-ambiente-" + Guid.NewGuid().ToString("N")));
+            var principal = temp.Criar("principal");
+            var gerenciador = new GerenciadorDeWorktreesGit(new OpcoesDeWorktrees { Raiz = temp.RaizDasWorktrees }, new CatalogoFixo(principal));
+            var w = await gerenciador.PlanejarAsync(principal, 1, "dev");
+            await gerenciador.CriarOuAdotarAsync(w);
+            await using var modelo = await ModeloDeTeste.IniciarAsync(
+            [
+                Shell("env; echo ==; for n in OPENAI_API_KEY ANTHROPIC_API_KEY HTTP_PROXY HTTPS_PROXY http_proxy DANTE_TOKEN_FALSO VAZAMENTO_DO_SET; " +
+                      "do echo \"$n=$(printenv $n)\"; done"),
+                Shell("for p in /proc/[0-9]*; do echo \"== $p\"; tr '\\0' '\\n' < $p/environ; done; echo FIM-PROC"),
+                Shell("env | grep -ciE 'key|proxy|token|vazamento'; echo FIM-LOGIN", login: true),
+                new JsonObject
+                {
+                    ["name"] = "entregar_resultado", ["namespace"] = "mcp__dante_coordenacao",
+                    ["args"] = new JsonObject { ["veredito"] = "aprovado", ["resumo"] = "ok", ["itens"] = new JsonArray() }
+                }
+            ]);
+            var codexHome = modelo.CodexHome(Path.Combine(temp.Raiz, "codex-home"), "OPENAI_API_KEY", configExtra);
+            var roteiros = new RoteirosFalso();
+            await using var provider = new ServiceCollection().AddSingleton<IRoteirosAppService>(roteiros).BuildServiceProvider();
+            var worker = typeof(Dante.Worker.Coordenacao.ServidorMcpDeCoordenacao).Assembly.Location;
+            using var coordenacao = new Dante.Worker.Coordenacao.FerramentasDeCoordenacao(
+                provider.GetRequiredService<IServiceScopeFactory>(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<Dante.Worker.Coordenacao.FerramentasDeCoordenacao>.Instance,
+                (new DotnetHost().Caminho, ["exec", "--runtimeconfig", Path.Combine(AppContext.BaseDirectory, "Dante.Tests.runtimeconfig.json"), worker]));
+            var escopo = new EscopoDaRevisaoDto(Guid.NewGuid(), "E1", Guid.NewGuid(), 0, new string('a', 64));
+            var servidor = Assert.Single(await coordenacao.ForSessionAsync("S-ambiente", new SessionStartRequest(1, AgentKind.Codex,
+                Dante.Application.Contextos.JobExecutionContext.Repository("@principal", w.Caminho),
+                RegisteredAgent: new AgenteDaSessao("codex-rev", new Dante.Application.Agentes.VersaoDoAgenteDto
+                {
+                    Id = Guid.NewGuid(), Numero = 1, HashDaConfiguracao = new string('b', 64),
+                    Configuracao = new Dante.Domain.Agentes.ConfiguracaoDoAgente(AgentKind.Codex, AgentPermissionProfile.Plan,
+                        AgentPermissionProfile.Plan, false, capacidades: [Dante.Domain.Agentes.CapacidadeDoAgente.Revisar])
+                }) { LeituraConfinada = true, EscopoDaRevisao = escopo }, Observer: new SemEventos())));
+
+            var eventos = await TurnoDaRevisaoAsync(w.Caminho, principal.Caminho, servidor, codexHome, ambiente);
+            var saidas = modelo.Saidas;
+            output.WriteLine($"### config {rotulo}");
+            foreach (var linha in eventos.Concat(saidas)) output.WriteLine(linha);
+            Assert.Equal(4, saidas.Count);
+            // Nenhum valor secreto (nem pedaços: usuário e senha do proxy) em nenhuma saída de comando.
+            foreach (var saida in saidas.Take(3))
+                foreach (var proibido in segredos.Values.Concat(["usuario308", "senhaproxy308", "set-falso-308", "sk-do-set-308",
+                             "/tmp/caminho-do-usuario"]))
+                    Assert.DoesNotContain(proibido, saida);
+            Assert.Contains("OPENAI_API_KEY=\\n", saidas[0]);
+            Assert.Contains("HTTPS_PROXY=\\n", saidas[0]);
+            Assert.Contains("FIM-PROC", saidas[1]);
+            Assert.Contains("/proc/1", saidas[1]);
+            Assert.Contains("login shell is disabled", saidas[2]);
+            // O app-server continua autenticando no provedor com a chave do seu ambiente; o turno e o veredito fecham.
+            Assert.All(modelo.Autorizacoes, a => Assert.Equal("Bearer " + segredos["OPENAI_API_KEY"], a));
+            Assert.NotEmpty(modelo.Autorizacoes);
+            Assert.Contains("fim Completed", eventos);
+            Assert.Contains("registrado", saidas[3]);
+            Assert.Equal(VereditoDeRevisao.Aprovado, Assert.Single(roteiros.Chamadas, c => c.Veredito is not null).Veredito!.Veredito);
+            Assert.DoesNotContain(eventos, e => e.StartsWith("aprovação", StringComparison.Ordinal));
+        }
+        Assert.Equal(configAntes, Hash(configDoCodex));
+    }
+
     // A autorização restrita do driver com a elicitação real do app-server: um servidor de teste chamado
     // dante_coordenacao com ferramentas que exigem aprovação. O driver aceita só entregar_resultado e recusa a outra;
     // nenhum pedido chega a uma pessoa.
@@ -200,13 +295,14 @@ public sealed class LiveCodexSandboxEvidenceTests(ITestOutputHelper output)
 
     // Um turno da revisão confinada pelo driver real: devolve os eventos relevantes, em texto.
     private static async Task<List<string>> TurnoDaRevisaoAsync(string worktree, string checkout, AgentToolServer servidor,
-        string codexHome)
+        string codexHome, IReadOnlyDictionary<string, string>? ambiente = null)
     {
+        var variaveis = new Dictionary<string, string>(ambiente ?? new Dictionary<string, string>()) { ["CODEX_HOME"] = codexHome };
         using var prazo = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         await using var driver = new CodexSessionDriver(new InteractiveAgentProcessLauncher(new AgentExecutableResolver(),
             new OpcoesContencaoAgentes { Modo = ModoContencaoAgentes.Compatibilidade }));
         await driver.StartAsync(new AgentSessionStartOptions(worktree, false,
-            new Dictionary<string, string> { ["CODEX_HOME"] = codexHome }, AgentPermissionProfile.Plan,
+            variaveis, AgentPermissionProfile.Plan,
             ToolServers: [servidor], LeituraConfinada: true, ProjetosNaoConfiaveis: [checkout]), prazo.Token);
         await using var eventos = driver.ReadEventsAsync(prazo.Token).GetAsyncEnumerator(prazo.Token);
         await driver.StartTurnAsync("revise", prazo.Token);
@@ -226,9 +322,9 @@ public sealed class LiveCodexSandboxEvidenceTests(ITestOutputHelper output)
         return lidos;
     }
 
-    private static JsonObject Shell(string comando, bool escalonado = false)
+    private static JsonObject Shell(string comando, bool escalonado = false, bool login = false)
     {
-        var argumentos = new JsonObject { ["cmd"] = comando, ["login"] = false };
+        var argumentos = new JsonObject { ["cmd"] = comando, ["login"] = login };
         if (escalonado)
         {
             argumentos["sandbox_permissions"] = "require_escalated";
@@ -271,12 +367,20 @@ public sealed class LiveCodexSandboxEvidenceTests(ITestOutputHelper output)
             return Task.FromResult(modelo);
         }
 
-        public string CodexHome(string diretorio)
+        // Cabeçalhos Authorization recebidos: provam que o app-server continua autenticando com a chave do ambiente.
+        public IReadOnlyList<string> Autorizacoes { get { lock (saidas) return autorizacoes.ToArray(); } }
+
+        private readonly List<string> autorizacoes = [];
+
+        // configExtra: TOML acrescentado ao fim (a configuração pessoal permissiva da evidência). chaveDoAmbiente: o
+        // provedor autentica com essa variável do ambiente do app-server (env_key).
+        public string CodexHome(string diretorio, string? chaveDoAmbiente = null, string configExtra = "")
         {
             Directory.CreateDirectory(diretorio);
             File.WriteAllText(Path.Combine(diretorio, "config.toml"),
-                "model = \"mock-model\"\nmodel_provider = \"mock\"\n[model_providers.mock]\nname = \"mock\"\n" +
-                $"base_url = \"http://127.0.0.1:{Porta}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n");
+                "model = \"mock-model\"\nmodel_provider = \"mock\"\n" + configExtra + "\n[model_providers.mock]\nname = \"mock\"\n" +
+                $"base_url = \"http://127.0.0.1:{Porta}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n" +
+                (chaveDoAmbiente is null ? "" : $"env_key = \"{chaveDoAmbiente}\"\n"));
             return diretorio;
         }
 
@@ -293,6 +397,7 @@ public sealed class LiveCodexSandboxEvidenceTests(ITestOutputHelper output)
                     contexto.Response.Close();
                     continue;
                 }
+                lock (saidas) autorizacoes.Add(contexto.Request.Headers["Authorization"] ?? "");
                 using var leitor = new StreamReader(contexto.Request.InputStream);
                 var corpo = JsonNode.Parse(await leitor.ReadToEndAsync())!.AsObject();
                 var ultima = (corpo["input"] as JsonArray ?? []).OfType<JsonObject>()

@@ -135,6 +135,9 @@ public sealed class CodexSessionDriver(
             }, cancellationToken);
             await WriteAsync(agent, new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "initialized" },
                 cancellationToken);
+            // The review's shell environment policy must be the imposed one in the effective configuration (session
+            // flags over CODEX_HOME/config.toml), confirmed before any thread exists; anything else ends the session.
+            if (options.LeituraConfinada) await ConfirmarAmbienteDaRevisaoAsync(options.WorkingDirectory, cancellationToken);
             var threadParameters = new JsonObject
             {
                 ["cwd"] = options.WorkingDirectory,
@@ -693,10 +696,72 @@ public sealed class CodexSessionDriver(
             "-c", "features.apps=false", "-c", "features.view_image=false", "-c", "features.multi_agent=false",
             "-c", "features.goals=false", "-c", "web_search=\"disabled\"",
             "-c", $"default_permissions=\"{PerfilDaRevisao}\"",
+            .. PoliticaDeAmbienteDaRevisao(),
             "-c", $"permissions.{PerfilDaRevisao}.filesystem={{\":minimal\" = \"read\", " +
                 $"{JsonSerializer.Serialize(worktree)} = \"read\", {JsonSerializer.Serialize(runtime)} = \"read\"}}"
         ];
     }
+
+    // Environment of the review's shell commands (review do PR #317): nothing inherited from the app-server process
+    // (which keeps the provider credentials it needs), only PATH and locale/terminal names, no login shell and no shell
+    // profile. Session flags take precedence over CODEX_HOME/config.toml for each key, but tables merge: the user's
+    // "set" entries survive, so include_only (applied after "set") is what drops them. The effective result is
+    // confirmed by config/read before the thread starts.
+    internal const string PathDaRevisao = "/usr/local/bin:/usr/bin:/bin";
+
+    internal static readonly IReadOnlyList<string> AmbienteDaRevisao = ["PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM"];
+
+    internal static IReadOnlyList<string> PoliticaDeAmbienteDaRevisao() =>
+    [
+        "-c", "shell_environment_policy.inherit=\"none\"",
+        "-c", "shell_environment_policy.ignore_default_excludes=false",
+        "-c", "shell_environment_policy.exclude=[\"*\"]",
+        "-c", $"shell_environment_policy.include_only={JsonSerializer.Serialize(AmbienteDaRevisao)}",
+        "-c", "shell_environment_policy.experimental_use_profile=false",
+        "-c", $"shell_environment_policy.set={{PATH = {JsonSerializer.Serialize(PathDaRevisao)}}}",
+        "-c", "allow_login_shell=false"
+    ];
+
+    private async Task ConfirmarAmbienteDaRevisaoAsync(string workingDirectory, CancellationToken cancellationToken)
+    {
+        JsonObject? configuracao;
+        try
+        {
+            configuracao = (await SendRequestAsync("config/read",
+                new JsonObject { ["cwd"] = workingDirectory, ["includeLayers"] = false }, cancellationToken))["config"] as JsonObject;
+        }
+        catch (InvalidOperationException)
+        {
+            // Rejected request (a CLI without config/read): unconfirmed, never a fallback.
+            configuracao = null;
+        }
+        if (configuracao is null || !ConfirmsShellEnvironment(configuracao))
+            throw new AgentProtocolException(
+                "O Codex não confirmou o ambiente isolado dos comandos da revisão (shell_environment_policy imposta); " +
+                "nada foi enviado ao agente.");
+    }
+
+    // Exactly the imposed policy: no inheritance, every inherited name excluded, only the allowlist kept, PATH ours, no
+    // shell profile, no login shell, no other filter mechanism, and no user "set" value for an allowed name besides
+    // PATH (include_only matches names case-insensitively).
+    internal static bool ConfirmsShellEnvironment(JsonObject configuracao)
+    {
+        if (configuracao["shell_environment_policy"] is not JsonObject politica ||
+            !IsFalse(configuracao, "allow_login_shell") ||
+            GetString(politica, "inherit") != "none" || !IsFalse(politica, "ignore_default_excludes") ||
+            !IsFalse(politica, "experimental_use_profile") || politica["filters"] is not null ||
+            !Textos(politica["exclude"]).SequenceEqual(["*"]) ||
+            !Textos(politica["include_only"]).SequenceEqual(AmbienteDaRevisao) ||
+            politica["set"] is not JsonObject definidas || GetString(definidas, "PATH") != PathDaRevisao)
+            return false;
+        foreach (var (nome, _) in definidas)
+            if (nome != "PATH" && AmbienteDaRevisao.Contains(nome, StringComparer.OrdinalIgnoreCase)) return false;
+        return true;
+    }
+
+    private static IEnumerable<string?> Textos(JsonNode? node) =>
+        node is JsonArray array ? array.Select(item => item is JsonValue value &&
+            value.GetValueKind() == JsonValueKind.String ? value.GetValue<string>() : null) : [null];
 
     // Approvals the review may raise: MCP tool calls only. Sandbox escalation, exec rules, skills and permission
     // requests are refused by the CLI itself (it never asks).
