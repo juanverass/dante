@@ -1,5 +1,6 @@
 using Dante.Domain.Agentes;
 using Dante.Domain.Comum;
+using Dante.Domain.Grupos;
 
 namespace Dante.Domain.Execucoes;
 
@@ -64,6 +65,40 @@ public sealed class EtapaDaExecucao : EntidadeBase
         CriadaEm = criadaEm;
         AtualizarChave();
     }
+
+    // Etapa de um Roteiro (AD-69, #308): o passo, a rodada (0 na implementação e na primeira revisão; cada correção
+    // abre a seguinte), o papel e a versão do agente participante congelada na execução. A aprovação humana não tem
+    // papel nem agente. O significado de cada passo é fixo: implementar e corrigir escrevem na worktree da execução
+    // (retomada só com confirmação); revisar lê (automática); a aprovação não executa processo.
+    public static EtapaDaExecucao DoRoteiro(Execucao execucao, int numero, TipoDePassoDoRoteiro passo, int rodada,
+        DateTimeOffset criadaEm, string? papel = null, Guid? idVersaoDoAgente = null, AgentKind? agente = null,
+        string? modelo = null, string? esforco = null)
+    {
+        ArgumentNullException.ThrowIfNull(execucao);
+        if (execucao.Tipo != TipoDeExecucao.Roteiro) throw new InvalidOperationException("Passo de roteiro só num Roteiro.");
+        if (!Enum.IsDefined(passo)) throw new ArgumentOutOfRangeException(nameof(passo), "Passo inválido.");
+        if (rodada < 0) throw new ArgumentOutOfRangeException(nameof(rodada), "Rodada inválida.");
+        var humana = passo == TipoDePassoDoRoteiro.AprovacaoHumana;
+        if (humana != (papel is null) || humana != (idVersaoDoAgente is null) || idVersaoDoAgente == Guid.Empty)
+            throw new ArgumentException("Passo de agente exige papel e versão do agente; a aprovação humana, nenhum.",
+                nameof(papel));
+        var escreve = passo is TipoDePassoDoRoteiro.Implementar or TipoDePassoDoRoteiro.Corrigir;
+        var etapa = new EtapaDaExecucao(execucao, numero, humana ? TipoDeEtapa.AprovacaoHumana : TipoDeEtapa.TurnoDeAgente,
+            escreve, escreve ? PoliticaDeRetomada.ComConfirmacao : PoliticaDeRetomada.Automatica, criadaEm, agente, modelo,
+            esforco)
+        {
+            Passo = passo,
+            Rodada = rodada,
+            Papel = papel,
+            IdVersaoDoAgente = idVersaoDoAgente
+        };
+        return etapa;
+    }
+
+    public TipoDePassoDoRoteiro? Passo { get; private set; }
+    public int? Rodada { get; private set; }
+    public string? Papel { get; private set; }
+    public Guid? IdVersaoDoAgente { get; private set; }
 
     public Guid IdExecucao { get; private set; }
     public int Numero { get; private set; }

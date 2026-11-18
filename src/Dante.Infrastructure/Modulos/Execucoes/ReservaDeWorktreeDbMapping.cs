@@ -10,7 +10,8 @@ namespace Dante.Infrastructure.Modulos.Execucoes;
 // execução, como as dependências: o banco recusa reserva de etapa de outra execução.
 public sealed class ReservaDeWorktreeDbMapping : EntidadeConfiguration<ReservaDeWorktree>
 {
-    internal const string FiltroAtivas = "estado IN (0, 1)";
+    // Reservada, Pronta e AguardandoDecisao (#308): a worktree continua exclusiva da execução durante o gate.
+    internal const string FiltroAtivas = "estado IN (0, 1, 6)";
 
     public override void Configure(EntityTypeBuilder<ReservaDeWorktree> b)
     {
@@ -19,7 +20,7 @@ public sealed class ReservaDeWorktreeDbMapping : EntidadeConfiguration<ReservaDe
         {
             t.HasCheckConstraint("ck_reservas_de_worktree_fora_do_checkout", "caminho <> caminho_do_repositorio");
             t.HasCheckConstraint("ck_reservas_de_worktree_sha", "char_length(sha_base) = 40");
-            t.HasCheckConstraint("ck_reservas_de_worktree_estado", "estado BETWEEN 0 AND 5");
+            t.HasCheckConstraint("ck_reservas_de_worktree_estado", "estado BETWEEN 0 AND 6");
         });
         b.Property(x => x.IdExecucao).HasColumnName("id_execucao");
         b.Property(x => x.IdEtapa).HasColumnName("id_etapa");

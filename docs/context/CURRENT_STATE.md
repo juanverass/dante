@@ -273,8 +273,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   integrado; fila durável e recuperação após reinício (#300, AD-67) integrada; cadastro de agentes e `/tarefa` pela
   fila (#301, AD-68) integrado; acompanhamento e cancelamento de execuções (#305, AD-74) integrado; worktrees por
   execução de escrita e limites de concorrência (#307, AD-71) integradas; grupos versionados com roteiro
-  determinístico e gate humano (#308, AD-69) em desenvolvimento em três entregas — cadastro em revisão; gate durável
-  e executor do roteiro a seguir.
+  determinístico e gate humano (#308, AD-69) em desenvolvimento em três entregas — cadastro e gate durável em
+  revisão; executor do roteiro a seguir.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -732,6 +732,21 @@ escrita e `implementar`; revisar exige Codex sem escrita e `revisar`. Versão no
 `/grupo criar|ver|editar|ativar|descricao|desativar|reativar|arquivar`. Ainda não há execução de grupo: o roteiro, o
 gate final e o `dante_coordenacao` vêm nas próximas entregas da #308. Exige banco e `Orquestracao:Habilitada`;
 desligado no homelab; migration não aplicada no banco canônico.
+
+## Gate durável do roteiro (#308, AD-69 — segunda entrega)
+
+Execução `Roteiro` com a versão ativa do grupo congelada, snapshot imutável dos participantes (versão e hash de cada
+agente) e hash do snapshot conferido antes de decidir ou continuar. Objetivo nunca gravado bruto: redigido, com flag
+de alteração e SHA-256 do original; depois de um reinício, se a redação o alterou, a execução pede um objetivo
+sanitizado (`/execucao objetivo E… <tarefa>`). Progressão fixa implementar → revisar → corrigir (rodadas limitadas)
+→ aprovação humana; esgotar as rodadas bloqueia. O gate é linha do ledger (`pedidos_de_aprovacao`) vinculada ao hash
+do artefato revisado e sobrevive a reinício; decisão única do dono por `/execucao aprovar|corrigir|recusar`, que só
+vale se o conteúdo atual da worktree, recalculado dentro da transação da decisão (antes e depois de gravá-la), ainda
+for o revisado; senão nada é decidido e `/execucao revisar` pede uma nova revisão. No gate,
+a worktree fica `AguardandoDecisao` (exclusiva, sem limpeza, fora da capacidade): o slot de escrita fica livre e é
+readquirido sob a trava na correção. Aprovar encerra sem commit, push ou PR e preserva a worktree alterada. Ainda
+sem executor nem `/grupo <nome> @alias <tarefa>` (terceira entrega). Migration `GateDoRoteiro` não aplicada no banco
+canônico.
 
 ## Worktrees por execução de escrita (#307, AD-71)
 

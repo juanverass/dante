@@ -28,6 +28,12 @@ public interface IGerenciadorDeWorktrees
     // registrado: removida. A branch nunca é apagada.
     Task<DesfechoDaLimpeza> RemoverSePossivelAsync(WorktreePlanejada worktree, CancellationToken cancellationToken = default);
 
+    // Alterações da worktree em relação à base (#308), só com comandos de leitura do Git, depois de validá-la: o diff
+    // rastreado (cortado em limiteDoDiff caracteres para exibição; o hash cobre o diff inteiro) e os arquivos novos não
+    // ignorados, com hash canônico. Link simbólico novo entra pelo destino declarado, nunca seguido.
+    Task<AlteracoesDaWorktreeDto> ResumirAlteracoesAsync(WorktreePlanejada worktree, int limiteDoDiff,
+        CancellationToken cancellationToken = default);
+
     // Diretórios sob a raiz que não estão entre os conhecidos: relatados, nunca removidos.
     IReadOnlyList<string> ListarDiretoriosDesconhecidos(IReadOnlyCollection<string> conhecidos);
 }

@@ -66,6 +66,41 @@ public sealed class ReservasDeWorktreeAppService(
         return resultado;
     }
 
+    public async Task<IReadOnlyList<WorktreeDaExecucaoDto>> ReadquirirAsync(PosseDoTrabalho posse, Guid idEtapa,
+        string maquina, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(maquina);
+        IReadOnlyList<WorktreeDaExecucaoDto> resultado = [];
+        await fila.GravarComPosseAsync(posse, async token =>
+        {
+            var etapa = await etapas.ObterPorIdAsync(idEtapa, token) ??
+                throw new InvalidOperationException("Etapa não registrada no ledger.");
+            var execucao = await execucoes.ObterPorIdAsync(etapa.IdExecucao, token) ??
+                throw new InvalidOperationException("Execução não registrada no ledger.");
+            if (!etapa.Escrita || !execucao.Nova || execucao.Terminal || etapa.Terminal)
+                throw new InvalidOperationException("Só etapa de escrita de execução nova em andamento readquire worktree.");
+            await reservas.TravarCapacidadeAsync(token);
+            var ativas = (await reservas.ListarDaExecucaoAsync(execucao.Id, token)).Where(r => r.Ativa).ToArray();
+            if (ativas.Length == 0 || ativas.Count(r => r.Principal) != 1)
+                throw new WorktreeInvalidaException("A execução não tem a worktree reservada para continuar.");
+            if (ativas.Any(r => !string.Equals(r.MaquinaDoWorker, maquina, StringComparison.Ordinal)))
+                throw new WorktreeInvalidaException("A worktree da execução foi reservada em outro host.");
+            await ConferirCapacidadeAsync(execucao.Id, maquina, ativas.Select(r => r.CaminhoDoRepositorio), token);
+            // Dentro da trava: a reserva volta a ocupar capacidade antes de qualquer outra contagem.
+            var agora = fila.Agora;
+            foreach (var reserva in ativas.Where(r => r.Estado == EstadoDaReservaDeWorktree.AguardandoDecisao))
+            {
+                reserva.Readquirir();
+                await eventos.AdicionarAsync(LiberacaoDeWorktrees.Evento(execucao, reserva,
+                    TipoDeEventoDeOrquestracao.WorktreeReadquirida, agora), token);
+            }
+            await unidade.SalvarAlteracoesAsync(token);
+            resultado = ativas.OrderByDescending(r => r.Principal).ThenBy(r => r.Alias, StringComparer.Ordinal)
+                .Select(WorktreeDaExecucaoDto.De).ToArray();
+        }, null, cancellationToken: cancellationToken);
+        return resultado;
+    }
+
     public async Task<IReadOnlyList<WorktreeDaExecucaoDto>> MarcarProntasAsync(PosseDoTrabalho posse, Guid idExecucao,
         CancellationToken cancellationToken = default)
     {
@@ -125,7 +160,8 @@ public sealed class ReservasDeWorktreeAppService(
         var liberadas = 0;
         // Coerência: reserva ativa de execução encerrada (a transição terminal normalmente já a liberou).
         foreach (var reserva in await reservas.ListarDoHostAsync(maquina,
-                     [EstadoDaReservaDeWorktree.Reservada, EstadoDaReservaDeWorktree.Pronta], cancellationToken))
+                     [EstadoDaReservaDeWorktree.Reservada, EstadoDaReservaDeWorktree.Pronta,
+                         EstadoDaReservaDeWorktree.AguardandoDecisao], cancellationToken))
         {
             var execucao = await execucoes.ObterPorIdAsync(reserva.IdExecucao, cancellationToken);
             if (execucao is not { Terminal: true }) continue;

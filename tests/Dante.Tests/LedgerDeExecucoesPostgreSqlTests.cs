@@ -38,8 +38,9 @@ public sealed class LedgerDeExecucoesPostgreSqlTests
         Assert.Equal(0, await ComandosDoBanco.ExecutarAsync(provider, ["--orquestracao", "migrate"]));
         Assert.Equal(0, await ComandosDoBanco.ExecutarAsync(provider, ["--orquestracao", "migrate"]));
         Assert.Equal(["__historico_de_migrations", "agentes", "ativacoes_de_grupo", "dependencias_de_etapa", "etapas_da_execucao",
-            "eventos", "execucoes", "grupos_de_agentes", "participantes_de_grupo", "reservas_de_worktree", "sessoes_de_agente",
-            "trabalhos_da_fila", "versoes_de_agente", "versoes_de_grupo"], await Tabelas(banco, "orquestracao"));
+            "eventos", "execucoes", "grupos_de_agentes", "participantes_da_execucao", "participantes_de_grupo",
+            "pedidos_de_aprovacao", "reservas_de_worktree", "roteiros_da_execucao", "sessoes_de_agente", "trabalhos_da_fila",
+            "versoes_de_agente", "versoes_de_grupo"], await Tabelas(banco, "orquestracao"));
         // O ledger não cria nem altera nada do Brain, e o histórico do Brain continua vazio.
         Assert.Empty(await Tabelas(banco, "brain_data"));
         Assert.Empty(await Tabelas(banco, "brain_meta"));

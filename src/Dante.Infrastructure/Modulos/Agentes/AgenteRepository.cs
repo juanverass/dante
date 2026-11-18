@@ -28,8 +28,13 @@ public sealed class AgenteRepository(OrquestracaoDbContext context) : Repository
         var versoes = Context.Set<VersaoDoAgente>().Where(x => x.IdAgente == idAgente).Select(x => (Guid?)x.Id);
         var execucoes = await Context.Set<Execucao>()
             .CountAsync(x => versoes.Contains(x.IdVersaoDoAgente) && !ExecucoesTerminais.Contains(x.Estado), cancellationToken);
+        // Roteiros (#308) em que o agente participa com alguma das versões congeladas.
+        var roteiros = await (from participante in Context.Set<ParticipanteDaExecucao>()
+                join execucao in Context.Set<Execucao>() on participante.IdExecucao equals execucao.Id
+                where versoes.Contains(participante.IdVersaoDoAgente) && !ExecucoesTerminais.Contains(execucao.Estado)
+                select execucao.Id).Distinct().CountAsync(cancellationToken);
         var sessoes = await Context.Set<SessaoDeAgente>()
             .CountAsync(x => versoes.Contains(x.IdVersaoDoAgente) && !SessoesTerminais.Contains(x.Estado), cancellationToken);
-        return execucoes + sessoes;
+        return execucoes + roteiros + sessoes;
     }
 }

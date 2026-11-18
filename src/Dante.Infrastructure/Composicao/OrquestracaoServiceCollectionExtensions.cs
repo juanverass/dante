@@ -24,6 +24,10 @@ internal static class OrquestracaoServiceCollectionExtensions
         services.AddScoped<ISessaoDeAgenteRepository, SessaoDeAgenteRepository>();
         services.AddScoped<IEventoDeOrquestracaoRepository, EventoDeOrquestracaoRepository>();
         services.AddScoped<IReservaDeWorktreeRepository, ReservaDeWorktreeRepository>();
+        // Roteiro de grupo (#308): snapshot, participantes congelados e gate humano.
+        services.AddScoped<IRoteiroDaExecucaoRepository, RoteiroDaExecucaoRepository>();
+        services.AddScoped<IParticipanteDaExecucaoRepository, ParticipanteDaExecucaoRepository>();
+        services.AddScoped<IPedidoDeAprovacaoRepository, PedidoDeAprovacaoRepository>();
         services.AddScoped<IUnitOfWorkDaOrquestracao, UnitOfWorkDaOrquestracao>();
         // Cadastro de agentes (AD-68): mesmo contexto e mesma unidade de trabalho do ledger.
         services.AddScoped<IAgenteRepository, AgenteRepository>();

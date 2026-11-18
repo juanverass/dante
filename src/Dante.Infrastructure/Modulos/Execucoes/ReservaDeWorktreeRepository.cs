@@ -12,13 +12,17 @@ public sealed class ReservaDeWorktreeRepository(OrquestracaoDbContext context)
     // Chave fixa da trava transacional de capacidade de worktrees (distinta das travas de sequência do ledger).
     internal const long ChaveDaTravaDeCapacidade = 0x44_57_54_52_45_45_30_37; // "DWTREE07"
 
+    // Só as que ocupam capacidade: aguardando a decisão humana (#308) não conta.
     private static readonly EstadoDaReservaDeWorktree[] Ativas =
         [EstadoDaReservaDeWorktree.Reservada, EstadoDaReservaDeWorktree.Pronta];
 
-    // Execuções paradas não têm escritor: só voltam a escrever reservando de novo, sob a mesma trava.
+    // Execuções paradas não têm escritor: só voltam a escrever reservando de novo, sob a mesma trava. Um Roteiro
+    // esperando a decisão humana ou um objetivo novo (#308, decisão C) libera o slot e mantém a reserva: a worktree
+    // continua dela (índices únicos entre as ativas), não é limpa (só reservas liberadas são) e não conta na capacidade.
     private static readonly EstadoDaExecucao[] Paradas =
     [
-        EstadoDaExecucao.Interrompida, EstadoDaExecucao.Bloqueada, EstadoDaExecucao.Concluida, EstadoDaExecucao.Falhou,
+        EstadoDaExecucao.Interrompida, EstadoDaExecucao.Bloqueada, EstadoDaExecucao.AguardandoAprovacao,
+        EstadoDaExecucao.AguardandoEntrada, EstadoDaExecucao.Concluida, EstadoDaExecucao.Falhou,
         EstadoDaExecucao.Cancelada
     ];
 

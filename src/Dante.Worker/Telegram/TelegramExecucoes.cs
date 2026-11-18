@@ -17,7 +17,8 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
         "Acompanhamento de execuções não está habilitado neste Worker (depende do ledger e da fila durável).";
     public const string Indisponivel = "Acompanhamento de execuções indisponível (banco de dados). Tente novamente.";
     internal const string UsoDaListagem = "Uso: /execucoes [todas]";
-    internal const string UsoDoDetalhe = "Uso: /execucao <J…|E…>";
+    internal const string UsoDoDetalhe = "Uso: /execucao <J…|E…> | /execucao aprovar|corrigir <E…> <hash> [instrução] | " +
+        "/execucao recusar <E…> [motivo] | /execucao revisar <E…> | /execucao objetivo <E…> <tarefa>";
 
     private readonly TimeProvider relogio = relogio ?? TimeProvider.System;
 
@@ -38,13 +39,116 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
 
     public Task<string> DetalharAsync(long idDoUsuario, string argumentos, CancellationToken cancellationToken)
     {
+        // Decisões do gate de um roteiro (#308): /execucao aprovar|corrigir|recusar|objetivo E… …
+        var partes = argumentos.Trim().Split([' ', '\t', '\n'], 3, StringSplitOptions.RemoveEmptyEntries);
+        if (partes.Length > 0 && partes[0].ToLowerInvariant() is "aprovar" or "corrigir" or "recusar" or "revisar" or "objetivo")
+            return DecidirAsync(idDoUsuario, partes, cancellationToken);
         var codigo = argumentos.Trim();
         if (codigo.Length == 0 || codigo.IndexOfAny([' ', '\t', '\r', '\n']) >= 0) return Task.FromResult(UsoDoDetalhe);
         return ExecutarAsync(async servicos =>
-            await servicos.GetRequiredService<IAcompanhamentoDeExecucoesAppService>()
-                .ObterAsync(Dono(idDoUsuario), codigo, cancellationToken) is { } detalhe
-                ? Detalhe(detalhe) : NaoEncontrada(codigo));
+        {
+            if (await servicos.GetRequiredService<IAcompanhamentoDeExecucoesAppService>()
+                    .ObterAsync(Dono(idDoUsuario), codigo, cancellationToken) is not { } detalhe)
+                return NaoEncontrada(codigo);
+            var texto = Detalhe(detalhe);
+            if (detalhe.Resumo.Tipo == TipoDeExecucao.Roteiro &&
+                await servicos.GetRequiredService<IRoteirosAppService>().ObterDoProprietarioAsync(Dono(idDoUsuario), codigo,
+                    cancellationToken)
+                    is { } roteiro)
+                texto += "\n" + Roteiro(roteiro);
+            return texto;
+        });
     }
+
+    // Gate do roteiro (#308): só interpreta e chama o caso de uso; dono, integridade, hash e rodadas são da Application.
+    private Task<string> DecidirAsync(long idDoUsuario, string[] partes, CancellationToken cancellationToken)
+    {
+        var acao = partes[0].ToLowerInvariant();
+        if (partes.Length < 2) return Task.FromResult(UsoDoDetalhe);
+        var codigo = partes[1];
+        var resto = partes.Length > 2 ? partes[2].Trim() : "";
+        return ExecutarAsync(servicos => RecusaComoTextoAsync(async () =>
+        {
+            var roteiros = servicos.GetRequiredService<IRoteirosAppService>();
+            if (acao == "objetivo")
+                return await roteiros.SubstituirObjetivoAsync(Dono(idDoUsuario), codigo, resto, cancellationToken)
+                    ? $"{codigo.ToUpperInvariant()}: tarefa recebida; o roteiro volta à fila."
+                    : $"{codigo.ToUpperInvariant()} não está aguardando uma tarefa nova. Veja /execucao {codigo}.";
+            if (acao == "revisar")
+                return Decisao(await roteiros.RevisarNovamenteAsync(Dono(idDoUsuario), codigo, cancellationToken), codigo);
+            DecisaoHumanaDto decisao;
+            if (acao == "recusar") decisao = new(TipoDeDecisaoHumana.Recusar, Texto: resto.Length == 0 ? null : resto);
+            else
+            {
+                var hashETexto = resto.Split([' ', '\t', '\n'], 2, StringSplitOptions.RemoveEmptyEntries);
+                if (hashETexto.Length == 0) return UsoDoDetalhe;
+                decisao = new(acao == "aprovar" ? TipoDeDecisaoHumana.Aprovar : TipoDeDecisaoHumana.Corrigir, hashETexto[0],
+                    hashETexto.Length > 1 ? hashETexto[1] : null);
+            }
+            return Decisao(await roteiros.DecidirAsync(Dono(idDoUsuario), codigo, decisao, cancellationToken), codigo);
+        }), conflito: "A execução mudou durante a decisão. Consulte /execucao e tente novamente.");
+    }
+
+    private static string Decisao(ResultadoDaDecisaoDto resultado, string codigo) =>
+        resultado.Resultado switch
+        {
+            ResultadoDaDecisao.ArtefatoDivergente => $"{resultado.Codigo}: o conteúdo da worktree mudou depois da " +
+                $"revisão (agora {resultado.HashAtual![..12]}); nada foi decidido e o gate continua pendente. Peça uma " +
+                $"nova revisão do conteúdo atual: /execucao revisar {resultado.Codigo}",
+            ResultadoDaDecisao.RevisaoAgendada => $"{resultado.Codigo}: nova revisão da rodada {resultado.Rodada} " +
+                $"agendada para o conteúdo atual ({resultado.HashAtual![..12]}); a decisão volta a você depois dela.",
+            ResultadoDaDecisao.Aprovada => $"{resultado.Codigo} aprovada (rodada {resultado.Rodada}) e encerrada. " +
+                "Nada foi commitado nem enviado: as alterações ficam na worktree, preservada para a entrega.",
+            ResultadoDaDecisao.CorrecaoAgendada => $"{resultado.Codigo}: correção agendada (rodada {resultado.Rodada}); " +
+                "o roteiro volta à fila e continua quando houver vaga de escrita.",
+            ResultadoDaDecisao.Recusada => $"{resultado.Codigo} recusada e encerrada; a worktree alterada é preservada.",
+            ResultadoDaDecisao.SemPedidoPendente => $"{resultado.Codigo} não está aguardando aprovação (ou já foi decidida).",
+            _ => NaoEncontrada(codigo)
+        };
+
+    // Recusas do caso de uso (hash errado, instrução com credencial, sem rodada) já vêm em texto para o usuário; falha de
+    // infraestrutura continua indo ao tratamento comum (indisponível).
+    private static async Task<string> RecusaComoTextoAsync(Func<Task<string>> acao)
+    {
+        try
+        {
+            return await acao();
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            return exception.Message;
+        }
+    }
+
+    private static string Roteiro(RoteiroDaExecucaoDto r)
+    {
+        var linhas = new List<string>
+        {
+            $"Grupo: {r.NomeDoGrupo} v{r.NumeroDaVersaoDoGrupo} (snapshot {r.HashDoSnapshot[..12]}); " +
+            $"rodadas de correção: até {r.RodadasDeRevisaoMaximas}",
+            "Participantes: " + string.Join(", ", r.Participantes.Select(p =>
+                $"{p.Papel} = {p.Handle} v{p.NumeroDaVersao}{(p.PodeEscrever ? " (escrita)" : "")}"))
+        };
+        if (r.ObjetivoAlteradoPelaRedacao) linhas.Add("A tarefa foi protegida pela redação; o original não foi guardado.");
+        linhas.Add("Passos: " + string.Join(" → ", r.Etapas.Select(e => $"{Passo(e.Passo)} r{e.Rodada} ({Estado(e.Estado)})")));
+        if (r.PedidoPendente is { } pedido)
+            linhas.Add($"Aguardando sua decisão sobre o resultado da rodada {pedido.Rodada} (hash {pedido.HashDoArtefato[..12]}):\n" +
+                $"/execucao aprovar {r.Codigo} {pedido.HashDoArtefato[..12]}\n" +
+                $"/execucao corrigir {r.Codigo} {pedido.HashDoArtefato[..12]} <o que corrigir>\n" +
+                $"/execucao recusar {r.Codigo} [motivo]\n" +
+                "Aprovar só aceita o resultado: não faz commit, push, PR nem merge.");
+        if (r.Estado == EstadoDaExecucao.AguardandoEntrada)
+            linhas.Add($"Envie a tarefa de novo, sem credenciais: /execucao objetivo {r.Codigo} <tarefa>");
+        return string.Join('\n', linhas);
+    }
+
+    private static string Passo(Dante.Domain.Grupos.TipoDePassoDoRoteiro passo) => passo switch
+    {
+        Dante.Domain.Grupos.TipoDePassoDoRoteiro.Implementar => "implementar",
+        Dante.Domain.Grupos.TipoDePassoDoRoteiro.Revisar => "revisar",
+        Dante.Domain.Grupos.TipoDePassoDoRoteiro.Corrigir => "corrigir",
+        _ => "aprovação"
+    };
 
     public Task<string> AguardandoAsync(long idDoUsuario, string argumentos, CancellationToken cancellationToken)
     {
@@ -118,7 +222,7 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
 
     private string Linha(ResumoDaExecucaoDto r)
     {
-        var partes = new List<string> { r.Codigo, r.Tipo == TipoDeExecucao.Avulsa ? "job" : "tarefa" };
+        var partes = new List<string> { r.Codigo, Tipo(r.Tipo) };
         if (r.Agente is not null) partes.Add(r.Agente);
         partes.Add(Estado(r.Estado));
         if (r.EtapaAtual is { } etapa && !r.Terminal)
@@ -133,7 +237,7 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
         var r = d.Resumo;
         var linhas = new List<string>
         {
-            $"{r.Codigo} ({(r.Tipo == TipoDeExecucao.Avulsa ? "job" : "tarefa")}{(r.Agente is null ? "" : $", {r.Agente}")})",
+            $"{r.Codigo} ({Tipo(r.Tipo)}{(r.Agente is null ? "" : $", {r.Agente}")})",
             $"Estado: {Estado(r.Estado)}" + (r.Espera is null ? "" : $" — {Espera(r)}"),
             $"Contexto: {Contexto(d)}",
             $"Criada: {Instante(r.CriadaEm)}" + (d.IniciadaEm is { } i ? $" · iniciada: {Instante(i)}" : "") +
@@ -162,6 +266,13 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
         if (!r.Terminal && r.Tipo != TipoDeExecucao.Avulsa) linhas.Add($"Cancelar: /cancel {r.Codigo} [motivo]");
         return string.Join('\n', linhas);
     }
+
+    private static string Tipo(TipoDeExecucao tipo) => tipo switch
+    {
+        TipoDeExecucao.Avulsa => "job",
+        TipoDeExecucao.Roteiro => "roteiro de grupo",
+        _ => "tarefa"
+    };
 
     private static string Contexto(DetalheDaExecucaoDto d)
     {

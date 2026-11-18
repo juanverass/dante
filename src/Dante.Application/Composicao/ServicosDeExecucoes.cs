@@ -27,5 +27,8 @@ internal static class ServicosDeExecucoes
         // pelo host junto com a fila.
         services.TryAddScoped<Dante.Application.Execucoes.IReservasDeWorktreeAppService>(provider =>
             ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.ReservasDeWorktreeAppService>(provider));
+        // Roteiro de grupo (#308): snapshot, progressão fixa e gate humano persistido.
+        services.TryAddScoped<Dante.Application.Execucoes.IRoteirosAppService>(provider =>
+            ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.RoteirosAppService>(provider));
     }
 }

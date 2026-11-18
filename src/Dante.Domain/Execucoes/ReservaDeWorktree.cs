@@ -20,7 +20,15 @@ public sealed class ReservaDeWorktree : EntidadeBase
         {
             [EstadoDaReservaDeWorktree.Reservada] =
                 [EstadoDaReservaDeWorktree.Pronta, EstadoDaReservaDeWorktree.Liberada, EstadoDaReservaDeWorktree.Falhou],
-            [EstadoDaReservaDeWorktree.Pronta] = [EstadoDaReservaDeWorktree.Liberada, EstadoDaReservaDeWorktree.Falhou],
+            [EstadoDaReservaDeWorktree.Pronta] =
+            [
+                EstadoDaReservaDeWorktree.Liberada, EstadoDaReservaDeWorktree.Falhou,
+                EstadoDaReservaDeWorktree.AguardandoDecisao
+            ],
+            [EstadoDaReservaDeWorktree.AguardandoDecisao] =
+            [
+                EstadoDaReservaDeWorktree.Pronta, EstadoDaReservaDeWorktree.Liberada, EstadoDaReservaDeWorktree.Falhou
+            ],
             [EstadoDaReservaDeWorktree.Liberada] =
                 [EstadoDaReservaDeWorktree.Removida, EstadoDaReservaDeWorktree.Preservada, EstadoDaReservaDeWorktree.Falhou],
             [EstadoDaReservaDeWorktree.Preservada] = [],
@@ -79,7 +87,11 @@ public sealed class ReservaDeWorktree : EntidadeBase
     public DateTimeOffset? LiberadaEm { get; private set; }
     public DateTimeOffset? EncerradaEm { get; private set; }
 
-    public bool Ativa => Estado is EstadoDaReservaDeWorktree.Reservada or EstadoDaReservaDeWorktree.Pronta;
+    // Ativa: a worktree é desta execução (caminho, branch e alias exclusivos). OcupaCapacidade: conta nos limites de
+    // escrita; uma reserva aguardando a decisão humana é ativa sem ocupar capacidade.
+    public bool Ativa => Estado is EstadoDaReservaDeWorktree.Reservada or EstadoDaReservaDeWorktree.Pronta
+        or EstadoDaReservaDeWorktree.AguardandoDecisao;
+    public bool OcupaCapacidade => Estado is EstadoDaReservaDeWorktree.Reservada or EstadoDaReservaDeWorktree.Pronta;
     public bool Final => Transicoes[Estado].Length == 0;
 
     public static bool PodeTransitar(EstadoDaReservaDeWorktree de, EstadoDaReservaDeWorktree para) =>
@@ -90,6 +102,18 @@ public sealed class ReservaDeWorktree : EntidadeBase
     {
         Transitar(EstadoDaReservaDeWorktree.Pronta);
         ProntaEm = quando;
+    }
+
+    // Gate humano de um Roteiro (#308): libera o slot de escrita e mantém a worktree da execução.
+    public void AguardarDecisao() => Transitar(EstadoDaReservaDeWorktree.AguardandoDecisao);
+
+    // Correção pedida no gate: a reserva volta a ocupar capacidade, decidido sob a trava de capacidade.
+    public void Readquirir()
+    {
+        if (Estado != EstadoDaReservaDeWorktree.AguardandoDecisao)
+            throw new TransicaoInvalidaException("reserva de worktree", Estado.ToString(),
+                EstadoDaReservaDeWorktree.Pronta.ToString());
+        Transitar(EstadoDaReservaDeWorktree.Pronta);
     }
 
     // A execução terminou: a reserva deixa de ocupar capacidade; o diretório espera a limpeza física.

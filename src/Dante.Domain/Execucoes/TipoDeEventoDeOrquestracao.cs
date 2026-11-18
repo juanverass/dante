@@ -25,5 +25,8 @@ public enum TipoDeEventoDeOrquestracao
     WorktreeLiberada,
     WorktreeRemovida,
     WorktreePreservada,
-    WorktreeFalhou
+    WorktreeFalhou,
+    // Gate humano de um Roteiro (#308): a reserva sai da capacidade sem deixar de ser da execução, e volta a ela.
+    WorktreeAguardandoDecisao,
+    WorktreeReadquirida
 }
