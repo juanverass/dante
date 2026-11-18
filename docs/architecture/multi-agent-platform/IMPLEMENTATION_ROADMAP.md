@@ -115,6 +115,13 @@ etapa de escrita exige worktree reservada. Só os fluxos legados (sessão comum,
 - **Critérios**: mudar o grupo não muda execução iniciada; laço limitado; gate sobrevive a reinício; resultado cita quem fez cada etapa.
 - **Testes**: roteiro por tabela com drivers falsos programados; reinício no meio do gate.
 - **Entregável**: AD-69 (parte de roteiro).
+- **Implementação (#308, AD-69)**: em três PRs. Cadastro versionado com ativação humana vinculada ao hash; gate
+  durável (snapshot imutável, objetivo nunca gravado bruto, pedido de aprovação vinculado ao hash do diff, reserva
+  `AguardandoDecisao` que libera o slot e mantém a worktree); executor com sessões Codex separadas, revisão em sandbox
+  somente leitura e veredito pela ferramenta `entregar_resultado` do `dante_coordenacao` (fundação criada aqui:
+  servidor MCP, IPC por sessão, token e escopo). **Divergências**: implementador e revisor são Codex (Claude sem
+  sandbox de SO); sem push/PR pelo agente (o roteiro termina no gate e a entrega fica para o gateway #311); a etapa
+  "Entregar" (`AcaoDoDante`) não existe ainda; um repositório por roteiro.
 
 ### 7. Delegação e comunicação — complexidade alta
 

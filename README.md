@@ -790,8 +790,18 @@ rev=codex-rev: revisa o diff
 
 Cada edição cria uma versão imutável identificada por um hash; a versão nova só é usada depois de ativada com o hash
 exibido (ao menos 12 caracteres), e a ativação não concede nada além das permissões já dadas a cada agente. O nome é
-minúsculo e nunca reutilizado; arquivar exige desativar antes. A execução de uma tarefa por um grupo ainda não está
-disponível: entra na terceira entrega da #308.
+minúsculo e nunca reutilizado; arquivar exige desativar antes.
+
+Para pedir uma tarefa ao grupo, informe o repositório:
+
+```text
+/grupo engenharia @dante crie o endpoint de saúde
+```
+
+O roteiro roda na fila durável, um passo de cada vez e cada passo numa sessão Codex própria: o implementador escreve
+numa worktree exclusiva; o revisor lê essa worktree num sandbox somente leitura, sem rede, e registra o veredito pela
+ferramenta do D.A.N.T.E. (texto livre não conta); o corretor ajusta a mesma worktree. Nenhum agente faz commit, push,
+PR ou merge. Por enquanto, um repositório por roteiro (sem repositórios vinculados).
 
 Quando um roteiro chega à aprovação humana, `/execucao E…` mostra o resultado a decidir com o hash dele, e a decisão
 é sua, uma vez só:

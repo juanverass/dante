@@ -273,8 +273,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   integrado; fila durável e recuperação após reinício (#300, AD-67) integrada; cadastro de agentes e `/tarefa` pela
   fila (#301, AD-68) integrado; acompanhamento e cancelamento de execuções (#305, AD-74) integrado; worktrees por
   execução de escrita e limites de concorrência (#307, AD-71) integradas; grupos versionados com roteiro
-  determinístico e gate humano (#308, AD-69) em desenvolvimento em três entregas — cadastro e gate durável em
-  revisão; executor do roteiro a seguir.
+  determinístico e gate humano (#308, AD-69) entregues em três PRs em revisão (cadastro, gate durável e executor
+  com a fundação do `dante_coordenacao`).
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -742,9 +742,19 @@ sanitizado (`/execucao objetivo E… <tarefa>`). Progressão fixa implementar �
 → aprovação humana; esgotar as rodadas bloqueia. O gate é linha do ledger (`pedidos_de_aprovacao`) vinculada ao hash
 do artefato revisado e sobrevive a reinício; decisão única do dono por `/execucao aprovar|corrigir|recusar`. No gate,
 a worktree fica `AguardandoDecisao` (exclusiva, sem limpeza, fora da capacidade): o slot de escrita fica livre e é
-readquirido sob a trava na correção. Aprovar encerra sem commit, push ou PR e preserva a worktree alterada. Ainda
-sem executor nem `/grupo <nome> @alias <tarefa>` (terceira entrega). Migration `GateDoRoteiro` não aplicada no banco
-canônico.
+readquirido sob a trava na correção. Aprovar encerra sem commit, push ou PR e preserva a worktree alterada. Migration
+`GateDoRoteiro` não aplicada no banco canônico.
+
+## Executor do roteiro e dante_coordenacao (#308, AD-69 — terceira entrega)
+
+`/grupo <nome> @alias <tarefa>` enfileira o roteiro; o `ExecutorDeRoteirosDaFila` roda um passo por trabalho, cada um
+numa sessão Codex reservada e separada: implementar e corrigir com escrita confinada na worktree; revisar com sandbox
+de SO somente leitura confirmado pelo `thread/start` (sem rede, sem aprovação, só o `dante_coordenacao`) e o diff da
+worktree no prompt, com hash canônico. O veredito só vale registrado pela ferramenta `entregar_resultado`, num canal por
+sessão (pipe exclusivo, token da sessão, escopo fixado pelo orquestrador), no caso de uso confiável: um por etapa,
+imutável, idempotente, sem credencial. Sem veredito, um lembrete e depois falha. O gate abre com o hash revisado e a
+pessoa decide no `/execucao`. Um repositório por roteiro (vinculados recusados). Evidência opt-in com o Codex real:
+leitura passa, escrita, commit e `/tmp` são negados. Migration `VereditosDeRevisao` não aplicada no banco canônico.
 
 ## Worktrees por execução de escrita (#307, AD-71)
 
