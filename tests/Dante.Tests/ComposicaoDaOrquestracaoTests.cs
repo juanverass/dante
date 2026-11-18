@@ -50,7 +50,9 @@ public sealed class ComposicaoDaOrquestracaoTests
         Assert.Single(services, s => s.ServiceType == typeof(Dante.Worker.Telegram.TelegramAgentes));
         // /tarefa (AD-68): o executor de Tarefa entra na fila ao lado do de jobs; é o único caminho que a executa.
         Assert.Single(services, s => s.ServiceType == typeof(ExecutorDeTarefasDaFila) && s.Lifetime == ServiceLifetime.Singleton);
-        Assert.Equal(2, services.Count(s => s.ServiceType == typeof(IExecutorDeEtapa)));
+        // Roteiro de grupo (#308): o terceiro executor, também só pela fila.
+        Assert.Single(services, s => s.ServiceType == typeof(ExecutorDeRoteirosDaFila) && s.Lifetime == ServiceLifetime.Singleton);
+        Assert.Equal(3, services.Count(s => s.ServiceType == typeof(IExecutorDeEtapa)));
         // O encerramento do ledger para por último: registrado antes dos demais hosted services.
         var hospedados = services.Where(s => s.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService))
             .Select(s => s.ImplementationType).ToArray();
@@ -91,7 +93,7 @@ public sealed class ComposicaoDaOrquestracaoTests
         // mesmo schema e histórico.
         Assert.Equal(["Agente", "AtivacaoDeVersaoDoGrupo", "DependenciaDeEtapa", "EtapaDaExecucao", "EventoDeOrquestracao",
             "Execucao", "GrupoDeAgentes", "ParticipanteDaExecucao", "ParticipanteDaVersaoDoGrupo", "PedidoDeAprovacao",
-            "ReservaDeWorktree", "RoteiroDaExecucao", "SessaoDeAgente", "TrabalhoDaFila", "VersaoDoAgente", "VersaoDoGrupo"], ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
+            "ReservaDeWorktree", "RoteiroDaExecucao", "SessaoDeAgente", "TrabalhoDaFila", "VereditoRegistrado", "VersaoDoAgente", "VersaoDoGrupo"], ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
         Assert.All(ledger.Model.GetEntityTypes(), e =>
         {
             Assert.Equal("orquestracao", e.GetSchema());

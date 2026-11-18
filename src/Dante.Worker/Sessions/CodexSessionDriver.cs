@@ -1,3 +1,4 @@
+using Dante.Worker.Coordenacao;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
@@ -70,15 +71,23 @@ public sealed class CodexSessionDriver(
         }
 
         if (options.EscritaConfinada && (options.Profile == AgentPermissionProfile.Plan || options.IsGeneral ||
-                                         options.ToolServers is { Count: > 0 }))
+                                         options.ToolServers is { Count: > 0 } || options.LeituraConfinada))
             throw new AgentProtocolException("Sessão de escrita confinada inválida; nada foi iniciado.");
+        // Confined review (#308): plan, in a repository, only the dante_coordenacao server, no extra roots.
+        if (options.LeituraConfinada && (options.Profile != AgentPermissionProfile.Plan || options.IsGeneral ||
+                                         options.AdditionalDirectories is { Count: > 0 } ||
+                                         (options.ToolServers ?? []).Any(server => server.Name != ServidorMcpDeCoordenacao.Nome)))
+            throw new AgentProtocolException("Sessão de revisão confinada inválida; nada foi iniciado.");
         var naoConfiaveis = options.ProjetosNaoConfiaveis ?? [];
         // A main checkout is never the working directory nor a writable root of a confined session.
         if (options.EscritaConfinada && naoConfiaveis.Any(projeto =>
                 string.Equals(projeto, options.WorkingDirectory, StringComparison.Ordinal) ||
                 (options.AdditionalDirectories ?? []).Contains(projeto, StringComparer.Ordinal)))
             throw new AgentProtocolException("Sessão de escrita confinada com checkout principal gravável; nada foi iniciado.");
-        var (approvalPolicy, sandbox) = options.EscritaConfinada ? ConfinedPolicy : Policy(options.Profile);
+        if (options.LeituraConfinada && naoConfiaveis.Contains(options.WorkingDirectory, StringComparer.Ordinal))
+            throw new AgentProtocolException("Sessão de revisão confinada no checkout principal; nada foi iniciado.");
+        var (approvalPolicy, sandbox) = options.EscritaConfinada ? ConfinedPolicy
+            : options.LeituraConfinada ? ConfinedReadPolicy : Policy(options.Profile);
         var approvalsReviewer = options.Profile == AgentPermissionProfile.Auto ? "auto_review" : "user";
         var roots = DiretoriosVinculados.Validar(options.AdditionalDirectories, options.IsGeneral).ToArray();
         // The prompt never goes on the command line: turns are JSON-RPC requests on stdin. A confined session also
@@ -86,8 +95,10 @@ public sealed class CodexSessionDriver(
         var request = new AgentProcessRequest(
             AgentKind.Codex,
             options.WorkingDirectory,
-            ["app-server", "--listen", "stdio://", .. McpConfig(options.ToolServers),
-                .. options.EscritaConfinada ? (string[])["-c", "mcp_servers={}"] : []],
+            // Confined review: the user's servers are emptied first and only dante_coordenacao is declared after it.
+            ["app-server", "--listen", "stdio://",
+                .. options.EscritaConfinada || options.LeituraConfinada ? (string[])["-c", "mcp_servers={}"] : [],
+                .. McpConfig(options.ToolServers)],
             options.IsGeneral,
             options.EnvironmentVariables);
         var agent = await launcher.StartAsync(request, cancellationToken: cancellationToken);
@@ -97,7 +108,7 @@ public sealed class CodexSessionDriver(
             profile = options.Profile;
             workingDirectory = options.WorkingDirectory;
             writableRoots = roots;
-            confinada = options.EscritaConfinada;
+            confinada = options.EscritaConfinada || options.LeituraConfinada;
             effort = options.ModelSelection?.Effort;
             conversationInstructions = ContratoDaConversaParaAgentes.ParaSessao(options.ToolServers,
                 options.ContextInstructions);
@@ -127,6 +138,7 @@ public sealed class CodexSessionDriver(
             // Without a selection the CLI picks its own default model (#77); thread/start reports it either way.
             if (options.ModelSelection?.Model is { } selectedModel) threadParameters["model"] = selectedModel;
             if (options.EscritaConfinada) AddConfinement(threadParameters, roots, naoConfiaveis);
+            else if (options.LeituraConfinada) AddReadConfinement(threadParameters, naoConfiaveis);
             else AddWritableRoots(threadParameters, roots);
             var thread = await SendRequestAsync("thread/start", threadParameters, cancellationToken);
             // The effective policy reported by the thread, not the request, decides (#307): anything other than exactly
@@ -135,6 +147,10 @@ public sealed class CodexSessionDriver(
                 throw new AgentProtocolException(
                     "O Codex não confirmou o confinamento de escrita (sandbox só nas worktrees, sem /tmp, sem rede e sem " +
                     "aprovações); nada foi enviado ao agente.");
+            if (options.LeituraConfinada && !ConfirmsReadConfinement(thread, options.WorkingDirectory))
+                throw new AgentProtocolException(
+                    "O Codex não confirmou o confinamento da revisão (sandbox somente leitura, sem rede e sem aprovações); " +
+                    "nada foi enviado ao agente.");
             // A session that cannot write to the linked repositories would fail the task halfway (AD-58).
             if (!ConfirmsWritableRoots(thread, options.Profile, roots))
                 throw new AgentProtocolException("O Codex não confirmou o acesso aos repositórios vinculados. Atualize a CLI ou remova o vínculo.");
@@ -645,6 +661,27 @@ public sealed class CodexSessionDriver(
             ["projects"] = new JsonObject(untrusted.Distinct(StringComparer.Ordinal).Select(project =>
                 KeyValuePair.Create(project, (JsonNode?)new JsonObject { ["trust_level"] = "untrusted" })))
         };
+
+    // Confined review step (#308): read-only sandbox, never asks, no network.
+    private static readonly (string ApprovalPolicy, string Sandbox) ConfinedReadPolicy = ("never", "read-only");
+
+    // The repository of the worktree is declared untrusted, as in the confined write (no trust persisted, no project
+    // config loaded from the main checkout).
+    private static void AddReadConfinement(JsonObject parameters, IReadOnlyList<string> untrusted) =>
+        parameters["config"] = new JsonObject
+        {
+            ["projects"] = new JsonObject(untrusted.Distinct(StringComparer.Ordinal).Select(project =>
+                KeyValuePair.Create(project, (JsonNode?)new JsonObject { ["trust_level"] = "untrusted" })))
+        };
+
+    internal static JsonObject ConfinedReadSandboxPolicy() => new() { ["type"] = "readOnly", ["networkAccess"] = false };
+
+    internal static bool ConfirmsReadConfinement(JsonObject thread, string workingDirectory) =>
+        GetString(thread, "approvalPolicy") == ConfinedReadPolicy.ApprovalPolicy &&
+        GetString(thread, "cwd") == workingDirectory &&
+        thread["sandbox"] is JsonObject sandbox && GetString(sandbox, "type") == "readOnly" &&
+        // networkAccess defaults to false in the protocol; anything but false or absent refuses.
+        (sandbox["networkAccess"] is null || IsFalse(sandbox, "networkAccess"));
 
     // The same confinement as a SandboxPolicy object (command/exec, turn/start): used by the live evidence that runs real
     // commands under it, so the policy proved is the one this driver confirms.

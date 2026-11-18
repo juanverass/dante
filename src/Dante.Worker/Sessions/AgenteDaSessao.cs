@@ -22,6 +22,13 @@ public sealed record AgenteDaSessao(string Handle, VersaoDoAgenteDto Versao, str
     // raiz gravável nem instrução ao agente.
     public IReadOnlyList<string> CheckoutsDaEscrita { get; init; } = [];
 
+    // Revisão de um Roteiro (#308, decisão D): sessão reservada em plan, com a worktree da execução como diretório de
+    // trabalho e sandbox de SO somente leitura confirmado pelo driver (sem rede nem aprovação interativa). O único
+    // servidor de ferramentas é o dante_coordenacao, no escopo abaixo, fixado pelo orquestrador.
+    public bool LeituraConfinada { get; init; }
+
+    public Dante.Application.Execucoes.EscopoDaRevisaoDto? EscopoDaRevisao { get; init; }
+
     public AgentPermissionProfile PerfilMaximo => TetoDaExecucao is { } teto &&
         ConfiguracaoDoAgente.Amplitude(teto) < ConfiguracaoDoAgente.Amplitude(Configuracao.PerfilMaximo)
             ? teto : Configuracao.PerfilMaximo;

@@ -29,6 +29,43 @@ public sealed partial class TelegramPollingService
         return await grupos.AtenderAsync(userId, prompt, cancellationToken);
     }
 
+    // /grupo <nome> @alias <tarefa> (#308): resolve o grupo (versão ativa, participantes válidos) e o repositório
+    // explícito e enfileira o roteiro pela fila durável; nada é inferido do texto. Implementar escreve só numa worktree
+    // com agente Codex confinado; revisar lê em sandbox somente leitura; o fim é a decisão humana no /execucao.
+    private async Task HandleRoteiroAsync(TelegramMessage message, string nome, string resto, CancellationToken cancellationToken)
+    {
+        var (userId, chatId) = (message.From!.Id, message.Chat.Id);
+        if (grupos is null || filaDeRoteiros is null)
+        {
+            await SendReplyAsync(chatId, grupos is null ? GruposIndisponiveis
+                : "A execução de grupos depende da fila durável, que não está habilitada neste Worker; nada foi executado.",
+                cancellationToken);
+            return;
+        }
+        var resolucao = await grupos.ResolverAsync(nome, cancellationToken);
+        if (!resolucao.Resolvido)
+        {
+            await SendReplyAsync(chatId, resolucao.Erro!, cancellationToken);
+            return;
+        }
+        var resolved = resolver.Resolve(userId, AgentKind.Codex, resto);
+        if (!resolved.Succeeded)
+        {
+            await SendReplyAsync(chatId, resolved.Failure == ContextResolutionFailure.EmptyPrompt
+                ? "Uso: /grupo <nome> @alias <tarefa>" : resolved.Error!, cancellationToken);
+            return;
+        }
+        var chave = message.MessageId > 0 ? $"telegram:{chatId}:{message.MessageId}" : $"telegram:{chatId}:sem-id:{Guid.NewGuid():N}";
+        var criada = await filaDeRoteiros.CriarAsync(resolucao, resolved.Prompt, resolved.Context!, userId, chave,
+            jobs.LastNumber, cancellationToken);
+        await SendReplyAsync(chatId, criada.Codigo is { } codigo
+            ? $"Roteiro {codigo} enfileirado: grupo {resolucao.Nome} v{resolucao.Versao!.Numero} " +
+              $"({string.Join(" → ", resolucao.Versao.Configuracao!.Roteiro.Select(p => p.Papel ?? "aprovação humana"))}) " +
+              $"em {resolved.Context!.Descricao}. Acompanhe com /execucao {codigo}; você decide no fim. " +
+              "Nenhum agente faz commit, push, PR ou merge."
+            : criada.Recusa!, cancellationToken);
+    }
+
     private async Task<string> HandleAgentesCommandAsync(long userId, bool listar, string prompt,
         CancellationToken cancellationToken)
     {

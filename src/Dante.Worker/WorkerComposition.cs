@@ -46,6 +46,8 @@ internal static class WorkerComposition
         services.AddSingleton<OperacoesMcpDoBrain>();
         services.AddSingleton<IProvedorDeFerramentas, FerramentasDePlanilhaParaAgentes>();
         services.AddSingleton<IProvedorDeFerramentas, FerramentasDoBrainParaAgentes>();
+        // dante_coordenacao (#308): só a sessão de revisão confinada de um roteiro o recebe.
+        services.AddSingleton<IProvedorDeFerramentas, Dante.Worker.Coordenacao.FerramentasDeCoordenacao>();
         services.AddSingleton<IAgentToolServers, CompositorDeFerramentas>();
         services.AddSingleton<TelegramPlanilhas>();
         services.AddSingleton<SessionRegistry>();
@@ -88,6 +90,10 @@ internal static class WorkerComposition
         // /tarefa (AD-68): o executor de TipoDeExecucao.Tarefa; a fila é o único caminho que executa uma tarefa.
         services.AddSingleton<ExecutorDeTarefasDaFila>();
         services.AddSingleton<IExecutorDeEtapa>(provider => provider.GetRequiredService<ExecutorDeTarefasDaFila>());
+        // Roteiro de grupo (#308, AD-69): o executor de TipoDeExecucao.Roteiro; um passo por trabalho.
+        services.AddSingleton(provider => ActivatorUtilities.CreateInstance<ExecutorDeRoteirosDaFila>(provider,
+            (Func<SessionRegistry>)provider.GetRequiredService<SessionRegistry>));
+        services.AddSingleton<IExecutorDeEtapa>(provider => provider.GetRequiredService<ExecutorDeRoteirosDaFila>());
         // Worktrees de execução de escrita (#307, AD-71). O limite global fica em 1 até a ativação autorizada da AD-63:
         // a composição recusa qualquer valor maior (OpcoesDeWorktrees.Validar sem paralelismo autorizado).
         // O gerenciador Git vem da Infrastructure e lê estas opções.

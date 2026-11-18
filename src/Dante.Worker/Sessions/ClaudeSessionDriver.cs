@@ -57,6 +57,10 @@ public sealed class ClaudeSessionDriver(
         // session is refused before any process exists. A prompt instruction is not a substitute.
         if (options.EscritaConfinada)
             throw new AgentProtocolException(Dante.Application.Agentes.ConfinamentoDeEscrita.RecusaDoClaude);
+        // #308: the same holds for the confined review of a Roteiro: no OS read-only sandbox here.
+        if (options.LeituraConfinada)
+            throw new AgentProtocolException(
+                "Revisão confinada via Claude está desabilitada: o fluxo atual do Claude CLI não tem sandbox de SO.");
         var sessionId = Guid.NewGuid().ToString();
         var request = new AgentProcessRequest(
             AgentKind.Claude,

@@ -22,7 +22,9 @@ public sealed class RoteirosAppService(
     IVersaoDoGrupoRepository versoesDeGrupo,
     IVersaoDoAgenteRepository versoesDeAgente,
     IFilaDeExecucoesAppService filaDeExecucoes,
-    IUnitOfWorkDaOrquestracao unidade) : IRoteirosAppService
+    IVereditoRegistradoRepository vereditos,
+    IUnitOfWorkDaOrquestracao unidade,
+    Dante.Application.Mapeamento.IMapsterTypeAdapter mapper) : IRoteirosAppService
 {
     public const string ObjetivoProtegido = "[conteúdo protegido]";
 
@@ -90,11 +92,17 @@ public sealed class RoteirosAppService(
         var roteiro = await roteiros.ObterDaExecucaoAsync(idExecucao, cancellationToken);
         if (roteiro is null) return null;
         var lista = await etapas.ListarDaExecucaoAsync(idExecucao, cancellationToken);
+        using var contexto = JsonDocument.Parse(execucao.Contexto);
         return new RoteiroDaExecucaoDto
         {
             IdExecucao = execucao.Id,
             Codigo = execucao.Codigo,
             Estado = execucao.Estado,
+            AliasDoRepositorio = contexto.RootElement.TryGetProperty("alias", out var alias) ? alias.GetString() ?? "" : "",
+            CheckoutDoRepositorio = contexto.RootElement.TryGetProperty("diretorio", out var diretorio)
+                ? diretorio.GetString() ?? "" : "",
+            Canal = execucao.Canal,
+            IdDoUsuarioNoCanal = execucao.IdDoUsuarioNoCanal,
             NomeDoGrupo = roteiro.NomeDoGrupo,
             NumeroDaVersaoDoGrupo = roteiro.NumeroDaVersaoDoGrupo,
             HashDaVersaoDoGrupo = roteiro.HashDaVersaoDoGrupo,
@@ -355,6 +363,85 @@ public sealed class RoteirosAppService(
         return resultado;
     }
 
+    public async Task<RegistroDeVereditoDto> RegistrarVereditoAsync(EscopoDaRevisaoDto escopo, VereditoInformadoDto veredito,
+        string? sessao, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(escopo);
+        ArgumentNullException.ThrowIfNull(veredito);
+        var itens = veredito.Itens ?? [];
+        // O que o revisor escreve vai ao ledger e à pessoa: nunca com credencial.
+        if (ProtecaoDeSegredos.ContemSegredo(veredito.Resumo) || itens.Any(ProtecaoDeSegredos.ContemSegredo))
+            throw new ArgumentException("O veredito parece conter uma credencial; descreva o problema sem ela.");
+        var (execucao, etapa) = await EtapaDaRevisaoAsync(escopo, cancellationToken);
+        var novo = new VereditoRegistrado(execucao, etapa, escopo.HashDoArtefato, veredito.Veredito, veredito.Resumo, itens,
+            sessao, fila.Agora);
+        if (await vereditos.ObterDaEtapaAsync(etapa.Id, cancellationToken) is { } existente)
+            return Repetido(existente, novo);
+        try
+        {
+            await vereditos.AdicionarAsync(novo, cancellationToken);
+            await unidade.SalvarAlteracoesAsync(cancellationToken);
+            return new RegistroDeVereditoDto(novo.Veredito, false);
+        }
+        catch (Dante.Application.Comum.ConflitoDeConcorrenciaException)
+        {
+            // Duas entregas simultâneas: o índice único deixou passar uma; esta só vale se for a mesma.
+            var gravado = await vereditos.ObterDaEtapaAsync(etapa.Id, cancellationToken) ??
+                throw new InvalidOperationException("O veredito não pôde ser registrado; tente de novo.");
+            return Repetido(gravado, novo);
+        }
+    }
+
+    public async Task<Dante.Application.Agentes.VersaoDoAgenteDto> ObterVersaoDoParticipanteAsync(Guid idExecucao,
+        string papel, CancellationToken cancellationToken = default)
+    {
+        var participante = (await participantes.ListarDaExecucaoAsync(idExecucao, cancellationToken))
+            .SingleOrDefault(p => p.Papel == papel) ??
+            throw new InvalidOperationException($"O papel {papel} não está no snapshot da execução.");
+        var versao = await versoesDeAgente.ObterPorIdAsync(participante.IdVersaoDoAgente, cancellationToken);
+        if (versao is null || !versao.Integra || versao.HashDaConfiguracao != participante.HashDaConfiguracaoDoAgente)
+            throw new InvalidOperationException(
+                $"A versão do agente {participante.HandleDoAgente} (papel {papel}) não confere com o hash congelado.");
+        return mapper.Mapear<Dante.Domain.Agentes.VersaoDoAgente, Dante.Application.Agentes.VersaoDoAgenteDto>(versao);
+    }
+
+    public Task<VereditoRegistrado?> ObterVereditoAsync(Guid idEtapa, CancellationToken cancellationToken = default) =>
+        vereditos.ObterDaEtapaAsync(idEtapa, cancellationToken);
+
+    public async Task<EstadoDaRevisaoDto> ObterEstadoDaRevisaoAsync(EscopoDaRevisaoDto escopo,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(escopo);
+        var (execucao, etapa) = await EtapaDaRevisaoAsync(escopo, cancellationToken);
+        var roteiro = await roteiros.ObterDaExecucaoAsync(execucao.Id, cancellationToken) ??
+            throw new InvalidOperationException("O roteiro da execução não está registrado.");
+        var anteriores = (await vereditos.ListarDaExecucaoAsync(execucao.Id, cancellationToken))
+            .Where(v => v.IdEtapa != etapa.Id).OrderBy(v => v.Rodada)
+            .Select(v => new VereditoAnteriorDto(v.Rodada, v.Veredito, v.Resumo, v.Itens)).ToArray();
+        var instrucao = (await pedidos.ListarDaExecucaoAsync(execucao.Id, cancellationToken))
+            .LastOrDefault(p => p.Estado == EstadoDoPedidoDeAprovacao.CorrecaoSolicitada && p.Rodada + 1 == escopo.Rodada)?.Motivo;
+        return new EstadoDaRevisaoDto(execucao.Codigo, roteiro.NomeDoGrupo, escopo.Rodada, roteiro.RodadasDeRevisaoMaximas,
+            escopo.HashDoArtefato, anteriores, instrucao);
+    }
+
+    // A etapa do escopo, conferida: revisão em curso, da execução, na rodada do escopo, de um Roteiro não encerrado.
+    private async Task<(Execucao Execucao, EtapaDaExecucao Etapa)> EtapaDaRevisaoAsync(EscopoDaRevisaoDto escopo,
+        CancellationToken cancellationToken)
+    {
+        var etapa = await etapas.ObterPorIdAsync(escopo.IdEtapa, cancellationToken);
+        var execucao = etapa is null ? null : await execucoes.ObterPorIdAsync(etapa.IdExecucao, cancellationToken);
+        if (etapa is null || execucao is null || execucao.Id != escopo.IdExecucao || execucao.Tipo != TipoDeExecucao.Roteiro ||
+            execucao.Terminal || etapa.Passo != TipoDePassoDoRoteiro.Revisar || etapa.Rodada != escopo.Rodada ||
+            etapa.Estado != EstadoDaEtapa.EmExecucao || !HashValido(escopo.HashDoArtefato))
+            throw new InvalidOperationException("Fora do escopo desta revisão: nada foi registrado.");
+        return (execucao, etapa);
+    }
+
+    private static RegistroDeVereditoDto Repetido(VereditoRegistrado gravado, VereditoRegistrado novo) =>
+        gravado.HashDoConteudo == novo.HashDoConteudo && gravado.HashDoArtefato == novo.HashDoArtefato
+            ? new RegistroDeVereditoDto(gravado.Veredito, true)
+            : throw new InvalidOperationException("O veredito desta revisão já foi registrado e não muda.");
+
     public async Task<bool> SubstituirObjetivoAsync(ProprietarioDaExecucao proprietario, string codigo, string objetivo,
         CancellationToken cancellationToken = default)
     {
@@ -400,6 +487,10 @@ public sealed class RoteirosAppService(
     {
         if (contexto.Mode != JobExecutionMode.Repository || contexto.RepositoryAlias is null)
             throw new ArgumentException("A tarefa de um grupo escreve numa worktree: informe o repositório (@alias).");
+        // A revisão confinada lê uma worktree só; repositórios vinculados ficam para depois.
+        if (contexto.RepositoriosVinculados.Count > 0)
+            throw new ArgumentException("Nesta versão, o roteiro de um grupo trabalha num repositório só; " +
+                $"{contexto.RepositoryAlias} tem vínculos (AD-58).");
         var aliases = contexto.RepositoriosVinculados.Select(v => v.Alias).Prepend(contexto.RepositoryAlias)
             .Select(a => a.ToLowerInvariant()).ToArray();
         var permitidos = configuracao.Politica.RepositoriosPermitidos!;

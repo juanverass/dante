@@ -20,7 +20,11 @@ public sealed record AgentSessionStartOptions(
     bool EscritaConfinada = false,
     // Main checkouts of a confined write step, declared untrusted to the CLI so it neither persists trust for them nor
     // loads their project config. Never a working directory or a writable root.
-    IReadOnlyList<string>? ProjetosNaoConfiaveis = null);
+    IReadOnlyList<string>? ProjetosNaoConfiaveis = null,
+    // Review step of a Roteiro (#308): plan profile, the execution worktree as working directory, an OS read-only sandbox
+    // without network or interactive approval that the driver confirms at start, and only the dante_coordenacao tool
+    // server. A driver that cannot enforce it refuses before starting a process.
+    bool LeituraConfinada = false);
 
 // Upstream session id (Claude session_id, Codex thread.id) and the OS id of the process that serves it. Model is the
 // model the CLI reports for the session when it says so at start (Codex thread/start), even without a selection.

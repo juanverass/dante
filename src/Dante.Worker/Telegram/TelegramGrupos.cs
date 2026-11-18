@@ -16,6 +16,24 @@ public sealed class TelegramGrupos(IServiceScopeFactory escopos)
         "responsabilidades]) | /grupo ver|desativar|reativar|arquivar <nome> | /grupo editar <nome> [opções] " +
         "[participantes nas linhas seguintes] | /grupo ativar <nome> v<N> <hash> | /grupo descricao <nome> <texto>";
 
+    // Grupo pronto para uma execução nova (versão ativa e versão atual de cada participante), ou o motivo da recusa.
+    public async Task<ResolucaoDeGrupoDto> ResolverAsync(string nome, CancellationToken cancellationToken)
+    {
+        await using var escopo = escopos.CreateAsyncScope();
+        return await escopo.ServiceProvider.GetRequiredService<ICadastroDeGruposAppService>()
+            .ResolverParaExecucaoAsync(nome, cancellationToken);
+    }
+
+    // /grupo <nome> @alias <tarefa>: o primeiro termo não é ação e o segundo é um repositório.
+    internal static bool PedidoDeExecucao(string argumentos, out string nome, out string resto)
+    {
+        var texto = argumentos.TrimStart();
+        var separador = texto.IndexOfAny([' ', '\t', '\r', '\n']);
+        nome = separador < 0 ? texto : texto[..separador];
+        resto = separador < 0 ? "" : texto[(separador + 1)..].TrimStart();
+        return nome.Length > 0 && !GrupoDeAgentes.NomesReservados.Contains(nome.ToLowerInvariant()) && resto.StartsWith('@');
+    }
+
     public async Task<string> ListarAsync(string argumentos, CancellationToken cancellationToken)
     {
         var todos = argumentos.Trim().Equals("todos", StringComparison.OrdinalIgnoreCase);

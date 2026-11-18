@@ -170,7 +170,8 @@ internal static class FakeCodex
                         // ignore-writable-roots plays an older server that drops it; ignore-confinement one that drops
                         // the /tmp exclusions and the network switch of the override (#307).
                         ["sandbox"] = (string?)parameters["sandbox"] == "read-only"
-                            ? new JsonObject { ["type"] = "readOnly", ["networkAccess"] = false }
+                            // read-network plays a server whose read-only sandbox keeps the network (#308).
+                            ? new JsonObject { ["type"] = "readOnly", ["networkAccess"] = args.Contains("read-network") }
                             : new JsonObject
                             {
                                 ["type"] = "workspaceWrite",
