@@ -810,8 +810,12 @@ Quando um roteiro chega à aprovação humana, `/execucao E…` mostra o resulta
 /execucao aprovar E42 <hash>                    aceita o resultado e encerra (sem commit, push, PR nem merge)
 /execucao corrigir E42 <hash> trate o caso vazio  nova rodada de correção, dentro do limite do grupo
 /execucao recusar E42 [motivo]                  encerra sem aceitar
+/execucao revisar E42                           o conteúdo mudou depois da revisão: revise o atual
 /execucao objetivo E42 <tarefa>                 quando a tarefa original foi protegida pela redação
 ```
+
+Aprovar e corrigir só valem se a worktree ainda tiver exatamente o conteúdo revisado: o D.A.N.T.E. recalcula o hash
+na hora da decisão e, se o conteúdo mudou, não decide nada e pede uma nova revisão.
 
 Enquanto espera a decisão, o roteiro não ocupa a vaga de escrita, e a worktree dele continua reservada; as
 alterações aprovadas ficam na worktree, preservada.

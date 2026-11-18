@@ -740,7 +740,9 @@ agente) e hash do snapshot conferido antes de decidir ou continuar. Objetivo nun
 de alteração e SHA-256 do original; depois de um reinício, se a redação o alterou, a execução pede um objetivo
 sanitizado (`/execucao objetivo E… <tarefa>`). Progressão fixa implementar → revisar → corrigir (rodadas limitadas)
 → aprovação humana; esgotar as rodadas bloqueia. O gate é linha do ledger (`pedidos_de_aprovacao`) vinculada ao hash
-do artefato revisado e sobrevive a reinício; decisão única do dono por `/execucao aprovar|corrigir|recusar`. No gate,
+do artefato revisado e sobrevive a reinício; decisão única do dono por `/execucao aprovar|corrigir|recusar`, que só
+vale se o conteúdo atual da worktree, recalculado dentro da transação da decisão (antes e depois de gravá-la), ainda
+for o revisado; senão nada é decidido e `/execucao revisar` pede uma nova revisão. No gate,
 a worktree fica `AguardandoDecisao` (exclusiva, sem limpeza, fora da capacidade): o slot de escrita fica livre e é
 readquirido sob a trava na correção. Aprovar encerra sem commit, push ou PR e preserva a worktree alterada. Migration
 `GateDoRoteiro` não aplicada no banco canônico.

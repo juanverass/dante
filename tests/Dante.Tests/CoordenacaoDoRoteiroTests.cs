@@ -391,4 +391,5 @@ internal sealed class RoteirosFalso : IRoteirosAppService
     public Task<VersaoDoAgenteDto> ObterVersaoDoParticipanteAsync(Guid idExecucao, string papel, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<VereditoRegistrado?> ObterVereditoAsync(Guid idEtapa, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<bool> SubstituirObjetivoAsync(ProprietarioDaExecucao proprietario, string codigo, string objetivo, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<ResultadoDaDecisaoDto> RevisarNovamenteAsync(ProprietarioDaExecucao proprietario, string codigo, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 }

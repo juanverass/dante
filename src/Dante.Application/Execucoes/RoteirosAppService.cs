@@ -24,7 +24,8 @@ public sealed class RoteirosAppService(
     IFilaDeExecucoesAppService filaDeExecucoes,
     IVereditoRegistradoRepository vereditos,
     IUnitOfWorkDaOrquestracao unidade,
-    Dante.Application.Mapeamento.IMapsterTypeAdapter mapper) : IRoteirosAppService
+    Dante.Application.Mapeamento.IMapsterTypeAdapter mapper,
+    IGerenciadorDeWorktrees gerenciador) : IRoteirosAppService
 {
     public const string ObjetivoProtegido = "[conteúdo protegido]";
 
@@ -197,6 +198,10 @@ public sealed class RoteirosAppService(
             }
             else if (proximo.Passo == TipoDePassoDoRoteiro.AprovacaoHumana)
             {
+                // O gate só abre para o conteúdo presente: o diff revisado tem de ser o da worktree agora.
+                if (await ArtefatoAtualAsync(execucao.Id, token) != conclusao.HashDoArtefato)
+                    throw new InvalidOperationException(
+                        "O diff revisado não é o conteúdo atual da worktree; o gate não foi aberto.");
                 var aprovacao = await NovaEtapaAsync(execucao, etapa, TipoDePassoDoRoteiro.AprovacaoHumana, proximo.Rodada,
                     roteiro, agora, token);
                 aprovacao.TornarPronta([etapa]);
@@ -289,9 +294,146 @@ public sealed class RoteirosAppService(
                 throw new ArgumentException("A instrução parece conter uma credencial; reescreva sem ela.");
         }
         ResultadoDaDecisaoDto resultado = new(ResultadoDaDecisao.SemPedidoPendente, encontrada.Codigo);
+        try
+        {
+            await fila.ExecutarEmTransacaoAsync(async token =>
+            {
+                // Mesma ordem das gravações sob posse: trabalhos (nenhum ativo num gate), depois a execução, travados.
+                if ((await fila.TravarAtivosDaExecucaoAsync(encontrada.Id, token)).Count > 0) return;
+                var execucao = await execucoes.ObterParaAtualizarAsync(encontrada.Id, token) ??
+                    throw new InvalidOperationException("Execução não registrada no ledger.");
+                if (execucao.Estado != EstadoDaExecucao.AguardandoAprovacao) return;
+                var pedido = await pedidos.ObterPendenteAsync(execucao.Id, token);
+                if (pedido is null) return;
+                var roteiro = await roteiros.ObterDaExecucaoAsync(execucao.Id, token) ??
+                    throw new InvalidOperationException("O roteiro da execução não está registrado.");
+                if (pedido.HashDoSnapshot != roteiro.HashDoSnapshot)
+                    throw new InvalidOperationException("O pedido de aprovação não é do snapshot desta execução.");
+                var aprovacao = await etapas.ObterPorIdAsync(pedido.IdEtapa, token) ??
+                    throw new InvalidOperationException("Etapa de aprovação não registrada.");
+                // O artefato decidido é o da worktree agora, não o hash digitado: aprovar ou corrigir só vale se o conteúdo
+                // presente ainda for exatamente o revisado. Recusar não aceita nada e não depende do conteúdo.
+                var vinculaArtefato = decisao.Tipo != TipoDeDecisaoHumana.Recusar;
+                var worktree = vinculaArtefato ? await WorktreeDoArtefatoAsync(execucao.Id, token) : null;
+                if (worktree is not null && await HashAtualAsync(worktree, token) is var antes && antes != pedido.HashDoArtefato)
+                {
+                    resultado = new(ResultadoDaDecisao.ArtefatoDivergente, execucao.Codigo, pedido.Rodada, antes);
+                    return;
+                }
+                var agora = fila.Agora;
+                var execucaoAntes = execucao.Estado;
+                var etapaAntes = aprovacao.Estado;
+                switch (decisao.Tipo)
+                {
+                    case TipoDeDecisaoHumana.Aprovar:
+                        pedido.Aprovar(proprietario.Canal, proprietario.IdDoUsuario, decisao.HashConfirmado, agora);
+                        aprovacao.Continuar();
+                        aprovacao.Concluir(null, agora);
+                        execucao.Retomar();
+                        execucao.Iniciar(agora);
+                        execucao.Concluir(agora);
+                        resultado = new(ResultadoDaDecisao.Aprovada, execucao.Codigo, pedido.Rodada);
+                        break;
+                    case TipoDeDecisaoHumana.Corrigir:
+                    {
+                        var proximo = ProgressaoDoRoteiro.CorrecaoPedidaNoGate(pedido.Rodada, roteiro.TemCorrecao,
+                            roteiro.RodadasDeRevisaoMaximas);
+                        // Sem rodada disponível, o gate continua aberto: aprovar ou recusar.
+                        if (proximo.Bloqueia) throw new InvalidOperationException(proximo.MotivoDoBloqueio + " Aprove ou recuse.");
+                        pedido.SolicitarCorrecao(proprietario.Canal, proprietario.IdDoUsuario, decisao.HashConfirmado,
+                            instrucao!, agora);
+                        aprovacao.Continuar();
+                        aprovacao.Concluir(null, agora);
+                        execucao.Retomar();
+                        var corrigir = await NovaEtapaAsync(execucao, aprovacao, proximo.Passo!.Value, proximo.Rodada, roteiro,
+                            agora, token);
+                        // Nova tentativa de escrita: o slot é readquirido ao reservar, sob a trava de capacidade, sem contar
+                        // tentativa enquanto não houver capacidade (decisão C).
+                        await fila.EnfileirarAsync(TrabalhoDaFila.AvancarExecucao(execucao, corrigir, Chave(execucao, corrigir),
+                            agora), token);
+                        resultado = new(ResultadoDaDecisao.CorrecaoAgendada, execucao.Codigo, proximo.Rodada);
+                        break;
+                    }
+                    default:
+                        pedido.Recusar(proprietario.Canal, proprietario.IdDoUsuario, PedidoDeCancelamento.MotivoSeguro(instrucao),
+                            agora);
+                        aprovacao.Cancelar("recusado na aprovação humana", null, agora);
+                        execucao.Cancelar("Resultado recusado na aprovação humana.", agora);
+                        resultado = new(ResultadoDaDecisao.Recusada, execucao.Codigo, pedido.Rodada);
+                        break;
+                }
+                await Transicao(execucao, aprovacao, etapaAntes, aprovacao.Estado, agora, token);
+                await Transicao(execucao, null, execucaoAntes, execucao.Estado, agora, token);
+                await eventos.AdicionarAsync(EventoDeOrquestracao.DaExecucao(execucao, TipoDeEventoDeOrquestracao.SolicitacaoResolvida,
+                    Json(new()
+                    {
+                        ["decisao"] = pedido.Estado.ToString(),
+                        ["autor"] = proprietario.Autor,
+                        ["artefato"] = pedido.HashDoArtefato[..12],
+                        ["rodada"] = Numero(pedido.Rodada)
+                    }), agora, aprovacao), token);
+                // Aprovado ou recusado: terminal, as reservas deixam de ser ativas; a limpeza preserva a worktree alterada.
+                await LiberacaoDeWorktrees.LiberarSeEncerradaAsync(reservas, eventos, execucao, agora, token);
+                await unidade.SalvarAlteracoesAsync(token);
+                // Fecha a janela: a decisão já está gravada na transação, ainda sem commit. O conteúdo é conferido de novo; se
+                // mudou desde a primeira conferência, a transação inteira é desfeita e o gate continua pendente.
+                if (worktree is not null && await HashAtualAsync(worktree, token) is var depois && depois != pedido.HashDoArtefato)
+                    throw new ArtefatoAlteradoDuranteADecisaoException(depois);
+            }, cancellationToken);
+        }
+        catch (ArtefatoAlteradoDuranteADecisaoException divergencia)
+        {
+            // Nada foi gravado: o gate continua pendente e pede uma nova revisão do conteúdo atual.
+            resultado = new(ResultadoDaDecisao.ArtefatoDivergente, encontrada.Codigo, resultado.Rodada, divergencia.HashAtual);
+        }
+        return resultado;
+    }
+
+    // Hash canônico do conteúdo atual da worktree principal reservada (o mesmo cálculo do revisor). Sem worktree
+    // reservada ou ilegível: recusa, e nada é decidido.
+    private async Task<string> ArtefatoAtualAsync(Guid idExecucao, CancellationToken cancellationToken) =>
+        await HashAtualAsync(await WorktreeDoArtefatoAsync(idExecucao, cancellationToken), cancellationToken);
+
+    // A worktree principal reservada da execução, lida uma vez: as conferências antes e depois de gravar a decisão usam
+    // o mesmo diretório, mesmo que a decisão libere a reserva na mesma transação.
+    private async Task<WorktreePlanejada> WorktreeDoArtefatoAsync(Guid idExecucao, CancellationToken cancellationToken)
+    {
+        var principal = (await reservas.ListarDaExecucaoAsync(idExecucao, cancellationToken))
+            .SingleOrDefault(r => r.Principal && r.Ativa) ??
+            throw new InvalidOperationException("A worktree do resultado não está reservada; nada foi decidido.");
+        return WorktreeDaExecucaoDto.De(principal).Planejada;
+    }
+
+    private async Task<string> HashAtualAsync(WorktreePlanejada worktree, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await gerenciador.ResumirAlteracoesAsync(worktree, 0, cancellationToken)).Hash;
+        }
+        catch (WorktreeInvalidaException exception)
+        {
+            throw new InvalidOperationException($"A worktree do resultado não pôde ser conferida ({exception.Message}); " +
+                "nada foi decidido.");
+        }
+    }
+
+    private sealed class ArtefatoAlteradoDuranteADecisaoException(string hashAtual)
+        : Exception("O conteúdo da worktree mudou durante a decisão.")
+    {
+        public string HashAtual { get; } = hashAtual;
+    }
+
+    public async Task<ResultadoDaDecisaoDto> RevisarNovamenteAsync(ProprietarioDaExecucao proprietario, string codigo,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(proprietario);
+        var encontrada = await LocalizarAsync(proprietario, codigo, cancellationToken);
+        if (encontrada is null) return new(ResultadoDaDecisao.NaoEncontrada);
+        if (await ConferirIntegridadeAsync(encontrada.Id, cancellationToken) is { } recusa)
+            throw new InvalidOperationException(recusa);
+        ResultadoDaDecisaoDto resultado = new(ResultadoDaDecisao.SemPedidoPendente, encontrada.Codigo);
         await fila.ExecutarEmTransacaoAsync(async token =>
         {
-            // Mesma ordem das gravações sob posse: trabalhos (nenhum ativo num gate), depois a execução, travados.
             if ((await fila.TravarAtivosDaExecucaoAsync(encontrada.Id, token)).Count > 0) return;
             var execucao = await execucoes.ObterParaAtualizarAsync(encontrada.Id, token) ??
                 throw new InvalidOperationException("Execução não registrada no ledger.");
@@ -300,65 +442,37 @@ public sealed class RoteirosAppService(
             if (pedido is null) return;
             var roteiro = await roteiros.ObterDaExecucaoAsync(execucao.Id, token) ??
                 throw new InvalidOperationException("O roteiro da execução não está registrado.");
-            if (pedido.HashDoSnapshot != roteiro.HashDoSnapshot)
-                throw new InvalidOperationException("O pedido de aprovação não é do snapshot desta execução.");
             var aprovacao = await etapas.ObterPorIdAsync(pedido.IdEtapa, token) ??
                 throw new InvalidOperationException("Etapa de aprovação não registrada.");
+            var revisada = (await etapas.ListarDaExecucaoAsync(execucao.Id, token))
+                .Where(e => e.Passo == TipoDePassoDoRoteiro.Revisar && e.Estado == EstadoDaEtapa.Concluida)
+                .MaxBy(e => e.Numero) ?? throw new InvalidOperationException("Nenhuma revisão concluída a refazer.");
+            // Só com o conteúdo de fato alterado: o pedido em vigor continua valendo para o artefato revisado.
+            var atual = await ArtefatoAtualAsync(execucao.Id, token);
             var agora = fila.Agora;
-            var execucaoAntes = execucao.Estado;
+            pedido.Substituir(proprietario.Canal, proprietario.IdDoUsuario, atual, agora);
             var etapaAntes = aprovacao.Estado;
-            switch (decisao.Tipo)
-            {
-                case TipoDeDecisaoHumana.Aprovar:
-                    pedido.Aprovar(proprietario.Canal, proprietario.IdDoUsuario, decisao.HashConfirmado, agora);
-                    aprovacao.Continuar();
-                    aprovacao.Concluir(null, agora);
-                    execucao.Retomar();
-                    execucao.Iniciar(agora);
-                    execucao.Concluir(agora);
-                    resultado = new(ResultadoDaDecisao.Aprovada, execucao.Codigo, pedido.Rodada);
-                    break;
-                case TipoDeDecisaoHumana.Corrigir:
-                {
-                    var proximo = ProgressaoDoRoteiro.CorrecaoPedidaNoGate(pedido.Rodada, roteiro.TemCorrecao,
-                        roteiro.RodadasDeRevisaoMaximas);
-                    // Sem rodada disponível, o gate continua aberto: aprovar ou recusar.
-                    if (proximo.Bloqueia) throw new InvalidOperationException(proximo.MotivoDoBloqueio + " Aprove ou recuse.");
-                    pedido.SolicitarCorrecao(proprietario.Canal, proprietario.IdDoUsuario, decisao.HashConfirmado,
-                        instrucao!, agora);
-                    aprovacao.Continuar();
-                    aprovacao.Concluir(null, agora);
-                    execucao.Retomar();
-                    var corrigir = await NovaEtapaAsync(execucao, aprovacao, proximo.Passo!.Value, proximo.Rodada, roteiro,
-                        agora, token);
-                    // Nova tentativa de escrita: o slot é readquirido ao reservar, sob a trava de capacidade, sem contar
-                    // tentativa enquanto não houver capacidade (decisão C).
-                    await fila.EnfileirarAsync(TrabalhoDaFila.AvancarExecucao(execucao, corrigir, Chave(execucao, corrigir),
-                        agora), token);
-                    resultado = new(ResultadoDaDecisao.CorrecaoAgendada, execucao.Codigo, proximo.Rodada);
-                    break;
-                }
-                default:
-                    pedido.Recusar(proprietario.Canal, proprietario.IdDoUsuario, PedidoDeCancelamento.MotivoSeguro(instrucao),
-                        agora);
-                    aprovacao.Cancelar("recusado na aprovação humana", null, agora);
-                    execucao.Cancelar("Resultado recusado na aprovação humana.", agora);
-                    resultado = new(ResultadoDaDecisao.Recusada, execucao.Codigo, pedido.Rodada);
-                    break;
-            }
+            aprovacao.Cancelar("artefato alterado depois da revisão; nova revisão pedida", null, agora);
             await Transicao(execucao, aprovacao, etapaAntes, aprovacao.Estado, agora, token);
+            var execucaoAntes = execucao.Estado;
+            execucao.Retomar();
             await Transicao(execucao, null, execucaoAntes, execucao.Estado, agora, token);
+            // A mesma rodada: rever o conteúdo atual não consome rodada de correção. A reserva continua aguardando a
+            // decisão (a revisão só lê).
+            var revisar = await NovaEtapaAsync(execucao, revisada, TipoDePassoDoRoteiro.Revisar, pedido.Rodada, roteiro,
+                agora, token);
+            await fila.EnfileirarAsync(TrabalhoDaFila.AvancarExecucao(execucao, revisar, Chave(execucao, revisar), agora), token);
             await eventos.AdicionarAsync(EventoDeOrquestracao.DaExecucao(execucao, TipoDeEventoDeOrquestracao.SolicitacaoResolvida,
                 Json(new()
                 {
                     ["decisao"] = pedido.Estado.ToString(),
                     ["autor"] = proprietario.Autor,
                     ["artefato"] = pedido.HashDoArtefato[..12],
+                    ["atual"] = atual[..12],
                     ["rodada"] = Numero(pedido.Rodada)
                 }), agora, aprovacao), token);
-            // Aprovado ou recusado: terminal, as reservas deixam de ser ativas; a limpeza preserva a worktree alterada.
-            await LiberacaoDeWorktrees.LiberarSeEncerradaAsync(reservas, eventos, execucao, agora, token);
             await unidade.SalvarAlteracoesAsync(token);
+            resultado = new(ResultadoDaDecisao.RevisaoAgendada, execucao.Codigo, pedido.Rodada, atual);
         }, cancellationToken);
         return resultado;
     }

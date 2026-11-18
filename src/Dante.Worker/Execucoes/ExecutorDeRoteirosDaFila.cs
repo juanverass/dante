@@ -215,8 +215,10 @@ public sealed class ExecutorDeRoteirosDaFila(
         await using (var escopo = escopos.CreateAsyncScope())
             worktrees = (await escopo.ServiceProvider.GetRequiredService<IReservasDeWorktreeAppService>()
                 .ListarDaExecucaoAsync(alvo.IdExecucao, cancellationToken))
-                .Where(w => w.Estado == EstadoDaReservaDeWorktree.Pronta).ToArray();
-        if (worktrees.Count(w => w.Principal) != 1 || await ValidarWorktreesAsync(worktrees, cancellationToken) is { } invalida)
+                // A revisão só lê: a worktree pronta ou a que aguarda decisão (nova revisão pedida no gate, #316).
+                .Where(w => w.Estado is EstadoDaReservaDeWorktree.Pronta or EstadoDaReservaDeWorktree.AguardandoDecisao).ToArray();
+        if (worktrees.Count(w => w.Principal) != 1 ||
+            await ValidarWorktreesAsync(worktrees, cancellationToken, aguardandoDecisao: true) is not null)
         {
             await FalharAsync(alvo, controle, roteiro, "a worktree da execução não está pronta para a revisão.");
             return;
@@ -380,12 +382,13 @@ public sealed class ExecutorDeRoteirosDaFila(
     }
 
     private async Task<string?> ValidarWorktreesAsync(IReadOnlyList<WorktreeDaExecucaoDto> worktrees,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool aguardandoDecisao = false)
     {
         if (worktrees.Count == 0) return "a execução não tem worktree pronta.";
         foreach (var worktree in worktrees)
         {
-            if (worktree.Estado != EstadoDaReservaDeWorktree.Pronta)
+            if (worktree.Estado != EstadoDaReservaDeWorktree.Pronta &&
+                !(aguardandoDecisao && worktree.Estado == EstadoDaReservaDeWorktree.AguardandoDecisao))
                 return $"worktree de {worktree.Alias} não está pronta ({worktree.Estado}).";
             try
             {

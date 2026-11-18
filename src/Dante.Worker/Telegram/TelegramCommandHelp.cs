@@ -112,7 +112,8 @@ internal static class TelegramCommandHelp
             "/execucao recusar E42", "Mostra etapas (estado, tentativa, agente, modelo, sessão), contexto pelo " +
             "@alias e erro com proteção de segredos. A saída do agente não é guardada e não aparece aqui. Num roteiro de " +
             "grupo, mostra também participantes, passos e, na aprovação humana, o hash do resultado: aprovar e corrigir " +
-            "exigem esse hash (ao menos 12 caracteres), recusar não; a decisão vale uma vez só e não faz commit, push, PR " +
+            "exigem esse hash (ao menos 12 caracteres), recusar não, e só valem se a worktree ainda tiver exatamente o " +
+            "conteúdo revisado (senão, revisar E42 pede uma nova revisão); a decisão vale uma vez só e não faz commit, push, PR " +
             "nem merge. objetivo E42 <tarefa> reenvia uma tarefa que a redação protegeu."),
         new("/aguardando", "ACOMPANHAMENTO", "Veja quais execuções suas estão esperando e por quê.", "/aguardando",
             "Na fila, aguardando nova tentativa, interrompida ou bloqueada. Não há posição numérica: a fila não garante ordem estável."),

@@ -17,7 +17,13 @@ public enum ResultadoDaDecisao
     SemPedidoPendente,
     Aprovada,
     CorrecaoAgendada,
-    Recusada
+    Recusada,
+    // O conteúdo da worktree não é mais o revisado: nada foi decidido; o gate continua pendente até uma nova revisão.
+    ArtefatoDivergente,
+    // Nova revisão do conteúdo atual agendada (o pedido anterior foi substituído).
+    RevisaoAgendada
 }
 
-public sealed record ResultadoDaDecisaoDto(ResultadoDaDecisao Resultado, string? Codigo = null, int? Rodada = null);
+// HashAtual: o hash do conteúdo presente na worktree, quando ele diverge do revisado.
+public sealed record ResultadoDaDecisaoDto(ResultadoDaDecisao Resultado, string? Codigo = null, int? Rodada = null,
+    string? HashAtual = null);

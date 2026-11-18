@@ -38,7 +38,10 @@ public interface IRoteirosAppService
 
     // Decisão da pessoa no gate (decisão F), uma vez só: aprovar encerra o roteiro (sem commit, push nem PR; a
     // worktree alterada é preservada); corrigir abre a próxima rodada dentro do limite e devolve a execução à fila
-    // (o slot é readquirido ao reservar); recusar cancela. Integridade conferida antes de decidir.
+    // (o slot é readquirido ao reservar); recusar cancela. Integridade conferida antes de decidir. Aprovar e corrigir
+    // valem só para o artefato revisado: o hash do conteúdo atual da worktree é recalculado dentro da transação, antes
+    // e depois de gravar a decisão (ainda sem commit); qualquer diferença desfaz tudo e devolve ArtefatoDivergente,
+    // com o gate pendente.
     Task<ResultadoDaDecisaoDto> DecidirAsync(ProprietarioDaExecucao proprietario, string codigo, DecisaoHumanaDto decisao,
         CancellationToken cancellationToken = default);
 
@@ -59,6 +62,12 @@ public interface IRoteirosAppService
     // Fatos da própria execução para o revisor (somente leitura): rodada, limite, hash revisado, vereditos anteriores e
     // a instrução humana da correção em curso.
     Task<EstadoDaRevisaoDto> ObterEstadoDaRevisaoAsync(EscopoDaRevisaoDto escopo, CancellationToken cancellationToken = default);
+
+    // O conteúdo da worktree mudou depois da revisão (a decisão foi recusada como ArtefatoDivergente): o dono pede uma
+    // nova revisão do conteúdo atual. O pedido em vigor é substituído e uma revisão da mesma rodada é enfileirada; com
+    // o conteúdo ainda igual ao revisado, recusa (decida sobre ele).
+    Task<ResultadoDaDecisaoDto> RevisarNovamenteAsync(ProprietarioDaExecucao proprietario, string codigo,
+        CancellationToken cancellationToken = default);
 
     // Objetivo sanitizado novo para uma execução que o aguarda; recusado se a redação também o alterar.
     Task<bool> SubstituirObjetivoAsync(ProprietarioDaExecucao proprietario, string codigo, string objetivo,
