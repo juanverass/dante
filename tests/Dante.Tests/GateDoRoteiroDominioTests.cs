@@ -113,6 +113,21 @@ public sealed class GateDoRoteiroDominioTests
         Assert.Throws<ArgumentException>(() => new PedidoDeAprovacao(execucao, aprovacao, 0, HashA, HashA.ToUpperInvariant(), Agora));
     }
 
+    // Review do PR #316: o pedido só é substituído (nova revisão) quando o conteúdo atual difere do revisado, uma vez.
+    [Fact]
+    public void PedidoSoESubstituidoComArtefatoDiferenteEDepoisNaoAceitaDecisao()
+    {
+        var (pedido, _) = Pedido();
+        Assert.Contains("ainda é o revisado", Assert.Throws<InvalidOperationException>(() =>
+            pedido.Substituir("telegram", 7, HashA, Agora)).Message);
+        Assert.Throws<ArgumentException>(() => pedido.Substituir("telegram", 7, "curto", Agora));
+        pedido.Substituir("telegram", 7, HashB, Agora);
+        Assert.Equal((EstadoDoPedidoDeAprovacao.Substituido, (long?)7), (pedido.Estado, pedido.IdDoDecisor));
+        Assert.Contains(HashB[..12], pedido.Motivo);
+        Assert.Throws<InvalidOperationException>(() => pedido.Aprovar("telegram", 7, HashA, Agora));
+        Assert.Throws<InvalidOperationException>(() => pedido.Substituir("telegram", 7, HashB, Agora));
+    }
+
     [Fact]
     public void SnapshotTemHashIndependenteDaOrdemEObjetivoProtegidoSoESubstituidoPorUmUtilizavel()
     {

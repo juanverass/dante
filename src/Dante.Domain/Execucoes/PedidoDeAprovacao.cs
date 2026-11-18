@@ -70,6 +70,17 @@ public sealed class PedidoDeAprovacao : EntidadeBase
     public void Recusar(string canal, long idDoDecisor, string? motivo, DateTimeOffset quando) =>
         Decidir(EstadoDoPedidoDeAprovacao.Recusado, canal, idDoDecisor, motivo, quando);
 
+    // O artefato presente na worktree não é mais o revisado (hash atual diferente do deste pedido): o dono pede uma
+    // nova revisão, e este pedido deixa de aceitar decisão. Recusado se o hash atual for o mesmo (nada a revisar).
+    public void Substituir(string canal, long idDoDecisor, string hashAtual, DateTimeOffset quando)
+    {
+        if (hashAtual is not { Length: TamanhoDoHash }) throw new ArgumentException("Hash inválido.", nameof(hashAtual));
+        if (hashAtual == HashDoArtefato)
+            throw new InvalidOperationException("O conteúdo da worktree ainda é o revisado; decida sobre ele.");
+        Decidir(EstadoDoPedidoDeAprovacao.Substituido, canal, idDoDecisor,
+            $"Artefato alterado depois da revisão (atual {hashAtual[..PrefixoMinimoDoHash]}); nova revisão pedida.", quando);
+    }
+
     public void Cancelar(string? motivo, DateTimeOffset quando)
     {
         if (!Pendente) throw Decidido();

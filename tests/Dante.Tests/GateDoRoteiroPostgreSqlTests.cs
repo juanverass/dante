@@ -326,10 +326,109 @@ public sealed class GateDoRoteiroPostgreSqlTests : IDisposable
         Assert.StartsWith("Uso:", await telegram.DetalharAsync(Dono, $"aprovar {gate.Codigo}", CancellationToken.None));
         Assert.Contains("hash confirmado", await telegram.DetalharAsync(Dono, $"aprovar {gate.Codigo} 000000000000",
             CancellationToken.None));
+        // Conteúdo alterado depois da revisão: nada é decidido e o caminho é pedir nova revisão.
+        File.AppendAllText(Path.Combine(gate.Worktree, "resultado.txt"), "mudou\n");
+        var divergencia = await telegram.DetalharAsync(Dono, $"aprovar {gate.Codigo} {gate.HashDoArtefato[..12]}", CancellationToken.None);
+        Assert.Contains("mudou depois da revisão", divergencia);
+        Assert.Contains($"/execucao revisar {gate.Codigo}", divergencia);
+        File.WriteAllText(Path.Combine(gate.Worktree, "resultado.txt"), "feito pelo implementador\n");
         Assert.Contains("aprovada (rodada 0) e encerrada", await telegram.DetalharAsync(Dono,
             $"aprovar {gate.Codigo} {gate.HashDoArtefato[..12]}", CancellationToken.None));
         Assert.Contains("não está aguardando aprovação", await telegram.DetalharAsync(Dono,
             $"recusar {gate.Codigo}", CancellationToken.None));
+    }
+
+    // Review do PR #316: a decisão vale só para o artefato revisado. Gate com H; a worktree passa a H2; aprovar ou
+    // corrigir com H é recusado sem gravar nada (gate pendente, nenhuma correção agendada); a nova revisão do conteúdo
+    // atual substitui o pedido, e só então a decisão vale, com H2. Um gate também não abre com um hash velho.
+    [PostgreSqlFact]
+    public async Task ArtefatoAlteradoDepoisDaRevisaoNaoEDecididoEExigeNovaRevisao()
+    {
+        var dante = temp.Criar("dante");
+        await using var banco = await FilaAsync();
+        await using var provider = ProviderDeRoteiro(banco.ConnectionString, dante);
+        var gate = await RoteiroNoGateAsync(provider, dante);
+        // Com o conteúdo ainda revisado, não há o que revisar de novo.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => RoteirosAsync(provider,
+            r => r.RevisarNovamenteAsync(Proprietario(), gate.Codigo)));
+        File.AppendAllText(Path.Combine(gate.Worktree, "resultado.txt"), "alterado depois da revisão\n");
+        var gerenciador = provider.GetRequiredService<IGerenciadorDeWorktrees>();
+        var reserva = Assert.Single(await ReservasAsync(provider, gate.IdExecucao));
+        var h2 = (await gerenciador.ResumirAlteracoesAsync(reserva.Planejada, 0)).Hash;
+        Assert.NotEqual(gate.HashDoArtefato, h2);
+        foreach (var decisao in new[]
+                 {
+                     new DecisaoHumanaDto(TipoDeDecisaoHumana.Aprovar, gate.HashDoArtefato),
+                     new DecisaoHumanaDto(TipoDeDecisaoHumana.Corrigir, gate.HashDoArtefato, "trate o caso vazio"),
+                     // O hash novo também não vale: o pedido é do artefato revisado.
+                     new DecisaoHumanaDto(TipoDeDecisaoHumana.Aprovar, h2)
+                 })
+        {
+            var resultado = await RoteirosAsync(provider, r => r.DecidirAsync(Proprietario(), gate.Codigo, decisao));
+            if (decisao.HashConfirmado == h2) Assert.Equal(ResultadoDaDecisao.ArtefatoDivergente, resultado.Resultado);
+            else Assert.Equal((ResultadoDaDecisao.ArtefatoDivergente, h2), (resultado.Resultado, resultado.HashAtual));
+        }
+        var roteiro = (await RoteirosAsync(provider, r => r.ObterAsync(gate.IdExecucao)))!;
+        Assert.Equal((EstadoDaExecucao.AguardandoAprovacao, gate.HashDoArtefato), (roteiro.Estado, roteiro.PedidoPendente!.HashDoArtefato));
+        Assert.Equal(EstadoDaReservaDeWorktree.AguardandoDecisao, (await ReservasAsync(provider, gate.IdExecucao))[0].Estado);
+        Assert.Equal(0L, await Escalar(banco, "SELECT count(*) FROM orquestracao.trabalhos_da_fila WHERE estado IN (0, 1)"));
+        Assert.Equal(0L, await Escalar(banco, "SELECT count(*) FROM orquestracao.pedidos_de_aprovacao WHERE estado <> 0"));
+
+        // Nova revisão do conteúdo atual: o pedido é substituído, a aprovação cancelada, e uma revisão da mesma rodada vai à fila.
+        var revisao = await RoteirosAsync(provider, r => r.RevisarNovamenteAsync(Proprietario(), gate.Codigo));
+        Assert.Equal((ResultadoDaDecisao.RevisaoAgendada, 0, h2), (revisao.Resultado, revisao.Rodada, revisao.HashAtual));
+        roteiro = (await RoteirosAsync(provider, r => r.ObterAsync(gate.IdExecucao)))!;
+        Assert.Equal(EstadoDaExecucao.Pendente, roteiro.Estado);
+        Assert.Equal(EstadoDoPedidoDeAprovacao.Substituido, Assert.Single(roteiro.Pedidos).Estado);
+        Assert.Equal((TipoDePassoDoRoteiro.Revisar, 0), (roteiro.Etapas[^1].Passo, roteiro.Etapas[^1].Rodada));
+        Assert.Equal(EstadoDaEtapa.Cancelada, roteiro.Etapas.Single(e => e.Passo == TipoDePassoDoRoteiro.AprovacaoHumana).Estado);
+        // O gate não abre com o hash velho: o diff revisado tem de ser o conteúdo atual.
+        var revisar = (await ReivindicarAsync(provider, Processador("host-a")))!;
+        await AppAsync(provider, f => f.IniciarEtapaAsync(revisar.Posse, revisar.IdEtapa!.Value));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => RoteirosAsync(provider, r => r.ConcluirPassoAsync(
+            revisar.Posse, revisar.IdEtapa!.Value, new ConclusaoDoPassoDto(new ResultadoDaEtapaDto(EstadoDaEtapa.Concluida),
+                VereditoDeRevisao.Aprovado, gate.HashDoArtefato))));
+        var novoGate = await RoteirosAsync(provider, r => r.ConcluirPassoAsync(revisar.Posse, revisar.IdEtapa!.Value,
+            new ConclusaoDoPassoDto(new ResultadoDaEtapaDto(EstadoDaEtapa.Concluida), VereditoDeRevisao.Aprovado, h2)));
+        Assert.Equal((true, h2), (novoGate.GateAberto, novoGate.HashDoArtefato));
+        // No gate novo, o hash antigo digitado é recusado (o artefato confere; a confirmação, não).
+        Assert.Contains("hash confirmado", (await Assert.ThrowsAsync<InvalidOperationException>(() => RoteirosAsync(provider,
+            r => r.DecidirAsync(Proprietario(), gate.Codigo, new DecisaoHumanaDto(TipoDeDecisaoHumana.Aprovar, gate.HashDoArtefato))))).Message);
+        Assert.Equal(ResultadoDaDecisao.Aprovada, (await RoteirosAsync(provider, r => r.DecidirAsync(Proprietario(),
+            gate.Codigo, new DecisaoHumanaDto(TipoDeDecisaoHumana.Aprovar, h2[..12])))).Resultado);
+    }
+
+    // A corrida: o conteúdo muda entre a primeira conferência e o commit da decisão (aqui, logo depois da primeira
+    // leitura do hash). A conferência feita depois de gravar a decisão, ainda na transação, a desfaz inteira: nada é
+    // aprovado, a reserva não é liberada e o gate continua pendente, pedindo nova revisão.
+    [PostgreSqlFact]
+    public async Task AlteracaoConcorrenteDuranteADecisaoDesfazTudo()
+    {
+        var dante = temp.Criar("dante");
+        await using var banco = await FilaAsync();
+        var alterador = new AlteraDepoisDaLeitura();
+        await using var provider = ProviderDeRoteiro(banco.ConnectionString, [dante], alterador);
+        var gate = await RoteiroNoGateAsync(provider, dante);
+        foreach (var tipo in new[] { TipoDeDecisaoHumana.Aprovar, TipoDeDecisaoHumana.Corrigir })
+        {
+            // Volta ao artefato revisado e arma a alteração para a próxima leitura.
+            File.WriteAllText(Path.Combine(gate.Worktree, "resultado.txt"), "feito pelo implementador\n");
+            alterador.Armar(Path.Combine(gate.Worktree, "resultado.txt"));
+            var resultado = await RoteirosAsync(provider, r => r.DecidirAsync(Proprietario(), gate.Codigo,
+                new DecisaoHumanaDto(tipo, gate.HashDoArtefato, "corrija")));
+            Assert.Equal(ResultadoDaDecisao.ArtefatoDivergente, resultado.Resultado);
+            Assert.True(alterador.Disparou);
+            Assert.Equal(1L, await Escalar(banco, "SELECT count(*) FROM orquestracao.pedidos_de_aprovacao WHERE estado = 0"));
+            Assert.Equal(0L, await Escalar(banco, "SELECT count(*) FROM orquestracao.trabalhos_da_fila WHERE estado IN (0, 1)"));
+            Assert.Equal(0L, await Escalar(banco, "SELECT count(*) FROM orquestracao.eventos WHERE tipo = " +
+                (int)TipoDeEventoDeOrquestracao.SolicitacaoResolvida));
+            Assert.Equal(EstadoDaExecucao.AguardandoAprovacao, (await RoteirosAsync(provider, r => r.ObterAsync(gate.IdExecucao)))!.Estado);
+            Assert.Equal(EstadoDaReservaDeWorktree.AguardandoDecisao, (await ReservasAsync(provider, gate.IdExecucao))[0].Estado);
+        }
+        // Sem alteração em curso, a mesma decisão vale.
+        File.WriteAllText(Path.Combine(gate.Worktree, "resultado.txt"), "feito pelo implementador\n");
+        Assert.Equal(ResultadoDaDecisao.Aprovada, (await RoteirosAsync(provider, r => r.DecidirAsync(Proprietario(),
+            gate.Codigo, new DecisaoHumanaDto(TipoDeDecisaoHumana.Aprovar, gate.HashDoArtefato)))).Resultado);
     }
 
     [PostgreSqlFact]
@@ -350,13 +449,64 @@ public sealed class GateDoRoteiroPostgreSqlTests : IDisposable
 
     // ---- apoio ----
 
+    // Altera o arquivo armado logo depois de devolver o hash de uma leitura: a próxima leitura (a conferência feita
+    // depois de gravar a decisão) vê outro conteúdo.
+    private sealed class AlteraDepoisDaLeitura : IGerenciadorDeWorktrees
+    {
+        private IGerenciadorDeWorktrees inner = null!;
+        private string? arquivo;
+
+        public bool Disparou { get; private set; }
+
+        public IGerenciadorDeWorktrees Envolver(IGerenciadorDeWorktrees real)
+        {
+            inner = real;
+            return this;
+        }
+
+        public void Armar(string caminho) => (arquivo, Disparou) = (caminho, false);
+
+        public async Task<AlteracoesDaWorktreeDto> ResumirAlteracoesAsync(WorktreePlanejada worktree, int limiteDoDiff,
+            CancellationToken cancellationToken = default)
+        {
+            var resumo = await inner.ResumirAlteracoesAsync(worktree, limiteDoDiff, cancellationToken);
+            if (arquivo is { } alvo)
+            {
+                arquivo = null;
+                File.AppendAllText(alvo, "alteração concorrente\n");
+                Disparou = true;
+            }
+            return resumo;
+        }
+
+        public Task<WorktreePlanejada> PlanejarAsync(RepositorioCadastrado repositorio, long numeroDaExecucao, string handle,
+            CancellationToken cancellationToken = default) => inner.PlanejarAsync(repositorio, numeroDaExecucao, handle, cancellationToken);
+        public Task CriarOuAdotarAsync(WorktreePlanejada worktree, CancellationToken cancellationToken = default) =>
+            inner.CriarOuAdotarAsync(worktree, cancellationToken);
+        public Task ValidarAsync(WorktreePlanejada worktree, CancellationToken cancellationToken = default) =>
+            inner.ValidarAsync(worktree, cancellationToken);
+        public Task<DesfechoDaLimpeza> RemoverSePossivelAsync(WorktreePlanejada worktree, CancellationToken cancellationToken = default) =>
+            inner.RemoverSePossivelAsync(worktree, cancellationToken);
+        public IReadOnlyList<string> ListarDiretoriosDesconhecidos(IReadOnlyCollection<string> conhecidos) =>
+            inner.ListarDiretoriosDesconhecidos(conhecidos);
+    }
+
     private sealed record RoteiroNoGate(Guid IdExecucao, string Codigo, string Worktree, string HashDoArtefato);
 
     private static ProprietarioDaExecucao Proprietario() => new(LedgerChannel.Telegram, Dono);
 
     private ServiceProvider ProviderDeRoteiro(string connectionString, params RepositorioCadastrado[] repositorios) =>
+        ProviderDeRoteiro(connectionString, repositorios, null);
+
+    // alterador: envolve o gerenciador Git real para simular uma alteração concorrente da worktree.
+    private ServiceProvider ProviderDeRoteiro(string connectionString, RepositorioCadastrado[] repositorios,
+        AlteraDepoisDaLeitura? alterador) =>
         Provider(connectionString, configurar: services =>
         {
+            if (alterador is not null)
+                services.Replace(ServiceDescriptor.Singleton<IGerenciadorDeWorktrees>(provider => alterador.Envolver(
+                    new Dante.Infrastructure.Contextos.GerenciadorDeWorktreesGit(provider.GetRequiredService<OpcoesDeWorktrees>(),
+                        provider.GetRequiredService<ICatalogoDeRepositorios>()))));
             services.AddSingleton(new OpcoesDeWorktrees { Raiz = temp.RaizDasWorktrees });
             services.Replace(ServiceDescriptor.Singleton<ICatalogoDeRepositorios>(new CatalogoFixo(repositorios)));
             services.Replace(ServiceDescriptor.Singleton<IAgentModelCatalog>(new CatalogoDeModelosFixo()));
@@ -409,7 +559,8 @@ public sealed class GateDoRoteiroPostgreSqlTests : IDisposable
         Assert.Equal((TipoDePassoDoRoteiro?)TipoDePassoDoRoteiro.Revisar, avanco.ProximoPasso);
         var revisar = (await ReivindicarAsync(provider, Processador("host-a")))!;
         await AppAsync(provider, f => f.IniciarEtapaAsync(revisar.Posse, revisar.IdEtapa!.Value));
-        var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData("diff"u8));
+        // O hash do artefato é o do conteúdo real da worktree: o gate só abre para ele.
+        var hash = (await gerenciador.ResumirAlteracoesAsync(pronta.Planejada, 0)).Hash;
         var gate = await RoteirosAsync(provider, r => r.ConcluirPassoAsync(revisar.Posse, revisar.IdEtapa!.Value,
             new ConclusaoDoPassoDto(new ResultadoDaEtapaDto(EstadoDaEtapa.Concluida), VereditoDeRevisao.Aprovado, hash)));
         Assert.True(gate.GateAberto);

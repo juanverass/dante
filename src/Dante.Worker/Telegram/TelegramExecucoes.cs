@@ -18,7 +18,7 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
     public const string Indisponivel = "Acompanhamento de execuções indisponível (banco de dados). Tente novamente.";
     internal const string UsoDaListagem = "Uso: /execucoes [todas]";
     internal const string UsoDoDetalhe = "Uso: /execucao <J…|E…> | /execucao aprovar|corrigir <E…> <hash> [instrução] | " +
-        "/execucao recusar <E…> [motivo] | /execucao objetivo <E…> <tarefa>";
+        "/execucao recusar <E…> [motivo] | /execucao revisar <E…> | /execucao objetivo <E…> <tarefa>";
 
     private readonly TimeProvider relogio = relogio ?? TimeProvider.System;
 
@@ -41,7 +41,7 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
     {
         // Decisões do gate de um roteiro (#308): /execucao aprovar|corrigir|recusar|objetivo E… …
         var partes = argumentos.Trim().Split([' ', '\t', '\n'], 3, StringSplitOptions.RemoveEmptyEntries);
-        if (partes.Length > 0 && partes[0].ToLowerInvariant() is "aprovar" or "corrigir" or "recusar" or "objetivo")
+        if (partes.Length > 0 && partes[0].ToLowerInvariant() is "aprovar" or "corrigir" or "recusar" or "revisar" or "objetivo")
             return DecidirAsync(idDoUsuario, partes, cancellationToken);
         var codigo = argumentos.Trim();
         if (codigo.Length == 0 || codigo.IndexOfAny([' ', '\t', '\r', '\n']) >= 0) return Task.FromResult(UsoDoDetalhe);
@@ -74,6 +74,8 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
                 return await roteiros.SubstituirObjetivoAsync(Dono(idDoUsuario), codigo, resto, cancellationToken)
                     ? $"{codigo.ToUpperInvariant()}: tarefa recebida; o roteiro volta à fila."
                     : $"{codigo.ToUpperInvariant()} não está aguardando uma tarefa nova. Veja /execucao {codigo}.";
+            if (acao == "revisar")
+                return Decisao(await roteiros.RevisarNovamenteAsync(Dono(idDoUsuario), codigo, cancellationToken), codigo);
             DecisaoHumanaDto decisao;
             if (acao == "recusar") decisao = new(TipoDeDecisaoHumana.Recusar, Texto: resto.Length == 0 ? null : resto);
             else
@@ -83,19 +85,26 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
                 decisao = new(acao == "aprovar" ? TipoDeDecisaoHumana.Aprovar : TipoDeDecisaoHumana.Corrigir, hashETexto[0],
                     hashETexto.Length > 1 ? hashETexto[1] : null);
             }
-            var resultado = await roteiros.DecidirAsync(Dono(idDoUsuario), codigo, decisao, cancellationToken);
-            return resultado.Resultado switch
-            {
-                ResultadoDaDecisao.Aprovada => $"{resultado.Codigo} aprovada (rodada {resultado.Rodada}) e encerrada. " +
-                    "Nada foi commitado nem enviado: as alterações ficam na worktree, preservada para a entrega.",
-                ResultadoDaDecisao.CorrecaoAgendada => $"{resultado.Codigo}: correção agendada (rodada {resultado.Rodada}); " +
-                    "o roteiro volta à fila e continua quando houver vaga de escrita.",
-                ResultadoDaDecisao.Recusada => $"{resultado.Codigo} recusada e encerrada; a worktree alterada é preservada.",
-                ResultadoDaDecisao.SemPedidoPendente => $"{resultado.Codigo} não está aguardando aprovação (ou já foi decidida).",
-                _ => NaoEncontrada(codigo)
-            };
+            return Decisao(await roteiros.DecidirAsync(Dono(idDoUsuario), codigo, decisao, cancellationToken), codigo);
         }), conflito: "A execução mudou durante a decisão. Consulte /execucao e tente novamente.");
     }
+
+    private static string Decisao(ResultadoDaDecisaoDto resultado, string codigo) =>
+        resultado.Resultado switch
+        {
+            ResultadoDaDecisao.ArtefatoDivergente => $"{resultado.Codigo}: o conteúdo da worktree mudou depois da " +
+                $"revisão (agora {resultado.HashAtual![..12]}); nada foi decidido e o gate continua pendente. Peça uma " +
+                $"nova revisão do conteúdo atual: /execucao revisar {resultado.Codigo}",
+            ResultadoDaDecisao.RevisaoAgendada => $"{resultado.Codigo}: nova revisão da rodada {resultado.Rodada} " +
+                $"agendada para o conteúdo atual ({resultado.HashAtual![..12]}); a decisão volta a você depois dela.",
+            ResultadoDaDecisao.Aprovada => $"{resultado.Codigo} aprovada (rodada {resultado.Rodada}) e encerrada. " +
+                "Nada foi commitado nem enviado: as alterações ficam na worktree, preservada para a entrega.",
+            ResultadoDaDecisao.CorrecaoAgendada => $"{resultado.Codigo}: correção agendada (rodada {resultado.Rodada}); " +
+                "o roteiro volta à fila e continua quando houver vaga de escrita.",
+            ResultadoDaDecisao.Recusada => $"{resultado.Codigo} recusada e encerrada; a worktree alterada é preservada.",
+            ResultadoDaDecisao.SemPedidoPendente => $"{resultado.Codigo} não está aguardando aprovação (ou já foi decidida).",
+            _ => NaoEncontrada(codigo)
+        };
 
     // Recusas do caso de uso (hash errado, instrução com credencial, sem rodada) já vêm em texto para o usuário; falha de
     // infraestrutura continua indo ao tratamento comum (indisponível).

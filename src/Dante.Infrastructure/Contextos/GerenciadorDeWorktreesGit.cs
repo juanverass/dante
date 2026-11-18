@@ -141,6 +141,42 @@ public sealed partial class GerenciadorDeWorktreesGit(
             : new DesfechoDaLimpeza(false, "Preservada: o Git recusou remover a worktree" + Detalhe(remocao.Erro) + ".");
     }
 
+    public async Task<AlteracoesDaWorktreeDto> ResumirAlteracoesAsync(WorktreePlanejada worktree, int limiteDoDiff,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(worktree);
+        if (limiteDoDiff < 0) throw new ArgumentOutOfRangeException(nameof(limiteDoDiff));
+        await ValidarAsync(worktree, cancellationToken);
+        var diff = await GitAsync(worktree.Caminho, cancellationToken, "diff", "--no-ext-diff", "--no-textconv", "--no-color",
+            "--binary", worktree.ShaBase);
+        if (diff.Codigo != 0) throw new WorktreeInvalidaException("Não foi possível ler as alterações da worktree.");
+        var novos = await GitAsync(worktree.Caminho, cancellationToken, "ls-files", "--others", "--exclude-standard", "-z");
+        if (novos.Codigo != 0) throw new WorktreeInvalidaException("Não foi possível listar os arquivos novos da worktree.");
+        var caminhos = novos.Saida.Split('\0', StringSplitOptions.RemoveEmptyEntries).Order(StringComparer.Ordinal).ToArray();
+        var raiz = Path.GetFullPath(worktree.Caminho) + Path.DirectorySeparatorChar;
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        hash.AppendData(System.Text.Encoding.UTF8.GetBytes("formato=1\ndiff\n" + diff.Saida + "\0novos\n"));
+        foreach (var relativo in caminhos)
+        {
+            var completo = Path.GetFullPath(Path.Combine(worktree.Caminho, relativo));
+            if (!completo.StartsWith(raiz, StringComparison.Ordinal))
+                throw new WorktreeInvalidaException("Arquivo novo fora da worktree.");
+            var informacao = new FileInfo(completo);
+            string conteudo;
+            if (informacao.LinkTarget is { } destino)
+                conteudo = "link:" + destino;
+            else
+            {
+                await using var arquivo = File.OpenRead(completo);
+                conteudo = Convert.ToHexStringLower(await System.Security.Cryptography.SHA256.HashDataAsync(arquivo, cancellationToken));
+            }
+            hash.AppendData(System.Text.Encoding.UTF8.GetBytes(relativo + "\0" + conteudo + "\n"));
+        }
+        var cortado = diff.Saida.Length > limiteDoDiff;
+        return new AlteracoesDaWorktreeDto(cortado ? diff.Saida[..limiteDoDiff] : diff.Saida, cortado, caminhos,
+            Convert.ToHexStringLower(hash.GetHashAndReset()));
+    }
+
     public IReadOnlyList<string> ListarDiretoriosDesconhecidos(IReadOnlyCollection<string> conhecidos)
     {
         ArgumentNullException.ThrowIfNull(conhecidos);
@@ -238,6 +274,9 @@ public sealed partial class GerenciadorDeWorktreesGit(
         ["worktree", "add", ..] or ["worktree", "remove", _] or ["worktree", "list", "--porcelain"] => !argumentos.Contains("--force") && !argumentos.Contains("-f"),
         ["rev-parse", ..] or ["check-ref-format", ..] or ["symbolic-ref", "--quiet", "HEAD"] => true,
         ["status", "--porcelain", ..] or ["rev-list", "--count", _] => true,
+        // Leitura das alterações para a revisão de um roteiro (#308).
+        ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--binary", _] => true,
+        ["ls-files", "--others", "--exclude-standard", "-z"] => true,
         _ => false
     };
 
