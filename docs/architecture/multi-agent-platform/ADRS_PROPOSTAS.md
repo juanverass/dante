@@ -71,6 +71,9 @@
   autenticação e escopo (`FerramentasDeCoordenacao`: pipe exclusivo, token da sessão, escopo fixado pelo orquestrador)
   existem para a revisão confinada de um roteiro, com `estado_da_execucao` e `entregar_resultado`. A #309 amplia o
   catálogo e os escopos sobre esta infraestrutura; não cria outro servidor nem outro IPC. Ver AD-69 vigente.
+- **Vigente (domínio e persistência, PR 1 da #309)**: hierarquia de execuções, delegação, contratos tipados e
+  concessões; ver AD-70 em `docs/context/ARCHITECTURE_DECISIONS.md`. Executor, ferramentas e retorno entram nos PRs
+  seguintes da #309.
 
 ## AD-71 — Worktree por execução de escrita, gerida pelo D.A.N.T.E. com conjunto fechado de comandos Git
 

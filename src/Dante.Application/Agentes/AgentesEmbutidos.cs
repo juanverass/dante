@@ -24,10 +24,14 @@ public static class AgentesEmbutidos
         return false;
     }
 
+    // O que /claude, /codex e a conversa já usavam (AD-68). A coordenação (AD-70) não é concedida aos embutidos: eles
+    // não delegam, e a configuração materializada (e o hash dela) fica a mesma de antes da #309.
+    private static readonly FerramentaDoDante[] FerramentasDosEmbutidos = [FerramentaDoDante.Brain, FerramentaDoDante.Planilhas];
+
     public static ConfiguracaoDoAgente Materializar(AgentKind driver, AgentModelSelection? selecao,
         AgentPermissionProfile perfil) =>
         new(driver, perfil, AgentPermissionProfile.Auto, podeEscrever: true, selecao?.Model, selecao?.Effort,
-            instrucoes: null, Enum.GetValues<CapacidadeDoAgente>(), Enum.GetValues<FerramentaDoDante>(),
+            instrucoes: null, Enum.GetValues<CapacidadeDoAgente>(), FerramentasDosEmbutidos,
             [ConfiguracaoDoAgente.QualquerRepositorio]);
 
     public static AgenteDto Descrever(AgentKind driver) => new()

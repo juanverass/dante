@@ -94,7 +94,9 @@ public sealed class CadastroDeAgentesAppService(
                 (int?)Limite(alteracao.ExecucoesSimultaneas, atual.Limites.ExecucoesSimultaneas),
                 Limite(alteracao.TokensPorExecucao, atual.Limites.TokensPorExecucao),
                 (int?)Limite(alteracao.TurnosPorEtapa, atual.Limites.TurnosPorEtapa),
-                (int?)Limite(alteracao.MinutosPorEtapa, atual.Limites.MinutosPorEtapa))));
+                (int?)Limite(alteracao.MinutosPorEtapa, atual.Limites.MinutosPorEtapa)),
+            // A delegação (AD-70) ainda não é editável pelo cadastro: uma edição a herda da versão atual, sem mudá-la.
+            atual.PodeConsultar, atual.LimitesDeDelegacao));
         if (configuracao.Hash() == atual.Hash())
             throw new InvalidOperationException($"Nada mudou na configuração de {agente.Handle}; nenhuma versão criada.");
         var versao = agente.NovaVersao(configuracao, idDoAutor, relogio.GetUtcNow());

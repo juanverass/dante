@@ -130,6 +130,12 @@ etapa de escrita exige worktree reservada. Só os fluxos legados (sessão comum,
 - **Critérios**: autoconsulta, ciclo, profundidade e duplicata recusados com mensagem clara; reinício no meio preserva a delegação; resultado entra como dado não confiável com autor; delegação com escrita recusada enquanto não houver worktree e aprovação pelo gateway.
 - **Testes**: casos de uso puros; MCP/IPC como `BrainMcpTests`; E2E com duas sessões simuladas; `Live*` opt-in.
 - **Entregável**: AD-70.
+- **Implementação (#309, AD-70)**: em três PRs. O primeiro (domínio e persistência) traz a hierarquia de execuções
+  (raiz, pai, profundidade, tipo `Delegada`, conferida e imutável no banco), a `Delegacao` com contratos tipados do
+  catálogo fechado, as regras por interseção, as concessões `coordenacao`/`PodeConsultar`/limites com hash
+  retrocompatível e a deduplicação concorrente por unidade de trabalho, sem nada exposto em tempo de execução.
+  **Divergências**: teto global de profundidade 1 e paralelismo 1; delegação só de leitura; a mesma unidade para outro
+  agente é recusada; origem só de `Tarefa` (grupos e roteiros ficam para a #310).
 
 ### 8. Coordenador — complexidade média
 

@@ -35,6 +35,12 @@ public sealed class VersaoDoAgente : EntidadeBase
         TokensPorExecucao = configuracao.Limites.TokensPorExecucao;
         TurnosPorEtapa = configuracao.Limites.TurnosPorEtapa;
         MinutosPorEtapa = configuracao.Limites.MinutosPorEtapa;
+        PodeConsultar = configuracao.PodeConsultar;
+        ProfundidadeMaximaDeDelegacao = configuracao.LimitesDeDelegacao?.ProfundidadeMaxima;
+        DelegacoesPorExecucao = configuracao.LimitesDeDelegacao?.DelegacoesPorExecucao;
+        MinutosParaIniciarDelegacao = configuracao.LimitesDeDelegacao?.MinutosParaIniciar;
+        MinutosDeDelegacao = configuracao.LimitesDeDelegacao?.MinutosDeDuracao;
+        ParalelismoDeDelegacoes = configuracao.LimitesDeDelegacao?.Paralelismo;
         HashDaConfiguracao = configuracao.Hash();
         IdDoAutor = idDoAutor;
         CriadaEm = criadaEm;
@@ -56,6 +62,13 @@ public sealed class VersaoDoAgente : EntidadeBase
     public long? TokensPorExecucao { get; private set; }
     public int? TurnosPorEtapa { get; private set; }
     public int? MinutosPorEtapa { get; private set; }
+    // Delegação (AD-70, #309): vazia e nula nas versões anteriores, que continuam no formato 1 do hash.
+    public IReadOnlyList<string> PodeConsultar { get; private set; } = [];
+    public int? ProfundidadeMaximaDeDelegacao { get; private set; }
+    public int? DelegacoesPorExecucao { get; private set; }
+    public int? MinutosParaIniciarDelegacao { get; private set; }
+    public int? MinutosDeDelegacao { get; private set; }
+    public int? ParalelismoDeDelegacoes { get; private set; }
     public string HashDaConfiguracao { get; private set; } = "";
     // Pessoa (id no canal) que criou esta versão.
     public long IdDoAutor { get; private set; }
@@ -64,7 +77,26 @@ public sealed class VersaoDoAgente : EntidadeBase
     // Reconstrói a configuração gravada; o hash dela é o hash guardado enquanto a versão não for adulterada.
     public ConfiguracaoDoAgente Configuracao => new(Driver, PerfilPadrao, PerfilMaximo, PodeEscrever, Modelo, Esforco,
         Instrucoes, Capacidades, Ferramentas, Repositorios,
-        new LimitesDoAgente(ExecucoesSimultaneas, TokensPorExecucao, TurnosPorEtapa, MinutosPorEtapa));
+        new LimitesDoAgente(ExecucoesSimultaneas, TokensPorExecucao, TurnosPorEtapa, MinutosPorEtapa), PodeConsultar,
+        ProfundidadeMaximaDeDelegacao is { } profundidade
+            ? new LimitesDeDelegacao(profundidade, DelegacoesPorExecucao ?? 0, MinutosParaIniciarDelegacao ?? 0,
+                MinutosDeDelegacao ?? 0, ParalelismoDeDelegacoes ?? 0)
+            : null);
 
-    public bool Integra => Configuracao.Hash() == HashDaConfiguracao;
+    // Uma linha adulterada pode nem formar uma configuração válida (consultados sem a concessão coordenacao, limite acima
+    // do teto): também não é íntegra, em vez de derrubar quem confere.
+    public bool Integra
+    {
+        get
+        {
+            try
+            {
+                return Configuracao.Hash() == HashDaConfiguracao;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+        }
+    }
 }

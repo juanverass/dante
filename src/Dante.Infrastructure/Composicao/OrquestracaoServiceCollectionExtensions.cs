@@ -29,6 +29,8 @@ internal static class OrquestracaoServiceCollectionExtensions
         services.AddScoped<IParticipanteDaExecucaoRepository, ParticipanteDaExecucaoRepository>();
         services.AddScoped<IPedidoDeAprovacaoRepository, PedidoDeAprovacaoRepository>();
         services.AddScoped<IVereditoRegistradoRepository, VereditoRegistradoRepository>();
+        // Delegações rastreadas (AD-70, #309).
+        services.AddScoped<IDelegacaoRepository, DelegacaoRepository>();
         services.AddScoped<IUnitOfWorkDaOrquestracao, UnitOfWorkDaOrquestracao>();
         // Cadastro de agentes (AD-68): mesmo contexto e mesma unidade de trabalho do ledger.
         services.AddScoped<IAgenteRepository, AgenteRepository>();

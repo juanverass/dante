@@ -20,6 +20,15 @@ public sealed class ExecucaoDbMapping : EntidadeConfiguration<Execucao>
             t.HasCheckConstraint("ck_execucoes_roteiro_com_grupo",
                 $"(tipo = {(int)TipoDeExecucao.Roteiro}) = (id_versao_do_grupo IS NOT NULL) AND " +
                 $"(tipo <> {(int)TipoDeExecucao.Roteiro} OR id_versao_do_agente IS NULL)");
+            // Hierarquia (AD-70, #309): a raiz não tem pai, tem profundidade 0 e aponta para si; só a Delegada tem pai,
+            // sempre com a versão do agente destinatário. Profundidade até o teto global (o trigger da migration confere
+            // que ela é a do pai mais um, que a raiz é a do pai e que a autoridade é a do pai).
+            t.HasCheckConstraint("ck_execucoes_hierarquia",
+                "(id_execucao_pai IS NULL) = (profundidade = 0) AND (profundidade = 0) = (id_execucao_raiz = id) AND " +
+                $"profundidade BETWEEN 0 AND {Dante.Domain.Agentes.LimitesDeDelegacao.Teto.ProfundidadeMaxima}");
+            t.HasCheckConstraint("ck_execucoes_delegada",
+                $"(tipo = {(int)TipoDeExecucao.Delegada}) = (id_execucao_pai IS NOT NULL) AND " +
+                $"(tipo <> {(int)TipoDeExecucao.Delegada} OR id_versao_do_agente IS NOT NULL)");
         });
         b.Property(x => x.Numero).HasColumnName("numero");
         b.Property(x => x.Tipo).HasColumnName("tipo");
@@ -35,13 +44,22 @@ public sealed class ExecucaoDbMapping : EntidadeConfiguration<Execucao>
         b.Property(x => x.EncerradaEm).HasColumnName("encerrada_em");
         b.Property(x => x.IdVersaoDoAgente).HasColumnName("id_versao_do_agente");
         b.Property(x => x.IdVersaoDoGrupo).HasColumnName("id_versao_do_grupo");
+        b.Property(x => x.IdExecucaoPai).HasColumnName("id_execucao_pai");
+        b.Property(x => x.IdExecucaoRaiz).HasColumnName("id_execucao_raiz");
+        b.Property(x => x.Profundidade).HasColumnName("profundidade");
         b.Ignore(x => x.Codigo);
         b.Ignore(x => x.Terminal);
         b.Ignore(x => x.Nova);
+        b.Ignore(x => x.Raiz);
         b.HasOne<Dante.Domain.Agentes.VersaoDoAgente>().WithMany().HasForeignKey(x => x.IdVersaoDoAgente)
             .OnDelete(DeleteBehavior.Restrict);
         b.HasOne<Dante.Domain.Grupos.VersaoDoGrupo>().WithMany().HasForeignKey(x => x.IdVersaoDoGrupo)
             .OnDelete(DeleteBehavior.Restrict);
+        // A raiz aponta para si mesma: essa FK (fk_execucoes_raiz) é criada pela migration, fora do modelo, para o EF
+        // não ver um ciclo ao inserir uma raiz. A do pai fica no modelo.
+        b.HasOne<Execucao>().WithMany().HasForeignKey(x => x.IdExecucaoPai).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => x.IdExecucaoPai);
+        b.HasIndex(x => x.IdExecucaoRaiz);
         b.HasIndex(x => x.Numero).IsUnique();
         b.HasIndex(x => x.Estado);
     }

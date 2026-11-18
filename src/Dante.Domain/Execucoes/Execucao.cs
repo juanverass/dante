@@ -55,6 +55,9 @@ public sealed class Execucao : EntidadeBase
         if (tipo == TipoDeExecucao.Roteiro && idVersaoDoAgente is not null)
             throw new ArgumentException("Roteiro congela a versão de cada participante, não de um agente único.",
                 nameof(idVersaoDoAgente));
+        // A execução delegada nasce só de uma delegação (Delegada), filha de outra; por aqui só nascem raízes.
+        if (tipo == TipoDeExecucao.Delegada)
+            throw new ArgumentException("Execução delegada nasce só de uma delegação.", nameof(tipo));
         IdVersaoDoAgente = idVersaoDoAgente;
         IdVersaoDoGrupo = idVersaoDoGrupo;
         Numero = numero;
@@ -66,6 +69,29 @@ public sealed class Execucao : EntidadeBase
             throw new ArgumentException("Objetivo da execução excede o tamanho máximo.", nameof(objetivo));
         Objetivo = string.IsNullOrWhiteSpace(objetivo) ? null : objetivo;
         CriadaEm = criadaEm;
+        IdExecucaoRaiz = Id;
+    }
+
+    // Execução subordinada de uma delegação (AD-70, #309), criada pela própria Delegacao junto com a linha dela. Herda
+    // da origem a autoridade (canal e pessoa) e o contexto congelado: quem delega nunca escolhe repositório, diretório
+    // nem dono. A raiz é a da origem e a profundidade, a dela mais um, dentro do teto global; a hierarquia é fixada aqui e
+    // não muda depois (o banco também recusa alterá-la), então um ciclo na árvore é impossível por construção.
+    internal static Execucao Delegada(Execucao origem, long numero, Guid idVersaoDoAgente, string? objetivo,
+        DateTimeOffset criadaEm)
+    {
+        ArgumentNullException.ThrowIfNull(origem);
+        if (origem.Terminal) throw new InvalidOperationException("Execução encerrada não origina delegação.");
+        if (origem.Profundidade + 1 > Dante.Domain.Agentes.LimitesDeDelegacao.Teto.ProfundidadeMaxima)
+            throw new InvalidOperationException("Profundidade de delegação acima do teto global.");
+        var filha = new Execucao(numero, TipoDeExecucao.Tarefa, origem.Canal, origem.IdDoUsuarioNoCanal, origem.Contexto,
+            objetivo, criadaEm, idVersaoDoAgente)
+        {
+            Tipo = TipoDeExecucao.Delegada,
+            IdExecucaoPai = origem.Id,
+            Profundidade = origem.Profundidade + 1
+        };
+        filha.IdExecucaoRaiz = origem.IdExecucaoRaiz;
+        return filha;
     }
 
     public long Numero { get; private set; }
@@ -89,6 +115,14 @@ public sealed class Execucao : EntidadeBase
 
     // Versão do grupo congelada na criação de um Roteiro (AD-69); ativar outra versão depois não a altera.
     public Guid? IdVersaoDoGrupo { get; private set; }
+
+    // Hierarquia (AD-70, #309): a raiz aponta para si mesma, não tem pai e tem profundidade 0; uma delegada aponta para
+    // a execução de origem (pai) e para a raiz dela. Imutáveis depois da criação.
+    public Guid? IdExecucaoPai { get; private set; }
+    public Guid IdExecucaoRaiz { get; private set; }
+    public int Profundidade { get; private set; }
+
+    public bool Raiz => IdExecucaoPai is null;
 
     public string Codigo => Tipo == TipoDeExecucao.Avulsa ? $"J{Numero:D6}" : $"E{Numero}";
     public bool Terminal => Transicoes[Estado].Length == 0;

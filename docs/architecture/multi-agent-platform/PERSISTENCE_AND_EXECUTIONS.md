@@ -41,7 +41,7 @@ vivo é persistido como se fosse retomável.**
 | `execucoes` | `numero` (sequência → `E…`), índices por `estado`, `id_execucao_raiz`, `id_execucao_pai` |
 | `etapas_da_execucao` | (`id_execucao`, `numero`) único; `chave_de_idempotencia` única |
 | `dependencias_de_etapa` | (`id_etapa`, `id_etapa_requerida`) |
-| `delegacoes` | `chave_de_deduplicacao` única entre as não terminais (índice parcial) |
+| `delegacoes` | (`id_execucao_raiz`, `chave_de_deduplicacao`) única em qualquer estado (#309, AD-70) |
 | `pedidos_de_aprovacao` | `hash_dos_parametros`, `expira_em`, `executada_em` |
 | `chamadas_de_ferramenta` | por execução/etapa |
 | `eventos_da_execucao` | `sequencia bigint` global crescente; (`id_execucao`, `sequencia`) |

@@ -273,8 +273,9 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   integrado; fila durável e recuperação após reinício (#300, AD-67) integrada; cadastro de agentes e `/tarefa` pela
   fila (#301, AD-68) integrado; acompanhamento e cancelamento de execuções (#305, AD-74) integrado; worktrees por
   execução de escrita e limites de concorrência (#307, AD-71) integradas; grupos versionados com roteiro
-  determinístico e gate humano (#308, AD-69) entregues em três PRs em revisão (cadastro, gate durável e executor
-  com a fundação do `dante_coordenacao`).
+  determinístico e gate humano (#308, AD-69) integrados em três PRs (cadastro, gate durável e executor com a fundação
+  do `dante_coordenacao`); delegação rastreada (#309, AD-70) em andamento: domínio e persistência no PR 1, executor e
+  ferramentas nos seguintes.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -760,6 +761,23 @@ imutável, idempotente, sem credencial. Sem veredito, um lembrete e depois falha
 pessoa decide no `/execucao`. Um repositório por roteiro (vinculados recusados). Evidência opt-in com o Codex real num
 turno real (modelo de teste local): arquivos fora da worktree não existem no sandbox, escalonamento e escrita são
 negados, e o veredito chega pela ferramenta. Migration `VereditosDeRevisao` não aplicada no banco canônico.
+
+## Delegação rastreada — domínio e persistência (#309, AD-70 — primeira entrega)
+
+O ledger representa árvores de execução: toda execução tem raiz, pai e profundidade, e a `Delegada` nasce só de uma
+`Delegacao`, filha da origem, com a autoridade e o contexto dela; o banco confere a hierarquia na inserção e a mantém
+imutável. A `Delegacao` liga origem, etapa, subordinada e as versões congeladas do solicitante e do destinatário, com
+contrato tipado do catálogo fechado (`consulta.v1`, `revisao.v1`, validados no servidor e gravados na forma canônica),
+objetivo redigido, prazo e duração, estados com transições conferidas no domínio e no banco, resultado gravado uma vez
+pelo autor congelado e imutável, e nenhuma exclusão. As regras (sem escrita, sem autodelegação nem ciclo,
+profundidade, fan-out, orçamento da raiz, destinatário concedido e ativo, capacidade, repositórios na interseção,
+limites) são aplicadas antes de gravar. Teto global: profundidade 1, 4 delegações, 30 min para iniciar, 60 min de
+duração, paralelismo 1. A versão do agente ganha `coordenacao`, `PodeConsultar` e limites, com o JSON canônico do
+formato 1 preservado quando a delegação não é definida (hashes antigos e de grupos inalterados). A mesma unidade de
+trabalho é uma só delegação, em qualquer estado (índice único, conferido com gravações concorrentes reais): repetir para o
+mesmo agente devolve a original como está, mesmo terminal, e outro agente é recusado. **Nada é
+exposto em tempo de execução**: sem executor, fila, retorno à origem, prazo, cascata, ferramentas MCP nem comandos
+(PRs seguintes da #309). Migration `Delegacoes` não aplicada no banco canônico.
 
 ## Worktrees por execução de escrita (#307, AD-71)
 

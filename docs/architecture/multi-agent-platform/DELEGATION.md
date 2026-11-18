@@ -23,6 +23,15 @@ public sealed class Delegacao : EntidadeBase
 }
 ```
 
+> **Implementação (#309, AD-70 — PR 1, domínio e persistência).** O contrato acima foi implementado com estas
+> diferenças: estados `Solicitada → Aceita → EmAndamento → Respondida | Falhou | Expirada | Cancelada | Recusada`; a
+> delegação guarda agente, versão e hash do solicitante e do destinatário, a cadeia de agentes e o contrato do catálogo
+> fechado (`consulta.v1`, `revisao.v1`) em vez de `Tipo`; o objetivo é guardado redigido, com hash do normalizado; só
+> leitura (escrita recusada no domínio e no banco até #307 + #311); teto global de profundidade 1, 4 delegações por
+> execução, 30 min para iniciar, 60 min de duração e paralelismo 1; a chave de deduplicação é por unidade de trabalho
+> (raiz, etapa de origem, contrato, objetivo normalizado e entrada canônica), **sem o destinatário**, e vale em
+> qualquer estado: a repetição devolve a original (mesmo terminal, sem reabri-la) e outro agente é recusado. Executor, fila, retorno, prazo, cascata e ferramentas: PRs 2 e 3 da #309.
+
 A delegação **é uma linha**, não uma mensagem. A execução subordinada é uma `Execucao` comum do tipo `Delegada`:
 tem etapas, eventos, aprovações e aparece no acompanhamento.
 
