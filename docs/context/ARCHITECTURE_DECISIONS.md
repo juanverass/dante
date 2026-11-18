@@ -2559,9 +2559,10 @@ Testes: `AgentesDominioTests`, `CadastroDeAgentesAppServiceTests`, `TelegramAgen
 
 ## AD-69 — Grupos versionados de agentes com roteiro determinístico e ativação humana vinculada a hash (#308)
 
-Status: vigente na parte de **cadastro** (etapa 6 do roadmap da Epic #296, primeira das três entregas da #308). Proposta
-aprovada na #297 (PR #298) e decisões de escopo da #308 (A–H). A execução do roteiro, o gate final e o
-`dante_coordenacao` entram nas entregas seguintes da mesma Issue e complementam esta AD. Complementa a AD-68 (grupos
+Status: vigente no **cadastro** e no **gate durável** (etapa 6 do roadmap da Epic #296, primeira e segunda das três
+entregas da #308). Proposta
+aprovada na #297 (PR #298) e decisões de escopo da #308 (A–H). O executor do roteiro e o `dante_coordenacao` entram
+na terceira entrega da mesma Issue e complementam esta AD. Complementa a AD-68 (grupos
 referenciam agentes registrados) e a AD-71 (quem escreve precisa de confinamento de SO). Depende do mesmo banco e da
 mesma chave `Orquestracao:Habilitada`; migration `GruposDeAgentes`, não aplicada no banco canônico.
 
@@ -2607,18 +2608,71 @@ Decisão:
   (`<papel>=<handle> [escrita] [: responsabilidades]`). Nome, descrição, papéis e responsabilidades com aparência de
   segredo são recusados.
 
+**Gate durável (segunda entrega da #308, decisões B, C, F e G)**, migration `GateDoRoteiro`, não aplicada no banco
+canônico:
+
+* **Execução `Roteiro`** (`TipoDeExecucao.Roteiro`): aponta para a versão ativa do grupo (`id_versao_do_grupo`, check:
+  só o Roteiro e sempre ele) e nunca para um agente único. Cada etapa guarda passo, rodada, papel e a versão do agente
+  participante (`EtapaDaExecucao.DoRoteiro`): implementar e corrigir escrevem (retomada com confirmação), revisar lê
+  (automática) e a aprovação humana (`TipoDeEtapa.AprovacaoHumana`) não roda processo. As etapas são criadas uma a
+  uma, numeradas depois das existentes e dependentes da anterior.
+* **Snapshot imutável**: `participantes_da_execucao` (papel, handle, versão e hash de cada agente, escrita,
+  responsabilidades) e `roteiros_da_execucao` (grupo, versão, hash da versão, passos, limite de rodadas e
+  `hash_do_snapshot` = SHA-256 do grupo mais versão e hash de cada participante por papel). Triggers recusam alterar ou
+  remover participantes e o snapshot; editar ou ativar outra versão do agente ou do grupo nunca alcança a execução.
+  `ConferirIntegridadeAsync` recalcula o hash do snapshot pelas linhas e confere a versão do grupo e cada versão de
+  agente (íntegras e com o hash congelado) antes de decidir ou continuar.
+* **Objetivo protegido**: o objetivo bruto nunca é gravado. Antes de persistir, ele é inspecionado
+  (`ProtecaoDeSegredos`); o ledger guarda o texto (ou `[conteúdo protegido]`), se a redação o alterou e o SHA-256 do
+  original com a execução como sal. Objetivo acima de 8000 caracteres é recusado em vez de cortado. Quando a redação o
+  alterou e uma etapa precisar dele sem o original em memória (reinício), `SolicitarObjetivoAsync` deixa a execução
+  `AguardandoEntrada` sem iniciar a etapa, e `SubstituirObjetivoAsync` aceita um objetivo novo só se ele passar intacto
+  pela redação (o trigger só permite trocar um objetivo protegido por um utilizável). Nada é reconstruído nem segue com
+  contexto incompleto.
+* **Progressão fixa** (`ProgressaoDoRoteiro`, função pura): início → implementar r0; implementar ou corrigir →
+  revisar (mesma rodada); revisão aprovada → aprovação humana; revisão pedindo correção → corrigir (rodada + 1) se o
+  roteiro tem o passo e há rodadas, senão bloqueia; revisão bloqueada → bloqueia. Esgotar as rodadas nunca aprova:
+  a execução fica `Bloqueada` com o motivo. `ConcluirPassoAsync` grava, sob posse, a conclusão e a transição seguinte
+  numa transação; falha e cancelamento (inclusive o pedido do dono) seguem a conclusão comum da fila.
+* **Gate persistido** (`pedidos_de_aprovacao`): ao chegar à aprovação, a etapa de aprovação fica
+  `AguardandoAprovacao`, o pedido grava a rodada, o hash do snapshot e o hash do artefato revisado (o diff), e a
+  execução aguarda sem trabalho ativo. No máximo um pendente por execução (índice único parcial); um trigger recusa
+  alterar um pedido decidido, trocar execução, etapa ou hashes, e remover. `DecidirAsync` é do proprietário (AD-74),
+  trava trabalhos e execução na ordem da posse e confere a integridade antes de mudar qualquer coisa. Aprovar e
+  corrigir exigem o hash do artefato exibido (≥ 12 caracteres); corrigir exige a instrução, recusada se parecer
+  credencial; decisão duplicada ou simultânea encontra o pedido já decidido. Aprovar conclui a execução sem commit,
+  push, PR nem merge; corrigir abre a próxima rodada dentro do limite (sem rodada, o gate continua aberto) e devolve a
+  execução à fila; recusar cancela. `/cancel` no gate cancela também o pedido.
+* **Slot × worktree no gate** (decisão C): ao abrir o gate, as reservas `Pronta` passam a `AguardandoDecisao`
+  (complementa a AD-71): continuam ativas para os índices únicos (caminho, branch, alias), não são limpas nem
+  reutilizadas, mas não contam na capacidade, então outra escrita pode usar o slot. A correção readquire o slot
+  com `ReadquirirAsync`: sob a mesma trava transacional e os mesmos limites, as reservas da execução voltam a `Pronta`
+  sem replanejar a worktree; sem capacidade, nada é gravado e o processador espera sem contar tentativa; reserva de
+  outro host é recusada. Um estado de reserva, e não só o estado da execução, evita o impasse de duas correções
+  pendentes contarem uma à outra. Aprovação, recusa e cancelamento liberam as reservas; a limpeza preserva a worktree
+  alterada.
+* **Arquivamento**: agente que participa de um roteiro não terminal e grupo com roteiro não terminal não são
+  arquivados.
+* **Telegram** (adaptador): `/execucao E…` mostra grupo, snapshot, participantes, passos e, no gate, os comandos com o
+  hash; `/execucao aprovar|corrigir E… <hash> [instrução]`, `/execucao recusar E… [motivo]` e
+  `/execucao objetivo E… <tarefa>`.
+
 Consequências:
 
 * uma versão de grupo é reprodutível pelo hash e por quem a ativou; o que a execução usa é a versão ativa no momento
-  em que ela começa;
-* nesta entrega nenhuma execução referencia grupos: arquivar não confere trabalho ativo (passa a conferir quando a
-  execução `Roteiro` existir) e `ResolverParaExecucaoAsync` ainda não tem consumidor;
+  em que ela começa, com as versões de agente congeladas no snapshot;
+* o gate sobrevive a reinício porque é linha do ledger; o slot de escrita não fica preso a uma decisão humana;
+* ainda não há executor do roteiro nem `/grupo <nome> @alias <tarefa>`: os casos de uso desta entrega são consumidos
+  pela terceira, com o `dante_coordenacao` e o veredito estruturado;
 * a forma do roteiro é fechada de propósito; outra forma exige mudar o domínio e esta AD.
 
 Código: `Dante.Domain/Grupos`, `Dante.Application/Grupos`, `Dante.Infrastructure/Modulos/Grupos`, migration
-`GruposDeAgentes`, `Dante.Worker/Telegram/TelegramGrupos.cs`.
+`GruposDeAgentes`, `Dante.Worker/Telegram/TelegramGrupos.cs`; gate: `Dante.Domain/Execucoes/{RoteiroDaExecucao,
+ParticipanteDaExecucao, PedidoDeAprovacao, ProgressaoDoRoteiro, VereditoDeRevisao}.cs`,
+`Dante.Application/Execucoes/{RoteirosAppService, ReservasDeWorktreeAppService (ReadquirirAsync)}.cs`, migration
+`GateDoRoteiro`, `Dante.Worker/Telegram/TelegramExecucoes.cs`.
 Testes: `GruposDominioTests`, `CadastroDeGruposAppServiceTests`, `GruposDeAgentesPostgreSqlTests`,
-`TelegramAgentesTests` (`/grupo`).
+`TelegramAgentesTests` (`/grupo`), `GateDoRoteiroDominioTests`, `GateDoRoteiroPostgreSqlTests`.
 
 ## AD-71 — Worktree por execução de escrita, conjunto fechado de comandos Git e escrita só com sandbox de SO (#307)
 
@@ -2692,6 +2746,10 @@ Decisão:
   remove`, sem `--force`) a worktree limpa e sem commits além da base e preserva, com motivo no ledger, a que tem
   alterações, commits ou estado ilegível. Branch nunca é apagada. Diretório sob a raiz sem reserva é relatado, nunca
   removido; falha de remoção fica para a próxima passada.
+
+Complemento (#308, AD-69): uma reserva pode ficar `AguardandoDecisao` enquanto um Roteiro espera a decisão humana:
+ativa para os índices únicos e fora da limpeza, mas fora da capacidade; volta a `Pronta` só por `ReadquirirAsync`, sob
+a mesma trava e os mesmos limites.
 
 Consequências:
 

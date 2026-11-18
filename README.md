@@ -791,7 +791,20 @@ rev=codex-rev: revisa o diff
 Cada edição cria uma versão imutável identificada por um hash; a versão nova só é usada depois de ativada com o hash
 exibido (ao menos 12 caracteres), e a ativação não concede nada além das permissões já dadas a cada agente. O nome é
 minúsculo e nunca reutilizado; arquivar exige desativar antes. A execução de uma tarefa por um grupo ainda não está
-disponível: entra nas próximas entregas da #308.
+disponível: entra na terceira entrega da #308.
+
+Quando um roteiro chega à aprovação humana, `/execucao E…` mostra o resultado a decidir com o hash dele, e a decisão
+é sua, uma vez só:
+
+```text
+/execucao aprovar E42 <hash>                    aceita o resultado e encerra (sem commit, push, PR nem merge)
+/execucao corrigir E42 <hash> trate o caso vazio  nova rodada de correção, dentro do limite do grupo
+/execucao recusar E42 [motivo]                  encerra sem aceitar
+/execucao objetivo E42 <tarefa>                 quando a tarefa original foi protegida pela redação
+```
+
+Enquanto espera a decisão, o roteiro não ocupa a vaga de escrita, e a worktree dele continua reservada; as
+alterações aprovadas ficam na worktree, preservada.
 
 ## Acompanhamento de execuções
 
