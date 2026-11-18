@@ -2643,6 +2643,17 @@ canônico:
   credencial; decisão duplicada ou simultânea encontra o pedido já decidido. Aprovar conclui a execução sem commit,
   push, PR nem merge; corrigir abre a próxima rodada dentro do limite (sem rodada, o gate continua aberto) e devolve a
   execução à fila; recusar cancela. `/cancel` no gate cancela também o pedido.
+* **A decisão vale só para o artefato revisado** (review do PR #316): o hash digitado não basta. Aprovar e corrigir
+  recalculam o hash canônico do conteúdo atual da worktree reservada (`IGerenciadorDeWorktrees.ResumirAlteracoesAsync`,
+  o mesmo cálculo do revisor) **dentro da transação da decisão**, com a execução e os trabalhos travados: antes de
+  aplicar a decisão e de novo depois de gravá-la, ainda sem commit. Divergência em qualquer das duas desfaz tudo e
+  devolve `ArtefatoDivergente`; o gate continua pendente, a reserva continua aguardando a decisão e nenhuma correção é
+  agendada. Recusar não aceita nada e não depende do conteúdo. A janela restante (entre a segunda conferência e o
+  commit) é de uma alteração posterior à decisão; a entrega futura (gateway #311) confere o hash de novo antes de usar
+  o artefato. O gate também só abre para o conteúdo presente: `ConcluirPassoAsync` recusa um diff revisado diferente
+  da worktree. Com o conteúdo alterado, `/execucao revisar E…` (`RevisarNovamenteAsync`) substitui o pedido (estado
+  `Substituido`, com autor e o hash atual), cancela a etapa de aprovação e enfileira uma revisão da mesma rodada
+  (rever não consome rodada de correção); com o conteúdo ainda igual ao revisado, é recusado.
 * **Slot × worktree no gate** (decisão C): ao abrir o gate, as reservas `Pronta` passam a `AguardandoDecisao`
   (complementa a AD-71): continuam ativas para os índices únicos (caminho, branch, alias), não são limpas nem
   reutilizadas, mas não contam na capacidade, então outra escrita pode usar o slot. A correção readquire o slot
