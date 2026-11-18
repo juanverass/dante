@@ -78,6 +78,44 @@ public sealed class ExecucaoSobPosse
             .FalharAsync(posse, Alvo.IdExecucao, alias, motivo, cancellationToken);
     }
 
+    // Roteiro (#308): as reservas da execução voltam a ocupar capacidade para uma etapa de escrita posterior (correção),
+    // sob a trava de capacidade. Sem capacidade, CapacidadeDeWorktreesIndisponivelException (o processador espera sem
+    // contar tentativa).
+    internal async Task ReadquirirWorktreesAsync(string maquina, CancellationToken cancellationToken)
+    {
+        await using var escopo = escopos.CreateAsyncScope();
+        Worktrees = await escopo.ServiceProvider.GetRequiredService<IReservasDeWorktreeAppService>()
+            .ReadquirirAsync(posse, Alvo.IdEtapa, maquina, cancellationToken);
+    }
+
+    // Roteiro (#308): a revisão lê as worktrees prontas da execução, sem reservar nada.
+    internal void UsarWorktrees(IReadOnlyList<WorktreeDaExecucaoDto> worktrees) => Worktrees = worktrees;
+
+    // Roteiro (#308): o fim do passo e a transição seguinte numa transação, e o fim do trabalho.
+    internal async Task<AvancoDoRoteiroDto> ConcluirPassoAsync(ConclusaoDoPassoDto conclusao,
+        CancellationToken cancellationToken)
+    {
+        if (Concluida) throw new InvalidOperationException("Etapa já concluída.");
+        await pararHeartbeat();
+        await using var escopo = escopos.CreateAsyncScope();
+        var avanco = await escopo.ServiceProvider.GetRequiredService<IRoteirosAppService>()
+            .ConcluirPassoAsync(posse, Alvo.IdEtapa, conclusao, cancellationToken);
+        EstadoFinal = avanco.EstadoDaEtapa;
+        Concluida = true;
+        return avanco;
+    }
+
+    // Roteiro (#308): a execução passa a aguardar um objetivo sanitizado e o trabalho termina, sem iniciar a etapa.
+    internal async Task SolicitarObjetivoAsync(CancellationToken cancellationToken)
+    {
+        if (Concluida) throw new InvalidOperationException("Etapa já concluída.");
+        await pararHeartbeat();
+        await using var escopo = escopos.CreateAsyncScope();
+        await escopo.ServiceProvider.GetRequiredService<IRoteirosAppService>()
+            .SolicitarObjetivoAsync(posse, Alvo.IdEtapa, cancellationToken);
+        Concluida = true;
+    }
+
     // Grava o resultado e encerra o trabalho numa transação, antes de qualquer efeito seguinte (entrega da resposta).
     // O heartbeat para antes: renovar a linha travada pela gravação só a atrasaria.
     public async Task ConcluirAsync(ResultadoDaEtapaDto resultado, CancellationToken cancellationToken)

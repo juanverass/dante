@@ -67,6 +67,10 @@
   autoconsulta, sem ciclo, profundidade, deduplicação, orçamento da raiz, interseção de permissões); resultados
   entram como dado não confiável com autor; sem mensagens livres entre agentes.
 - **Consequências**: sessões de execução recebem um terceiro provedor de ferramentas; a conversa comum não.
+- **Fundação criada na #308**: o servidor MCP (`ServidorMcpDeCoordenacao`), o IPC por sessão e o contrato de
+  autenticação e escopo (`FerramentasDeCoordenacao`: pipe exclusivo, token da sessão, escopo fixado pelo orquestrador)
+  existem para a revisão confinada de um roteiro, com `estado_da_execucao` e `entregar_resultado`. A #309 amplia o
+  catálogo e os escopos sobre esta infraestrutura; não cria outro servidor nem outro IPC. Ver AD-69 vigente.
 
 ## AD-71 — Worktree por execução de escrita, gerida pelo D.A.N.T.E. com conjunto fechado de comandos Git
 

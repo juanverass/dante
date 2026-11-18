@@ -43,7 +43,7 @@ public sealed partial class TelegramPollingService(
     ILeitorDeCheckouts? checkouts = null,
     ExecutorDeJobsDaFila? filaDeJobs = null, TelegramAgentes? agentes = null,
     ExecutorDeTarefasDaFila? filaDeTarefas = null, TelegramExecucoes? execucoes = null,
-    TelegramGrupos? grupos = null) : BackgroundService
+    TelegramGrupos? grupos = null, ExecutorDeRoteirosDaFila? filaDeRoteiros = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private static readonly TimeSpan PollRetryDelay = TimeSpan.FromSeconds(3);
@@ -302,6 +302,13 @@ public sealed partial class TelegramPollingService(
         if (string.Equals(command, "/grupos", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(command, "/grupo", StringComparison.OrdinalIgnoreCase))
         {
+            // /grupo <nome> @alias <tarefa>: execução do roteiro do grupo (#308).
+            if (command.Equals("/grupo", StringComparison.OrdinalIgnoreCase) &&
+                TelegramGrupos.PedidoDeExecucao(prompt, out var nomeDoGrupo, out var pedidoDoGrupo))
+            {
+                await HandleRoteiroAsync(message, nomeDoGrupo, pedidoDoGrupo, cancellationToken);
+                return;
+            }
             await SendLongMessageAsync(message.Chat.Id, await HandleGruposCommandAsync(message.From!.Id,
                 command.Equals("/grupos", StringComparison.OrdinalIgnoreCase), prompt, cancellationToken), cancellationToken);
             return;

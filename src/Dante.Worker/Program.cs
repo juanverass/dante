@@ -12,6 +12,13 @@ if (args.FirstOrDefault() == ServidorMcpDoBrain.Argumento)
     return;
 }
 
+// dante_coordenacao (#308): iniciado pela CLI na sessão de revisão de um roteiro; sem Telegram nem host.
+if (args.FirstOrDefault() == Dante.Worker.Coordenacao.ServidorMcpDeCoordenacao.Argumento)
+{
+    Environment.ExitCode = await Dante.Worker.Coordenacao.ServidorMcpDeCoordenacao.ExecutarProcessoAsync(args);
+    return;
+}
+
 // Servidor MCP de planilhas iniciado pela CLI do agente numa sessão (#224): sem Telegram nem host.
 if (args.FirstOrDefault() == ServidorMcpDePlanilhas.Argumento)
 {

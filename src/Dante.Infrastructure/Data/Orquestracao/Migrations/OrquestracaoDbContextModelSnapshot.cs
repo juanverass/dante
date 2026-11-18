@@ -1141,6 +1141,83 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Dante.Domain.Execucoes.VereditoRegistrado", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("HashDoArtefato")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_do_artefato")
+                        .IsFixedLength();
+
+                    b.Property<string>("HashDoConteudo")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_do_conteudo")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("IdEtapa")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_etapa");
+
+                    b.Property<Guid>("IdExecucao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_execucao");
+
+                    b.Property<string[]>("Itens")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("itens");
+
+                    b.Property<DateTimeOffset>("RegistradoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("registrado_em");
+
+                    b.Property<string>("Resumo")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("resumo");
+
+                    b.Property<int>("Rodada")
+                        .HasColumnType("integer")
+                        .HasColumnName("rodada");
+
+                    b.Property<string>("Sessao")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("sessao");
+
+                    b.Property<int>("Veredito")
+                        .HasColumnType("integer")
+                        .HasColumnName("veredito");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdEtapa")
+                        .IsUnique();
+
+                    b.HasIndex("IdExecucao");
+
+                    b.ToTable("vereditos_de_revisao", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_vereditos_de_revisao_hashes", "hash_do_artefato ~ '^[0-9a-f]{64}$' AND hash_do_conteudo ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("ck_vereditos_de_revisao_rodada", "rodada >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Dante.Domain.Grupos.AtivacaoDeVersaoDoGrupo", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1567,6 +1644,21 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasForeignKey("IdEtapa", "IdExecucao")
                         .HasPrincipalKey("Id", "IdExecucao")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.VereditoRegistrado", b =>
+                {
+                    b.HasOne("Dante.Domain.Execucoes.EtapaDaExecucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdEtapa")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Execucoes.Execucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Dante.Domain.Grupos.AtivacaoDeVersaoDoGrupo", b =>

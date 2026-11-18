@@ -56,7 +56,7 @@ internal static class FakeCodex
         {
             waitingScenario = scenario;
             waitingFor = ++nextServerRequest;
-            parameters["threadId"] = threadId;
+            parameters["threadId"] ??= threadId;
             parameters["turnId"] = activeTurn;
             Send(new JsonObject { ["id"] = waitingFor, ["method"] = method, ["params"] = parameters });
         }
@@ -123,6 +123,10 @@ internal static class FakeCodex
                         Message("rejected:" + (string?)message["error"]!["message"]);
                         break;
                     case "mcp":
+                    case "mcp-veredito":
+                    case "mcp-outra":
+                    case "mcp-outro-servidor":
+                    case "mcp-outra-thread":
                         Message("mcp:" + (string?)result!["action"]);
                         break;
                 }
@@ -137,6 +141,17 @@ internal static class FakeCodex
                     Reply(new JsonObject { ["userAgent"] = "fake-codex/0.157.1" });
                     break;
                 case "initialized":
+                    break;
+                // A configuração efetiva como o 0.166 a reporta, montada dos -c recebidos (só as chaves do ambiente
+                // dos comandos). Cenários: ambiente-herdado (o config.toml venceria), set-extra (valor do usuário
+                // para um nome permitido), login (shell de login ligado) e sem-config-read (versão sem o método).
+                case "config/read":
+                    if (args.Contains("sem-config-read"))
+                    {
+                        Fail("method not found");
+                        break;
+                    }
+                    Reply(new JsonObject { ["config"] = ConfiguracaoEfetiva(args), ["origins"] = new JsonObject() });
                     break;
                 case "thread/start":
                     if (args.Contains("reject-thread"))
@@ -160,7 +175,13 @@ internal static class FakeCodex
                     Reply(new JsonObject
                     {
                         ["thread"] = new JsonObject { ["id"] = threadId, ["cwd"] = (string?)parameters!["cwd"] },
-                        ["approvalPolicy"] = (string?)parameters["approvalPolicy"],
+                        // The confined review (#308) sends a granular policy object: echoed as is.
+                        ["approvalPolicy"] = parameters["approvalPolicy"]?.DeepClone(),
+                        // Like 0.166 with default_permissions: the active profile; sem-perfil plays an older server.
+                        ["activePermissionProfile"] = args.Contains("sem-perfil") ? null
+                            : args.FirstOrDefault(a => a.StartsWith("default_permissions=", StringComparison.Ordinal)) is { } perfil
+                                ? new JsonObject { ["id"] = perfil["default_permissions=".Length..].Trim('"'), ["extends"] = null }
+                                : null,
                         ["approvalsReviewer"] = args.Contains("wrong-reviewer") ? "user" :
                             args.Contains("missing-reviewer") ? null : (string?)parameters["approvalsReviewer"],
                         ["model"] = (string?)parameters["model"] ?? "fake-model",
@@ -169,8 +190,10 @@ internal static class FakeCodex
                         // Like 0.159.3: the effective sandbox, with the writable_roots override applied (#232).
                         // ignore-writable-roots plays an older server that drops it; ignore-confinement one that drops
                         // the /tmp exclusions and the network switch of the override (#307).
-                        ["sandbox"] = (string?)parameters["sandbox"] == "read-only"
-                            ? new JsonObject { ["type"] = "readOnly", ["networkAccess"] = false }
+                        // No sandbox mode but a permission profile (#308): summarized as read-only, like 0.166.
+                        ["sandbox"] = (string?)parameters["sandbox"] is "read-only" or null
+                            // read-network plays a server whose read-only sandbox keeps the network (#308).
+                            ? new JsonObject { ["type"] = "readOnly", ["networkAccess"] = args.Contains("read-network") }
                             : new JsonObject
                             {
                                 ["type"] = "workspaceWrite",
@@ -477,6 +500,32 @@ internal static class FakeCodex
                         case "elicit":
                             ServerRequest("elicit", "mcpServer/elicitation/request", new JsonObject());
                             break;
+                        case "mcp-veredito":
+                        case "mcp-outra":
+                        case "mcp-outro-servidor":
+                        case "mcp-outra-thread":
+                        {
+                            // MCP tool approval exactly as codex-cli 0.166 sends it (#308): the tool only in the message.
+                            var (servidor, ferramenta) = text switch
+                            {
+                                "mcp-outra" => ("dante_coordenacao", "estado_da_execucao_e_mais"),
+                                "mcp-outro-servidor" => ("dante_brain", "entregar_resultado"),
+                                _ => ("dante_coordenacao", "entregar_resultado")
+                            };
+                            ServerRequest(text!, "mcpServer/elicitation/request", new JsonObject
+                            {
+                                ["threadId"] = text == "mcp-outra-thread" ? "thread-de-outra-sessao" : null,
+                                ["serverName"] = servidor, ["mode"] = "form",
+                                ["message"] = $"Allow the {servidor} MCP server to run tool \"{ferramenta}\"?",
+                                ["requestedSchema"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() },
+                                ["_meta"] = new JsonObject
+                                {
+                                    ["codex_approval_kind"] = "mcp_tool_call", ["persist"] = new JsonArray("session", "always"),
+                                    ["tool_params"] = new JsonObject { ["veredito"] = "aprovado" }
+                                }
+                            });
+                            break;
+                        }
                         case "mcp":
                             // MCP tool approval of codex-cli 0.159.3 (#224).
                             ServerRequest("mcp", "mcpServer/elicitation/request", new JsonObject
@@ -569,4 +618,36 @@ internal static class FakeCodex
             "localImage" => "localImage:" + (string?)item["path"],
             var other => other ?? "?"
         }));
+
+    private static JsonObject ConfiguracaoEfetiva(string[] args)
+    {
+        var politica = new JsonObject
+        {
+            ["inherit"] = "all", ["ignore_default_excludes"] = true, ["exclude"] = new JsonArray(),
+            ["include_only"] = new JsonArray(), ["set"] = new JsonObject(), ["filters"] = null,
+            ["experimental_use_profile"] = null
+        };
+        var configuracao = new JsonObject { ["shell_environment_policy"] = politica, ["allow_login_shell"] = true };
+        foreach (var arg in args)
+        {
+            var igual = arg.IndexOf('=');
+            if (igual < 0) continue;
+            var (chave, valor) = (arg[..igual], arg[(igual + 1)..]);
+            // Os valores usados pelo driver são JSON válido, exceto a tabela inline {PATH = "..."}.
+            JsonNode? Valor() => JsonNode.Parse(System.Text.RegularExpressions.Regex.Replace(valor,
+                @"([{,]\s*)([A-Za-z_]+)\s*=", "$1\"$2\":"));
+            if (chave == "allow_login_shell") configuracao["allow_login_shell"] = Valor();
+            else if (chave.StartsWith("shell_environment_policy.", StringComparison.Ordinal))
+            {
+                var nome = chave["shell_environment_policy.".Length..];
+                if (nome == "set")
+                    foreach (var (k, v) in Valor()!.AsObject()) ((JsonObject)politica["set"]!)[k] = v?.DeepClone();
+                else politica[nome] = Valor();
+            }
+        }
+        if (args.Contains("ambiente-herdado")) politica["inherit"] = "all";
+        if (args.Contains("set-extra")) ((JsonObject)politica["set"]!)["lang"] = "sk-do-usuario";
+        if (args.Contains("login")) configuracao["allow_login_shell"] = true;
+        return configuracao;
+    }
 }

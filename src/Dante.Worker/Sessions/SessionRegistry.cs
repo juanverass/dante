@@ -1,3 +1,4 @@
+using Dante.Worker.Coordenacao;
 using Dante.Application.Agentes;
 using Dante.Application.Anexos;
 using Dante.Worker.Brain;
@@ -113,7 +114,8 @@ public sealed class SessionRegistry(
                 request.Context.RepositoriosVinculados.Select(linked => linked.Caminho).ToArray(),
                 Instructions(request),
                 request.RegisteredAgent?.EscritaConfinada == true,
-                request.RegisteredAgent?.CheckoutsDaEscrita),
+                request.RegisteredAgent?.CheckoutsDaEscrita,
+                request.RegisteredAgent?.LeituraConfinada == true),
                 cancellationToken);
             entry.ReportedModel = started.Model;
             entry.Session.MarkStarted(started);
@@ -1215,6 +1217,17 @@ public sealed class SessionRegistry(
                 return "Sessão de escrita confinada exige perfil de escrita e repositório.";
             if (ConfinamentoDeEscrita.Recusa(request.Agent) is { } recusa) return recusa;
         }
+        // Revisão confinada de um Roteiro (#308): só sessão reservada, em plan, num repositório, com escopo e com o
+        // driver que confirma sandbox somente leitura (Codex). Nunca junto com a escrita.
+        if (registered.LeituraConfinada)
+        {
+            if (registered.EscritaConfinada || request.Observer is null || registered.EscopoDaRevisao is null)
+                return "Sessão de revisão confinada só existe para a etapa de revisão de um roteiro.";
+            if (request.Profile != AgentPermissionProfile.Plan || request.Context.Mode != JobExecutionMode.Repository)
+                return "Sessão de revisão confinada exige perfil plan e repositório.";
+            if (request.Agent != AgentKind.Codex)
+                return "A revisão de um roteiro roda numa sessão Codex com sandbox somente leitura; use um agente Codex.";
+        }
         // Modelo e esforço são os da versão congelada: o registro aponta para ela, então o processo também.
         var selection = request.ModelSelection ?? AgentModelSelection.CliDefault;
         if (!string.Equals(selection.Model, configuration.Modelo, StringComparison.OrdinalIgnoreCase) ||
@@ -1240,6 +1253,8 @@ public sealed class SessionRegistry(
         if (servers is null || request.RegisteredAgent is not { } registered) return servers;
         // Servidores de ferramentas rodam fora do sandbox da CLI: a sessão de escrita confinada não recebe nenhum (#307).
         if (registered.EscritaConfinada) return [];
+        // A revisão confinada recebe só o dante_coordenacao (#308), e ninguém mais o recebe.
+        if (registered.LeituraConfinada) return servers.Where(server => server.Name == ServidorMcpDeCoordenacao.Nome).ToArray();
         return servers.Where(server => server.Name switch
         {
             ServidorMcpDoBrain.Nome => registered.Configuracao.PermiteFerramenta(FerramentaDoDante.Brain),

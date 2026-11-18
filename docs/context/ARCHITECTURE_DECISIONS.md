@@ -2559,10 +2559,9 @@ Testes: `AgentesDominioTests`, `CadastroDeAgentesAppServiceTests`, `TelegramAgen
 
 ## AD-69 — Grupos versionados de agentes com roteiro determinístico e ativação humana vinculada a hash (#308)
 
-Status: vigente no **cadastro** e no **gate durável** (etapa 6 do roadmap da Epic #296, primeira e segunda das três
-entregas da #308). Proposta
-aprovada na #297 (PR #298) e decisões de escopo da #308 (A–H). O executor do roteiro e o `dante_coordenacao` entram
-na terceira entrega da mesma Issue e complementam esta AD. Complementa a AD-68 (grupos
+Status: vigente (etapa 6 do roadmap da Epic #296, entregue em três PRs da #308: cadastro, gate durável e executor do
+roteiro com a fundação do `dante_coordenacao`). Proposta
+aprovada na #297 (PR #298) e decisões de escopo da #308 (A–H). Complementa a AD-68 (grupos
 referenciam agentes registrados) e a AD-71 (quem escreve precisa de confinamento de SO). Depende do mesmo banco e da
 mesma chave `Orquestracao:Habilitada`; migration `GruposDeAgentes`, não aplicada no banco canônico.
 
@@ -2668,22 +2667,109 @@ canônico:
   hash; `/execucao aprovar|corrigir E… <hash> [instrução]`, `/execucao recusar E… [motivo]` e
   `/execucao objetivo E… <tarefa>`.
 
+**Executor do roteiro (terceira entrega da #308, decisões A, D e E)**, migration `VereditosDeRevisao`, não aplicada no
+banco canônico:
+
+* **`/grupo <nome> @alias <tarefa>`**: resolve o grupo (versão ativa, participantes válidos com a versão atual de cada
+  agente) e o repositório explícito, e enfileira o roteiro pela fila durável (`ExecutorDeRoteirosDaFila.CriarAsync`,
+  deduplicado pela mensagem). Um repositório por roteiro nesta entrega (vinculados recusados: a revisão confinada lê uma
+  worktree só). O objetivo original fica só na memória do processo que o recebeu.
+* **`ExecutorDeRoteirosDaFila`** (`TipoDeExecucao.Roteiro`): um passo por trabalho, na ordem gravada. A cada passo:
+  integridade do snapshot (`ConferirIntegridadeAsync`), versão congelada do agente (`ObterVersaoDoParticipanteAsync`,
+  hash conferido) de novo no catálogo da CLI, e uma sessão Codex **reservada e separada** por passo (nunca a mesma
+  sessão para implementar e revisar), encerrada sempre. Sem o objetivo original em memória e com o guardado protegido,
+  a execução pede outro à pessoa (decisão B). Avisos ao dono: gate aberto (com o hash e os comandos), bloqueio, falha e
+  pedido de objetivo.
+  * implementar: planeja, reserva atomicamente, cria e valida a worktree (AD-71) e abre a escrita confinada nela, no
+    perfil padrão da versão; o prompt diz que não há commit nem push;
+  * corrigir: `ReadquirirAsync` (sem capacidade, espera sem contar tentativa), revalida a worktree e escreve a partir
+    dos itens do veredito e da instrução humana;
+  * revisar: lê as alterações da worktree (`IGerenciadorDeWorktrees.ResumirAlteracoesAsync`: `git diff
+    --no-ext-diff --no-textconv --no-color --binary <base>` e `git ls-files --others --exclude-standard -z`, os dois
+    acrescentados ao conjunto fechado; hash canônico do diff inteiro mais caminho e SHA-256 de cada arquivo novo, link
+    pelo destino declarado) e abre a **revisão confinada**; o diff vai no prompt (cortado em 60 000 caracteres, o hash
+    cobre tudo). Sem veredito ao fim do turno, um lembrete; ainda sem, a etapa falha (texto livre nunca vale). O hash é
+    recalculado depois do turno: worktree alterada durante a revisão invalida o veredito.
+* **Revisão confinada** (`AgenteDaSessao.LeituraConfinada`, `AgentSessionStartOptions.LeituraConfinada`; refeita no
+  review do PR #317): só sessão reservada, em `plan`, num repositório, com escopo e com Codex (o `SessionRegistry`
+  recusa o resto; o driver do Claude recusa antes de qualquer processo). O confinamento de **leitura** é do sandbox do
+  SO, por um perfil de permissões do Codex (`default_permissions="dante_revisao"`,
+  `[permissions.dante_revisao.filesystem]` com `":minimal" = "read"`, a worktree e o diretório real do executável do
+  Codex, que o sandbox reexecuta, resolvido componente a componente): home, outros checkouts, `.env`, credenciais e o
+  resto do host **não existem** dentro do sandbox (bubblewrap no Linux); escrita e rede negadas. Não basta `read-only`:
+  ele lê o disco inteiro. A sessão também desliga o que age fora do sandbox ou amplia o alcance (`features.apps`,
+  `features.view_image`, `features.multi_agent`, `features.goals`, `web_search="disabled"`), esvazia os servidores
+  MCP do usuário antes de declarar só o `dante_coordenacao`, usa `approvalPolicy` granular que nunca escala o sandbox
+  (só aprovações de ferramenta MCP chegam ao cliente) e não herda o ambiente do Worker (allowlist mínima do lançador).
+  A sessão só é aceita se o `thread/start` reportar `activePermissionProfile = dante_revisao`, essa política, o cwd e
+  um resumo `readOnly` sem rede; versão que não reporta o perfil é recusada. Sem troca de modo nem limpeza.
+* **Ambiente dos comandos da revisão** (segunda revisão do PR #317): o processo do Codex mantém as credenciais de que o
+  app-server precisa para falar com o provedor, mas os comandos shell não herdam nada dele. A sessão impõe por
+  `-c` (que vence o `CODEX_HOME/config.toml` chave a chave) `shell_environment_policy` com `inherit="none"`,
+  `exclude=["*"]`, `include_only` = `PATH`, `LANG`, `LC_ALL`, `LC_CTYPE` e `TERM`, `PATH` fixo, sem perfil do shell, e
+  `allow_login_shell=false`. Tabelas se mesclam (o `set` do usuário sobrevive), por isso o `include_only`, aplicado
+  depois do `set`, é o que descarta o que o usuário injetar. Antes da thread, o driver lê a configuração efetiva
+  (`config/read`) e só segue com exatamente essa política: herança, filtros relaxados, shell de login, mecanismo de
+  filtro desconhecido, valor do usuário para um nome permitido ou CLI sem `config/read` recusam a revisão, sem
+  alternativa mais fraca. Sem a política, a configuração padrão do 0.166 já repassa as chaves ao shell (medido).
+* **Autorização restrita do veredito**: `entregar_resultado` continua classificada como não somente leitura
+  (`readOnlyHint=false`), mas não destrutiva e de mundo fechado; com essas anotações o Codex 0.166 a executa sem pedir
+  aprovação. Se uma versão ou configuração pedir (`mcpServer/elicitation/request`), o driver, só na revisão confinada,
+  aceita exatamente `dante_coordenacao`/`entregar_resultado` na thread da própria sessão e recusa qualquer outra
+  ferramenta, servidor ou thread, sem levar o pedido a uma pessoa; fora dela, nada muda (`plan` recusa; as demais
+  sessões perguntam). Perguntas ao usuário num passo de roteiro recebem resposta vazia (ninguém as responde).
+* **Evidência opt-in com o Codex real** (0.166, `DANTE_LIVE_CODEX_SANDBOX=1`, sem chamada de modelo paga: provedor
+  Responses local roteirizado e `CODEX_HOME` temporário): num turno real conduzido pelo driver, o shell da revisão não
+  encontra `.env` de outro diretório nem do checkout, `~/.codex/auth.json` nem `/srv`; a execução escalonada é recusada
+  pela política; escrever é negado e ler a worktree passa; o veredito chega ao caso de uso pelo `dante_coordenacao`
+  real, sem nenhum pedido de aprovação. Com um servidor de teste que exige aprovação, a elicitação real chega e o driver
+  aceita só `entregar_resultado`. `~/.codex/config.toml` intacto. Com chaves de provedor, proxy autenticado e token falsos no ambiente do
+  Codex (o app-server autentica no provedor de teste com a chave), `env`, `printenv` e o `environ` de cada processo do
+  sandbox não mostram nenhum valor secreto, tanto com o `CODEX_HOME` de teste quanto com um `config.toml` pessoal
+  deliberadamente permissivo; o shell de login é recusado; o veredito chega. Controle negativo: sem a política, a chave
+  aparece no `env` já com a configuração padrão.
+* **Fundação do `dante_coordenacao`** (decisão E; a #309 a amplia, sem outro servidor nem outro IPC):
+  * `ServidorMcpDeCoordenacao`: processo MCP stdio (`--mcp-coordenacao --pipe <nome>`) sem DI, banco nem rede; valida a
+    forma das chamadas (ferramenta conhecida, só argumentos declarados, obrigatórios presentes) e encaminha ao Worker;
+  * `FerramentasDeCoordenacao` (Worker): um canal por sessão, só para a revisão confinada com escopo; pipe local de nome
+    aleatório, só do mesmo usuário, uma conexão, e um **token aleatório da sessão** apresentado antes de qualquer
+    chamada (comparação em tempo constante); sem token, o canal fecha sem atender; até 50 chamadas por sessão. O
+    **escopo** (execução, etapa de revisão, rodada e hash do diff) é fixado pelo orquestrador ao abrir a sessão; o agente
+    nunca o informa. Nenhuma outra sessão recebe este servidor (`Granted` o filtra para todos os demais);
+  * ferramentas: `estado_da_execucao` (somente leitura: rodada, limite, hash revisado, vereditos anteriores, instrução
+    humana) e `entregar_resultado` (veredito `aprovado | requer_correcoes | bloqueado`, resumo, itens).
+* **Veredito estruturado** (`vereditos_de_revisao`, decisão D): `RegistrarVereditoAsync` só aceita a etapa de revisão
+  em curso do escopo, na rodada e com o hash do escopo; recusa credencial no resumo ou nos itens e pedido de correção
+  sem itens; um por etapa (índice único) e imutável (trigger); repetir a mesma entrega é idempotente (hash do
+  conteúdo), outra é recusada. A conclusão do passo usa o veredito gravado, não o que o agente escreve no turno.
+
 Consequências:
 
 * uma versão de grupo é reprodutível pelo hash e por quem a ativou; o que a execução usa é a versão ativa no momento
   em que ela começa, com as versões de agente congeladas no snapshot;
 * o gate sobrevive a reinício porque é linha do ledger; o slot de escrita não fica preso a uma decisão humana;
-* ainda não há executor do roteiro nem `/grupo <nome> @alias <tarefa>`: os casos de uso desta entrega são consumidos
-  pela terceira, com o `dante_coordenacao` e o veredito estruturado;
+* implementar e revisar são processos Codex distintos com confinamentos distintos; nenhum agente faz commit, push, PR
+  ou merge, e a entrega das alterações aprovadas (commit/PR por processo confiável) fica para depois, com o gateway
+  #311;
+* só a revisão tem confinamento de leitura: a leitura da `/tarefa` (`plan`) e a escrita confinada (#307) continuam
+  lendo o disco inteiro, e passar a elas o mesmo perfil fica para uma entrega própria;
+* o perfil de permissões depende do Codex 0.166 ou posterior (sem `activePermissionProfile` no `thread/start`, a
+  revisão é recusada: o roteiro falha em vez de revisar sem confinamento);
 * a forma do roteiro é fechada de propósito; outra forma exige mudar o domínio e esta AD.
 
 Código: `Dante.Domain/Grupos`, `Dante.Application/Grupos`, `Dante.Infrastructure/Modulos/Grupos`, migration
 `GruposDeAgentes`, `Dante.Worker/Telegram/TelegramGrupos.cs`; gate: `Dante.Domain/Execucoes/{RoteiroDaExecucao,
 ParticipanteDaExecucao, PedidoDeAprovacao, ProgressaoDoRoteiro, VereditoDeRevisao}.cs`,
 `Dante.Application/Execucoes/{RoteirosAppService, ReservasDeWorktreeAppService (ReadquirirAsync)}.cs`, migration
-`GateDoRoteiro`, `Dante.Worker/Telegram/TelegramExecucoes.cs`.
+`GateDoRoteiro`, `Dante.Worker/Telegram/TelegramExecucoes.cs`; executor: `Dante.Domain/Execucoes/VereditoRegistrado.cs`,
+`Dante.Worker/Execucoes/{ExecutorDeRoteirosDaFila, ObservadorDoRoteiro, ExecucaoSobPosse}.cs`,
+`Dante.Worker/Coordenacao/{ServidorMcpDeCoordenacao, FerramentasDeCoordenacao}.cs`,
+`Dante.Worker/Sessions/{CodexSessionDriver, ClaudeSessionDriver, SessionRegistry, AgenteDaSessao}.cs`,
+`Dante.Infrastructure/Contextos/GerenciadorDeWorktreesGit.cs` (`ResumirAlteracoesAsync`), migration `VereditosDeRevisao`.
 Testes: `GruposDominioTests`, `CadastroDeGruposAppServiceTests`, `GruposDeAgentesPostgreSqlTests`,
-`TelegramAgentesTests` (`/grupo`), `GateDoRoteiroDominioTests`, `GateDoRoteiroPostgreSqlTests`.
+`TelegramAgentesTests` (`/grupo`), `GateDoRoteiroDominioTests`, `GateDoRoteiroPostgreSqlTests`,
+`CoordenacaoDoRoteiroTests`, `RoteiroPelaFilaEndToEndTests` e a evidência opt-in
+`LiveCodexSandboxEvidenceTests.RevisaoConfinadaDoCodexSoLeEEntregaOVereditoPeloCoordenacao` (`DANTE_LIVE_CODEX_SANDBOX=1`).
 
 ## AD-71 — Worktree por execução de escrita, conjunto fechado de comandos Git e escrita só com sandbox de SO (#307)
 

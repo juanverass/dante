@@ -1,3 +1,4 @@
+using Dante.Worker.Coordenacao;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
@@ -9,10 +10,13 @@ namespace Dante.Worker.Sessions;
 // Codex over `codex app-server --listen stdio://` (AD-15, AD-19): JSON-RPC in JSONL on one process per session, with
 // one ephemeral thread per D.A.N.T.E. session. Approvals and user input are server requests answered by id;
 // steer and interrupt are client requests on the active turn.
+// runtimeDoCodex: diretório do executável real do Codex (que o sandbox reexecuta), o único caminho fora da worktree que a
+// revisão confinada lê além do mínimo de runtime (#308). Nulo: resolvido do PATH; sem ele, a revisão é recusada.
 public sealed class CodexSessionDriver(
     IInteractiveAgentProcessLauncher launcher,
     TimeSpan? contextTimeout = null,
-    TimeSpan? compactTimeout = null) : IAgentSessionDriver
+    TimeSpan? compactTimeout = null,
+    Func<string?>? runtimeDoCodex = null) : IAgentSessionDriver
 {
     private const int EventCapacity = 256;
     // thread/start answered in under a second in #119.
@@ -52,6 +56,8 @@ public sealed class CodexSessionDriver(
     private string? effectiveEffort;
     // Confined write step (#307): fixed policy for the whole session, no mode switch and no clear.
     private bool confinada;
+    // Confined review (#308): the only MCP approval accepted is dante_coordenacao.entregar_resultado.
+    private bool revisaoConfinada;
     private bool closing;
     private bool ended;
     private long nextRequestId;
@@ -70,14 +76,25 @@ public sealed class CodexSessionDriver(
         }
 
         if (options.EscritaConfinada && (options.Profile == AgentPermissionProfile.Plan || options.IsGeneral ||
-                                         options.ToolServers is { Count: > 0 }))
+                                         options.ToolServers is { Count: > 0 } || options.LeituraConfinada))
             throw new AgentProtocolException("Sessão de escrita confinada inválida; nada foi iniciado.");
+        // Confined review (#308): plan, in a repository, only the dante_coordenacao server, no extra roots.
+        if (options.LeituraConfinada && (options.Profile != AgentPermissionProfile.Plan || options.IsGeneral ||
+                                         options.AdditionalDirectories is { Count: > 0 } ||
+                                         (options.ToolServers ?? []).Any(server => server.Name != ServidorMcpDeCoordenacao.Nome)))
+            throw new AgentProtocolException("Sessão de revisão confinada inválida; nada foi iniciado.");
         var naoConfiaveis = options.ProjetosNaoConfiaveis ?? [];
         // A main checkout is never the working directory nor a writable root of a confined session.
         if (options.EscritaConfinada && naoConfiaveis.Any(projeto =>
                 string.Equals(projeto, options.WorkingDirectory, StringComparison.Ordinal) ||
                 (options.AdditionalDirectories ?? []).Contains(projeto, StringComparer.Ordinal)))
             throw new AgentProtocolException("Sessão de escrita confinada com checkout principal gravável; nada foi iniciado.");
+        if (options.LeituraConfinada && naoConfiaveis.Contains(options.WorkingDirectory, StringComparer.Ordinal))
+            throw new AgentProtocolException("Sessão de revisão confinada no checkout principal; nada foi iniciado.");
+        string? runtime = null;
+        if (options.LeituraConfinada && (runtime = (runtimeDoCodex ?? RuntimeDoCodexNoPath)()) is null)
+            throw new AgentProtocolException(
+                "Executável do Codex não localizado para o confinamento da revisão; nada foi iniciado.");
         var (approvalPolicy, sandbox) = options.EscritaConfinada ? ConfinedPolicy : Policy(options.Profile);
         var approvalsReviewer = options.Profile == AgentPermissionProfile.Auto ? "auto_review" : "user";
         var roots = DiretoriosVinculados.Validar(options.AdditionalDirectories, options.IsGeneral).ToArray();
@@ -86,8 +103,11 @@ public sealed class CodexSessionDriver(
         var request = new AgentProcessRequest(
             AgentKind.Codex,
             options.WorkingDirectory,
-            ["app-server", "--listen", "stdio://", .. McpConfig(options.ToolServers),
-                .. options.EscritaConfinada ? (string[])["-c", "mcp_servers={}"] : []],
+            // Confined review: the user's servers are emptied first and only dante_coordenacao is declared after it.
+            ["app-server", "--listen", "stdio://",
+                .. options.EscritaConfinada || options.LeituraConfinada ? (string[])["-c", "mcp_servers={}"] : [],
+                .. McpConfig(options.ToolServers),
+                .. options.LeituraConfinada ? ConfinamentoDaRevisao(options.WorkingDirectory, runtime!) : []],
             options.IsGeneral,
             options.EnvironmentVariables);
         var agent = await launcher.StartAsync(request, cancellationToken: cancellationToken);
@@ -97,7 +117,8 @@ public sealed class CodexSessionDriver(
             profile = options.Profile;
             workingDirectory = options.WorkingDirectory;
             writableRoots = roots;
-            confinada = options.EscritaConfinada;
+            confinada = options.EscritaConfinada || options.LeituraConfinada;
+            revisaoConfinada = options.LeituraConfinada;
             effort = options.ModelSelection?.Effort;
             conversationInstructions = ContratoDaConversaParaAgentes.ParaSessao(options.ToolServers,
                 options.ContextInstructions);
@@ -114,19 +135,25 @@ public sealed class CodexSessionDriver(
             }, cancellationToken);
             await WriteAsync(agent, new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "initialized" },
                 cancellationToken);
+            // The review's shell environment policy must be the imposed one in the effective configuration (session
+            // flags over CODEX_HOME/config.toml), confirmed before any thread exists; anything else ends the session.
+            if (options.LeituraConfinada) await ConfirmarAmbienteDaRevisaoAsync(options.WorkingDirectory, cancellationToken);
             var threadParameters = new JsonObject
             {
                 ["cwd"] = options.WorkingDirectory,
-                ["approvalPolicy"] = approvalPolicy,
+                ["approvalPolicy"] = options.LeituraConfinada ? PoliticaDaRevisao() : approvalPolicy,
                 ["approvalsReviewer"] = approvalsReviewer,
-                ["sandbox"] = sandbox,
                 ["developerInstructions"] = conversationInstructions,
                 // D.A.N.T.E. sessions live only while the Worker runs (Epic #60).
                 ["ephemeral"] = true
             };
+            // The confined review takes its filesystem policy from the permission profile (sandbox_mode and
+            // default_permissions cannot both be set).
+            if (!options.LeituraConfinada) threadParameters["sandbox"] = sandbox;
             // Without a selection the CLI picks its own default model (#77); thread/start reports it either way.
             if (options.ModelSelection?.Model is { } selectedModel) threadParameters["model"] = selectedModel;
             if (options.EscritaConfinada) AddConfinement(threadParameters, roots, naoConfiaveis);
+            else if (options.LeituraConfinada) AddReadConfinement(threadParameters, naoConfiaveis);
             else AddWritableRoots(threadParameters, roots);
             var thread = await SendRequestAsync("thread/start", threadParameters, cancellationToken);
             // The effective policy reported by the thread, not the request, decides (#307): anything other than exactly
@@ -135,6 +162,10 @@ public sealed class CodexSessionDriver(
                 throw new AgentProtocolException(
                     "O Codex não confirmou o confinamento de escrita (sandbox só nas worktrees, sem /tmp, sem rede e sem " +
                     "aprovações); nada foi enviado ao agente.");
+            if (options.LeituraConfinada && !ConfirmsReadConfinement(thread, options.WorkingDirectory))
+                throw new AgentProtocolException(
+                    "O Codex não confirmou o confinamento da revisão (sandbox somente leitura, sem rede e sem aprovações); " +
+                    "nada foi enviado ao agente.");
             // A session that cannot write to the linked repositories would fail the task halfway (AD-58).
             if (!ConfirmsWritableRoots(thread, options.Profile, roots))
                 throw new AgentProtocolException("O Codex não confirmou o acesso aos repositórios vinculados. Atualize a CLI ou remova o vínculo.");
@@ -646,6 +677,167 @@ public sealed class CodexSessionDriver(
                 KeyValuePair.Create(project, (JsonNode?)new JsonObject { ["trust_level"] = "untrusted" })))
         };
 
+    // Confined review step (#308, review do PR #317). The filesystem is confined by a permission profile enforced by the
+    // OS sandbox (bubblewrap on Linux), not by read-only mode: the reviewer reads only the worktree, the minimal runtime
+    // (":minimal") and the Codex executable directory (the sandbox re-executes it); home, other checkouts, credentials
+    // and the rest of the host do not exist inside it. Writes and network are denied. Tools that act outside the
+    // sandbox or widen the reach are switched off (account connectors, image viewer, sub-agents, goals, web search),
+    // and the approval policy never escalates the sandbox: only MCP tool approvals reach the client, and the driver
+    // accepts exactly dante_coordenacao.entregar_resultado.
+    public const string PerfilDaRevisao = "dante_revisao";
+
+    internal static IReadOnlyList<string> ConfinamentoDaRevisao(string worktree, string runtime)
+    {
+        if (!Path.IsPathFullyQualified(worktree) || !Path.IsPathFullyQualified(runtime) ||
+            worktree.Any(char.IsControl) || runtime.Any(char.IsControl))
+            throw new AgentProtocolException("Caminho inválido para o confinamento da revisão; nada foi iniciado.");
+        return
+        [
+            "-c", "features.apps=false", "-c", "features.view_image=false", "-c", "features.multi_agent=false",
+            "-c", "features.goals=false", "-c", "web_search=\"disabled\"",
+            "-c", $"default_permissions=\"{PerfilDaRevisao}\"",
+            .. PoliticaDeAmbienteDaRevisao(),
+            "-c", $"permissions.{PerfilDaRevisao}.filesystem={{\":minimal\" = \"read\", " +
+                $"{JsonSerializer.Serialize(worktree)} = \"read\", {JsonSerializer.Serialize(runtime)} = \"read\"}}"
+        ];
+    }
+
+    // Environment of the review's shell commands (review do PR #317): nothing inherited from the app-server process
+    // (which keeps the provider credentials it needs), only PATH and locale/terminal names, no login shell and no shell
+    // profile. Session flags take precedence over CODEX_HOME/config.toml for each key, but tables merge: the user's
+    // "set" entries survive, so include_only (applied after "set") is what drops them. The effective result is
+    // confirmed by config/read before the thread starts.
+    internal const string PathDaRevisao = "/usr/local/bin:/usr/bin:/bin";
+
+    internal static readonly IReadOnlyList<string> AmbienteDaRevisao = ["PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM"];
+
+    internal static IReadOnlyList<string> PoliticaDeAmbienteDaRevisao() =>
+    [
+        "-c", "shell_environment_policy.inherit=\"none\"",
+        "-c", "shell_environment_policy.ignore_default_excludes=false",
+        "-c", "shell_environment_policy.exclude=[\"*\"]",
+        "-c", $"shell_environment_policy.include_only={JsonSerializer.Serialize(AmbienteDaRevisao)}",
+        "-c", "shell_environment_policy.experimental_use_profile=false",
+        "-c", $"shell_environment_policy.set={{PATH = {JsonSerializer.Serialize(PathDaRevisao)}}}",
+        "-c", "allow_login_shell=false"
+    ];
+
+    private async Task ConfirmarAmbienteDaRevisaoAsync(string workingDirectory, CancellationToken cancellationToken)
+    {
+        JsonObject? configuracao;
+        try
+        {
+            configuracao = (await SendRequestAsync("config/read",
+                new JsonObject { ["cwd"] = workingDirectory, ["includeLayers"] = false }, cancellationToken))["config"] as JsonObject;
+        }
+        catch (InvalidOperationException)
+        {
+            // Rejected request (a CLI without config/read): unconfirmed, never a fallback.
+            configuracao = null;
+        }
+        if (configuracao is null || !ConfirmsShellEnvironment(configuracao))
+            throw new AgentProtocolException(
+                "O Codex não confirmou o ambiente isolado dos comandos da revisão (shell_environment_policy imposta); " +
+                "nada foi enviado ao agente.");
+    }
+
+    // Exactly the imposed policy: no inheritance, every inherited name excluded, only the allowlist kept, PATH ours, no
+    // shell profile, no login shell, no other filter mechanism, and no user "set" value for an allowed name besides
+    // PATH (include_only matches names case-insensitively).
+    internal static bool ConfirmsShellEnvironment(JsonObject configuracao)
+    {
+        if (configuracao["shell_environment_policy"] is not JsonObject politica ||
+            !IsFalse(configuracao, "allow_login_shell") ||
+            GetString(politica, "inherit") != "none" || !IsFalse(politica, "ignore_default_excludes") ||
+            !IsFalse(politica, "experimental_use_profile") || politica["filters"] is not null ||
+            !Textos(politica["exclude"]).SequenceEqual(["*"]) ||
+            !Textos(politica["include_only"]).SequenceEqual(AmbienteDaRevisao) ||
+            politica["set"] is not JsonObject definidas || GetString(definidas, "PATH") != PathDaRevisao)
+            return false;
+        foreach (var (nome, _) in definidas)
+            if (nome != "PATH" && AmbienteDaRevisao.Contains(nome, StringComparer.OrdinalIgnoreCase)) return false;
+        return true;
+    }
+
+    private static IEnumerable<string?> Textos(JsonNode? node) =>
+        node is JsonArray array ? array.Select(item => item is JsonValue value &&
+            value.GetValueKind() == JsonValueKind.String ? value.GetValue<string>() : null) : [null];
+
+    // Approvals the review may raise: MCP tool calls only. Sandbox escalation, exec rules, skills and permission
+    // requests are refused by the CLI itself (it never asks).
+    internal static JsonObject PoliticaDaRevisao() => new()
+    {
+        ["granular"] = new JsonObject
+        {
+            ["sandbox_approval"] = false, ["rules"] = false, ["skill_approval"] = false, ["request_permissions"] = false,
+            ["mcp_elicitations"] = true
+        }
+    };
+
+    private static string? RuntimeDoCodexNoPath()
+    {
+        foreach (var diretorio in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator,
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidato = Path.Combine(diretorio, OperatingSystem.IsWindows() ? "codex.exe" : "codex");
+            if (!File.Exists(candidato)) continue;
+            // O sandbox reexecuta o executável pelo caminho real: links no meio do caminho (current → release) não valem.
+            return Path.GetDirectoryName(CaminhoReal(candidato));
+        }
+        return null;
+    }
+
+    // Caminho canônico: cada componente que é link é substituído pelo destino (como realpath), com limite de saltos.
+    internal static string CaminhoReal(string caminho)
+    {
+        var pendentes = new Queue<string>(Path.GetFullPath(caminho).Split(Path.DirectorySeparatorChar,
+            StringSplitOptions.RemoveEmptyEntries));
+        var atual = Path.DirectorySeparatorChar.ToString();
+        var saltos = 0;
+        while (pendentes.TryDequeue(out var parte))
+        {
+            var proximo = Path.Combine(atual, parte);
+            if (new FileInfo(proximo).LinkTarget is { } alvo)
+            {
+                if (++saltos > 40) throw new IOException("Links demais ao resolver o caminho do Codex.");
+                var destino = Path.GetFullPath(Path.IsPathRooted(alvo) ? alvo : Path.Combine(atual, alvo));
+                pendentes = new Queue<string>(destino.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)
+                    .Concat(pendentes));
+                atual = Path.DirectorySeparatorChar.ToString();
+                continue;
+            }
+            atual = proximo;
+        }
+        return atual;
+    }
+
+    // The repository of the worktree stays untrusted, as in the confined write (no trust persisted, no project config).
+    private static void AddReadConfinement(JsonObject parameters, IReadOnlyList<string> untrusted) =>
+        parameters["config"] = new JsonObject
+        {
+            ["projects"] = new JsonObject(untrusted.Distinct(StringComparer.Ordinal).Select(project =>
+                KeyValuePair.Create(project, (JsonNode?)new JsonObject { ["trust_level"] = "untrusted" })))
+        };
+
+    internal static JsonObject ConfinedReadSandboxPolicy() => new() { ["type"] = "readOnly", ["networkAccess"] = false };
+
+    // The thread must report the review profile as active, the review approval policy, the requested cwd and a
+    // read-only, network-less legacy summary of it.
+    internal static bool ConfirmsReadConfinement(JsonObject thread, string workingDirectory) =>
+        thread["approvalPolicy"] is JsonObject politica && JsonNode.DeepEquals(politica, PoliticaDaRevisao()) &&
+        GetString(thread, "cwd") == workingDirectory &&
+        thread["activePermissionProfile"] is JsonObject perfil && GetString(perfil, "id") == PerfilDaRevisao &&
+        thread["sandbox"] is JsonObject sandbox && GetString(sandbox, "type") == "readOnly" &&
+        (sandbox["networkAccess"] is null || IsFalse(sandbox, "networkAccess"));
+
+    // Exactly the verdict tool of this session's coordination server, as the 0.166 app-server words it.
+    internal static bool EntregaDoVereditoAutorizada(JsonObject parameters, string? thread) =>
+        GetString(parameters, "serverName") == ServidorMcpDeCoordenacao.Nome &&
+        GetString(parameters, "message") ==
+            $"Allow the {ServidorMcpDeCoordenacao.Nome} MCP server to run tool \"{ServidorMcpDeCoordenacao.EntregarResultado}\"?" &&
+        thread is not null && GetString(parameters, "threadId") == thread &&
+        parameters["_meta"] is JsonObject meta && GetString(meta, "codex_approval_kind") == "mcp_tool_call";
+
     // The same confinement as a SandboxPolicy object (command/exec, turn/start): used by the live evidence that runs real
     // commands under it, so the policy proved is the one this driver confirms.
     internal static JsonObject ConfinedSandboxPolicy(IReadOnlyList<string> roots) => new()
@@ -835,6 +1027,15 @@ public sealed class CodexSessionDriver(
         }
     }
 
+    private bool RevisaoConfinada(out string? thread)
+    {
+        lock (gate)
+        {
+            thread = threadId;
+            return revisaoConfinada;
+        }
+    }
+
     private async Task HandleServerRequestAsync(JsonNode id, string method, JsonObject parameters)
     {
         var upstreamId = IdKey(id);
@@ -869,6 +1070,17 @@ public sealed class CodexSessionDriver(
                 pending = new PendingServerRequest(id.DeepClone(), method, [.. questions.Select(q => q.Id)]);
                 requested = new UserInputRequestedEvent(upstreamId, questions);
                 break;
+            case ElicitationMethod when RevisaoConfinada(out var thread):
+            {
+                // Confined review (#308): no approval reaches a person; only the verdict tool of this session's
+                // coordination server is accepted, anything else is declined.
+                var aceita = EntregaDoVereditoAutorizada(parameters, thread);
+                await WriteAsync(RequireOpen(), Response(id.DeepClone(), new JsonObject
+                {
+                    ["action"] = aceita ? "accept" : "decline", ["content"] = null
+                }), lifetime.Token);
+                return;
+            }
             case ElicitationMethod when parameters["_meta"] is JsonObject meta &&
                                         GetString(meta, "codex_approval_kind") == "mcp_tool_call":
                 bool planning;

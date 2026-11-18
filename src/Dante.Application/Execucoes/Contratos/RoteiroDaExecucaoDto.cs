@@ -21,6 +21,11 @@ public sealed record RoteiroDaExecucaoDto
     public Guid IdExecucao { get; init; }
     public string Codigo { get; init; } = "";
     public EstadoDaExecucao Estado { get; init; }
+    // Repositório congelado na criação (alias e checkout principal); nunca diretório de trabalho de um agente.
+    public string AliasDoRepositorio { get; init; } = "";
+    public string CheckoutDoRepositorio { get; init; } = "";
+    public string Canal { get; init; } = "";
+    public long IdDoUsuarioNoCanal { get; init; }
     public string NomeDoGrupo { get; init; } = "";
     public int NumeroDaVersaoDoGrupo { get; init; }
     public string HashDaVersaoDoGrupo { get; init; } = "";
