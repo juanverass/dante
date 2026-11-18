@@ -9,13 +9,10 @@ namespace Dante.Infrastructure.Modulos.Execucoes;
 public sealed class DelegacaoRepository(OrquestracaoDbContext context)
     : Repository<Delegacao>(context), IDelegacaoRepository
 {
-    private static readonly EstadoDaDelegacao[] NaoTerminais =
-        [EstadoDaDelegacao.Solicitada, EstadoDaDelegacao.Aceita, EstadoDaDelegacao.EmAndamento];
-
-    public Task<Delegacao?> ObterNaoTerminalPorChaveAsync(Guid idExecucaoRaiz, string chaveDeDeduplicacao,
+    public Task<Delegacao?> ObterPorChaveAsync(Guid idExecucaoRaiz, string chaveDeDeduplicacao,
         CancellationToken cancellationToken = default) =>
-        DbSet.SingleOrDefaultAsync(x => x.IdExecucaoRaiz == idExecucaoRaiz &&
-            x.ChaveDeDeduplicacao == chaveDeDeduplicacao && NaoTerminais.Contains(x.Estado), cancellationToken);
+        DbSet.SingleOrDefaultAsync(x => x.IdExecucaoRaiz == idExecucaoRaiz && x.ChaveDeDeduplicacao == chaveDeDeduplicacao,
+            cancellationToken);
 
     public Task<Delegacao?> ObterDaSubordinadaAsync(Guid idExecucaoSubordinada, CancellationToken cancellationToken = default) =>
         DbSet.SingleOrDefaultAsync(x => x.IdExecucaoSubordinada == idExecucaoSubordinada, cancellationToken);

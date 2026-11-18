@@ -444,8 +444,7 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
 
                     b.HasIndex("IdExecucaoRaiz", "ChaveDeDeduplicacao")
                         .IsUnique()
-                        .HasDatabaseName("ix_delegacoes_unidade_nao_terminal")
-                        .HasFilter("estado IN (0, 1, 2)");
+                        .HasDatabaseName("ix_delegacoes_unidade");
 
                     b.ToTable("delegacoes", "orquestracao", t =>
                         {

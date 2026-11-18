@@ -39,8 +39,8 @@ public sealed record NovaDelegacao(Delegacao Delegacao, Execucao Subordinada);
 // Criada só por Criar, que aplica todas as regras por interseção (nada é ampliado: o destinatário recebe o mínimo entre
 // o que o solicitante pode, o que ele próprio pode e o teto global). Nesta etapa é só de leitura: Escrita é sempre
 // falso, e o banco também o exige. A identidade da unidade de trabalho é a chave de deduplicação (raiz, etapa de
-// origem, contrato, objetivo normalizado e entrada canônica), sem a tentativa e sem o destinatário: repetir o pedido
-// devolve a mesma delegação, e a mesma unidade para outro agente é recusada.
+// origem, contrato, objetivo normalizado e entrada canônica), sem a tentativa e sem o destinatário, e vale em qualquer
+// estado: repetir o pedido devolve a mesma delegação (mesmo terminal), e a mesma unidade para outro agente é recusada.
 // O resultado, uma vez gravado, não muda (método único, estado terminal; o banco também o protege).
 public sealed class Delegacao : EntidadeBase
 {
@@ -269,8 +269,10 @@ public sealed class Delegacao : EntidadeBase
             numeroDaEtapaDeOrigem.ToString(CultureInfo.InvariantCulture) + "\n" + contrato + "\n" + hashDoObjetivo + "\n" +
             hashDaEntrada);
 
-    // Outro pedido com a mesma chave: para o mesmo agente é a mesma delegação (devolvida, nada novo); para outro
-    // agente, a unidade já está atribuída e o pedido é recusado.
+    // Outro pedido com a mesma chave, em qualquer estado desta delegação (inclusive terminal): para o mesmo agente é a
+    // mesma delegação, devolvida como está (estado e resultado originais; nada é reaberto nem alterado); para outro
+    // agente, a unidade já está atribuída e o pedido é recusado. Reexecutar ou reatribuir será uma operação explícita,
+    // auditada e com identidade própria, nunca efeito de a delegação ter terminado.
     public Delegacao ConferirRepeticao(Guid idAgenteDestinatario)
     {
         if (idAgenteDestinatario != IdAgenteDestinatario)

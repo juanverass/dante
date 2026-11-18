@@ -8,7 +8,8 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace Dante.Infrastructure.Modulos.Execucoes;
 
 // Delegações (AD-70, #309). A etapa de origem é da execução de origem (FK composta); a subordinada é única; a mesma
-// unidade de trabalho (raiz + chave) existe no máximo uma vez entre as não terminais (índice único parcial). Entrada e
+// unidade de trabalho (raiz + chave) existe no máximo uma vez, em qualquer estado (índice único, não parcial: uma
+// delegação encerrada continua sendo a atribuição daquela unidade e nunca libera a chave). Entrada e
 // resultado ficam como texto, não jsonb: o hash é do JSON canônico exato, e jsonb reordenaria as chaves. Checks: sem
 // escrita, contrato do catálogo, prazos dentro do teto, hashes, cadeia sem o destinatário e resultado presente só na
 // resposta e só da versão destinatária. Triggers da migration: hierarquia conferida na inserção, imutabilidade dos
@@ -18,8 +19,6 @@ public sealed class DelegacaoDbMapping : EntidadeConfiguration<Delegacao>
     public override void Configure(EntityTypeBuilder<Delegacao> b)
     {
         base.Configure(b);
-        var naoTerminais = $"({(int)EstadoDaDelegacao.Solicitada}, {(int)EstadoDaDelegacao.Aceita}, " +
-            $"{(int)EstadoDaDelegacao.EmAndamento})";
         b.ToTable("delegacoes", t =>
         {
             t.HasCheckConstraint("ck_delegacoes_sem_escrita", "escrita = false");
@@ -110,7 +109,7 @@ public sealed class DelegacaoDbMapping : EntidadeConfiguration<Delegacao>
 
         b.HasIndex(x => x.IdExecucaoSubordinada).IsUnique();
         b.HasIndex(x => new { x.IdExecucaoRaiz, x.ChaveDeDeduplicacao }).IsUnique()
-            .HasDatabaseName("ix_delegacoes_unidade_nao_terminal").HasFilter($"estado IN {naoTerminais}");
+            .HasDatabaseName("ix_delegacoes_unidade");
         b.HasIndex(x => x.IdExecucaoOrigem);
         b.HasIndex(x => x.IdExecucaoRaiz);
     }

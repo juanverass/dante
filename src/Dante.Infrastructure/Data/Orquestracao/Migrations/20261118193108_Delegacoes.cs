@@ -308,12 +308,11 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                 column: "id_versao_solicitante");
 
             migrationBuilder.CreateIndex(
-                name: "ix_delegacoes_unidade_nao_terminal",
+                name: "ix_delegacoes_unidade",
                 schema: "orquestracao",
                 table: "delegacoes",
                 columns: new[] { "id_execucao_raiz", "chave_de_deduplicacao" },
-                unique: true,
-                filter: "estado IN (0, 1, 2)");
+                unique: true);
 
             migrationBuilder.AddForeignKey(
                 name: "FK_execucoes_execucoes_id_execucao_pai",

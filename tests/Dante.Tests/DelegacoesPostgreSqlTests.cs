@@ -123,7 +123,7 @@ public sealed class DelegacoesPostgreSqlTests
         await using (var escopo = provider.CreateAsyncScope())
         {
             var repositorio = escopo.ServiceProvider.GetRequiredService<IDelegacaoRepository>();
-            var lida = (await repositorio.ObterNaoTerminalPorChaveAsync(c.Origem.Id, nova.Delegacao.ChaveDeDeduplicacao))!;
+            var lida = (await repositorio.ObterPorChaveAsync(c.Origem.Id, nova.Delegacao.ChaveDeDeduplicacao))!;
             Assert.Equal((nova.Delegacao.Entrada, nova.Delegacao.HashDaEntrada), (lida.Entrada, lida.HashDaEntrada));
             Assert.Equal([c.Solicitante.Id], lida.CadeiaDeAgentes);
             Assert.Equal(lida.Id, (await repositorio.ObterDaSubordinadaAsync(nova.Subordinada.Id))!.Id);
@@ -141,9 +141,9 @@ public sealed class DelegacoesPostgreSqlTests
             var lida = (await escopo.ServiceProvider.GetRequiredService<IDelegacaoRepository>().ObterDaSubordinadaAsync(nova.Subordinada.Id))!;
             Assert.Equal(EstadoDaDelegacao.Respondida, lida.Estado);
             Assert.True(lida.MesmoResultado("""{"confianca":"alta","resposta":"Sim."}"""));
-            // Depois de terminal, a mesma chave pode identificar outra unidade (não há mais não terminal com ela).
-            Assert.Null(await escopo.ServiceProvider.GetRequiredService<IDelegacaoRepository>()
-                .ObterNaoTerminalPorChaveAsync(c.Origem.Id, nova.Delegacao.ChaveDeDeduplicacao));
+            // Terminal continua sendo a delegação daquela unidade: a chave não é liberada.
+            Assert.Equal(lida.Id, (await escopo.ServiceProvider.GetRequiredService<IDelegacaoRepository>()
+                .ObterPorChaveAsync(c.Origem.Id, nova.Delegacao.ChaveDeDeduplicacao))!.Id);
         }
 
         // O banco protege o resultado e a identidade, mesmo por fora do domínio, e recusa remover.
@@ -273,10 +273,112 @@ public sealed class DelegacoesPostgreSqlTests
         await using var leitura = provider.CreateAsyncScope();
         var chave = Delegacao.Criar(c.Pedido("Unidade 0"), 999_999, Agora).Delegacao.ChaveDeDeduplicacao;
         var existente = (await leitura.ServiceProvider.GetRequiredService<IDelegacaoRepository>()
-            .ObterNaoTerminalPorChaveAsync(c.Origem.Id, chave))!;
+            .ObterPorChaveAsync(c.Origem.Id, chave))!;
         Assert.Same(existente, existente.ConferirRepeticao(existente.IdAgenteDestinatario));
         Assert.Equal(MotivoDaRecusaDeDelegacao.UnidadeJaAtribuida, Assert.Throws<DelegacaoRecusadaException>(() =>
             existente.ConferirRepeticao(existente.IdAgenteDestinatario == auditor.Agente.Id ? c.Destinatario.Id : auditor.Agente.Id)).Motivo);
+    }
+
+    // A identidade da unidade vale em qualquer estado (revisão do PR #318): depois de Respondida, Falhou, Expirada,
+    // Cancelada ou Recusada, o banco recusa outra delegação com a mesma raiz e chave (mesmo destinatário ou outro, também
+    // em gravações simultâneas), nada é criado nem alterado, e quem relê pela chave recebe a original com o estado e o
+    // resultado gravados: o mesmo destinatário a recebe, outro é recusado com UnidadeJaAtribuida.
+    [PostgreSqlFact]
+    public async Task RepeticaoDepoisDeEstadoTerminalDevolveAOriginalSemReabrirNemReatribuir()
+    {
+        await using var banco = await FilaAsync();
+        await using var provider = Provider(banco.ConnectionString);
+        var c = await CenarioGravadoAsync(provider, consulta: ["auditor", "revisor"]);
+        var auditor = await AgenteGravadoAsync(provider, "auditor", ConfiguracaoDoDestinatario());
+        var terminais = new (EstadoDaDelegacao Estado, Action<Delegacao>[] Passos)[]
+        {
+            (EstadoDaDelegacao.Respondida, [d => d.Aceitar(Agora), d => d.Iniciar(Agora),
+                d => d.Responder("""{"resposta":"Sim.","confianca":"alta"}""", c.VersaoDestinataria.Id, null, null, Agora)]),
+            (EstadoDaDelegacao.Falhou, [d => d.Aceitar(Agora), d => d.Falhar("subordinada falhou", Agora)]),
+            (EstadoDaDelegacao.Expirada, [d => d.Aceitar(Agora), d => d.Iniciar(Agora), d => d.Expirar("prazo", Agora)]),
+            (EstadoDaDelegacao.Cancelada, [d => d.Cancelar("pedido do dono", Agora)]),
+            (EstadoDaDelegacao.Recusada, [d => d.Recusar("versão alterada", Agora)])
+        };
+
+        foreach (var (estado, passos) in terminais)
+        {
+            var pedido = c.Pedido($"Unidade {estado}");
+            var original = await DelegarAsync(provider, c, pedido);
+            foreach (var passo in passos)
+            {
+                await using var escopo = provider.CreateAsyncScope();
+                var lida = (await escopo.ServiceProvider.GetRequiredService<IDelegacaoRepository>().ObterPorIdAsync(original.Delegacao.Id))!;
+                passo(lida);
+                await escopo.ServiceProvider.GetRequiredService<IUnitOfWorkDaOrquestracao>().SalvarAlteracoesAsync();
+            }
+            var gravada = await Linha(banco, original.Delegacao.Id);
+            var delegacoes = await Escalar(banco, "SELECT count(*) FROM orquestracao.delegacoes");
+            var execucoes = await Escalar(banco, "SELECT count(*) FROM orquestracao.execucoes");
+
+            // Repetição para o mesmo destinatário e para outro, em sequência e simultâneas: o banco recusa todas.
+            var outro = pedido with { Destinatario = auditor.Agente, VersaoDestinataria = auditor.Versao };
+            Assert.IsType<ConflitoDeConcorrenciaException>(await GravarNovaAsync(provider, pedido));
+            Assert.IsType<ConflitoDeConcorrenciaException>(await GravarNovaAsync(provider, outro));
+            var simultaneas = await Task.WhenAll(GravarNovaAsync(provider, pedido), GravarNovaAsync(provider, outro));
+            Assert.All(simultaneas, falha => Assert.IsType<ConflitoDeConcorrenciaException>(falha));
+
+            // Nada novo, nada reaberto: a linha original é a mesma, byte a byte (estado, resultado, motivo, datas, xmin).
+            Assert.Equal(delegacoes, await Escalar(banco, "SELECT count(*) FROM orquestracao.delegacoes"));
+            Assert.Equal(execucoes, await Escalar(banco, "SELECT count(*) FROM orquestracao.execucoes"));
+            Assert.Equal(gravada, await Linha(banco, original.Delegacao.Id));
+
+            // Quem relê pela chave recebe a original, com estado e resultado; mesmo destinatário sim, outro não.
+            await using var leitura = provider.CreateAsyncScope();
+            var chave = Delegacao.Criar(pedido, 999_999, Agora).Delegacao.ChaveDeDeduplicacao;
+            Assert.Equal(original.Delegacao.ChaveDeDeduplicacao, chave);
+            var existente = (await leitura.ServiceProvider.GetRequiredService<IDelegacaoRepository>()
+                .ObterPorChaveAsync(c.Origem.Id, chave))!;
+            Assert.Equal((original.Delegacao.Id, estado), (existente.Id, existente.Estado));
+            Assert.Same(existente, existente.ConferirRepeticao(c.Destinatario.Id));
+            Assert.Equal(MotivoDaRecusaDeDelegacao.UnidadeJaAtribuida,
+                Assert.Throws<DelegacaoRecusadaException>(() => existente.ConferirRepeticao(auditor.Agente.Id)).Motivo);
+            if (estado == EstadoDaDelegacao.Respondida)
+            {
+                Assert.True(existente.MesmoResultado("""{"confianca":"alta","resposta":"Sim."}"""));
+                Assert.Equal(ContratoDeDelegacao.Hash(existente.Resultado!), existente.HashDoResultado);
+            }
+            else
+            {
+                Assert.Null(existente.Resultado);
+                Assert.NotNull(existente.Motivo);
+            }
+            Assert.Equal(estado is not (EstadoDaDelegacao.Recusada or EstadoDaDelegacao.Cancelada), existente.AceitaEm is not null);
+            Assert.NotNull(existente.EncerradaEm);
+        }
+    }
+
+    // Grava uma delegação nova (com a sua subordinada) para o pedido; devolve a exceção do salvamento, ou nulo.
+    private static async Task<Exception?> GravarNovaAsync(IServiceProvider provider, PedidoDeDelegacao pedido)
+    {
+        await using var escopo = provider.CreateAsyncScope();
+        var s = escopo.ServiceProvider;
+        var nova = Delegacao.Criar(pedido, await s.GetRequiredService<IExecucaoRepository>().ReservarNumeroAsync(), Agora);
+        await s.GetRequiredService<IExecucaoRepository>().AdicionarAsync(nova.Subordinada);
+        await s.GetRequiredService<IDelegacaoRepository>().AdicionarAsync(nova.Delegacao);
+        try
+        {
+            await s.GetRequiredService<IUnitOfWorkDaOrquestracao>().SalvarAlteracoesAsync();
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+    }
+
+    // A linha inteira da delegação como texto, para comparar antes e depois.
+    private static async Task<string> Linha(Banco banco, Guid id)
+    {
+        await using var conexao = new NpgsqlConnection(banco.ConnectionString);
+        await conexao.OpenAsync();
+        await using var comando = new NpgsqlCommand(
+            $"SELECT row_to_json(d)::text || xmin::text FROM orquestracao.delegacoes d WHERE id = '{id}'", conexao);
+        return (string)(await comando.ExecuteScalarAsync())!;
     }
 
     [PostgreSqlFact]
@@ -331,11 +433,11 @@ public sealed class DelegacoesPostgreSqlTests
         return new AgenteGravado(agente, versao);
     }
 
-    private static async Task<NovaDelegacao> DelegarAsync(IServiceProvider provider, Cenario c)
+    private static async Task<NovaDelegacao> DelegarAsync(IServiceProvider provider, Cenario c, PedidoDeDelegacao? pedido = null)
     {
         await using var escopo = provider.CreateAsyncScope();
         var s = escopo.ServiceProvider;
-        var nova = Delegacao.Criar(c.Pedido(), await s.GetRequiredService<IExecucaoRepository>().ReservarNumeroAsync(), Agora);
+        var nova = Delegacao.Criar(pedido ?? c.Pedido(), await s.GetRequiredService<IExecucaoRepository>().ReservarNumeroAsync(), Agora);
         await s.GetRequiredService<IExecucaoRepository>().AdicionarAsync(nova.Subordinada);
         await s.GetRequiredService<IDelegacaoRepository>().AdicionarAsync(nova.Delegacao);
         await s.GetRequiredService<IUnitOfWorkDaOrquestracao>().SalvarAlteracoesAsync();
