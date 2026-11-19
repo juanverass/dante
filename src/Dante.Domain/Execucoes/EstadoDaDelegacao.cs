@@ -31,7 +31,11 @@ public enum MotivoDaRecusaDeDelegacao
     LimitesExcedidos,
     EscritaNaoAutorizada,
     ContratoInvalido,
-    UnidadeJaAtribuida
+    UnidadeJaAtribuida,
+    // Unidade de plano (AD-75): o plano não está aprovado, ou a etapa não é dele.
+    PlanoNaoAprovado,
+    // Unidade de plano (AD-75): coordenador ou destinatário diferente do snapshot congelado da execução.
+    ForaDoSnapshot
 }
 
 public sealed class DelegacaoRecusadaException(MotivoDaRecusaDeDelegacao motivo, string mensagem)

@@ -12,9 +12,15 @@ namespace Dante.Domain.Grupos;
 // ao ativar e ao executar. O hash é o SHA-256 do JSON canônico (chaves em ordem fixa, listas ordenadas, enums pelo
 // nome, formato versionado): duas configurações iguais têm o mesmo hash em qualquer máquina e em qualquer ordem de
 // entrada. Nada aqui é credencial.
+// Modo Coordenador (AD-75, #310): sem roteiro; um participante é o coordenador (papel indicado) e nenhum participante
+// escreve, porque escrita em grupo coordenado depende do gateway de aprovação (#311). O JSON canônico do modo Roteiro
+// continua byte a byte o do formato 1 (os hashes gravados antes continuam valendo); só o modo Coordenador usa o formato
+// 2, com o papel do coordenador.
 public sealed class ConfiguracaoDoGrupo
 {
     public const int VersaoDoFormato = 1;
+    public const int VersaoDoFormatoComCoordenador = 2;
+    public const int MinimoDeParticipantesCoordenados = 2;
     public const int MaximoDeParticipantes = 10;
     public const int TamanhoMaximoDoPapel = 31;
     public const int TamanhoMaximoDasResponsabilidades = 1000;
@@ -25,8 +31,9 @@ public sealed class ConfiguracaoDoGrupo
     private static readonly Regex FormatoDoPapel = new("^[a-z][a-z0-9-]{1,30}$", RegexOptions.CultureInvariant);
     private static readonly Regex FormatoDoAlias = new("^@[a-z][a-z0-9_]*$", RegexOptions.CultureInvariant);
 
+    // papelDoCoordenador: obrigatório no modo Coordenador e proibido no Roteiro.
     public ConfiguracaoDoGrupo(ModoDeCoordenacao modo, IEnumerable<ParticipanteDoGrupo> participantes,
-        IEnumerable<PassoDoRoteiro> roteiro, PoliticaDoGrupo politica)
+        IEnumerable<PassoDoRoteiro> roteiro, PoliticaDoGrupo politica, string? papelDoCoordenador = null)
     {
         if (!Enum.IsDefined(modo)) throw new ArgumentOutOfRangeException(nameof(modo), "Modo de coordenação inválido.");
         ArgumentNullException.ThrowIfNull(participantes);
@@ -34,15 +41,27 @@ public sealed class ConfiguracaoDoGrupo
         ArgumentNullException.ThrowIfNull(politica);
         Modo = modo;
         Participantes = NormalizarParticipantes(participantes);
-        Roteiro = NormalizarRoteiro(roteiro);
+        if (modo == ModoDeCoordenacao.Roteiro)
+        {
+            if (papelDoCoordenador is not null)
+                throw new ArgumentException("O roteiro não tem coordenador.", nameof(papelDoCoordenador));
+            Roteiro = NormalizarRoteiro(roteiro);
+            Politica = NormalizarPolitica(politica);
+            ValidarRoteiroContraParticipantes();
+            return;
+        }
+        if (roteiro.Any()) throw new ArgumentException("O modo coordenador não tem roteiro fixo.", nameof(roteiro));
+        Roteiro = [];
+        PapelDoCoordenador = ValidarCoordenacao(Participantes, papelDoCoordenador);
         Politica = NormalizarPolitica(politica);
-        ValidarRoteiroContraParticipantes();
     }
 
     public ModoDeCoordenacao Modo { get; }
     public IReadOnlyList<ParticipanteDoGrupo> Participantes { get; }
     public IReadOnlyList<PassoDoRoteiro> Roteiro { get; }
     public PoliticaDoGrupo Politica { get; }
+    // Papel do participante que coordena (modo Coordenador); nulo no Roteiro.
+    public string? PapelDoCoordenador { get; }
 
     public bool TemCorrecao => Roteiro.Any(passo => passo.Tipo == TipoDePassoDoRoteiro.Corrigir);
 
@@ -72,7 +91,13 @@ public sealed class ConfiguracaoDoGrupo
         using (var json = new Utf8JsonWriter(buffer))
         {
             json.WriteStartObject();
-            json.WriteString("formato", VersaoDoFormato.ToString(CultureInfo.InvariantCulture));
+            if (PapelDoCoordenador is null)
+                json.WriteString("formato", VersaoDoFormato.ToString(CultureInfo.InvariantCulture));
+            else
+            {
+                json.WriteString("formato", VersaoDoFormatoComCoordenador.ToString(CultureInfo.InvariantCulture));
+                json.WriteString("coordenador", PapelDoCoordenador);
+            }
             json.WriteString("modo", Modo.ToString());
             json.WriteStartArray("participantes");
             foreach (var participante in Participantes)
@@ -177,8 +202,29 @@ public sealed class ConfiguracaoDoGrupo
         return lista.AsReadOnly();
     }
 
+    // Coordenador: um participante do grupo, e ao menos outro a quem delegar. Ninguém escreve: a escrita num grupo
+    // coordenado só existirá com o gateway de aprovação (#311); até lá, o plano é somente leitura por construção.
+    private static string ValidarCoordenacao(IReadOnlyList<ParticipanteDoGrupo> participantes, string? papel)
+    {
+        var normalizado = papel?.Trim().ToLowerInvariant();
+        if (!PapelValido(normalizado))
+            throw new ArgumentException("O modo coordenador precisa do papel do coordenador.", nameof(papel));
+        if (DoPapel(participantes, normalizado) is null)
+            throw new ArgumentException($"O coordenador {normalizado} não é participante do grupo.", nameof(papel));
+        if (participantes.Count < MinimoDeParticipantesCoordenados)
+            throw new ArgumentException("O coordenador precisa de ao menos um participante a quem delegar.", nameof(papel));
+        foreach (var participante in participantes)
+            if (participante.PodeEscrever)
+                throw new ArgumentException(
+                    $"O papel {participante.Papel} escreve: escrita em grupo coordenado depende do gateway de aprovação (#311).",
+                    nameof(participantes));
+        return normalizado!;
+    }
+
     private PoliticaDoGrupo NormalizarPolitica(PoliticaDoGrupo politica)
     {
+        if (Modo == ModoDeCoordenacao.Coordenador && politica.RodadasDeRevisaoMaximas != 0)
+            throw new ArgumentException("O modo coordenador não tem rodadas de revisão (use 0).", nameof(politica));
         var temCorrecao = Roteiro.Any(passo => passo.Tipo == TipoDePassoDoRoteiro.Corrigir);
         if (temCorrecao && politica.RodadasDeRevisaoMaximas is < 1 or > RodadasMaximasPermitidas)
             throw new ArgumentException(
@@ -188,7 +234,8 @@ public sealed class ConfiguracaoDoGrupo
                 nameof(politica));
         // Estritamente sequencial nesta etapa: limite global operacional 1 (AD-63 inativa).
         if (politica.ParalelismoMaximo != 1)
-            throw new ArgumentException("O roteiro é sequencial: paralelismo máximo 1.", nameof(politica));
+            throw new ArgumentException(Modo == ModoDeCoordenacao.Roteiro ? "O roteiro é sequencial: paralelismo máximo 1."
+                : "A coordenação é sequencial: paralelismo máximo 1.", nameof(politica));
         if (politica.DuracaoMaximaEmMinutos is < 1 or > DuracaoMaximaPermitidaEmMinutos)
             throw new ArgumentException(
                 $"Duração máxima: de 1 a {DuracaoMaximaPermitidaEmMinutos} minutos.", nameof(politica));

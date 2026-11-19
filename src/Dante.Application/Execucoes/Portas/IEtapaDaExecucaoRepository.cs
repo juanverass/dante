@@ -9,6 +9,9 @@ public interface IEtapaDaExecucaoRepository : IRepository<EtapaDaExecucao>
     Task<IReadOnlyList<EtapaDaExecucao>> ListarDaExecucaoAsync(Guid idExecucao,
         CancellationToken cancellationToken = default);
 
+    // Etapas materializadas de um plano de coordenação (AD-75), em ordem de número.
+    Task<IReadOnlyList<EtapaDaExecucao>> ListarDoPlanoAsync(Guid idPlano, CancellationToken cancellationToken = default);
+
     // Leitura sem rastreamento das etapas de várias execuções (#305), em ordem de execução e número.
     Task<IReadOnlyList<EtapaDaExecucao>> ConsultarDasExecucoesAsync(IReadOnlyCollection<Guid> idsExecucao,
         CancellationToken cancellationToken = default);

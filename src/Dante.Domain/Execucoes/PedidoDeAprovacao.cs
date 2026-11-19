@@ -8,6 +8,9 @@ namespace Dante.Domain.Execucoes;
 // roteiro; não autoriza commit, push, PR, merge, deploy nem nada além das capacidades já concedidas. Uma decisão só:
 // depois dela, o pedido é imutável (trigger), e uma segunda decisão é recusada. Sobrevive a reinício porque é linha do
 // ledger, não estado de processo.
+// Coordenação (AD-75, #310): o mesmo gate decide um plano (DoPlano). O artefato é a forma canônica do plano e o hash
+// dele; a rodada é a revisão do plano. A finalidade fica gravada e o significado não se mistura: aprovar um plano
+// autoriza só aquele plano somente leitura, e nenhuma decisão deste gate é aprovação do gateway da #311.
 public sealed class PedidoDeAprovacao : EntidadeBase
 {
     public const int TamanhoDoHash = 64;
@@ -34,6 +37,38 @@ public sealed class PedidoDeAprovacao : EntidadeBase
         HashDoArtefato = Hash(hashDoArtefato, nameof(hashDoArtefato));
         CriadoEm = criadoEm;
     }
+
+    // Gate do plano de uma Coordenada: o pedido nasce do plano que aguarda decisão, com o hash calculado pelo próprio
+    // plano (nunca um hash informado) e o hash do snapshot congelado da execução.
+    public static PedidoDeAprovacao DoPlano(Execucao execucao, EtapaDaExecucao etapa, PlanoDaCoordenacao plano,
+        CoordenacaoDaExecucao coordenacao, DateTimeOffset criadoEm)
+    {
+        ArgumentNullException.ThrowIfNull(execucao);
+        ArgumentNullException.ThrowIfNull(etapa);
+        ArgumentNullException.ThrowIfNull(plano);
+        ArgumentNullException.ThrowIfNull(coordenacao);
+        if (execucao.Tipo != TipoDeExecucao.Coordenada || etapa.IdExecucao != execucao.Id ||
+            etapa.Tipo != TipoDeEtapa.AprovacaoHumana || plano.IdExecucao != execucao.Id ||
+            coordenacao.IdExecucao != execucao.Id)
+            throw new InvalidOperationException("Pedido de aprovação de plano só na etapa de aprovação da própria Coordenada.");
+        if (plano.Estado != EstadoDoPlano.AguardandoAprovacao)
+            throw new InvalidOperationException("O plano não aguarda decisão.");
+        return new PedidoDeAprovacao
+        {
+            IdExecucao = execucao.Id,
+            IdEtapa = etapa.Id,
+            Rodada = plano.Revisao,
+            HashDoSnapshot = Hash(coordenacao.HashDoSnapshot, nameof(coordenacao)),
+            HashDoArtefato = Hash(plano.Hash, nameof(plano)),
+            Finalidade = FinalidadeDaAprovacao.PlanoSomenteLeitura,
+            IdPlano = plano.Id,
+            CriadoEm = criadoEm
+        };
+    }
+
+    public FinalidadeDaAprovacao Finalidade { get; private set; } = FinalidadeDaAprovacao.ArtefatoDoRoteiro;
+    // O plano decidido (finalidade PlanoSomenteLeitura); nulo no gate do Roteiro.
+    public Guid? IdPlano { get; private set; }
 
     public Guid IdExecucao { get; private set; }
     public Guid IdEtapa { get; private set; }
@@ -74,6 +109,9 @@ public sealed class PedidoDeAprovacao : EntidadeBase
     // nova revisão, e este pedido deixa de aceitar decisão. Recusado se o hash atual for o mesmo (nada a revisar).
     public void Substituir(string canal, long idDoDecisor, string hashAtual, DateTimeOffset quando)
     {
+        // O plano é imutável: outra versão é outra revisão, com pedido próprio.
+        if (Finalidade != FinalidadeDaAprovacao.ArtefatoDoRoteiro)
+            throw new InvalidOperationException("Um plano não é substituído no gate; uma revisão nova tem pedido próprio.");
         if (hashAtual is not { Length: TamanhoDoHash }) throw new ArgumentException("Hash inválido.", nameof(hashAtual));
         if (hashAtual == HashDoArtefato)
             throw new InvalidOperationException("O conteúdo da worktree ainda é o revisado; decida sobre ele.");

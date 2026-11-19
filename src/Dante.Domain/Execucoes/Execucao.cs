@@ -40,6 +40,7 @@ public sealed class Execucao : EntidadeBase
     // contexto: o contexto de execução congelado (AD-11) já serializado pela Application.
     // idVersaoDoAgente: versão congelada do agente responsável (AD-68); obrigatória numa Tarefa.
     // idVersaoDoGrupo: versão ativa do grupo, congelada (AD-69); obrigatória num Roteiro, que não tem agente único.
+    // Coordenada (AD-75): versão do grupo e versão congelada do coordenador, as duas obrigatórias.
     public Execucao(long numero, TipoDeExecucao tipo, string canal, long idDoUsuarioNoCanal, string contexto,
         string? objetivo, DateTimeOffset criadaEm, Guid? idVersaoDoAgente = null, Guid? idVersaoDoGrupo = null)
     {
@@ -49,9 +50,11 @@ public sealed class Execucao : EntidadeBase
         if (tipo == TipoDeExecucao.Tarefa && idVersaoDoAgente is null)
             throw new ArgumentException("Tarefa exige a versão do agente responsável.", nameof(idVersaoDoAgente));
         if (idVersaoDoGrupo == Guid.Empty) throw new ArgumentException("Versão do grupo inválida.", nameof(idVersaoDoGrupo));
-        if ((tipo == TipoDeExecucao.Roteiro) != (idVersaoDoGrupo is not null))
-            throw new ArgumentException("Só o roteiro aponta para a versão de um grupo, e ele sempre aponta.",
+        if ((tipo is TipoDeExecucao.Roteiro or TipoDeExecucao.Coordenada) != (idVersaoDoGrupo is not null))
+            throw new ArgumentException("Só o roteiro e a coordenação apontam para a versão de um grupo, e sempre apontam.",
                 nameof(idVersaoDoGrupo));
+        if (tipo == TipoDeExecucao.Coordenada && idVersaoDoAgente is null)
+            throw new ArgumentException("Coordenação exige a versão congelada do coordenador.", nameof(idVersaoDoAgente));
         if (tipo == TipoDeExecucao.Roteiro && idVersaoDoAgente is not null)
             throw new ArgumentException("Roteiro congela a versão de cada participante, não de um agente único.",
                 nameof(idVersaoDoAgente));
@@ -113,7 +116,8 @@ public sealed class Execucao : EntidadeBase
     // Versão do agente responsável, congelada na criação; editar o agente depois não a altera.
     public Guid? IdVersaoDoAgente { get; private set; }
 
-    // Versão do grupo congelada na criação de um Roteiro (AD-69); ativar outra versão depois não a altera.
+    // Versão do grupo congelada na criação de um Roteiro (AD-69) ou de uma Coordenada (AD-75); ativar outra versão depois
+    // não a altera.
     public Guid? IdVersaoDoGrupo { get; private set; }
 
     // Hierarquia (AD-70, #309): a raiz aponta para si mesma, não tem pai e tem profundidade 0; uma delegada aponta para

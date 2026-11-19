@@ -2,9 +2,9 @@ using Dante.Domain.Comum;
 
 namespace Dante.Domain.Execucoes;
 
-// Snapshot de um participante de um Roteiro (AD-69, #308): papel, escrita e responsabilidades da versão do grupo e a
-// versão do agente resolvida no momento da criação, com o hash dela. Imutável (trigger): editar o agente ou o grupo
-// depois nunca alcança a execução, e a reprodução usa exatamente estas versões.
+// Snapshot de um participante de um Roteiro (AD-69, #308) ou de uma Coordenada (AD-75, #310): papel, escrita e
+// responsabilidades da versão do grupo e a versão do agente resolvida no momento da criação, com o hash dela. Imutável
+// (trigger): editar o agente ou o grupo depois nunca alcança a execução, e a reprodução usa exatamente estas versões.
 public sealed class ParticipanteDaExecucao : EntidadeBase
 {
     public const int TamanhoDoHash = 64;
@@ -17,7 +17,8 @@ public sealed class ParticipanteDaExecucao : EntidadeBase
         int numeroDaVersaoDoAgente, string hashDaConfiguracaoDoAgente, bool podeEscrever, string? responsabilidades)
     {
         ArgumentNullException.ThrowIfNull(execucao);
-        if (execucao.Tipo != TipoDeExecucao.Roteiro) throw new InvalidOperationException("Participante só num Roteiro.");
+        if (execucao.Tipo is not (TipoDeExecucao.Roteiro or TipoDeExecucao.Coordenada))
+            throw new InvalidOperationException("Participante só num Roteiro ou numa Coordenada.");
         if (string.IsNullOrWhiteSpace(papel) || string.IsNullOrWhiteSpace(handleDoAgente))
             throw new ArgumentException("Papel e agente obrigatórios.", nameof(papel));
         if (idVersaoDoAgente == Guid.Empty || numeroDaVersaoDoAgente < 1)
