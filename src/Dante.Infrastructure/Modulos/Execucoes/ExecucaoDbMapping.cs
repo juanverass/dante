@@ -16,10 +16,12 @@ public sealed class ExecucaoDbMapping : EntidadeConfiguration<Execucao>
             // Tarefa (AD-68) sempre aponta para a versão exata do agente responsável.
             t.HasCheckConstraint("ck_execucoes_tarefa_com_versao",
                 $"tipo <> {(int)TipoDeExecucao.Tarefa} OR id_versao_do_agente IS NOT NULL");
-            // Roteiro (AD-69) e só ele aponta para a versão do grupo; nunca para um agente único.
+            // Roteiro (AD-69) e Coordenada (AD-75), e só eles, apontam para a versão do grupo; o Roteiro nunca para um
+            // agente único, a Coordenada sempre para a versão congelada do coordenador.
             t.HasCheckConstraint("ck_execucoes_roteiro_com_grupo",
-                $"(tipo = {(int)TipoDeExecucao.Roteiro}) = (id_versao_do_grupo IS NOT NULL) AND " +
-                $"(tipo <> {(int)TipoDeExecucao.Roteiro} OR id_versao_do_agente IS NULL)");
+                $"(tipo IN ({(int)TipoDeExecucao.Roteiro}, {(int)TipoDeExecucao.Coordenada})) = (id_versao_do_grupo IS NOT NULL) AND " +
+                $"(tipo <> {(int)TipoDeExecucao.Roteiro} OR id_versao_do_agente IS NULL) AND " +
+                $"(tipo <> {(int)TipoDeExecucao.Coordenada} OR id_versao_do_agente IS NOT NULL)");
             // Hierarquia (AD-70, #309): a raiz não tem pai, tem profundidade 0 e aponta para si; só a Delegada tem pai,
             // sempre com a versão do agente destinatário. Profundidade até o teto global (o trigger da migration confere
             // que ela é a do pai mais um, que a raiz é a do pai e que a autoridade é a do pai).

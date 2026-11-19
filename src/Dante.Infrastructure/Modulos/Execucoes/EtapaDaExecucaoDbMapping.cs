@@ -18,6 +18,12 @@ public sealed class EtapaDaExecucaoDbMapping : EntidadeConfiguration<EtapaDaExec
             t.HasCheckConstraint("ck_etapas_da_execucao_passo_do_roteiro",
                 "(passo IS NULL) = (rodada IS NULL) AND (rodada IS NULL OR rodada >= 0) AND " +
                 "(papel IS NULL) = (id_versao_do_agente IS NULL)");
+            // Unidade de plano (AD-75): só no tipo UnidadeDoPlano, sempre com plano, unidade, papel e versão, nunca
+            // escrita nem passo de roteiro.
+            t.HasCheckConstraint("ck_etapas_da_execucao_unidade_do_plano",
+                "(id_plano IS NULL) = (unidade IS NULL) AND " +
+                $"(tipo = {(int)TipoDeEtapa.UnidadeDoPlano}) = (id_plano IS NOT NULL) AND " +
+                "(id_plano IS NULL OR (NOT escrita AND passo IS NULL AND papel IS NOT NULL))");
         });
         b.Property(x => x.IdExecucao).HasColumnName("id_execucao");
         b.Property(x => x.Numero).HasColumnName("numero");
@@ -42,6 +48,8 @@ public sealed class EtapaDaExecucaoDbMapping : EntidadeConfiguration<EtapaDaExec
         b.Property(x => x.Rodada).HasColumnName("rodada");
         b.Property(x => x.Papel).HasColumnName("papel").HasMaxLength(Dante.Domain.Grupos.ConfiguracaoDoGrupo.TamanhoMaximoDoPapel);
         b.Property(x => x.IdVersaoDoAgente).HasColumnName("id_versao_do_agente");
+        b.Property(x => x.IdPlano).HasColumnName("id_plano");
+        b.Property(x => x.Unidade).HasColumnName("unidade").HasMaxLength(16);
         b.Ignore(x => x.Terminal);
         // Chave alternativa: dependências apontam para (etapa, execução), e o banco recusa dependência entre execuções.
         b.HasAlternateKey(x => new { x.Id, x.IdExecucao });
@@ -51,5 +59,8 @@ public sealed class EtapaDaExecucaoDbMapping : EntidadeConfiguration<EtapaDaExec
             .OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => new { x.IdExecucao, x.Numero }).IsUnique();
         b.HasIndex(x => x.ChaveDeIdempotencia).IsUnique();
+        b.HasOne<PlanoDaCoordenacao>().WithMany().HasForeignKey(x => x.IdPlano).OnDelete(DeleteBehavior.Restrict);
+        // Cada unidade de um plano vira uma etapa só: materializar de novo o mesmo plano é recusado.
+        b.HasIndex(x => new { x.IdPlano, x.Unidade }).IsUnique().HasFilter("id_plano IS NOT NULL");
     }
 }

@@ -27,6 +27,7 @@ public sealed class VersaoDoGrupo : EntidadeBase
         Modo = configuracao.Modo;
         participantes.AddRange(configuracao.Participantes.Select(item => new ParticipanteDaVersaoDoGrupo(Id, item)));
         Roteiro = configuracao.Roteiro;
+        PapelDoCoordenador = configuracao.PapelDoCoordenador;
         RodadasDeRevisaoMaximas = configuracao.Politica.RodadasDeRevisaoMaximas;
         ParalelismoMaximo = configuracao.Politica.ParalelismoMaximo;
         RepositoriosPermitidos = configuracao.Politica.RepositoriosPermitidos!;
@@ -41,6 +42,8 @@ public sealed class VersaoDoGrupo : EntidadeBase
     public ModoDeCoordenacao Modo { get; private set; }
     public IReadOnlyList<ParticipanteDaVersaoDoGrupo> Participantes => participantes.AsReadOnly();
     public IReadOnlyList<PassoDoRoteiro> Roteiro { get; private set; } = [];
+    // Modo Coordenador (AD-75): o papel do participante que coordena; nulo no Roteiro.
+    public string? PapelDoCoordenador { get; private set; }
     public int RodadasDeRevisaoMaximas { get; private set; }
     public int ParalelismoMaximo { get; private set; }
     public IReadOnlyList<string> RepositoriosPermitidos { get; private set; } = [];
@@ -60,7 +63,7 @@ public sealed class VersaoDoGrupo : EntidadeBase
             {
                 return new ConfiguracaoDoGrupo(Modo, participantes.Select(item => item.Participante), Roteiro,
                     new PoliticaDoGrupo(RodadasDeRevisaoMaximas, ParalelismoMaximo, RepositoriosPermitidos,
-                        DuracaoMaximaEmMinutos));
+                        DuracaoMaximaEmMinutos), PapelDoCoordenador);
             }
             catch (ArgumentException)
             {

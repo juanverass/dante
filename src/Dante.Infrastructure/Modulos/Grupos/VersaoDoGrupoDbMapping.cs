@@ -23,6 +23,11 @@ public sealed class VersaoDoGrupoDbMapping : EntidadeConfiguration<VersaoDoGrupo
                 $"rodadas_de_revisao_maximas BETWEEN 0 AND {ConfiguracaoDoGrupo.RodadasMaximasPermitidas}");
             t.HasCheckConstraint("ck_versoes_de_grupo_duracao",
                 "duracao_maxima_em_minutos IS NULL OR duracao_maxima_em_minutos > 0");
+            // Modo Coordenador (AD-75): sempre com o papel do coordenador, sem roteiro e sem rodadas; o Roteiro, nunca
+            // com coordenador.
+            t.HasCheckConstraint("ck_versoes_de_grupo_coordenador",
+                $"(modo = {(int)ModoDeCoordenacao.Coordenador}) = (papel_do_coordenador IS NOT NULL) AND " +
+                $"(modo <> {(int)ModoDeCoordenacao.Coordenador} OR (cardinality(roteiro) = 0 AND rodadas_de_revisao_maximas = 0))");
         });
         b.Property(x => x.IdGrupo).HasColumnName("id_grupo");
         b.Property(x => x.Numero).HasColumnName("numero");
@@ -30,6 +35,8 @@ public sealed class VersaoDoGrupoDbMapping : EntidadeConfiguration<VersaoDoGrupo
         b.Property(x => x.Roteiro).HasColumnName("roteiro").HasColumnType("text[]")
             .HasConversion(x => x.Select(Texto).ToArray(), x => Array.AsReadOnly(x.Select(Passo).ToArray()),
                 Comparador<PassoDoRoteiro>());
+        b.Property(x => x.PapelDoCoordenador).HasColumnName("papel_do_coordenador")
+            .HasMaxLength(ConfiguracaoDoGrupo.TamanhoMaximoDoPapel);
         b.Property(x => x.RodadasDeRevisaoMaximas).HasColumnName("rodadas_de_revisao_maximas");
         b.Property(x => x.ParalelismoMaximo).HasColumnName("paralelismo_maximo");
         b.Property(x => x.RepositoriosPermitidos).HasColumnName("repositorios_permitidos").HasColumnType("text[]")

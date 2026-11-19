@@ -35,6 +35,24 @@ public sealed record PedidoDeDelegacao(
 
 public sealed record NovaDelegacao(Delegacao Delegacao, Execucao Subordinada);
 
+// O que a Application informa para despachar uma unidade de um plano aprovado (AD-75, #310). Tudo vem do ledger: a
+// Coordenada e a etapa da unidade em curso, o plano aprovado, o snapshot (coordenação e participantes) e as versões
+// congeladas que ele aponta. Nada vem do agente: o destinatário, o contrato, a entrada e o objetivo são os do plano.
+public sealed record PedidoDeDelegacaoDoPlano(
+    Execucao Origem,
+    EtapaDaExecucao EtapaDaUnidade,
+    PlanoDaCoordenacao Plano,
+    CoordenacaoDaExecucao Coordenacao,
+    ParticipanteDaExecucao ParticipanteCoordenador,
+    Agente Coordenador,
+    VersaoDoAgente VersaoDoCoordenador,
+    ParticipanteDaExecucao ParticipanteDestinatario,
+    Agente Destinatario,
+    VersaoDoAgente VersaoDestinataria,
+    IReadOnlyList<string> RepositoriosDaOrigem,
+    int DelegacoesDaOrigem,
+    int DelegacoesDaRaiz);
+
 // Delegação rastreada (AD-70, #309): uma linha ligada a uma execução subordinada (tipo Delegada), nunca uma mensagem.
 // Criada só por Criar, que aplica todas as regras por interseção (nada é ampliado: o destinatário recebe o mínimo entre
 // o que o solicitante pode, o que ele próprio pode e o teto global). Nesta etapa é só de leitura: Escrita é sempre
@@ -199,27 +217,119 @@ public sealed class Delegacao : EntidadeBase
             throw Recusa(MotivoDaRecusaDeDelegacao.LimitesExcedidos,
                 $"Prazo até {limites.MinutosParaIniciar} min para iniciar e duração até {limites.MinutosDeDuracao} min.");
 
+        return Montar(origem, etapa, pedido.Solicitante, pedido.VersaoSolicitante, pedido.Destinatario,
+            pedido.VersaoDestinataria, contrato, pedido.Entrada, pedido.ObjetivoOriginal, pedido.ObjetivoRedigido,
+            pedido.ObjetivoAlteradoPelaRedacao, pedido.Criterios, minutosParaIniciar, minutosDeDuracao, cadeia,
+            numeroDaSubordinada, criadaEm);
+    }
+
+    // Unidade de um plano aprovado (AD-75, #310, D2). A autorização vem só do plano aprovado e do snapshot imutável da
+    // execução: não há PodeConsultar nem permissão declarada pelo agente. O solicitante é o coordenador congelado, o
+    // destinatário é o participante do papel da unidade na versão congelada (não a atual do cadastro: uma edição
+    // posterior nunca amplia a execução; desativar o agente, que só restringe, impede o despacho), o contrato é sempre
+    // consulta.v1, a capacidade e os repositórios são os das versões congeladas, nunca há escrita e o teto global de
+    // delegações por execução continua valendo. O banco confere de novo plano, snapshot, papel e capacidade.
+    public static NovaDelegacao CriarDoPlano(PedidoDeDelegacaoDoPlano pedido, long numeroDaSubordinada,
+        DateTimeOffset criadaEm)
+    {
+        ArgumentNullException.ThrowIfNull(pedido);
+        var origem = pedido.Origem;
+        var etapa = pedido.EtapaDaUnidade;
+        var plano = pedido.Plano;
+        var coordenacao = pedido.Coordenacao;
+
+        if (origem.Tipo != TipoDeExecucao.Coordenada || origem.Estado != EstadoDaExecucao.EmExecucao || !origem.Raiz ||
+            etapa.IdExecucao != origem.Id || etapa.Tipo != TipoDeEtapa.UnidadeDoPlano ||
+            etapa.Estado != EstadoDaEtapa.EmExecucao || etapa.Escrita || coordenacao.IdExecucao != origem.Id)
+            throw Recusa(MotivoDaRecusaDeDelegacao.OrigemInvalida,
+                "Só a unidade em curso de um plano de coordenação é despachada.");
+        if (plano.IdExecucao != origem.Id || etapa.IdPlano != plano.Id || plano.Estado != EstadoDoPlano.Aprovado)
+            throw Recusa(MotivoDaRecusaDeDelegacao.PlanoNaoAprovado, "A unidade não é de um plano aprovado desta execução.");
+        UnidadeDoPlano unidade;
+        try
+        {
+            unidade = plano.Unidade(etapa);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw Recusa(MotivoDaRecusaDeDelegacao.PlanoNaoAprovado, exception.Message);
+        }
+
+        // Snapshot: o coordenador é o participante do papel de coordenador, com a versão em que a execução foi congelada.
+        var coordenador = pedido.ParticipanteCoordenador;
+        var versaoDoCoordenador = pedido.VersaoDoCoordenador;
+        if (coordenador.IdExecucao != origem.Id || coordenador.Papel != coordenacao.PapelDoCoordenador ||
+            coordenador.IdVersaoDoAgente != origem.IdVersaoDoAgente || versaoDoCoordenador.Id != coordenador.IdVersaoDoAgente ||
+            versaoDoCoordenador.HashDaConfiguracao != coordenador.HashDaConfiguracaoDoAgente || !versaoDoCoordenador.Integra ||
+            versaoDoCoordenador.IdAgente != pedido.Coordenador.Id)
+            throw Recusa(MotivoDaRecusaDeDelegacao.ForaDoSnapshot, "O coordenador não é o congelado nesta execução.");
+        // O destinatário é o participante do papel da unidade, na versão congelada e íntegra.
+        var participante = pedido.ParticipanteDestinatario;
+        var versao = pedido.VersaoDestinataria;
+        if (participante.IdExecucao != origem.Id || participante.Papel != unidade.Papel || participante.Papel != etapa.Papel ||
+            participante.IdVersaoDoAgente != etapa.IdVersaoDoAgente || versao.Id != participante.IdVersaoDoAgente ||
+            versao.HashDaConfiguracao != participante.HashDaConfiguracaoDoAgente || versao.IdAgente != pedido.Destinatario.Id)
+            throw Recusa(MotivoDaRecusaDeDelegacao.ForaDoSnapshot,
+                $"O destinatário da unidade {unidade.Id} não é o participante {unidade.Papel} congelado nesta execução.");
+        if (participante.Papel == coordenacao.PapelDoCoordenador || pedido.Destinatario.Id == pedido.Coordenador.Id)
+            throw Recusa(MotivoDaRecusaDeDelegacao.Autodelegacao, "O coordenador não executa unidades do próprio plano.");
+        if (pedido.Destinatario.Estado != EstadoDoAgente.Ativo || !versao.Integra)
+            throw Recusa(MotivoDaRecusaDeDelegacao.DestinatarioIndisponivel,
+                $"O agente {pedido.Destinatario.Handle} não está ativo com a versão congelada íntegra.");
+        if (!ContratosDeDelegacao.TentarObter(unidade.Contrato, out var contrato) ||
+            contrato.Identificador != ContratosDeDelegacao.Consulta.Identificador)
+            throw Recusa(MotivoDaRecusaDeDelegacao.ContratoInvalido, "Só consulta.v1 é despachado a partir de um plano.");
+        if (!contrato.Aceita(versao.Capacidades))
+            throw Recusa(MotivoDaRecusaDeDelegacao.CapacidadeInsuficiente,
+                $"O agente {pedido.Destinatario.Handle} não tem capacidade para {contrato.Identificador}.");
+        var configuracaoDoCoordenador = versaoDoCoordenador.Configuracao;
+        var configuracaoDoDestinatario = versao.Configuracao;
+        foreach (var alias in pedido.RepositoriosDaOrigem)
+            if (!configuracaoDoCoordenador.PermiteRepositorio(alias) || !configuracaoDoDestinatario.PermiteRepositorio(alias))
+                throw Recusa(MotivoDaRecusaDeDelegacao.RepositorioForaDaIntersecao,
+                    $"O repositório {alias} não é permitido aos dois agentes.");
+
+        // Volume: o teto global vale para a execução inteira, também entre revisões do plano.
+        if (pedido.DelegacoesDaOrigem < 0 || pedido.DelegacoesDaRaiz < pedido.DelegacoesDaOrigem)
+            throw new ArgumentOutOfRangeException(nameof(pedido), "Contagem de delegações inválida.");
+        if (pedido.DelegacoesDaRaiz >= LimitesDeDelegacao.Teto.DelegacoesPorExecucao)
+            throw Recusa(MotivoDaRecusaDeDelegacao.OrcamentoExcedido,
+                $"A execução raiz já tem o máximo de {LimitesDeDelegacao.Teto.DelegacoesPorExecucao} delegações.");
+        var limites = LimitesDeDelegacao.Teto;
+        return Montar(origem, etapa, pedido.Coordenador, versaoDoCoordenador, pedido.Destinatario, versao, contrato,
+            unidade.Entrada, unidade.Objetivo, unidade.Objetivo, false, unidade.Criterios, limites.MinutosParaIniciar,
+            limites.MinutosDeDuracao, [pedido.Coordenador.Id], numeroDaSubordinada, criadaEm);
+    }
+
+    // Conteúdo e montagem, comuns aos dois caminhos de criação: entrada canônica do contrato, objetivo e critérios
+    // dentro do tamanho, subordinada filha da origem e a chave da unidade de trabalho.
+    private static NovaDelegacao Montar(Execucao origem, EtapaDaExecucao etapa, Agente solicitante,
+        VersaoDoAgente versaoSolicitante, Agente destinatario, VersaoDoAgente versaoDestinataria, ContratoDeDelegacao contrato,
+        string entradaInformada, string objetivoOriginal, string objetivoRedigido, bool objetivoAlteradoPelaRedacao,
+        string? criteriosInformados, int minutosParaIniciar, int minutosDeDuracao, IReadOnlyList<Guid> cadeia,
+        long numeroDaSubordinada, DateTimeOffset criadaEm)
+    {
         // Conteúdo: contrato, objetivo e critérios.
         string entrada;
         try
         {
-            entrada = contrato.CanonizarEntrada(pedido.Entrada);
+            entrada = contrato.CanonizarEntrada(entradaInformada);
         }
         catch (ArgumentException exception)
         {
             throw Recusa(MotivoDaRecusaDeDelegacao.ContratoInvalido, exception.Message);
         }
-        var normalizado = NormalizarObjetivo(pedido.ObjetivoOriginal);
-        var redigido = pedido.ObjetivoRedigido?.Trim() ?? "";
+        var normalizado = NormalizarObjetivo(objetivoOriginal);
+        var redigido = objetivoRedigido?.Trim() ?? "";
         if (normalizado.Length == 0 || redigido.Length == 0 || redigido.Length > Execucao.TamanhoMaximoDoObjetivo)
             throw Recusa(MotivoDaRecusaDeDelegacao.ContratoInvalido,
                 $"Objetivo obrigatório, com até {Execucao.TamanhoMaximoDoObjetivo} caracteres.");
-        var criterios = string.IsNullOrWhiteSpace(pedido.Criterios) ? null : pedido.Criterios.Trim();
+        var criterios = string.IsNullOrWhiteSpace(criteriosInformados) ? null : criteriosInformados.Trim();
         if (criterios is { Length: > TamanhoMaximoDosCriterios })
             throw Recusa(MotivoDaRecusaDeDelegacao.ContratoInvalido,
                 $"Critérios de conclusão com até {TamanhoMaximoDosCriterios} caracteres.");
 
-        var subordinada = Execucao.Delegada(origem, numeroDaSubordinada, pedido.VersaoDestinataria.Id, redigido, criadaEm);
+        var subordinada = Execucao.Delegada(origem, numeroDaSubordinada, versaoDestinataria.Id, redigido, criadaEm);
         var hashDaEntrada = ContratoDeDelegacao.Hash(entrada);
         var hashDoObjetivo = HashDoObjetivoNormalizado(origem.IdExecucaoRaiz, normalizado);
         var delegacao = new Delegacao
@@ -228,18 +338,18 @@ public sealed class Delegacao : EntidadeBase
             IdEtapaOrigem = etapa.Id,
             IdExecucaoSubordinada = subordinada.Id,
             IdExecucaoRaiz = origem.IdExecucaoRaiz,
-            IdAgenteSolicitante = pedido.Solicitante.Id,
-            IdVersaoSolicitante = pedido.VersaoSolicitante.Id,
-            HashDaVersaoSolicitante = pedido.VersaoSolicitante.HashDaConfiguracao,
-            IdAgenteDestinatario = pedido.Destinatario.Id,
-            HandleDoDestinatario = pedido.Destinatario.Handle,
-            IdVersaoDestinataria = pedido.VersaoDestinataria.Id,
-            HashDaVersaoDestinataria = pedido.VersaoDestinataria.HashDaConfiguracao,
+            IdAgenteSolicitante = solicitante.Id,
+            IdVersaoSolicitante = versaoSolicitante.Id,
+            HashDaVersaoSolicitante = versaoSolicitante.HashDaConfiguracao,
+            IdAgenteDestinatario = destinatario.Id,
+            HandleDoDestinatario = destinatario.Handle,
+            IdVersaoDestinataria = versaoDestinataria.Id,
+            HashDaVersaoDestinataria = versaoDestinataria.HashDaConfiguracao,
             Contrato = contrato.Identificador,
             Entrada = entrada,
             HashDaEntrada = hashDaEntrada,
             ObjetivoRedigido = redigido,
-            ObjetivoAlteradoPelaRedacao = pedido.ObjetivoAlteradoPelaRedacao,
+            ObjetivoAlteradoPelaRedacao = objetivoAlteradoPelaRedacao,
             HashDoObjetivo = hashDoObjetivo,
             Criterios = criterios,
             MinutosParaIniciar = minutosParaIniciar,

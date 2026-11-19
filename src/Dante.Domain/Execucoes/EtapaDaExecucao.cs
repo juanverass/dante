@@ -95,6 +95,34 @@ public sealed class EtapaDaExecucao : EntidadeBase
         return etapa;
     }
 
+    // Unidade do plano aprovado de uma Coordenada (AD-75, #310), materializada por PlanoDaCoordenacao.Materializar: o
+    // número segue a ordem topológica do plano, o papel e a versão são os do participante no snapshot da execução
+    // (nunca os atuais do cadastro) e a etapa é de leitura, retomada automaticamente. Não roda processo próprio: é
+    // executada por uma delegação consulta.v1 ao participante.
+    internal static EtapaDaExecucao DaUnidade(Execucao execucao, int numero, PlanoDaCoordenacao plano, string unidade,
+        ParticipanteDaExecucao destinatario, DateTimeOffset criadaEm)
+    {
+        ArgumentNullException.ThrowIfNull(execucao);
+        ArgumentNullException.ThrowIfNull(plano);
+        ArgumentNullException.ThrowIfNull(destinatario);
+        if (execucao.Tipo != TipoDeExecucao.Coordenada || plano.IdExecucao != execucao.Id ||
+            destinatario.IdExecucao != execucao.Id)
+            throw new InvalidOperationException("Unidade de plano só na própria Coordenada, com participante dela.");
+        if (string.IsNullOrWhiteSpace(unidade)) throw new ArgumentException("Unidade obrigatória.", nameof(unidade));
+        return new EtapaDaExecucao(execucao, numero, TipoDeEtapa.UnidadeDoPlano, false, PoliticaDeRetomada.Automatica,
+            criadaEm)
+        {
+            IdPlano = plano.Id,
+            Unidade = unidade,
+            Papel = destinatario.Papel,
+            IdVersaoDoAgente = destinatario.IdVersaoDoAgente
+        };
+    }
+
+    public Guid? IdPlano { get; private set; }
+    // Identificador da unidade dentro do plano (u1, pesquisa…), único por plano.
+    public string? Unidade { get; private set; }
+
     public TipoDePassoDoRoteiro? Passo { get; private set; }
     public int? Rodada { get; private set; }
     public string? Papel { get; private set; }
@@ -198,7 +226,8 @@ public sealed class EtapaDaExecucao : EntidadeBase
     public void Interromper(string motivo) =>
         Transitar(EstadoDaEtapa.Interrompida, Execucao.TextoCortado(motivo, Execucao.TamanhoMaximoDoTexto, nameof(motivo)));
 
-    public void Ignorar() => Transitar(EstadoDaEtapa.Ignorada);
+    // motivo: por que a etapa não será executada (por exemplo, unidade substituída por uma revisão do plano).
+    public void Ignorar(string? motivo = null) => Transitar(EstadoDaEtapa.Ignorada, Execucao.TextoOpcional(motivo));
 
     // Retomada de uma etapa interrompida: nova tentativa, nova chave; o resultado da anterior não é reaproveitado.
     public void Retomar()

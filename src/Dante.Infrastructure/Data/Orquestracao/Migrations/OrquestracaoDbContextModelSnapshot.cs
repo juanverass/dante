@@ -237,6 +237,92 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Dante.Domain.Execucoes.CoordenacaoDaExecucao", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("HashDaVersaoDoGrupo")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_da_versao_do_grupo")
+                        .IsFixedLength();
+
+                    b.Property<string>("HashDoObjetivoOriginal")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_do_objetivo_original")
+                        .IsFixedLength();
+
+                    b.Property<string>("HashDoSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_do_snapshot")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("IdExecucao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_execucao");
+
+                    b.Property<Guid>("IdGrupo")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_grupo");
+
+                    b.Property<Guid>("IdVersaoDoGrupo")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_versao_do_grupo");
+
+                    b.Property<string>("NomeDoGrupo")
+                        .IsRequired()
+                        .HasMaxLength(31)
+                        .HasColumnType("character varying(31)")
+                        .HasColumnName("nome_do_grupo");
+
+                    b.Property<int>("NumeroDaVersaoDoGrupo")
+                        .HasColumnType("integer")
+                        .HasColumnName("numero_da_versao_do_grupo");
+
+                    b.Property<bool>("ObjetivoAlteradoPelaRedacao")
+                        .HasColumnType("boolean")
+                        .HasColumnName("objetivo_alterado_pela_redacao");
+
+                    b.Property<string>("ObjetivoRedigido")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("character varying(8000)")
+                        .HasColumnName("objetivo_redigido");
+
+                    b.Property<string>("PapelDoCoordenador")
+                        .IsRequired()
+                        .HasMaxLength(31)
+                        .HasColumnType("character varying(31)")
+                        .HasColumnName("papel_do_coordenador");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdExecucao")
+                        .IsUnique();
+
+                    b.HasIndex("IdGrupo");
+
+                    b.HasIndex("IdVersaoDoGrupo");
+
+                    b.ToTable("coordenacoes_da_execucao", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_coordenacoes_da_execucao_hashes", "hash_da_versao_do_grupo ~ '^[0-9a-f]{64}$' AND hash_do_snapshot ~ '^[0-9a-f]{64}$' AND hash_do_objetivo_original ~ '^[0-9a-f]{64}$'");
+                        });
+                });
+
             modelBuilder.Entity("Dante.Domain.Execucoes.Delegacao", b =>
                 {
                     b.Property<Guid>("Id")
@@ -552,6 +638,10 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id_execucao");
 
+                    b.Property<Guid?>("IdPlano")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_plano");
+
                     b.Property<Guid?>("IdSessaoDeAgente")
                         .HasColumnType("uuid")
                         .HasColumnName("id_sessao_de_agente");
@@ -608,6 +698,11 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("tipo");
 
+                    b.Property<string>("Unidade")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("unidade");
+
                     b.Property<uint>("Versao")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -626,6 +721,10 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                     b.HasIndex("IdExecucao", "Numero")
                         .IsUnique();
 
+                    b.HasIndex("IdPlano", "Unidade")
+                        .IsUnique()
+                        .HasFilter("id_plano IS NOT NULL");
+
                     b.ToTable("etapas_da_execucao", "orquestracao", t =>
                         {
                             t.HasCheckConstraint("ck_etapas_da_execucao_numero_positivo", "numero > 0");
@@ -633,6 +732,8 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                             t.HasCheckConstraint("ck_etapas_da_execucao_passo_do_roteiro", "(passo IS NULL) = (rodada IS NULL) AND (rodada IS NULL OR rodada >= 0) AND (papel IS NULL) = (id_versao_do_agente IS NULL)");
 
                             t.HasCheckConstraint("ck_etapas_da_execucao_tentativa_positiva", "tentativa > 0");
+
+                            t.HasCheckConstraint("ck_etapas_da_execucao_unidade_do_plano", "(id_plano IS NULL) = (unidade IS NULL) AND (tipo = 3) = (id_plano IS NOT NULL) AND (id_plano IS NULL OR (NOT escrita AND passo IS NULL AND papel IS NOT NULL))");
                         });
                 });
 
@@ -811,7 +912,7 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
 
                             t.HasCheckConstraint("ck_execucoes_numero_positivo", "numero > 0");
 
-                            t.HasCheckConstraint("ck_execucoes_roteiro_com_grupo", "(tipo = 2) = (id_versao_do_grupo IS NOT NULL) AND (tipo <> 2 OR id_versao_do_agente IS NULL)");
+                            t.HasCheckConstraint("ck_execucoes_roteiro_com_grupo", "(tipo IN (2, 4)) = (id_versao_do_grupo IS NOT NULL) AND (tipo <> 2 OR id_versao_do_agente IS NULL) AND (tipo <> 4 OR id_versao_do_agente IS NOT NULL)");
 
                             t.HasCheckConstraint("ck_execucoes_tarefa_com_versao", "tipo <> 1 OR id_versao_do_agente IS NOT NULL");
                         });
@@ -907,6 +1008,10 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("estado");
 
+                    b.Property<int>("Finalidade")
+                        .HasColumnType("integer")
+                        .HasColumnName("finalidade");
+
                     b.Property<string>("HashDoArtefato")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -933,6 +1038,10 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id_execucao");
 
+                    b.Property<Guid?>("IdPlano")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_plano");
+
                     b.Property<string>("Motivo")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)")
@@ -958,11 +1067,97 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasDatabaseName("ux_pedidos_de_aprovacao_pendente_por_execucao")
                         .HasFilter("estado = 0");
 
+                    b.HasIndex("IdPlano")
+                        .IsUnique()
+                        .HasFilter("id_plano IS NOT NULL");
+
                     b.ToTable("pedidos_de_aprovacao", "orquestracao", t =>
                         {
                             t.HasCheckConstraint("ck_pedidos_de_aprovacao_decisao", "(estado = 0) = (decidido_em IS NULL) AND (estado IN (0, 4)) = (id_do_decisor IS NULL)");
 
+                            t.HasCheckConstraint("ck_pedidos_de_aprovacao_finalidade", "(finalidade = 1) = (id_plano IS NOT NULL) AND finalidade IN (0, 1)");
+
                             t.HasCheckConstraint("ck_pedidos_de_aprovacao_hashes", "hash_do_snapshot ~ '^[0-9a-f]{64}$' AND hash_do_artefato ~ '^[0-9a-f]{64}$'");
+                        });
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.PlanoDaCoordenacao", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Conteudo")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("conteudo");
+
+                    b.Property<DateTimeOffset>("CriadoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("criado_em");
+
+                    b.Property<DateTimeOffset?>("DecididoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decidido_em");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("integer")
+                        .HasColumnName("estado");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("IdExecucao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_execucao");
+
+                    b.Property<Guid?>("IdPlanoAnterior")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_plano_anterior");
+
+                    b.Property<int>("Motivo")
+                        .HasColumnType("integer")
+                        .HasColumnName("motivo");
+
+                    b.Property<int>("QuantidadeDeUnidades")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantidade_de_unidades");
+
+                    b.Property<int>("Revisao")
+                        .HasColumnType("integer")
+                        .HasColumnName("revisao");
+
+                    b.Property<DateTimeOffset?>("SubstituidoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("substituido_em");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdPlanoAnterior")
+                        .IsUnique();
+
+                    b.HasIndex("IdExecucao", "Revisao")
+                        .IsUnique();
+
+                    b.ToTable("planos_da_coordenacao", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_planos_da_coordenacao_decisao", "(estado = 0) = (decidido_em IS NULL AND substituido_em IS NULL) OR estado = 3");
+
+                            t.HasCheckConstraint("ck_planos_da_coordenacao_hash", "hash ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("ck_planos_da_coordenacao_revisao", "revisao BETWEEN 1 AND 3 AND (revisao = 1) = (id_plano_anterior IS NULL) AND (revisao = 1) = (motivo = 0)");
+
+                            t.HasCheckConstraint("ck_planos_da_coordenacao_unidades", "quantidade_de_unidades BETWEEN 1 AND 4");
                         });
                 });
 
@@ -1701,6 +1896,11 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("numero");
 
+                    b.Property<string>("PapelDoCoordenador")
+                        .HasMaxLength(31)
+                        .HasColumnType("character varying(31)")
+                        .HasColumnName("papel_do_coordenador");
+
                     b.Property<int>("ParalelismoMaximo")
                         .HasColumnType("integer")
                         .HasColumnName("paralelismo_maximo");
@@ -1732,6 +1932,8 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
 
                     b.ToTable("versoes_de_grupo", "orquestracao", t =>
                         {
+                            t.HasCheckConstraint("ck_versoes_de_grupo_coordenador", "(modo = 1) = (papel_do_coordenador IS NOT NULL) AND (modo <> 1 OR (cardinality(roteiro) = 0 AND rodadas_de_revisao_maximas = 0))");
+
                             t.HasCheckConstraint("ck_versoes_de_grupo_duracao", "duracao_maxima_em_minutos IS NULL OR duracao_maxima_em_minutos > 0");
 
                             t.HasCheckConstraint("ck_versoes_de_grupo_hash", "hash_da_configuracao ~ '^[0-9a-f]{64}$'");
@@ -1749,6 +1951,27 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                     b.HasOne("Dante.Domain.Agentes.Agente", null)
                         .WithMany()
                         .HasForeignKey("IdAgente")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.CoordenacaoDaExecucao", b =>
+                {
+                    b.HasOne("Dante.Domain.Execucoes.Execucao", null)
+                        .WithOne()
+                        .HasForeignKey("Dante.Domain.Execucoes.CoordenacaoDaExecucao", "IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Grupos.GrupoDeAgentes", null)
+                        .WithMany()
+                        .HasForeignKey("IdGrupo")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Grupos.VersaoDoGrupo", null)
+                        .WithMany()
+                        .HasForeignKey("IdVersaoDoGrupo")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -1846,6 +2069,11 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Dante.Domain.Execucoes.PlanoDaCoordenacao", null)
+                        .WithMany()
+                        .HasForeignKey("IdPlano")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Dante.Domain.Execucoes.SessaoDeAgente", null)
                         .WithMany()
                         .HasForeignKey("IdSessaoDeAgente")
@@ -1922,6 +2150,25 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasForeignKey("IdExecucao")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Dante.Domain.Execucoes.PlanoDaCoordenacao", null)
+                        .WithMany()
+                        .HasForeignKey("IdPlano")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.PlanoDaCoordenacao", b =>
+                {
+                    b.HasOne("Dante.Domain.Execucoes.Execucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Execucoes.PlanoDaCoordenacao", null)
+                        .WithMany()
+                        .HasForeignKey("IdPlanoAnterior")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Dante.Domain.Execucoes.ReservaDeWorktree", b =>

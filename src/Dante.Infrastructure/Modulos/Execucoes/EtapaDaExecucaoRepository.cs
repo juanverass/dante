@@ -13,6 +13,10 @@ public sealed class EtapaDaExecucaoRepository(OrquestracaoDbContext context)
         CancellationToken cancellationToken = default) =>
         await DbSet.Where(x => x.IdExecucao == idExecucao).OrderBy(x => x.Numero).ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<EtapaDaExecucao>> ListarDoPlanoAsync(Guid idPlano,
+        CancellationToken cancellationToken = default) =>
+        await DbSet.Where(x => x.IdPlano == idPlano).OrderBy(x => x.Numero).ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<EtapaDaExecucao>> ConsultarDasExecucoesAsync(IReadOnlyCollection<Guid> idsExecucao,
         CancellationToken cancellationToken = default) =>
         idsExecucao.Count == 0 ? [] : await DbSet.AsNoTracking().Where(x => idsExecucao.Contains(x.IdExecucao))

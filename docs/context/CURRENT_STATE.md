@@ -274,8 +274,10 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   fila (#301, AD-68) integrado; acompanhamento e cancelamento de execuções (#305, AD-74) integrado; worktrees por
   execução de escrita e limites de concorrência (#307, AD-71) integradas; grupos versionados com roteiro
   determinístico e gate humano (#308, AD-69) integrados em três PRs (cadastro, gate durável e executor com a fundação
-  do `dante_coordenacao`); delegação rastreada (#309, AD-70) em andamento: domínio e persistência no PR 1 e
-  Application, fila e executor no PR 2 (integrados), ferramentas MCP no `dante_coordenacao` no PR 3 (em revisão).
+  do `dante_coordenacao`); delegação rastreada (#309, AD-70) integrada em três PRs (domínio e persistência;
+  Application, fila e executor; ferramentas MCP no `dante_coordenacao`); coordenação por papel (#310, AD-75) em
+  andamento: domínio e persistência no PR 1 (em revisão), Application/fila/executor no PR 2 e MCP/interface no PR 3,
+  cada um só depois da revisão do anterior.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -801,6 +803,32 @@ subordinada, rodam sem pedir aprovação em plan (Claude: `--allowedTools`; Code
 `dante_coordenacao`, na thread da sessão). A retomada da origem não recebe o servidor. `revisao.v1` é recusado até
 existir artefato verificável. Exige banco e
 `Orquestracao:Habilitada` (desligado no homelab). Migration `Delegacoes` não aplicada no banco canônico.
+
+## Coordenação por papel (#310, AD-75 — domínio e persistência)
+
+Primeira entrega da etapa 8 da Epic #296; ainda sem caso de uso, executor, ferramenta MCP ou comando, então nada
+cria uma coordenação no runtime. Um grupo pode ter o modo `Coordenador` (papel do coordenador indicado, sem roteiro e
+sem participante com escrita; o hash do modo Roteiro continua byte a byte o mesmo). A execução `Coordenada` aponta para
+a versão do grupo e para a versão congelada do coordenador, com snapshot imutável (`CoordenacaoDaExecucao` +
+participantes) que é a autoridade da execução: mudanças posteriores no cadastro não a ampliam.
+
+O plano proposto é validado por `ValidacaoDoPlano`, pura e determinística, antes de qualquer delegação: forma fechada,
+papéis do snapshot, coordenador sem unidade, só `consulta.v1` com a capacidade da versão congelada, entrada canônica do
+contrato, tamanhos, dependências sem ciclo e no máximo 4 unidades (o teto de delegações por execução, que vale também
+entre revisões). Escrita é recusada com `RequerGateway` (depende da #311). Todas as recusas voltam com motivo e
+unidade. O plano gravado (`PlanoDaCoordenacao`) é a forma canônica com SHA-256 calculado pelo D.A.N.T.E.; a aprovação
+reutiliza o gate (`PedidoDeAprovacao` com finalidade `PlanoSomenteLeitura`, vinculado ao hash) e autoriza só aquele
+plano somente leitura. Aprovado, o plano vira etapas `UnidadeDoPlano` + `DependenciaDeEtapa` em ordem topológica; cada
+unidade é despachada por `Delegacao.CriarDoPlano` (autorização só do plano aprovado e do snapshot, sem `PodeConsultar`).
+Replanejar cria a revisão seguinte (máximo 3 versões), só por unidade sem resposta ou correção pedida no gate,
+marcando a anterior `Substituido` e só as etapas pendentes dela `Ignorada` com motivo.
+
+O banco confere de novo: hash = SHA-256 do conteúdo, plano e snapshot imutáveis, plano `Aprovado` só com a decisão do
+gate sobre o mesmo hash (no commit), unidade só de plano aprovado e de participante do snapshot que não é o
+coordenador, dependência em ordem topológica, despacho de Coordenada só de unidade de plano aprovado para o
+participante do papel (versão e hash do snapshot), por `consulta.v1` e com a capacidade. Migration
+`CoordenacaoPorPapel`, não aplicada no banco canônico; exige banco e `Orquestracao:Habilitada` (desligado no homelab).
+Paralelismo continua 1.
 
 ## Worktrees por execução de escrita (#307, AD-71)
 
