@@ -15,6 +15,17 @@ public interface IDelegacoesAppService
     Task<DelegacaoSolicitadaDto> SolicitarAsync(SolicitacaoDeDelegacaoDto solicitacao,
         CancellationToken cancellationToken = default);
 
+    // A mesma solicitação feita pela sessão da etapa de origem pelo dante_coordenacao (#309, PR 3): gravada sob a posse
+    // do trabalho da origem (fencing: posse perdida não cria nada) e só da sessão vinculada sob posse a essa etapa, do
+    // mesmo dono e canal (outra sessão é recusada como não autorizada). Mesmas regras, trava e identidade.
+    Task<DelegacaoSolicitadaDto> SolicitarSobPosseAsync(PosseDoTrabalho posse, long numeroDaSessao,
+        SolicitacaoDeDelegacaoDto solicitacao, CancellationToken cancellationToken = default);
+
+    // Delegações pedidas por uma execução de origem, com o estado e o último marco de progresso, para o proprietário
+    // (de outro dono: lista vazia). Só leitura.
+    Task<IReadOnlyList<AcompanhamentoDaDelegacaoDto>> AcompanharDaOrigemAsync(ProprietarioDaExecucao proprietario,
+        Guid idExecucaoOrigem, CancellationToken cancellationToken = default);
+
     // Consulta pelo proprietário; de outro dono é indistinguível de inexistente.
     Task<DelegacaoDto?> ObterAsync(ProprietarioDaExecucao proprietario, Guid idDelegacao,
         CancellationToken cancellationToken = default);

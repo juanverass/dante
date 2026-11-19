@@ -50,6 +50,22 @@ public sealed class ExecucaoSobPosse
         await using var escopo = escopos.CreateAsyncScope();
         await escopo.ServiceProvider.GetRequiredService<IFilaDeExecucoesAppService>()
             .VincularSessaoAsync(posse, Alvo.IdEtapa, numeroDaSessao, cancellationToken);
+        NumeroDaSessao = numeroDaSessao;
+    }
+
+    // A sessão (S…) vinculada à etapa nesta posse; nula antes do vínculo.
+    public long? NumeroDaSessao { get; private set; }
+
+    // Delegação pedida pela sessão da etapa de origem pelo dante_coordenacao (#309, PR 3): sob esta posse e só da sessão
+    // vinculada. Sem vínculo (ou com a etapa já concluída), nada é pedido.
+    internal async Task<DelegacaoSolicitadaDto> SolicitarDelegacaoAsync(SolicitacaoDeDelegacaoDto solicitacao,
+        CancellationToken cancellationToken)
+    {
+        if (Concluida || NumeroDaSessao is not { } numero)
+            throw new InvalidOperationException(DelegacoesAppService.SessaoNaoAutorizada);
+        await using var escopo = escopos.CreateAsyncScope();
+        return await escopo.ServiceProvider.GetRequiredService<IDelegacoesAppService>()
+            .SolicitarSobPosseAsync(posse, numero, solicitacao, cancellationToken);
     }
 
     // Worktrees prontas da execução (#307), entregues à sessão da etapa de escrita; vazio numa etapa de leitura.

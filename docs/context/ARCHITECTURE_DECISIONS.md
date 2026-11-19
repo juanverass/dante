@@ -2735,7 +2735,8 @@ banco canônico:
     aleatório, só do mesmo usuário, uma conexão, e um **token aleatório da sessão** apresentado antes de qualquer
     chamada (comparação em tempo constante); sem token, o canal fecha sem atender; até 50 chamadas por sessão. O
     **escopo** (execução, etapa de revisão, rodada e hash do diff) é fixado pelo orquestrador ao abrir a sessão; o agente
-    nunca o informa. Nenhuma outra sessão recebe este servidor (`Granted` o filtra para todos os demais);
+    nunca o informa. Nenhuma outra sessão recebe este servidor (`Granted` o filtra para todos os demais), exceto as
+    sessões de delegação da #309, com perfis próprios no mesmo servidor (ver AD-70, PR 3);
   * ferramentas: `estado_da_execucao` (somente leitura: rodada, limite, hash revisado, vereditos anteriores, instrução
     humana) e `entregar_resultado` (veredito `aprovado | requer_correcoes | bloqueado`, resumo, itens).
 * **Veredito estruturado** (`vereditos_de_revisao`, decisão D): `RegistrarVereditoAsync` só aceita a etapa de revisão
@@ -2773,13 +2774,14 @@ Testes: `GruposDominioTests`, `CadastroDeGruposAppServiceTests`, `GruposDeAgente
 
 ## AD-70 — Delegação rastreada entre execuções, com contratos tipados e hierarquia no ledger (#309)
 
-Status: vigente no domínio e na persistência (PR 1 da #309) e na Application, fila e executor (PR 2 da #309); etapa 7
+Status: vigente no domínio e na persistência (PR 1 da #309), na Application, fila e executor (PR 2 da #309) e nas
+ferramentas do `dante_coordenacao` (PR 3 da #309); etapa 7
 do roadmap da Epic #296. Proposta aprovada na #297 (PR #298) e planejamento da #309. Complementa a AD-66 (as colunas de raiz, pai e profundidade adiadas lá entram
 aqui), a AD-68 (concessões de delegação na versão do agente) e a AD-69 (a fundação do `dante_coordenacao`, que a #309
 amplia sem outro servidor nem outro IPC). Depende do mesmo banco e da mesma chave `Orquestracao:Habilitada`; migration
 `Delegacoes`, não aplicada no banco canônico. O PR 2 entrega os casos de uso internos, a fila, o executor, a espera e
-a retomada da origem, os prazos e o cancelamento em cascata; **nada cria delegação em produção até o PR 3**, que expõe
-as ferramentas MCP do `dante_coordenacao` (o PR 2 não muda o servidor nem os escopos dele).
+a retomada da origem, os prazos e o cancelamento em cascata; o PR 3 expõe as ferramentas MCP no `dante_coordenacao`
+existente (perfis por sessão no mesmo servidor, pipe e token) e troca a entrega do resultado pela ferramenta.
 
 Contexto: a delegação precisa ser uma linha rastreada, ligada a uma execução subordinada comum, e não uma mensagem
 entre agentes. Para isso o ledger precisa da hierarquia de execuções, de um contrato de entrada e saída que o servidor
@@ -2875,9 +2877,10 @@ Decisão do PR 2 (Application, fila e executor):
   entrada canônica com o hash, autoridade (canal e pessoa) e raiz, capacidade, repositórios na interseção, só leitura,
   modelo no catálogo e prazos; recusa termina a delegação (Falhou, ou Expirada por prazo) sem processo. Abre uma sessão
   reservada da versão destinatária em plan, no contexto congelado da origem, sem o ambiente do Worker e sem servidores
-  de coordenação; o pedido entra entre delimitadores de dado não confiável, com o schema de saída. A escrita continua
+  de coordenação (no PR 3, com o `dante_coordenacao` só no perfil `delegacao`, para entregar o resultado); o pedido entra entre delimitadores de dado não confiável, com o schema de saída. A escrita continua
   impossível: a concessão de coordenação não a autoriza, e worktrees da #307 exigirão autorização própria.
-* **Resultado**: até o PR 3, o JSON do contrato vem num bloco da última mensagem do turno. O servidor valida pelo
+* **Resultado** (substituído no PR 3 pela ferramenta `entregar_resultado`): até o PR 3, o JSON do contrato vinha num
+  bloco da última mensagem do turno. O servidor valida pelo
   contrato (campos, opções, tamanhos, desconhecidos recusados), recusa aparência de credencial e confere que cada
   evidência de arquivo existe no repositório do contexto; inválido recebe um pedido de correção e, de novo inválido, a
   delegação falha. A gravação exige a sessão vinculada sob posse à etapa da subordinada (outra sessão, outra geração
@@ -2910,14 +2913,67 @@ Consequências:
 * o ledger representa árvores de execução com proveniência raiz → origem → etapa → delegação → subordinada → versões,
   e o banco a protege mesmo de gravações por fora do domínio;
 * o executor (PR 2) e as ferramentas (PR 3) só criam e conduzem delegações por estes métodos, e o resultado chega
-  validado pelo contrato; o PR 3 troca a fonte do resultado (a ferramenta no lugar do bloco da última mensagem) e a da
+  validado pelo contrato; o PR 3 trocou a fonte do resultado (a ferramenta no lugar do bloco da última mensagem) e a da
   identidade de quem pede (a sessão), sem mudar os casos de uso;
 * o índice protege a mesma chave e a trava da raiz protege fan-out e orçamento: as contagens informadas ao domínio são
   lidas sob a trava;
 * profundidade 1 e paralelismo 1 estão fixados no código e no banco; com eles, fan-out e orçamento da raiz coincidem
   (a origem de toda delegação é a raiz);
-* `FerramentaDoDante.Coordenacao` já pode ser concedida pelo cadastro existente, sem efeito: nenhuma sessão recebe o
-  servidor por ela até o PR 3.
+* `FerramentaDoDante.Coordenacao` concedida pelo cadastro, com alguém em `PodeConsultar`, dá à etapa de leitura da
+  `/tarefa` daquele agente o perfil origem do `dante_coordenacao` (PR 3); sem ela, nada muda.
+
+Decisão do PR 3 (ferramentas no `dante_coordenacao`):
+
+* **Mesmo servidor, outro perfil**: nada de servidor, IPC ou autenticação novos. O `ServidorMcpDeCoordenacao` ganha
+  catálogos por perfil (`revisao` da #308, `origem` e `delegacao`), escolhidos pelo Worker no argumento `--perfil` ao
+  declarar o servidor à sessão (sem ele, a revisão, com os argumentos da #308). O perfil é do **canal** da sessão
+  (`FerramentasDeCoordenacao`), fixado pelo orquestrador junto com o escopo (`EscopoDeCoordenacao`); cada chamada é
+  validada de novo pelo perfil do canal, então o argumento só decide o que a CLI lista. Pipe exclusivo, token da sessão,
+  uma conexão e 50 chamadas por sessão continuam os da AD-69.
+* **Quem recebe**: só a sessão reservada (com observador) em plan. Perfil `origem`: a etapa de leitura da `/tarefa`
+  cuja versão congelada concede `coordenacao` e tem alguém em `PodeConsultar` (`SolicitacaoDaTarefa` coloca o escopo
+  com a posse da etapa e lista os agentes consultáveis nas instruções); escrita confinada, revisão confinada, conversa
+  comum, retomada da origem e versões sem a concessão nunca. Perfil `delegacao`: a sessão da subordinada, aberta pelo
+  executor (a concessão é de quem delega, não de quem responde). O `SessionRegistry` só concede o servidor quando o
+  perfil conferido pelo provedor é o do escopo.
+* **Ferramentas**, com os nomes do desenho aprovado (DELEGATION): na origem, `consultar_agente` (destinatário,
+  contrato `consulta.v1`, objetivo, entrada do contrato e critérios; nunca execução, etapa, dono, repositório,
+  permissões, prazos ou escrita) e `estado_da_execucao` (somente leitura: as delegações desta execução com estado,
+  último marco de progresso, motivo e o resultado estruturado da `Respondida`); na subordinada, `entregar_resultado`
+  (o objeto do schema de saída do contrato).
+* **Autorização por sessão, dono e escopo**: `consultar_agente` usa `SolicitarSobPosseAsync`: a gravação é a da posse
+  do trabalho da origem (`GravarComPosseAsync`, mesma ordem de travas; geração antiga, lease vencido ou etapa já
+  concluída não criam nada) e só da sessão vinculada sob posse à etapa de origem, do mesmo dono e canal; sem vínculo
+  ou com outra sessão, `SessaoNaoAutorizada`. As demais regras, a trava da raiz e a identidade da unidade são as dos
+  PRs 1 e 2. `estado_da_execucao` usa `AcompanharDaOrigemAsync` com o dono e a execução do escopo (outro dono: vazio).
+* **Resultado pela ferramenta**: o bloco JSON da última mensagem deixou de valer. `entregar_resultado` valida
+  (contrato, credencial e evidências de arquivo existentes no repositório do contexto) e grava **na hora**, sob a posse
+  da subordinada e pela sessão vinculada à etapa, com o marco `ResultadoRecebido`, a conclusão da subordinada e a
+  retomada da origem (`ConcluirAsync`): o resultado é durável antes de o turno terminar. Recusado, o agente recebe o
+  motivo e entrega de novo no mesmo turno. Repetir o mesmo conteúdo (forma canônica) é idempotente; outro, recusado.
+  Entrega e encerramento pelo executor (prazo, falha) são serializados (`EntregaPelaFerramenta`): o primeiro grava e o
+  outro encontra a etapa concluída. Sem entrega ao fim do turno, um lembrete; ainda sem, a delegação falha (texto
+  livre nunca é resultado). Uma sessão parada perde o canal com a posse.
+* **Aprovação**: `consultar_agente` e `entregar_resultado` são de mundo fechado e validadas pelo Worker contra o
+  escopo, então rodam sem pedir aprovação também em plan: no Claude, entram no `--allowedTools` (`PreAuthorizedTools`
+  do servidor); no Codex, a elicitação MCP em plan é aceita só para essas ferramentas do `dante_coordenacao`, na thread
+  da própria sessão (outra ferramenta, servidor ou thread continuam recusados). As de leitura seguem a regra anterior.
+
+Limitações do PR 3: só a primeira etapa da `/tarefa` delega (a retomada não recebe o servidor; o resultado já vai no
+prompt dela, como dado); o aviso de conclusão da primeira etapa ao dono não distingue a espera pelas delegações; o
+token do canal aparece no ambiente do processo MCP (como na #308), protegido pelo pipe de uma conexão só do mesmo
+usuário; não há evidência opt-in com as CLIs reais para as ferramentas novas (os nomes e a aceitação seguem o formato
+da elicitação do Codex 0.166 já medido na #308). Continua exigindo banco e `Orquestracao:Habilitada` (desligado no
+homelab); migrations inalteradas.
+
+Código do PR 3: `Dante.Worker/Coordenacao/{ServidorMcpDeCoordenacao, FerramentasDeCoordenacao, EscopoDeCoordenacao}.cs`,
+`Dante.Worker/Execucoes/{EntregaPelaFerramenta, ExecutorDeDelegacoesDaFila, ExecucaoSobPosse}.cs`,
+`Dante.Worker/Sessions/{AgentToolServer, AgenteDaSessao, SessionRegistry, SolicitacaoDaTarefa, ClaudeSessionDriver,
+CodexSessionDriver}.cs`, `Dante.Application/Execucoes/{IDelegacoesAppService, DelegacoesAppService}.cs`
+(`SolicitarSobPosseAsync`, `AcompanharDaOrigemAsync`). Testes: `CoordenacaoDaDelegacaoTests` (catálogo por perfil,
+concessão, escopo, autorização, idempotência e serialização da entrega, elicitação do Codex e `--allowedTools` do
+Claude), `DelegacoesExecucaoPostgreSqlTests` (sessão vinculada, fencing e acompanhamento) e
+`DelegacaoPelaFilaEndToEndTests` (origem pede e filha entrega pelo canal real, com o Worker parado no meio).
 
 Código do PR 2: `Dante.Application/Execucoes/{IDelegacoesAppService, DelegacoesAppService, CicloDaDelegacao}.cs`,
 `Contratos/DelegacaoDto.cs`, as travas em `IExecucaoRepository.TravarComAncestraisAsync`, o ciclo em

@@ -26,8 +26,23 @@ public sealed class DelegacoesAppService(
 
     private CicloDaDelegacao.Servicos Ciclo => new(delegacoes, execucoes, etapas, eventos, fila);
 
-    public async Task<DelegacaoSolicitadaDto> SolicitarAsync(SolicitacaoDeDelegacaoDto solicitacao,
-        CancellationToken cancellationToken = default)
+    public const string SessaoNaoAutorizada = "A sessão não está autorizada a delegar por esta etapa.";
+
+    public Task<DelegacaoSolicitadaDto> SolicitarAsync(SolicitacaoDeDelegacaoDto solicitacao,
+        CancellationToken cancellationToken = default) =>
+        SolicitarAsync(solicitacao, null, null, cancellationToken);
+
+    public Task<DelegacaoSolicitadaDto> SolicitarSobPosseAsync(PosseDoTrabalho posse, long numeroDaSessao,
+        SolicitacaoDeDelegacaoDto solicitacao, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(posse);
+        return SolicitarAsync(solicitacao, posse, numeroDaSessao, cancellationToken);
+    }
+
+    // Sem posse: transação comum (caso de uso interno). Com posse (dante_coordenacao): a gravação é a da posse do
+    // trabalho da origem, na ordem trabalho → ancestrais → execução, e só da sessão vinculada à etapa de origem.
+    private async Task<DelegacaoSolicitadaDto> SolicitarAsync(SolicitacaoDeDelegacaoDto solicitacao, PosseDoTrabalho? posse,
+        long? numeroDaSessao, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(solicitacao);
         ArgumentNullException.ThrowIfNull(solicitacao.Proprietario);
@@ -46,7 +61,7 @@ public sealed class DelegacoesAppService(
         // da sequência até o commit. Repetição ou recusa deixam só uma lacuna na numeração.
         var numero = await execucoes.ReservarNumeroAsync(cancellationToken: cancellationToken);
         DelegacaoSolicitadaDto? resultado = null;
-        await fila.ExecutarEmTransacaoAsync(async token =>
+        async Task Gravar(CancellationToken token)
         {
             // Serialização por raiz: a raiz (e a origem, abaixo dela) fica travada até o commit, antes de ler a unidade,
             // contar e inserir. Nada da origem é lido antes desta trava (o contexto não guarda uma cópia antiga).
@@ -56,6 +71,12 @@ public sealed class DelegacoesAppService(
             var etapa = await etapas.ObterPorIdAsync(solicitacao.IdEtapaOrigem, token);
             if (etapa is null || etapa.IdExecucao != origem.Id)
                 throw Recusa(MotivoDaRecusaDeDelegacao.OrigemInvalida, OrigemNaoEncontrada);
+            // Pela sessão: só a vinculada sob posse a esta etapa (#305), do mesmo dono e canal da origem.
+            if (numeroDaSessao is { } numeroInformado &&
+                (await sessoes.ObterPorNumeroAsync(numeroInformado, token) is not { } sessao ||
+                 etapa.IdSessaoDeAgente != sessao.Id || sessao.Canal != origem.Canal ||
+                 sessao.IdDoDono != origem.IdDoUsuarioNoCanal))
+                throw Recusa(MotivoDaRecusaDeDelegacao.OrigemInvalida, SessaoNaoAutorizada);
             var (solicitante, versaoSolicitante) = await SolicitanteAsync(origem, token);
             var destinatario = await agentes.ObterPorHandleAsync(solicitacao.Destinatario.Trim().ToLowerInvariant(), token) ??
                 throw Recusa(MotivoDaRecusaDeDelegacao.DestinatarioIndisponivel,
@@ -109,8 +130,34 @@ public sealed class DelegacoesAppService(
                 $"delegacao:{delegacao.Id:N}", agora), token);
             await unidade.SalvarAlteracoesAsync(token);
             resultado = new(Dto(delegacao, subordinada), true);
-        }, cancellationToken);
+        }
+        if (posse is null) await fila.ExecutarEmTransacaoAsync(Gravar, cancellationToken);
+        // O trabalho da origem continua reivindicado (encerrarComo nulo): só a conclusão da etapa o termina.
+        else await fila.GravarComPosseAsync(posse, Gravar, null, cancellationToken: cancellationToken);
         return resultado!;
+    }
+
+    public async Task<IReadOnlyList<AcompanhamentoDaDelegacaoDto>> AcompanharDaOrigemAsync(
+        ProprietarioDaExecucao proprietario, Guid idExecucaoOrigem, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(proprietario);
+        var origem = await execucoes.ObterPorIdAsync(idExecucaoOrigem, cancellationToken);
+        if (origem is null || !proprietario.EDono(origem.Canal, origem.IdDoUsuarioNoCanal)) return [];
+        // O último marco de cada delegação, pelos eventos DelegacaoProgrediu gravados na origem (só metadados).
+        var marcos = new Dictionary<string, MarcoDaDelegacao>();
+        foreach (var evento in (await eventos.ConsultarDoTipoAsync([origem.Id], TipoDeEventoDeOrquestracao.DelegacaoProgrediu,
+                     cancellationToken)).OrderBy(e => e.Sequencia))
+        {
+            var dados = JsonSerializer.Deserialize<Dictionary<string, string?>>(evento.Dados ?? "{}");
+            if (dados is not null && dados.TryGetValue("delegacao", out var id) && id is not null &&
+                dados.TryGetValue("marco", out var marco) && Enum.TryParse<MarcoDaDelegacao>(marco, out var valor))
+                marcos[id] = valor;
+        }
+        var lista = new List<AcompanhamentoDaDelegacaoDto>();
+        foreach (var delegacao in (await delegacoes.ListarDaOrigemAsync(origem.Id, cancellationToken)).OrderBy(d => d.CriadaEm))
+            lista.Add(new(await DtoAsync(delegacao, cancellationToken),
+                marcos.TryGetValue(delegacao.Id.ToString("N"), out var ultimo) ? ultimo : null));
+        return lista;
     }
 
     public async Task<DelegacaoDto?> ObterAsync(ProprietarioDaExecucao proprietario, Guid idDelegacao,

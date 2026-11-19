@@ -357,7 +357,7 @@ public sealed class ClaudeSessionDriver(
         End(null);
     }
 
-    private static List<string> BuildArguments(string sessionId, AgentSessionStartOptions options)
+    internal static List<string> BuildArguments(string sessionId, AgentSessionStartOptions options)
     {
         // The prompt never goes on the command line: every turn is a JSON message on stdin.
         List<string> arguments =
@@ -379,12 +379,14 @@ public sealed class ClaudeSessionDriver(
         foreach (var directory in DiretoriosVinculados.Validar(options.AdditionalDirectories, options.IsGeneral))
             arguments.AddRange(["--add-dir", directory]);
 
-        // D.A.N.T.E. tool servers (#224): read-only tools run without asking; the others follow the permission mode and
-        // reach the host as can_use_tool. The config holds no secret (it is visible on the command line).
+        // D.A.N.T.E. tool servers (#224): read-only tools run without asking, and so do the closed-world coordination
+        // tools pre-authorized for the session (#309); the others follow the permission mode and reach the host as
+        // can_use_tool. The config holds no secret (it is visible on the command line).
         if (options.ToolServers is { Count: > 0 } servers)
         {
             arguments.AddRange(["--mcp-config", McpConfig(servers)]);
-            var readOnly = servers.SelectMany(server => server.ReadOnlyTools.Select(tool => $"mcp__{server.Name}__{tool}")).ToArray();
+            var readOnly = servers.SelectMany(server => server.ReadOnlyTools.Concat(server.PreAuthorizedTools ?? [])
+                .Select(tool => $"mcp__{server.Name}__{tool}")).ToArray();
             if (readOnly.Length > 0) arguments.AddRange(["--allowedTools", string.Join(',', readOnly)]);
         }
 

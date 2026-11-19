@@ -5,9 +5,9 @@ using Dante.Worker.Execucoes;
 
 namespace Dante.Tests;
 
-// #309 (AD-70), PR 2: o que o executor das delegações extrai e confere sem banco. O resultado só vale como bloco JSON
-// (texto livre nunca vira resultado), evidência de arquivo precisa existir sob a raiz de um repositório do contexto
-// (nunca fora dela) e o contexto é exatamente o congelado da origem.
+// #309 (AD-70), PR 2 e PR 3: o que o executor das delegações confere sem banco. O resultado só vale pela ferramenta
+// entregar_resultado (texto livre nunca vira resultado), evidência de arquivo precisa existir sob a raiz de um
+// repositório do contexto (nunca fora dela) e o contexto é exatamente o congelado da origem.
 public sealed class ExecutorDeDelegacoesTests : IDisposable
 {
     private readonly string raiz = Path.Combine(Path.GetTempPath(), "dante-evidencias-" + Guid.NewGuid().ToString("N"));
@@ -22,15 +22,6 @@ public sealed class ExecutorDeDelegacoesTests : IDisposable
     }
 
     public void Dispose() => Directory.Delete(raiz, true);
-
-    [Fact]
-    public void ExtraiSoOUltimoBlocoJsonOuUmObjetoPuro()
-    {
-        Assert.Equal("""{"a":2}""", ExecutorDeDelegacoesDaFila.ExtrairJson("x\n```json\n{\"a\":1}\n```\ny\n```json\n{\"a\":2}\n```"));
-        Assert.Equal("""{"a":1}""", ExecutorDeDelegacoesDaFila.ExtrairJson("""  {"a":1}  """));
-        Assert.Null(ExecutorDeDelegacoesDaFila.ExtrairJson("Sim, o índice cobre."));
-        Assert.Null(ExecutorDeDelegacoesDaFila.ExtrairJson(null));
-    }
 
     [Fact]
     public void EvidenciaDeArquivoPrecisaExistirSobARaizDeUmRepositorioDoContexto()
@@ -78,5 +69,8 @@ public sealed class ExecutorDeDelegacoesTests : IDisposable
         Assert.True(objetivo > dados && objetivo < fim);
         Assert.Contains("\"confianca\"", prompt[fim..]);
         Assert.Contains("Você só lê", prompt[fim..]);
+        // PR 3: o resultado só vale pela ferramenta do dante_coordenacao, nunca por um bloco na mensagem.
+        Assert.Contains("entregar_resultado do dante_coordenacao", prompt[fim..]);
+        Assert.DoesNotContain("```json", prompt);
     }
 }

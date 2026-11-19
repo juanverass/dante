@@ -41,6 +41,14 @@ public sealed class Delegacao : EntidadeBase
 > por uma **etapa nova** (sessão nova com prólogo do ledger, não a sessão antiga), montada só do ledger; o prazo é
 > conferido na reivindicação e no início (não há prorrogação enquanto a filha roda: a duração máxima conta do início);
 > o orçamento é só de quantidade (sem turnos nem tokens); `revisao.v1` é recusado até existir artefato verificável.
+>
+> **Implementação (#309, AD-70 — PR 3, ferramentas no `dante_coordenacao`).** No mesmo servidor, pipe e token da #308,
+> com catálogo por perfil fixado pelo orquestrador no canal da sessão: a etapa de leitura da `/tarefa` cuja versão
+> concede `coordenacao` e pode consultar alguém recebe `consultar_agente` (só `consulta.v1`, sob a posse da etapa e só
+> da sessão vinculada a ela) e `estado_da_execucao` (as delegações desta execução, com estado, último marco e
+> resultado); a subordinada recebe `entregar_resultado`, que valida e grava o resultado na hora, sob a posse dela. O
+> bloco JSON da última mensagem deixou de valer: sem entrega, um lembrete e depois falha. `delegar_tarefa`,
+> `propor_plano` e `pedir_aprovacao` continuam para as etapas 8 e 9; a retomada da origem não recebe o servidor.
 
 A delegação **é uma linha**, não uma mensagem. A execução subordinada é uma `Execucao` comum do tipo `Delegada`:
 tem etapas, eventos, aprovações e aparece no acompanhamento.
