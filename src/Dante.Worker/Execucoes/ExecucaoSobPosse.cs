@@ -116,6 +116,47 @@ public sealed class ExecucaoSobPosse
         Concluida = true;
     }
 
+    // Delegação (#309): delegação em andamento, etapa e subordinada em execução, antes do processo. Devolve o limite da
+    // duração gravado. Prazo excedido: PrazoDaDelegacaoExcedidoException, nada gravado.
+    internal async Task<DateTimeOffset> IniciarDelegacaoAsync(CancellationToken cancellationToken)
+    {
+        await using var escopo = escopos.CreateAsyncScope();
+        var limite = await escopo.ServiceProvider.GetRequiredService<IDelegacoesAppService>()
+            .IniciarAsync(posse, Alvo.IdEtapa, cancellationToken);
+        Iniciada = true;
+        return limite;
+    }
+
+    internal async Task RegistrarProgressoAsync(MarcoDaDelegacao marco, CancellationToken cancellationToken)
+    {
+        await using var escopo = escopos.CreateAsyncScope();
+        await escopo.ServiceProvider.GetRequiredService<IDelegacoesAppService>()
+            .RegistrarProgressoAsync(posse, Alvo.IdEtapa, marco, cancellationToken);
+    }
+
+    // Delegação (#309): resultado gravado com a subordinada e a retomada da origem, e o fim do trabalho.
+    internal Task<DesfechoDaDelegacaoDto> ConcluirDelegacaoAsync(EntregaDaDelegacaoDto entrega,
+        CancellationToken cancellationToken) =>
+        EncerrarDelegacaoAsync(servico => servico.ConcluirAsync(posse, Alvo.IdEtapa, entrega, cancellationToken));
+
+    // Delegação (#309): falha (Falhou) ou prazo (Expirada), com o fim do trabalho.
+    internal Task<DesfechoDaDelegacaoDto> EncerrarDelegacaoAsync(string motivo, bool expirada,
+        CancellationToken cancellationToken) =>
+        EncerrarDelegacaoAsync(servico => expirada
+            ? servico.ExpirarAsync(posse, Alvo.IdEtapa, motivo, cancellationToken)
+            : servico.FalharAsync(posse, Alvo.IdEtapa, motivo, cancellationToken));
+
+    private async Task<DesfechoDaDelegacaoDto> EncerrarDelegacaoAsync(
+        Func<IDelegacoesAppService, Task<DesfechoDaDelegacaoDto>> gravacao)
+    {
+        if (Concluida) throw new InvalidOperationException("Etapa já concluída.");
+        await pararHeartbeat();
+        await using var escopo = escopos.CreateAsyncScope();
+        var desfecho = await gravacao(escopo.ServiceProvider.GetRequiredService<IDelegacoesAppService>());
+        Concluida = true;
+        return desfecho;
+    }
+
     // Grava o resultado e encerra o trabalho numa transação, antes de qualquer efeito seguinte (entrega da resposta).
     // O heartbeat para antes: renovar a linha travada pela gravação só a atrasaria.
     public async Task ConcluirAsync(ResultadoDaEtapaDto resultado, CancellationToken cancellationToken)

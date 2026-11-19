@@ -274,8 +274,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   fila (#301, AD-68) integrado; acompanhamento e cancelamento de execuções (#305, AD-74) integrado; worktrees por
   execução de escrita e limites de concorrência (#307, AD-71) integradas; grupos versionados com roteiro
   determinístico e gate humano (#308, AD-69) integrados em três PRs (cadastro, gate durável e executor com a fundação
-  do `dante_coordenacao`); delegação rastreada (#309, AD-70) em andamento: domínio e persistência no PR 1, executor e
-  ferramentas nos seguintes.
+  do `dante_coordenacao`); delegação rastreada (#309, AD-70) em andamento: domínio e persistência no PR 1 (integrado),
+  Application, fila e executor no PR 2, ferramentas MCP no PR 3.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -762,7 +762,7 @@ pessoa decide no `/execucao`. Um repositório por roteiro (vinculados recusados)
 turno real (modelo de teste local): arquivos fora da worktree não existem no sandbox, escalonamento e escrita são
 negados, e o veredito chega pela ferramenta. Migration `VereditosDeRevisao` não aplicada no banco canônico.
 
-## Delegação rastreada — domínio e persistência (#309, AD-70 — primeira entrega)
+## Delegação rastreada (#309, AD-70 — domínio, persistência, Application, fila e executor)
 
 O ledger representa árvores de execução: toda execução tem raiz, pai e profundidade, e a `Delegada` nasce só de uma
 `Delegacao`, filha da origem, com a autoridade e o contexto dela; o banco confere a hierarquia na inserção e a mantém
@@ -775,9 +775,23 @@ limites) são aplicadas antes de gravar. Teto global: profundidade 1, 4 delegaç
 duração, paralelismo 1. A versão do agente ganha `coordenacao`, `PodeConsultar` e limites, com o JSON canônico do
 formato 1 preservado quando a delegação não é definida (hashes antigos e de grupos inalterados). A mesma unidade de
 trabalho é uma só delegação, em qualquer estado (índice único, conferido com gravações concorrentes reais): repetir para o
-mesmo agente devolve a original como está, mesmo terminal, e outro agente é recusado. **Nada é
-exposto em tempo de execução**: sem executor, fila, retorno à origem, prazo, cascata, ferramentas MCP nem comandos
-(PRs seguintes da #309). Migration `Delegacoes` não aplicada no banco canônico.
+mesmo agente devolve a original como está, mesmo terminal, e outro agente é recusado.
+
+Ciclo operacional (PR 2): o caso de uso interno `IDelegacoesAppService` solicita e aceita numa transação serializada
+pela raiz (trava da raiz e da origem antes de contar e inserir; duas chaves simultâneas nunca passam do orçamento),
+gravando a subordinada, a delegação, os eventos e o trabalho da fila durável, tudo ou nada. O
+`ExecutorDeDelegacoesDaFila` confere a delegação antes de qualquer processo (destinatário ativo na versão congelada e
+íntegra, concessão, contrato, entrada, autoridade, raiz, capacidade, só leitura, prazos), abre uma sessão reservada em
+plan no contexto congelado da origem, sem o ambiente do Worker nem ferramentas de coordenação, e grava sob posse o
+resultado do contrato (JSON da última mensagem, validado no servidor, com evidências de arquivo existentes; uma
+correção), só da sessão vinculada à etapa. A origem que conclui a etapa com delegações abertas espera
+(`AguardandoDelegacoes`) e é retomada, na transação que encerra a última delegação, com uma etapa nova de leitura que
+o executor da Tarefa monta do ledger (desfechos como dado não confiável) e responde ao dono. Prazo para iniciar e
+duração expiram a delegação; falha, tentativas esgotadas e cancelamento (da delegação ou da origem, pelo evento
+durável do #305) também a encerram e retomam a origem que espera; a recuperação na inicialização retoma origens
+prontas sem executar a filha de novo. **Nada cria delegação em produção**: as ferramentas `consultar_agente` e a
+entrega por MCP chegam no PR 3; `revisao.v1` é recusado até existir artefato verificável. Exige banco e
+`Orquestracao:Habilitada` (desligado no homelab). Migration `Delegacoes` não aplicada no banco canônico.
 
 ## Worktrees por execução de escrita (#307, AD-71)
 

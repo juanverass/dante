@@ -25,6 +25,17 @@ public sealed class ExecucaoRepository(OrquestracaoDbContext context) : Reposito
             .ToListAsync(cancellationToken)).SingleOrDefault();
     }
 
+    public async Task<Execucao?> TravarComAncestraisAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        if (Context.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Travar a execução exige uma transação.");
+        // A hierarquia é imutável (AD-70): ler o pai sem trava é seguro, e a raiz é travada primeiro.
+        var pai = await DbSet.AsNoTracking().Where(x => x.Id == id).Select(x => x.IdExecucaoPai)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (pai is { } idPai) await TravarComAncestraisAsync(idPai, cancellationToken);
+        return await ObterParaAtualizarAsync(id, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Execucao>> ListarDoProprietarioAsync(string canal, long idDoUsuarioNoCanal,
         int limiteDeEncerradas, CancellationToken cancellationToken = default)
     {

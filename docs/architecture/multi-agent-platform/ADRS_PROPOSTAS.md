@@ -72,8 +72,10 @@
   existem para a revisão confinada de um roteiro, com `estado_da_execucao` e `entregar_resultado`. A #309 amplia o
   catálogo e os escopos sobre esta infraestrutura; não cria outro servidor nem outro IPC. Ver AD-69 vigente.
 - **Vigente (domínio e persistência, PR 1 da #309)**: hierarquia de execuções, delegação, contratos tipados e
-  concessões; ver AD-70 em `docs/context/ARCHITECTURE_DECISIONS.md`. Executor, ferramentas e retorno entram nos PRs
-  seguintes da #309.
+  concessões; ver AD-70 em `docs/context/ARCHITECTURE_DECISIONS.md`.
+- **Vigente (Application, fila e executor, PR 2 da #309)**: casos de uso internos, serialização por raiz, subordinada
+  na fila durável, executor somente leitura, retorno à origem por nova etapa e cascata de cancelamento. As ferramentas
+  MCP entram no PR 3.
 
 ## AD-71 — Worktree por execução de escrita, gerida pelo D.A.N.T.E. com conjunto fechado de comandos Git
 

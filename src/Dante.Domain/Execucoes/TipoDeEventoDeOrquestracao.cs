@@ -28,5 +28,14 @@ public enum TipoDeEventoDeOrquestracao
     WorktreeFalhou,
     // Gate humano de um Roteiro (#308): a reserva sai da capacidade sem deixar de ser da execução, e volta a ela.
     WorktreeAguardandoDecisao,
-    WorktreeReadquirida
+    WorktreeReadquirida,
+    // Delegação rastreada (#309, AD-70), sempre na execução de origem. Dados: delegação, subordinada (E…), destinatário,
+    // contrato e, nas transições, de/para e motivo curto; nunca a entrada, o objetivo nem o resultado.
+    DelegacaoSolicitada,
+    DelegacaoTransitou,
+    // Marco do executor da subordinada (sessão aberta, turno enviado, resultado recebido): só o marco, nunca conteúdo.
+    DelegacaoProgrediu,
+    // A origem saiu da espera: uma etapa nova entrega os desfechos das delegações da etapa anterior. Dados: etapa de
+    // origem e quantidade de delegações; a nova etapa é a referência.
+    OrigemRetomada
 }

@@ -52,7 +52,9 @@ public sealed class ComposicaoDaOrquestracaoTests
         Assert.Single(services, s => s.ServiceType == typeof(ExecutorDeTarefasDaFila) && s.Lifetime == ServiceLifetime.Singleton);
         // Roteiro de grupo (#308): o terceiro executor, também só pela fila.
         Assert.Single(services, s => s.ServiceType == typeof(ExecutorDeRoteirosDaFila) && s.Lifetime == ServiceLifetime.Singleton);
-        Assert.Equal(3, services.Count(s => s.ServiceType == typeof(IExecutorDeEtapa)));
+        // Delegação rastreada (#309): o quarto, também só pela fila.
+        Assert.Single(services, s => s.ServiceType == typeof(ExecutorDeDelegacoesDaFila) && s.Lifetime == ServiceLifetime.Singleton);
+        Assert.Equal(4, services.Count(s => s.ServiceType == typeof(IExecutorDeEtapa)));
         // O encerramento do ledger para por último: registrado antes dos demais hosted services.
         var hospedados = services.Where(s => s.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService))
             .Select(s => s.ImplementationType).ToArray();

@@ -16,7 +16,8 @@ public sealed class FilaDeExecucoesAppService(
     IEventoDeOrquestracaoRepository eventos,
     IUnitOfWorkDaOrquestracao unidade,
     ISessaoDeAgenteRepository sessoes,
-    IReservaDeWorktreeRepository reservas) : IFilaDeExecucoesAppService
+    IReservaDeWorktreeRepository reservas,
+    IDelegacaoRepository delegacoes) : IFilaDeExecucoesAppService
 {
     public const string MotivoDeResultadoIncerto =
         "Resultado incerto: a etapa foi interrompida durante uma ação externa e não é repetida automaticamente. " +
@@ -148,7 +149,9 @@ public sealed class FilaDeExecucoesAppService(
         var estadoFinal = resultado.EstadoFinal;
         await fila.GravarComPosseAsync(posse, async token =>
         {
-            var (execucao, etapa) = await CarregarAsync(idEtapa, token);
+            // Travada com os ancestrais (#309): a decisão entre concluir, esperar as delegações ou retomar a origem lê o
+            // estado atual delas, e uma subordinada que termina ao mesmo tempo espera esta transação (ou vice-versa).
+            var (execucao, etapa) = await CarregarAsync(idEtapa, token, travar: true);
             var agora = fila.Agora;
             // Pedido do dono registrado antes da conclusão (#305): o resultado é descartado e a etapa termina Cancelada.
             string? motivoDoPedido = null;
@@ -168,6 +171,9 @@ public sealed class FilaDeExecucoesAppService(
                 case EstadoDaEtapa.Concluida:
                     etapa.Concluir(resultado.CodigoDeSaida, agora);
                     var proxima = (await etapas.ListarDaExecucaoAsync(execucao.Id, token)).FirstOrDefault(e => !e.Terminal);
+                    // A etapa delegou (#309): a origem espera as delegações abertas ou é retomada com os desfechos.
+                    if (proxima is null && await CicloDaDelegacao.AoConcluirEtapaDaOrigemAsync(Ciclo, execucao, etapa, agora, token))
+                        break;
                     if (proxima is null) execucao.Concluir(agora);
                     else await fila.EnfileirarAsync(TrabalhoDaFila.AvancarExecucao(execucao, proxima,
                         ChaveDeAvanco(execucao, proxima), agora), token);
@@ -382,9 +388,16 @@ public sealed class FilaDeExecucoesAppService(
         await TransicaoAsync(execucao, etapa, etapaAntes, agora, cancellationToken);
     }
 
-    // Execução que acabou de ficar terminal libera as próprias worktrees na mesma transação (#307, AD-71).
-    private Task LiberarWorktreesAsync(Execucao execucao, DateTimeOffset agora, CancellationToken cancellationToken) =>
-        LiberacaoDeWorktrees.LiberarSeEncerradaAsync(reservas, eventos, execucao, agora, cancellationToken);
+    // Execução que acabou de ficar terminal libera as próprias worktrees na mesma transação (#307, AD-71) e leva o ciclo
+    // das delegações junto (#309): a delegação da subordinada termina e a origem pode ser retomada; uma origem encerrada
+    // pede o cancelamento das subordinadas abertas.
+    private async Task LiberarWorktreesAsync(Execucao execucao, DateTimeOffset agora, CancellationToken cancellationToken)
+    {
+        await LiberacaoDeWorktrees.LiberarSeEncerradaAsync(reservas, eventos, execucao, agora, cancellationToken);
+        await CicloDaDelegacao.AoEncerrarAsync(Ciclo, execucao, agora, cancellationToken);
+    }
+
+    private CicloDaDelegacao.Servicos Ciclo => new(delegacoes, execucoes, etapas, eventos, fila);
 
     // O primeiro pedido de cancelamento registrado para a execução (#305), lido do banco a cada chamada.
     private async Task<EventoDeOrquestracao?> PedidoAsync(Guid idExecucao, CancellationToken cancellationToken) =>
@@ -392,11 +405,13 @@ public sealed class FilaDeExecucoesAppService(
             cancellationToken)).FirstOrDefault();
 
     private async Task<(Execucao Execucao, EtapaDaExecucao Etapa)> CarregarAsync(Guid idEtapa,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool travar = false)
     {
         var etapa = await etapas.ObterPorIdAsync(idEtapa, cancellationToken) ??
             throw new InvalidOperationException("Etapa não registrada no ledger.");
-        var execucao = await execucoes.ObterPorIdAsync(etapa.IdExecucao, cancellationToken) ??
+        var execucao = (travar
+            ? await execucoes.TravarComAncestraisAsync(etapa.IdExecucao, cancellationToken)
+            : await execucoes.ObterPorIdAsync(etapa.IdExecucao, cancellationToken)) ??
             throw new InvalidOperationException("Execução não registrada no ledger.");
         return (execucao, etapa);
     }

@@ -2773,13 +2773,13 @@ Testes: `GruposDominioTests`, `CadastroDeGruposAppServiceTests`, `GruposDeAgente
 
 ## AD-70 — Delegação rastreada entre execuções, com contratos tipados e hierarquia no ledger (#309)
 
-Status: vigente na parte de domínio e persistência (etapa 7 do roadmap da Epic #296, PR 1 da #309). Proposta aprovada
-na #297 (PR #298) e planejamento da #309. Complementa a AD-66 (as colunas de raiz, pai e profundidade adiadas lá entram
+Status: vigente no domínio e na persistência (PR 1 da #309) e na Application, fila e executor (PR 2 da #309); etapa 7
+do roadmap da Epic #296. Proposta aprovada na #297 (PR #298) e planejamento da #309. Complementa a AD-66 (as colunas de raiz, pai e profundidade adiadas lá entram
 aqui), a AD-68 (concessões de delegação na versão do agente) e a AD-69 (a fundação do `dante_coordenacao`, que a #309
 amplia sem outro servidor nem outro IPC). Depende do mesmo banco e da mesma chave `Orquestracao:Habilitada`; migration
-`Delegacoes`, não aplicada no banco canônico. **Nada é exposto em tempo de execução nesta entrega**: o executor das
-delegações, a fila, a suspensão e retomada da origem, o prazo, o cancelamento em cascata, as ferramentas MCP e os
-comandos vêm nos PRs 2 e 3 da #309 e completam esta AD.
+`Delegacoes`, não aplicada no banco canônico. O PR 2 entrega os casos de uso internos, a fila, o executor, a espera e
+a retomada da origem, os prazos e o cancelamento em cascata; **nada cria delegação em produção até o PR 3**, que expõe
+as ferramentas MCP do `dante_coordenacao` (o PR 2 não muda o servidor nem os escopos dele).
 
 Contexto: a delegação precisa ser uma linha rastreada, ligada a uma execução subordinada comum, e não uma mensagem
 entre agentes. Para isso o ledger precisa da hierarquia de execuções, de um contrato de entrada e saída que o servidor
@@ -2846,21 +2846,87 @@ Decisão:
   inteira (nem a subordinada fica) e quem perdeu relê a original pela chave. Reexecutar ou reatribuir uma unidade será
   uma operação explícita, auditada e com identidade própria, nunca efeito de a delegação ter terminado.
 
+Decisão do PR 2 (Application, fila e executor):
+
+* **Casos de uso** (`IDelegacoesAppService`): solicitar (com a aceitação na mesma transação), conferir, iniciar,
+  registrar progresso, concluir, falhar, expirar, cancelar, consultar, listar por raiz, obter a retomada e retomar
+  origens prontas. Neutros de interface: quem chama informa a origem (execução e etapa) e o proprietário; no PR 3 eles
+  vêm da sessão autenticada, nunca do texto do agente. Do agente vêm só destinatário, contrato, entrada, objetivo e
+  critérios. Toda regra continua no domínio (`Delegacao.Criar` e as transições); a Application não as contorna.
+* **Serialização por raiz**: a solicitação trava a raiz e depois a origem (`TravarComAncestraisAsync`, `FOR UPDATE`)
+  antes de ler a unidade, contar e inserir, numa transação que grava a subordinada (Delegada, Pendente, uma etapa de
+  leitura retomável automaticamente), a delegação Solicitada, os eventos, a aceitação (Aceita = trabalho na fila, chave
+  `delegacao:<id>`) e o trabalho. Duas chaves diferentes nunca consomem juntas as últimas vagas (teste com conexões
+  simultâneas; com a trava removida, o mesmo teste grava cinco). Tudo ou nada: uma falha ao gravar o trabalho desfaz a
+  subordinada e a delegação. O número da subordinada é reservado antes, na transação curta da sequência (uma recusa ou
+  repetição deixa só uma lacuna), para não prender a trava global da sequência até o commit. A identidade da unidade
+  e a recusa de outro destinatário continuam as do PR 1, agora conferidas sob a trava.
+* **Ordem única das travas**: trabalho, depois a execução com os ancestrais (o pai antes da filha). Quem grava a
+  subordinada sob posse trava a origem antes dela; a conclusão de etapa trava a execução com os ancestrais; o
+  cancelamento pelo dono também. A cascata da origem para as filhas só acrescenta eventos, sem travar filhas. Assim
+  pai e filha que terminam ao mesmo tempo nunca perdem a retomada nem entram em deadlock.
+* **Filha na fila da #300**: a subordinada é uma execução comum na mesma fila (lease, heartbeat, geração como fencing,
+  backoff, tentativas, devolução de boots anteriores), sem segunda fila. Toda gravação do executor é sob posse
+  (`GravarComPosseAsync`): posse antiga não inicia, não registra progresso, não falha nem conclui. A etapa é de
+  leitura com retomada automática: depois de lease vencido ou reinício, nova tentativa; a delegação continua
+  EmAndamento e a duração conta do primeiro início.
+* **Executor** (`ExecutorDeDelegacoesDaFila`, tipo Delegada): antes de qualquer processo confere destinatário ativo e
+  ainda na versão congelada, versão íntegra com o hash gravado, concessão de coordenação do solicitante, contrato,
+  entrada canônica com o hash, autoridade (canal e pessoa) e raiz, capacidade, repositórios na interseção, só leitura,
+  modelo no catálogo e prazos; recusa termina a delegação (Falhou, ou Expirada por prazo) sem processo. Abre uma sessão
+  reservada da versão destinatária em plan, no contexto congelado da origem, sem o ambiente do Worker e sem servidores
+  de coordenação; o pedido entra entre delimitadores de dado não confiável, com o schema de saída. A escrita continua
+  impossível: a concessão de coordenação não a autoriza, e worktrees da #307 exigirão autorização própria.
+* **Resultado**: até o PR 3, o JSON do contrato vem num bloco da última mensagem do turno. O servidor valida pelo
+  contrato (campos, opções, tamanhos, desconhecidos recusados), recusa aparência de credencial e confere que cada
+  evidência de arquivo existe no repositório do contexto; inválido recebe um pedido de correção e, de novo inválido, a
+  delegação falha. A gravação exige a sessão vinculada sob posse à etapa da subordinada (outra sessão, outra geração
+  ou estado terminal são recusados), dentro da duração (depois dela, Expirada), e conclui a subordinada, os eventos e a
+  retomada na transação que termina o trabalho. Repetir o mesmo conteúdo é idempotente; o original não muda.
+* **Origem**: a origem pede durante o turno; ao concluir a etapa, com delegações dela abertas, passa a
+  `AguardandoDelegacoes` (identidade, etapas e proveniência intactas); com todas terminais, é retomada na hora. A
+  subordinada que termina por qualquer caminho (resultado, falha do executor, prazo, cancelamento, tentativas
+  esgotadas) leva a delegação ao terminal correspondente e, se a origem espera e nenhuma delegação daquela etapa
+  continua aberta, retoma a origem na mesma transação: etapa seguinte de leitura, origem Pendente, evento
+  `OrigemRetomada` e trabalho `retomar-origem:<origem>:<etapa>` (idempotente pelo estado travado e pela chave). A
+  recuperação na inicialização também retoma, pelo ledger, origens que esperam sem delegação aberta, sem executar a
+  filha de novo. A retomada roda pelo executor da Tarefa a partir do ledger (versão e contexto congelados, objetivo
+  redigido, desfechos como dado não confiável), numa sessão nova em plan, e a resposta vai ao dono depois de gravada.
+* **Prazos**: o prazo para iniciar é conferido a cada reivindicação e no início sob posse; a duração máxima, por um
+  temporizador local a partir do início gravado e de novo na gravação do resultado. Excedidos: delegação Expirada e
+  subordinada Cancelada com o motivo.
+* **Cancelamento**: o da delegação é o cancelamento durável da subordinada (#305), pelo ledger e pela fila: sem dono,
+  na hora; com dono, quem tem a posse o honra. A origem que termina (cancelada, falha, concluída) pede o cancelamento
+  de cada subordinada aberta com o evento durável; nada é encerrado por fora do ledger.
+* **Eventos**: `DelegacaoSolicitada`, `DelegacaoTransitou`, `DelegacaoProgrediu` e `OrigemRetomada`, sempre na
+  origem e só com metadados (delegação, subordinada, destinatário, contrato, estados, marco); nunca entrada, objetivo
+  nem resultado.
+* **Limitação**: `revisao.v1` é recusado na solicitação até existir um artefato que o executor confira pelo hash; a
+  retomada usa o ambiente mínimo, não o do repositório; o prazo para iniciar de uma delegação na fila só é aplicado
+  quando ela é reivindicada (com o Worker parado, nada expira até ele voltar).
+
 Consequências:
 
 * o ledger representa árvores de execução com proveniência raiz → origem → etapa → delegação → subordinada → versões,
   e o banco a protege mesmo de gravações por fora do domínio;
 * o executor (PR 2) e as ferramentas (PR 3) só criam e conduzem delegações por estes métodos, e o resultado chega
-  validado pelo contrato;
-* o índice protege só a mesma chave: fan-out e orçamento da raiz são contagens informadas ao domínio, e a criação (PR
-  2) precisa serializar por raiz (trava transacional antes de contar e inserir), com teste PostgreSQL de duas chaves
-  diferentes disputando as últimas vagas;
+  validado pelo contrato; o PR 3 troca a fonte do resultado (a ferramenta no lugar do bloco da última mensagem) e a da
+  identidade de quem pede (a sessão), sem mudar os casos de uso;
+* o índice protege a mesma chave e a trava da raiz protege fan-out e orçamento: as contagens informadas ao domínio são
+  lidas sob a trava;
 * profundidade 1 e paralelismo 1 estão fixados no código e no banco; com eles, fan-out e orçamento da raiz coincidem
   (a origem de toda delegação é a raiz);
 * `FerramentaDoDante.Coordenacao` já pode ser concedida pelo cadastro existente, sem efeito: nenhuma sessão recebe o
   servidor por ela até o PR 3.
 
-Código: `Dante.Domain/Execucoes/{Delegacao, ContratoDeDelegacao, EstadoDaDelegacao, Execucao, TipoDeExecucao}.cs`,
+Código do PR 2: `Dante.Application/Execucoes/{IDelegacoesAppService, DelegacoesAppService, CicloDaDelegacao}.cs`,
+`Contratos/DelegacaoDto.cs`, as travas em `IExecucaoRepository.TravarComAncestraisAsync`, o ciclo em
+`FilaDeExecucoesAppService` e `ControleDeExecucoesAppService`, a recuperação em `RecuperacaoDeExecucoesAppService`,
+`Dante.Worker/Execucoes/{ExecutorDeDelegacoesDaFila, ExecutorDeTarefasDaFila, ExecucaoSobPosse}.cs`. Testes:
+`DelegacoesExecucaoPostgreSqlTests` (regras, concorrência real, rollback, fencing, recuperação, retomada, prazos,
+cancelamento) e `DelegacaoPelaFilaEndToEndTests` (ProcessadorDaFila real, interrompido no meio da filha e da retomada).
+
+Código do PR 1: `Dante.Domain/Execucoes/{Delegacao, ContratoDeDelegacao, EstadoDaDelegacao, Execucao, TipoDeExecucao}.cs`,
 `Dante.Domain/Agentes/{LimitesDeDelegacao, ConfiguracaoDoAgente, VersaoDoAgente, Agente, FerramentaDoDante}.cs`,
 `Dante.Application/Execucoes/Portas/IDelegacaoRepository.cs`, `Dante.Application/Agentes/{AgentesEmbutidos,
 CadastroDeAgentesAppService}.cs`, `Dante.Infrastructure/Modulos/Execucoes/{DelegacaoDbMapping, DelegacaoRepository,

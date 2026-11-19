@@ -134,8 +134,13 @@ etapa de escrita exige worktree reservada. Só os fluxos legados (sessão comum,
   (raiz, pai, profundidade, tipo `Delegada`, conferida e imutável no banco), a `Delegacao` com contratos tipados do
   catálogo fechado, as regras por interseção, as concessões `coordenacao`/`PodeConsultar`/limites com hash
   retrocompatível e a deduplicação concorrente por unidade de trabalho, sem nada exposto em tempo de execução.
+  O segundo (Application, fila e executor) traz os casos de uso internos, a criação serializada por raiz, a
+  subordinada na fila durável com fencing, o executor somente leitura, o resultado validado pelo contrato, a espera e
+  a retomada idempotente da origem, prazos, falha, cancelamento em cascata e a recuperação após reinício. O terceiro
+  expõe as ferramentas no `dante_coordenacao`.
   **Divergências**: teto global de profundidade 1 e paralelismo 1; delegação só de leitura; a mesma unidade para outro
-  agente é recusada; origem só de `Tarefa` (grupos e roteiros ficam para a #310).
+  agente é recusada; origem só de `Tarefa` (grupos e roteiros ficam para a #310); até o PR 3, o resultado vem do bloco
+  JSON da última mensagem (sem ferramenta) e `revisao.v1` é recusado até existir artefato verificável pelo executor.
 
 ### 8. Coordenador — complexidade média
 
