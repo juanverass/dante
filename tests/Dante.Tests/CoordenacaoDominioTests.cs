@@ -505,4 +505,25 @@ public sealed class CoordenacaoDominioTests
         Assert.Throws<TransicaoInvalidaException>(() => ignorada.TornarPronta([]));
         Assert.Equal(MotivoDaRecusaDeDelegacao.OrigemInvalida, Recusa(c.Despacho(plano, etapas[0], "pesq")));
     }
+
+    // Uma cópia desatualizada de uma unidade do mesmo plano (lida antes da substituição) em curso: o estado do plano,
+    // e não só o vínculo da etapa, decide o despacho.
+    [Fact]
+    public void UnidadeDePlanoSubstituidoNaoEhDespachadaMesmoEmCurso()
+    {
+        var c = new Cenario();
+        var (plano, _) = c.Aprovado();
+        var atual = plano.Materializar(c.Execucao, c.Coordenacao, c.Participantes, 2, Agora).Etapas;
+        var desatualizada = plano.Materializar(c.Execucao, c.Coordenacao, c.Participantes, 2, Agora).Etapas[0];
+        desatualizada.TornarPronta([]);
+        desatualizada.Iniciar(Agora);
+        Assert.NotNull(Delegacao.CriarDoPlano(c.Despacho(plano, desatualizada, "pesq"), 60, Agora));
+        atual[0].TornarPronta([]);
+        atual[0].Iniciar(Agora);
+        atual[0].Falhar("sem resposta", null, Agora);
+        PlanoDaCoordenacao.Revisar(c.Execucao, plano, MotivoDoPlano.UnidadeSemResposta, c.Validado(Unidade(Valida)), atual,
+            null, Agora);
+        Assert.Equal(EstadoDoPlano.Substituido, plano.Estado);
+        Assert.Equal(MotivoDaRecusaDeDelegacao.PlanoNaoAprovado, Recusa(c.Despacho(plano, desatualizada, "pesq")));
+    }
 }

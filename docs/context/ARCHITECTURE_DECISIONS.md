@@ -3180,3 +3180,76 @@ PedidoDeCancelamento, FilaDeExecucoesAppService}.cs`, `Dante.Infrastructure/Fila
 `Dante.Worker/Execucoes/ExecucaoSobPosse.cs`, `Dante.Worker/Sessions/SessionRegistry.cs` (`LedgerNumberWrittenAsync`).
 Testes: `AcompanhamentoDeExecucoesTests`, `AcompanhamentoDeExecucoesPostgreSqlTests`, `ExecucoesNoTelegramTests`,
 `TarefaPelaFilaEndToEndTests`.
+
+## AD-75 — Coordenação por papel: plano validado, gate do plano e despacho só pelo snapshot (#310)
+
+Status: vigente no domínio e na persistência (PR 1 da #310); etapa 8 do roadmap da Epic #296. Proposta da #310 aprovada
+com as decisões D1–D9 na própria Issue. Complementa a AD-69 (modo `Coordenador` na versão de grupo, gate humano
+reutilizado) e a AD-70 (cada unidade é uma delegação `consulta.v1`), sem reescrevê-las. Depende do mesmo banco e da
+mesma chave `Orquestracao:Habilitada`; migration `CoordenacaoPorPapel`, não aplicada no banco canônico. Application,
+fila e executor (PR 2) e ferramentas MCP, interface e documentação de uso (PR 3) ainda não existem.
+
+Contexto: o roteiro da AD-69 não decompõe tarefas abertas. O coordenador precisa propor um plano que o sistema valide e
+uma pessoa aprove antes de qualquer delegação, sem ganhar permissões por ser coordenador, sem ampliar a execução quando
+o cadastro muda e sem apagar histórico ao replanejar. A escrita e qualquer ação protegida dependem do gateway da #311.
+
+Decisão:
+
+* **Papel, não agente especial**: `ModoDeCoordenacao.Coordenador` com `PapelDoCoordenador` (um participante). A versão do
+  grupo coordenado não tem roteiro nem rodadas e nenhum participante escreve (domínio, check e trigger). O JSON canônico
+  do grupo só muda no modo novo (`formato` 2 com `coordenador`); o do Roteiro continua o do formato 1.
+* **Execução `Coordenada`** (tipo 4): raiz, aponta para a versão do grupo **e** para a versão congelada do coordenador
+  (check). `CoordenacaoDaExecucao` (um por execução) guarda grupo, versão, hash, papel do coordenador, hash do snapshot
+  (mesmo cálculo do Roteiro, sobre `participantes_da_execucao`) e o objetivo protegido como no Roteiro. É a autoridade
+  congelada: plano e despacho são conferidos contra estas linhas e as versões que elas apontam, nunca contra o cadastro
+  atual.
+* **Plano validado, puro e determinístico** (`ValidacaoDoPlano`, D1/D3/D5): entrada é o texto da proposta; saída é a
+  forma canônica (unidades em ordem topológica, empate pela proposta; chaves em ordem; NFC, `\n`, sem pontas; papel
+  minúsculo; dependências únicas e ordenadas; entrada canônica do contrato) e o SHA-256 calculado aqui, ou todas as
+  recusas com motivo e unidade. Recusa campo desconhecido (inclusive um hash enviado), papel fora do snapshot, unidade
+  do coordenador, contrato fora de `consulta.v1`, capacidade ausente na versão congelada, entrada inválida, tamanhos,
+  dependência inexistente, ciclo, plano vazio e mais unidades que o orçamento (teto global de 4 delegações por execução,
+  descontadas as já criadas na raiz). Escrita é `RequerGateway`, sempre recusada, sem porta especulativa do gateway.
+  Um plano inválido volta ao coordenador uma vez (`CorrecoesPermitidas`); o fluxo é do PR 2.
+* **Plano persistido** (`planos_da_coordenacao`, D6): revisão imutável (conteúdo em texto, hash recalculado do conteúdo
+  ao criar e conferido pelo banco), em cadeia (`revisao` 1–3, a substituta aponta para a anterior, uma vez). Revisão
+  nova só por `UnidadeSemResposta` (anterior aprovada, nenhuma unidade em curso, ao menos uma `Falhou`/`Cancelada`) ou
+  `PedidoHumano` (correção pedida no gate da anterior). A anterior fica `Substituido`; só as etapas pendentes dela viram
+  `Ignorada` com motivo; nada é apagado (triggers recusam DELETE e alteração de conteúdo, hash e identidade).
+* **Gate do plano = o gate existente com finalidade** (D4): `PedidoDeAprovacao.DoPlano` grava `finalidade =
+  PlanoSomenteLeitura`, o plano, o hash do plano como artefato, a revisão como rodada e o hash do snapshot. O banco
+  confere na inserção (plano aguardando, mesmo hash e revisão, snapshot da execução) e, no commit, só aceita plano
+  `Aprovado`/`Recusado` com a decisão correspondente do gate sobre o mesmo hash. Essa aprovação significa só "autorizar
+  este plano somente leitura": não é aprovação do gateway da #311 e não concede escrita, commit, push nem outra ação
+  protegida. Um plano não é "substituído" no gate; outra versão tem pedido próprio.
+* **Grafo no ledger** (D1): `PlanoDaCoordenacao.Materializar` cria etapas `UnidadeDoPlano` (sem processo próprio, de
+  leitura, retomada automática) numeradas na ordem topológica, com papel e versão do participante no snapshot, e as
+  `DependenciaDeEtapa`. O banco recusa unidade de plano não aprovado ou de papel fora do snapshot/do coordenador (no
+  commit), a mesma unidade duas vezes, alterar o vínculo da etapa com o plano e dependência fora da ordem topológica.
+* **Despacho só pelo plano e pelo snapshot** (D2): `Delegacao.CriarDoPlano` exige a unidade em curso de um plano
+  aprovado da Coordenada; o solicitante é o coordenador congelado, o destinatário é o participante do papel da unidade
+  na versão congelada (íntegra, agente ativo: desativar restringe, editar não amplia), contrato `consulta.v1`, entrada,
+  objetivo e critérios do plano, repositórios na interseção das versões congeladas e o teto global. Não usa
+  `PodeConsultar`. O trigger da delegação confere de novo, para origem `Coordenada`: etapa de unidade de plano aprovado,
+  destinatário e solicitante no snapshot (versão e hash), contrato e capacidade.
+* **Limites de provider** (D9): sem mecanismo novo nesta entrega; o comportamento inicial (falha com motivo, backoff da
+  fila) e a distinção de limite conhecido são do PR 2, com a decisão trazida antes de ampliar a fila.
+
+Consequências:
+
+* a proveniência raiz → grupo/versão → revisão do plano → etapa/unidade → delegação → versão do agente → resultado é
+  consultável por SQL e protegida pelo banco; a sessão entra pelo executor do PR 2;
+* paralelismo continua 1; com profundidade 1, o orçamento de 4 delegações vale para a execução inteira, também somando
+  revisões;
+* escrita em grupo coordenado e ações protegidas continuam impossíveis até a #311 (domínio, check e trigger);
+* replanejar a pedido humano no meio da execução (fora do gate) não existe nesta entrega;
+* consolidação (trilha mecânica + síntese validada, D7) é do PR 2/3.
+
+Código: `Dante.Domain/Grupos/{ModoDeCoordenacao, ConfiguracaoDoGrupo, VersaoDoGrupo}.cs`,
+`Dante.Domain/Execucoes/{CoordenacaoDaExecucao, ValidacaoDoPlano, PlanoDaCoordenacao, FinalidadeDaAprovacao,
+PedidoDeAprovacao, Delegacao (CriarDoPlano), EtapaDaExecucao (DaUnidade), Execucao, TipoDeExecucao, TipoDeEtapa}.cs`,
+`Dante.Application/Execucoes/Portas/{ICoordenacaoDaExecucaoRepository, IPlanoDaCoordenacaoRepository}.cs`,
+`Dante.Infrastructure/Modulos/Execucoes/{CoordenacaoDaExecucao*, PlanoDaCoordenacao*}.cs`, migration
+`CoordenacaoPorPapel`. Testes: `CoordenacaoDominioTests` (validação por tabela, canonicidade, revisões, gate,
+materialização e despacho) e `CoordenacaoPostgreSqlTests` (proveniência, triggers e checks por fora do domínio,
+replanejamento, revisões e materializações simultâneas, migration sobre dados anteriores).
