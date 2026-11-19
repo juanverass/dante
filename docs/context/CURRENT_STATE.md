@@ -274,8 +274,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   fila (#301, AD-68) integrado; acompanhamento e cancelamento de execuções (#305, AD-74) integrado; worktrees por
   execução de escrita e limites de concorrência (#307, AD-71) integradas; grupos versionados com roteiro
   determinístico e gate humano (#308, AD-69) integrados em três PRs (cadastro, gate durável e executor com a fundação
-  do `dante_coordenacao`); delegação rastreada (#309, AD-70) em andamento: domínio e persistência no PR 1 (integrado),
-  Application, fila e executor no PR 2, ferramentas MCP no PR 3.
+  do `dante_coordenacao`); delegação rastreada (#309, AD-70) em andamento: domínio e persistência no PR 1 e
+  Application, fila e executor no PR 2 (integrados), ferramentas MCP no `dante_coordenacao` no PR 3 (em revisão).
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -782,15 +782,24 @@ pela raiz (trava da raiz e da origem antes de contar e inserir; duas chaves simu
 gravando a subordinada, a delegação, os eventos e o trabalho da fila durável, tudo ou nada. O
 `ExecutorDeDelegacoesDaFila` confere a delegação antes de qualquer processo (destinatário ativo na versão congelada e
 íntegra, concessão, contrato, entrada, autoridade, raiz, capacidade, só leitura, prazos), abre uma sessão reservada em
-plan no contexto congelado da origem, sem o ambiente do Worker nem ferramentas de coordenação, e grava sob posse o
-resultado do contrato (JSON da última mensagem, validado no servidor, com evidências de arquivo existentes; uma
-correção), só da sessão vinculada à etapa. A origem que conclui a etapa com delegações abertas espera
+plan no contexto congelado da origem, sem o ambiente do Worker e só com o `dante_coordenacao` no perfil `delegacao`, e
+grava sob posse o resultado entregue pela ferramenta `entregar_resultado` (validado no servidor, com evidências de
+arquivo existentes; recusado, o agente corrige e entrega de novo), só da sessão vinculada à etapa; texto livre nunca
+é resultado (um lembrete e, sem entrega, falha). A origem que conclui a etapa com delegações abertas espera
 (`AguardandoDelegacoes`) e é retomada, na transação que encerra a última delegação, com uma etapa nova de leitura que
 o executor da Tarefa monta do ledger (desfechos como dado não confiável) e responde ao dono. Prazo para iniciar e
 duração expiram a delegação; falha, tentativas esgotadas e cancelamento (da delegação ou da origem, pelo evento
 durável do #305) também a encerram e retomam a origem que espera; a recuperação na inicialização retoma origens
-prontas sem executar a filha de novo. **Nada cria delegação em produção**: as ferramentas `consultar_agente` e a
-entrega por MCP chegam no PR 3; `revisao.v1` é recusado até existir artefato verificável. Exige banco e
+prontas sem executar a filha de novo.
+
+Ferramentas (PR 3): no mesmo `dante_coordenacao` da #308 (servidor, pipe, token e limite), com catálogo por perfil
+fixado no canal da sessão. A etapa de leitura da `/tarefa` cuja versão concede `coordenacao` e pode consultar alguém
+recebe `consultar_agente` (só `consulta.v1`; gravada sob a posse da etapa e só pela sessão vinculada a ela, do mesmo
+dono: sem vínculo, outra sessão, posse antiga ou etapa concluída, nada é criado) e `estado_da_execucao` (delegações
+desta execução com estado, último marco de progresso e resultado estruturado). As duas, e a `entregar_resultado` da
+subordinada, rodam sem pedir aprovação em plan (Claude: `--allowedTools`; Codex: só essas ferramentas do
+`dante_coordenacao`, na thread da sessão). A retomada da origem não recebe o servidor. `revisao.v1` é recusado até
+existir artefato verificável. Exige banco e
 `Orquestracao:Habilitada` (desligado no homelab). Migration `Delegacoes` não aplicada no banco canônico.
 
 ## Worktrees por execução de escrita (#307, AD-71)

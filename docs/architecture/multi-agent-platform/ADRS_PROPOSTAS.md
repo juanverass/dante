@@ -74,8 +74,10 @@
 - **Vigente (domínio e persistência, PR 1 da #309)**: hierarquia de execuções, delegação, contratos tipados e
   concessões; ver AD-70 em `docs/context/ARCHITECTURE_DECISIONS.md`.
 - **Vigente (Application, fila e executor, PR 2 da #309)**: casos de uso internos, serialização por raiz, subordinada
-  na fila durável, executor somente leitura, retorno à origem por nova etapa e cascata de cancelamento. As ferramentas
-  MCP entram no PR 3.
+  na fila durável, executor somente leitura, retorno à origem por nova etapa e cascata de cancelamento.
+- **Vigente (ferramentas MCP, PR 3 da #309)**: perfis `origem` (`consultar_agente`, `estado_da_execucao`) e
+  `delegacao` (`entregar_resultado`) no mesmo `dante_coordenacao`, sob a posse da etapa e pela sessão vinculada; o
+  resultado só vale pela ferramenta.
 
 ## AD-71 — Worktree por execução de escrita, gerida pelo D.A.N.T.E. com conjunto fechado de comandos Git
 
