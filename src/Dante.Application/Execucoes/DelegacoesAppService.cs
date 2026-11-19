@@ -17,7 +17,10 @@ public sealed class DelegacoesAppService(
     IVersaoDoAgenteRepository versoes,
     IControleDeExecucoesAppService controle,
     IUnitOfWorkDaOrquestracao unidade,
-    Dante.Application.Mapeamento.IMapsterTypeAdapter mapper) : IDelegacoesAppService
+    Dante.Application.Mapeamento.IMapsterTypeAdapter mapper,
+    ICoordenacaoDaExecucaoRepository coordenacoes,
+    IParticipanteDaExecucaoRepository participantes,
+    IPlanoDaCoordenacaoRepository planos) : IDelegacoesAppService
 {
     public const string OrigemNaoEncontrada = "Execução de origem não encontrada.";
     public const string RevisaoSemArtefatoVerificavel =
@@ -217,10 +220,14 @@ public sealed class DelegacoesAppService(
         if (delegacao.IniciadaEm is { } iniciada && agora > iniciada.AddMinutes(delegacao.MinutosDeDuracao))
             return new(null, $"Duração máxima excedida ({delegacao.MinutosDeDuracao} min).", Expirada: true);
         if (delegacao.Escrita) return new(null, "Delegação com escrita não é permitida.");
-        // Destinatário: ativo, ainda na versão congelada, íntegra, com o hash do pedido e a capacidade do contrato.
+        // Destinatário: ativo, ainda na versão congelada, íntegra, com o hash do pedido e a capacidade do contrato. Numa
+        // unidade de Coordenada (#310, D2) a autoridade é o snapshot: a versão congelada nele é a que roda, mesmo que o
+        // agente tenha sido editado depois (editar não amplia; desativar restringe).
+        var coordenada = origem.Tipo == TipoDeExecucao.Coordenada;
         var destinatario = await agentes.ObterPorIdAsync(delegacao.IdAgenteDestinatario, cancellationToken);
         var versao = await versoes.ObterPorIdAsync(delegacao.IdVersaoDestinataria, cancellationToken);
-        if (destinatario is not { Estado: EstadoDoAgente.Ativo } || destinatario.IdVersaoAtual != delegacao.IdVersaoDestinataria)
+        if (destinatario is not { Estado: EstadoDoAgente.Ativo } ||
+            (!coordenada && destinatario.IdVersaoAtual != delegacao.IdVersaoDestinataria))
             return new(null, $"O agente {delegacao.HandleDoDestinatario} não está mais ativo na versão da delegação.");
         if (versao is null || versao.IdAgente != destinatario.Id || !versao.Integra ||
             versao.HashDaConfiguracao != delegacao.HashDaVersaoDestinataria)
@@ -230,12 +237,15 @@ public sealed class DelegacoesAppService(
             return new(null, "Contrato da delegação indisponível para execução.");
         if (!contrato.Aceita(versao.Configuracao.Capacidades))
             return new(null, $"O agente {delegacao.HandleDoDestinatario} não tem capacidade para {delegacao.Contrato}.");
-        // Solicitante: a concessão de coordenação e o destinatário em PodeConsultar, na versão congelada e íntegra.
+        // Solicitante: a concessão de coordenação e o destinatário em PodeConsultar, na versão congelada e íntegra. Numa
+        // unidade de Coordenada, a autorização é só a do plano aprovado e do snapshot (D2), nunca uma concessão do agente.
         var versaoSolicitante = await versoes.ObterPorIdAsync(delegacao.IdVersaoSolicitante, cancellationToken);
         if (versaoSolicitante is null || !versaoSolicitante.Integra ||
             versaoSolicitante.HashDaConfiguracao != delegacao.HashDaVersaoSolicitante ||
-            !versaoSolicitante.Configuracao.PodeDelegarPara(delegacao.HandleDoDestinatario))
+            (!coordenada && !versaoSolicitante.Configuracao.PodeDelegarPara(delegacao.HandleDoDestinatario)))
             return new(null, "A concessão de coordenação do solicitante não confere com a da delegação.");
+        if (coordenada && await RecusaDoPlanoAsync(origem, delegacao, cancellationToken) is { } foraDoPlano)
+            return new(null, foraDoPlano);
         // Entrada: a gravada é a canônica e tem o hash gravado (nada a adulterou).
         try
         {
@@ -413,10 +423,13 @@ public sealed class DelegacoesAppService(
             {
                 var origem = await execucoes.TravarComAncestraisAsync(idOrigem, token);
                 if (origem is not { Estado: EstadoDaExecucao.AguardandoDelegacoes }) return;
-                // A etapa que delegou é a última: a espera começa quando ela conclui.
-                var ultima = (await etapas.ListarDaExecucaoAsync(origem.Id, token)).MaxBy(e => e.Numero)!;
-                var daEtapa = (await delegacoes.ListarDaOrigemAsync(origem.Id, token)).Where(d => d.IdEtapaOrigem == ultima.Id)
-                    .ToList();
+                // A etapa que delegou é a última: a espera começa quando ela conclui. Numa Coordenada (#310), é a unidade
+                // da delegação mais recente (as unidades do plano são materializadas juntas, antes de rodar).
+                var daOrigem = await delegacoes.ListarDaOrigemAsync(origem.Id, token);
+                var ultima = origem.Tipo == TipoDeExecucao.Coordenada
+                    ? daOrigem.MaxBy(d => d.CriadaEm)?.IdEtapaOrigem
+                    : (await etapas.ListarDaExecucaoAsync(origem.Id, token)).MaxBy(e => e.Numero)!.Id;
+                var daEtapa = daOrigem.Where(d => d.IdEtapaOrigem == ultima).ToList();
                 if (daEtapa.Count == 0 || daEtapa.Any(d => !d.Terminal)) return;
                 retomou = await CicloDaDelegacao.RetomarSeProntaAsync(Ciclo, daEtapa[0], fila.Agora, token);
                 await unidade.SalvarAlteracoesAsync(token);
@@ -504,6 +517,28 @@ public sealed class DelegacoesAppService(
         if (etapa.Estado == EstadoDaEtapa.Pendente) etapa.TornarPronta([]);
         etapa.Iniciar(agora);
         await TransicaoAsync(subordinada, etapa, etapaAntes, agora, cancellationToken);
+    }
+
+    // Unidade de Coordenada (#310, D2): a etapa de origem é unidade de um plano aprovado da própria execução, o snapshot
+    // reproduz o hash e o solicitante e o destinatário da delegação são o coordenador e o participante do papel da
+    // unidade, nas versões e hashes congelados. Nulo quando confere.
+    private async Task<string?> RecusaDoPlanoAsync(Execucao origem, Delegacao delegacao, CancellationToken cancellationToken)
+    {
+        var coordenacao = await coordenacoes.ObterDaExecucaoAsync(origem.Id, cancellationToken);
+        var linhas = await participantes.ListarDaExecucaoAsync(origem.Id, cancellationToken);
+        var etapa = await etapas.ObterPorIdAsync(delegacao.IdEtapaOrigem, cancellationToken);
+        var plano = etapa?.IdPlano is { } idPlano ? await planos.ObterPorIdAsync(idPlano, cancellationToken) : null;
+        if (coordenacao is null || !coordenacao.SnapshotConfere(linhas) || etapa is not { Tipo: TipoDeEtapa.UnidadeDoPlano } ||
+            plano is not { Estado: EstadoDoPlano.Aprovado } || plano.IdExecucao != origem.Id)
+            return "A unidade da delegação não é de um plano aprovado desta coordenação com o snapshot íntegro.";
+        var coordenador = linhas.SingleOrDefault(p => p.Papel == coordenacao.PapelDoCoordenador);
+        var participante = linhas.SingleOrDefault(p => p.Papel == etapa.Papel);
+        return coordenador is null || participante is null || participante.Papel == coordenacao.PapelDoCoordenador ||
+            coordenador.IdVersaoDoAgente != delegacao.IdVersaoSolicitante ||
+            coordenador.HashDaConfiguracaoDoAgente != delegacao.HashDaVersaoSolicitante ||
+            participante.IdVersaoDoAgente != delegacao.IdVersaoDestinataria ||
+            participante.HashDaConfiguracaoDoAgente != delegacao.HashDaVersaoDestinataria
+            ? "A delegação não confere com o snapshot da coordenação." : null;
     }
 
     // Carrega sob a ordem das travas: a origem (pai) e então a subordinada, ambas FOR UPDATE, depois a etapa e a delegação.

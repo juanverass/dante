@@ -37,5 +37,8 @@ public enum TipoDeEventoDeOrquestracao
     DelegacaoProgrediu,
     // A origem saiu da espera: uma etapa nova entrega os desfechos das delegações da etapa anterior. Dados: etapa de
     // origem e quantidade de delegações; a nova etapa é a referência.
-    OrigemRetomada
+    OrigemRetomada,
+    // Coordenação (#310, AD-75): a proposta do coordenador foi recusada pela validação do plano. Dados: a tentativa e os
+    // motivos com a unidade; nunca o conteúdo proposto. Contado por etapa de planejamento: é a correção única do ledger.
+    PlanoRecusado
 }

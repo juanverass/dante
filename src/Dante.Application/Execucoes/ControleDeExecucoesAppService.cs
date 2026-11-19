@@ -13,7 +13,8 @@ public sealed class ControleDeExecucoesAppService(
     CanalDeCancelamento canal,
     IReservaDeWorktreeRepository reservas,
     IPedidoDeAprovacaoRepository pedidos,
-    IDelegacaoRepository delegacoes) : IControleDeExecucoesAppService
+    IDelegacaoRepository delegacoes,
+    IPlanoDaCoordenacaoRepository planos) : IControleDeExecucoesAppService
 {
     public const string MotivoDoDescarte = "cancelada pelo dono";
 
@@ -84,6 +85,8 @@ public sealed class ControleDeExecucoesAppService(
             // Interrompida com worktree (escrita, #307): a reserva deixa de ocupar capacidade; a limpeza preserva o
             // diretório se houver alterações.
             await LiberacaoDeWorktrees.LiberarSeEncerradaAsync(reservas, eventos, execucao, agora, token);
+            // Coordenada (#310): a revisão do plano em espera termina Cancelado (as etapas já foram canceladas acima).
+            await EncerramentoDaCoordenacao.AoEncerrarAsync(planos, etapas, eventos, execucao, agora, token);
             // Delegações (#309): a da subordinada termina Cancelada e a origem pode ser retomada; uma origem cancelada pede o
             // cancelamento das subordinadas abertas.
             await CicloDaDelegacao.AoEncerrarAsync(new(delegacoes, execucoes, etapas, eventos, fila), execucao, agora, token);
