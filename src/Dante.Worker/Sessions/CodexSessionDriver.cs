@@ -58,6 +58,8 @@ public sealed class CodexSessionDriver(
     private bool confinada;
     // Confined review (#308): the only MCP approval accepted is dante_coordenacao.entregar_resultado.
     private bool revisaoConfinada;
+    // Delegation (#309): closed-world dante_coordenacao tools pre-authorized for this session, accepted in plan.
+    private IReadOnlyList<string> coordenacaoPreAutorizada = [];
     private bool closing;
     private bool ended;
     private long nextRequestId;
@@ -119,6 +121,9 @@ public sealed class CodexSessionDriver(
             writableRoots = roots;
             confinada = options.EscritaConfinada || options.LeituraConfinada;
             revisaoConfinada = options.LeituraConfinada;
+            coordenacaoPreAutorizada = (options.ToolServers ?? [])
+                .Where(server => server.Name == ServidorMcpDeCoordenacao.Nome)
+                .SelectMany(server => server.PreAuthorizedTools ?? []).ToArray();
             effort = options.ModelSelection?.Effort;
             conversationInstructions = ContratoDaConversaParaAgentes.ParaSessao(options.ToolServers,
                 options.ContextInstructions);
@@ -832,9 +837,14 @@ public sealed class CodexSessionDriver(
 
     // Exactly the verdict tool of this session's coordination server, as the 0.166 app-server words it.
     internal static bool EntregaDoVereditoAutorizada(JsonObject parameters, string? thread) =>
+        FerramentaDeCoordenacaoAutorizada(parameters, thread, [ServidorMcpDeCoordenacao.EntregarResultado]);
+
+    // Exactly one of the given tools of this session's coordination server, on this session's thread (#309).
+    internal static bool FerramentaDeCoordenacaoAutorizada(JsonObject parameters, string? thread,
+        IReadOnlyCollection<string> ferramentas) =>
         GetString(parameters, "serverName") == ServidorMcpDeCoordenacao.Nome &&
-        GetString(parameters, "message") ==
-            $"Allow the {ServidorMcpDeCoordenacao.Nome} MCP server to run tool \"{ServidorMcpDeCoordenacao.EntregarResultado}\"?" &&
+        ferramentas.Any(ferramenta => GetString(parameters, "message") ==
+            $"Allow the {ServidorMcpDeCoordenacao.Nome} MCP server to run tool \"{ferramenta}\"?") &&
         thread is not null && GetString(parameters, "threadId") == thread &&
         parameters["_meta"] is JsonObject meta && GetString(meta, "codex_approval_kind") == "mcp_tool_call";
 
@@ -1084,13 +1094,20 @@ public sealed class CodexSessionDriver(
             case ElicitationMethod when parameters["_meta"] is JsonObject meta &&
                                         GetString(meta, "codex_approval_kind") == "mcp_tool_call":
                 bool planning;
-                lock (gate) planning = profile == AgentPermissionProfile.Plan;
+                string? sessionThread;
+                IReadOnlyList<string> preAutorizadas;
+                lock (gate) (planning, sessionThread, preAutorizadas) =
+                    (profile == AgentPermissionProfile.Plan, threadId, coordenacaoPreAutorizada);
                 if (planning)
                 {
                     // Planning never changes anything outside the conversation: an MCP tool that writes is declined.
+                    // The only exception is a closed-world coordination tool pre-authorized for this session (#309),
+                    // validated by the Worker against the session scope; nothing reaches a person.
+                    var aceita = preAutorizadas.Count > 0 &&
+                                 FerramentaDeCoordenacaoAutorizada(parameters, sessionThread, preAutorizadas);
                     await WriteAsync(RequireOpen(), Response(id.DeepClone(), new JsonObject
                     {
-                        ["action"] = "decline", ["content"] = null
+                        ["action"] = aceita ? "accept" : "decline", ["content"] = null
                     }), lifetime.Token);
                     return;
                 }

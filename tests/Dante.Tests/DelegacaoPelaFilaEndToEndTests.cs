@@ -1,8 +1,14 @@
+using System.IO.Pipes;
+using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Dante.Application.Agentes;
+using Dante.Application.Contextos;
 using Dante.Application.Execucoes;
 using Dante.Domain.Agentes;
 using Dante.Domain.Execucoes;
+using Dante.Worker.Coordenacao;
 using Dante.Worker.Execucoes;
 using Dante.Worker.Jobs;
 using Dante.Worker.Sessions;
@@ -14,12 +20,14 @@ using static Dante.Tests.FilaDuravelPostgreSqlTests;
 
 namespace Dante.Tests;
 
-// #309 (AD-70), PR 2, de ponta a ponta contra PostgreSQL descartável: o ProcessadorDaFila real com o
-// ExecutorDeDelegacoesDaFila e o ExecutorDeTarefasDaFila (retomada) reais, sessões reservadas com drivers falsos e o
-// ledger espelhado. A origem é uma Tarefa cuja primeira etapa pede a delegação pelo caso de uso interno (o que o
-// dante_coordenacao fará no PR 3) e termina o turno. Fluxo: pai solicita → delegação persistida → filha na fila →
-// destinatário executa numa sessão própria → resultado gravado → pai retomado numa sessão nova → resposta ao dono. O
-// mesmo fluxo é repetido parando o Worker no meio da filha e no meio da retomada: nada é perdido nem gravado duas vezes.
+// #309 (AD-70), PR 2 e PR 3, de ponta a ponta contra PostgreSQL descartável: o ProcessadorDaFila real com o
+// ExecutorDeDelegacoesDaFila e o ExecutorDeTarefasDaFila (retomada) reais, sessões reservadas com drivers falsos, o
+// ledger espelhado e o dante_coordenacao real (FerramentasDeCoordenacao, pipe e token da sessão). O teste faz o papel do
+// processo MCP de cada agente. A origem é uma Tarefa cuja primeira etapa abre a sessão com o escopo da origem e pede a
+// delegação pela ferramenta consultar_agente. Fluxo: pai solicita pelo MCP → delegação persistida → filha na fila →
+// destinatário executa numa sessão própria e entrega pelo entregar_resultado → resultado gravado → pai retomado numa
+// sessão nova → resposta ao dono. O mesmo fluxo é repetido parando o Worker no meio da filha e no meio da retomada:
+// nada é perdido nem gravado duas vezes.
 [Collection("FilaDuravel")]
 public sealed class DelegacaoPelaFilaEndToEndTests
 {
@@ -32,12 +40,28 @@ public sealed class DelegacaoPelaFilaEndToEndTests
         var codigo = await a.OrigemAsync();
         a.Iniciar();
 
+        // A origem pede pela ferramenta, com o escopo da sessão: consultar mostra a delegação aceita, repetir devolve a
+        // mesma e um destinatário inexistente é recusado sem gravar nada.
+        var origem = await a.DriverAsync(c => c.StartsWith("turn:Origem", StringComparison.Ordinal));
+        var servidorDaOrigem = Assert.Single(origem.StartOptions!.ToolServers!);
+        Assert.Equal(["--perfil", "origem"], servidorDaOrigem.Arguments.SkipLast(2).TakeLast(2));
+        var pedida = JsonNode.Parse(await a.SolicitarAsync(origem))!;
+        Assert.True((bool)pedida["nova"]!);
+        Assert.False((bool)JsonNode.Parse(await a.SolicitarAsync(origem))!["nova"]!);
+        Assert.Contains("estranho não existe", await a.SolicitarAsync(origem, "estranho"));
+        var consulta = JsonNode.Parse(await Ambiente.ChamarAsync(origem, "estado_da_execucao", new { }))!;
+        Assert.Equal(((string?)pedida["delegacao"], "Aceita"),
+            ((string?)consulta["delegacoes"]![0]!["delegacao"], (string?)consulta["delegacoes"]![0]!["estado"]));
+        Responder(origem, "Delegado ao revisor.");
+
         // A filha roda numa sessão reservada do destinatário: plan, no contexto congelado da origem, sem o ambiente do
-        // Worker e sem servidores de ferramentas; o pedido entra como dado não confiável, com o schema do contrato.
+        // Worker e só com o dante_coordenacao no perfil delegacao; o pedido entra como dado não confiável, com o schema.
         var filha = await a.DriverAsync(c => c.StartsWith("turn:Delegação", StringComparison.Ordinal));
         var opcoes = filha.StartOptions!;
         Assert.Equal((AgentPermissionProfile.Plan, a.Repositorio), (opcoes.Profile, opcoes.WorkingDirectory));
-        Assert.Empty(opcoes.ToolServers ?? []);
+        var servidorDaFilha = Assert.Single(opcoes.ToolServers!);
+        Assert.Equal(["--perfil", "delegacao"], servidorDaFilha.Arguments.SkipLast(2).TakeLast(2));
+        Assert.Equal(["entregar_resultado"], servidorDaFilha.PreAuthorizedTools);
         Assert.DoesNotContain(opcoes.EnvironmentVariables ?? new Dictionary<string, string>(), v => v.Key == "DANTE_SEGREDO_DE_TESTE");
         var prompt = filha.TurnInputs[0].Text;
         Assert.Contains("<<<DADO_NAO_CONFIAVEL", prompt);
@@ -45,11 +69,19 @@ public sealed class DelegacaoPelaFilaEndToEndTests
         Assert.Contains("\"confianca\"", prompt);
         Assert.Equal(EstadoDaExecucao.AguardandoDelegacoes, await a.EstadoDaOrigemAsync());
 
-        // Primeiro sem bloco JSON: o servidor recusa e pede a correção uma vez, na mesma sessão.
-        Responder(filha, "Acho que sim.");
-        await Eventually(() => Task.FromResult(filha.TurnInputs.Count == 2));
-        Assert.Contains("O resultado não foi aceito", filha.TurnInputs[1].Text);
+        // Texto livre (mesmo um JSON na mensagem) não é resultado: um lembrete, na mesma sessão.
         Responder(filha, $"Aqui está:\n```json\n{Json}\n```");
+        await Eventually(() => Task.FromResult(filha.TurnInputs.Count == 2));
+        Assert.Contains("O resultado não foi entregue", filha.TurnInputs[1].Text);
+        Assert.Equal(EstadoDaDelegacao.EmAndamento, (await a.DelegacaoAsync()).Estado);
+        // Pela ferramenta: evidência inexistente é recusada (o agente corrige), a válida é gravada na hora e repetir é
+        // idempotente.
+        Assert.Contains("não existe no repositório",
+            await a.EntregarAsync(filha, Json.Replace("README.md:1", "src/nao-existe.cs")));
+        Assert.True((bool)JsonNode.Parse(await a.EntregarAsync(filha, Json))!["registrado"]!);
+        Assert.Equal(EstadoDaDelegacao.Respondida, (await a.DelegacaoAsync()).Estado);
+        Assert.True((bool)JsonNode.Parse(await a.EntregarAsync(filha, Json))!["ja_registrado"]!);
+        Responder(filha, "Entregue.");
 
         var retomada = await a.DriverAsync(c => c.StartsWith("turn:Retomada da tarefa", StringComparison.Ordinal));
         Assert.Equal(AgentPermissionProfile.Plan, retomada.StartOptions!.Profile);
@@ -63,7 +95,9 @@ public sealed class DelegacaoPelaFilaEndToEndTests
         Assert.Equal(EstadoDaDelegacao.Respondida, delegacao.Estado);
         Assert.Contains("README.md:1", delegacao.Resultado);
         Assert.NotNull(delegacao.IdSessaoDoResultado);
-        Assert.Equal(2, a.Drivers.Created.Count);
+        Assert.Equal(3, a.Drivers.Created.Count);
+        // O resultado consultado pela origem é o estruturado gravado, não a mensagem.
+        Assert.Contains("ix_estado cobre a consulta", delegacao.Resultado);
         // Proveniência: o resultado veio da sessão vinculada à etapa da subordinada, no ledger.
         Assert.Equal(1L, await a.Escalar($"SELECT count(*) FROM orquestracao.etapas_da_execucao WHERE id_execucao = '{delegacao.IdExecucaoSubordinada}' " +
             $"AND id_sessao_de_agente = '{delegacao.IdSessaoDoResultado}'"));
@@ -78,14 +112,18 @@ public sealed class DelegacaoPelaFilaEndToEndTests
 
         // 1. Parado com a filha em execução: a etapa estava em andamento, e o próximo Worker a retoma (leitura).
         a.Iniciar();
+        await a.OrigemDelegaAsync();
         var primeira = await a.DriverAsync(c => c.StartsWith("turn:Delegação", StringComparison.Ordinal));
         await a.PararAsync();
+        // A sessão parada perdeu o canal junto com a posse: o processo MCP dela não entrega mais nada.
+        await Assert.ThrowsAnyAsync<Exception>(() => a.EntregarAsync(primeira, Json));
         Assert.Equal(EstadoDaDelegacao.EmAndamento, (await a.DelegacaoAsync()).Estado);
         Assert.Equal(EstadoDaExecucao.AguardandoDelegacoes, await a.EstadoDaOrigemAsync());
 
         a.Iniciar();
         var segunda = await a.DriverAsync(c => c.StartsWith("turn:Delegação", StringComparison.Ordinal), depoisDe: primeira);
-        Responder(segunda, $"```json\n{Json}\n```");
+        Assert.True((bool)JsonNode.Parse(await a.EntregarAsync(segunda, Json))!["registrado"]!);
+        Responder(segunda, "Entregue.");
 
         // 2. Parado na retomada da origem: a filha não roda de novo; a retomada é refeita a partir do ledger.
         var retomada = await a.DriverAsync(c => c.StartsWith("turn:Retomada da tarefa", StringComparison.Ordinal));
@@ -119,14 +157,16 @@ public sealed class DelegacaoPelaFilaEndToEndTests
         await using var a = await Ambiente.CriarAsync();
         await a.OrigemAsync(desativarDestinatarioAntesDaFilha: true);
         a.Iniciar();
+        await a.OrigemDelegaAsync();
         var retomada = await a.DriverAsync(c => c.StartsWith("turn:Retomada da tarefa", StringComparison.Ordinal));
         Assert.Contains("Falhou", retomada.TurnInputs[0].Text);
         Assert.Contains("não está mais ativo", retomada.TurnInputs[0].Text);
         Responder(retomada, "Sem a consulta.");
         await a.Api.ProximaAsync();
         Assert.Equal(EstadoDaDelegacao.Falhou, (await a.DelegacaoAsync()).Estado);
-        // Nenhuma sessão do destinatário existiu.
-        Assert.Single(a.Drivers.Created);
+        // Nenhuma sessão do destinatário existiu (só a da origem e a da retomada).
+        Assert.Equal(2, a.Drivers.Created.Count);
+        Assert.DoesNotContain(a.Drivers.Created, d => d.Calls.Any(c => c.StartsWith("turn:Delegação", StringComparison.Ordinal)));
     }
 
     [PostgreSqlFact]
@@ -136,6 +176,7 @@ public sealed class DelegacaoPelaFilaEndToEndTests
         await a.OrigemAsync();
         // O relógio do executor já está além da duração gravada no início: o temporizador local encerra a sessão.
         a.Iniciar(new RelogioManual(DateTimeOffset.UtcNow.AddMinutes(61)));
+        await a.OrigemDelegaAsync();
         var retomada = await a.DriverAsync(c => c.StartsWith("turn:Retomada da tarefa", StringComparison.Ordinal));
         Assert.Contains("Expirada", retomada.TurnInputs[0].Text);
         Assert.Contains("Duração máxima excedida", retomada.TurnInputs[0].Text);
@@ -155,10 +196,11 @@ public sealed class DelegacaoPelaFilaEndToEndTests
         driver.Emit(new TurnCompletedEvent(AgentTurnOutcome.Completed));
     }
 
-    // A primeira etapa da origem: o turno pede a delegação pelo caso de uso (como a ferramenta do PR 3) e termina.
-    // As seguintes são a retomada, executada pelo ExecutorDeTarefasDaFila real.
-    private sealed class OrigemDeTeste(IServiceScopeFactory escopos, ExecutorDeTarefasDaFila real,
-        Func<Task>? antesDeConcluir = null) : IExecutorDeEtapa
+    // A primeira etapa da origem: a sessão reservada da versão do pesquisador, em plan, com o escopo da origem (a posse
+    // desta etapa) e por isso com o dante_coordenacao no perfil origem; o teste, como o agente, pede a delegação pela
+    // ferramenta e termina o turno. As etapas seguintes são a retomada, executada pelo ExecutorDeTarefasDaFila real.
+    private sealed class OrigemDeTeste(IServiceScopeFactory escopos, Func<SessionRegistry> sessoes, string repositorio,
+        ExecutorDeTarefasDaFila real, Func<Task>? antesDeConcluir = null) : IExecutorDeEtapa
     {
         public TipoDeExecucao Tipo => TipoDeExecucao.Tarefa;
         public bool PodeExecutar(AlvoDoTrabalhoDto alvo) => true;
@@ -171,11 +213,32 @@ public sealed class DelegacaoPelaFilaEndToEndTests
                 return;
             }
             await controle.IniciarAsync(cancellationToken);
+            VersaoDoAgenteDto versao;
             await using (var escopo = escopos.CreateAsyncScope())
-                await escopo.ServiceProvider.GetRequiredService<IDelegacoesAppService>().SolicitarAsync(
-                    new SolicitacaoDeDelegacaoDto(new ProprietarioDaExecucao("telegram", 123), alvo.IdExecucao, alvo.IdEtapa,
-                        "revisor", "consulta.v1", Pergunta, "Conferir o índice por estado", "Citar o arquivo."),
+                versao = (await escopo.ServiceProvider.GetRequiredService<ICadastroDeAgentesAppService>()
+                    .ResolverAsync("pesquisador", cancellationToken)).Versao!;
+            var registro = sessoes();
+            var observador = new ObservadorDaTarefa(registro, alvo.IdDoUsuarioNoCanal);
+            var iniciada = await registro.StartAsync(new SessionStartRequest(alvo.IdDoUsuarioNoCanal, AgentKind.Codex,
+                JobExecutionContext.Repository("@dante", repositorio), Profile: AgentPermissionProfile.Plan,
+                RegisteredAgent: new AgenteDaSessao("pesquisador", versao)
+                {
+                    TetoDaExecucao = AgentPermissionProfile.Plan, Coordenacao = new CoordenacaoDaOrigem(controle)
+                }, Observer: observador), cancellationToken);
+            Assert.True(iniciada.Accepted, iniciada.Error);
+            try
+            {
+                var numero = await registro.LedgerNumberWrittenAsync(alvo.IdDoUsuarioNoCanal, iniciada.Session!.Id,
                     cancellationToken);
+                await controle.VincularSessaoAsync(numero!.Value, cancellationToken);
+                await registro.SubmitReservedAsync(alvo.IdDoUsuarioNoCanal, iniciada.Session.Id,
+                    new AgentInput("Origem: investigar o índice", []), cancellationToken);
+                await observador.Turno.WaitAsync(cancellationToken);
+            }
+            finally
+            {
+                await registro.CloseReservedAsync(alvo.IdDoUsuarioNoCanal, iniciada.Session!.Id, CancellationToken.None);
+            }
             if (antesDeConcluir is not null) await antesDeConcluir();
             await controle.ConcluirAsync(new ResultadoDaEtapaDto(EstadoDaEtapa.Concluida, 0), cancellationToken);
         }
@@ -190,6 +253,7 @@ public sealed class DelegacaoPelaFilaEndToEndTests
         private Banco banco = null!;
         private ProcessadorDaFila? processador;
         private Func<Task>? antesDeConcluir;
+        private FerramentasDeCoordenacao coordenacao = null!;
         public ServiceProvider Provider { get; private set; } = null!;
         public IServiceScopeFactory Escopos => Provider.GetRequiredService<IServiceScopeFactory>();
         public EspelhoDoLedger Espelho { get; private set; } = null!;
@@ -207,7 +271,9 @@ public sealed class DelegacaoPelaFilaEndToEndTests
             a.Provider = Provider(a.banco.ConnectionString, configurar: services =>
                 services.Replace(ServiceDescriptor.Singleton<IAgentModelCatalog>(new CatalogoDeModelosFixo())));
             a.Espelho = new EspelhoDoLedger(a.Escopos, NullLogger<EspelhoDoLedger>.Instance);
-            a.Sessoes = new SessionRegistry(a.Drivers, NullLogger<SessionRegistry>.Instance, ledger: a.Espelho);
+            a.coordenacao = new FerramentasDeCoordenacao(a.Escopos, NullLogger<FerramentasDeCoordenacao>.Instance);
+            a.Sessoes = new SessionRegistry(a.Drivers, NullLogger<SessionRegistry>.Instance,
+                toolServers: new CompositorDeFerramentas([a.coordenacao]), ledger: a.Espelho);
             return a;
         }
 
@@ -257,7 +323,7 @@ public sealed class DelegacaoPelaFilaEndToEndTests
             [
                 new ExecutorDeDelegacoesDaFila(Escopos, () => Sessoes, NullLogger<ExecutorDeDelegacoesDaFila>.Instance,
                     relogioDoExecutor),
-                new OrigemDeTeste(Escopos, real, antesDeConcluir)
+                new OrigemDeTeste(Escopos, () => Sessoes, Repositorio, real, antesDeConcluir)
             ];
             processador = new ProcessadorDaFila(Escopos, identidade, Rapidas, new SinalDaFila(), executores, new MetricasDaFila(),
                 NullLogger<ProcessadorDaFila>.Instance);
@@ -293,10 +359,63 @@ public sealed class DelegacaoPelaFilaEndToEndTests
 
         public Task<long> Escalar(string sql) => FilaDuravelPostgreSqlTests.Escalar(banco, sql);
 
+        // O turno da origem: o agente pede ao revisor pela ferramenta e termina.
+        public async Task OrigemDelegaAsync()
+        {
+            var origem = await DriverAsync(c => c.StartsWith("turn:Origem", StringComparison.Ordinal));
+            Assert.True((bool)JsonNode.Parse(await SolicitarAsync(origem))!["nova"]!);
+            Responder(origem, "Delegado ao revisor.");
+        }
+
+        public Task<string> SolicitarAsync(FakeSessionDriver origem, string destinatario = "revisor") =>
+            ChamarAsync(origem, "consultar_agente", new
+            {
+                destinatario, contrato = "consulta.v1", objetivo = "Conferir o índice por estado",
+                entrada = JsonNode.Parse(Pergunta), criterios = "Citar o arquivo."
+            });
+
+        public Task<string> EntregarAsync(FakeSessionDriver filha, string resultado) =>
+            ChamarAsync(filha, "entregar_resultado", new { resultado = JsonNode.Parse(resultado) });
+
+        // Faz o que o processo MCP do dante_coordenacao da sessão faria: conecta uma vez no pipe dela, apresenta o
+        // token e chama pela mesma conexão.
+        private static readonly ConditionalWeakTable<FakeSessionDriver, NamedPipeClientStream> Canais = [];
+
+        public static async Task<string> ChamarAsync(FakeSessionDriver driver, string nome, object argumentos)
+        {
+            var servidor = Assert.Single(driver.StartOptions!.ToolServers!, s => s.Name == ServidorMcpDeCoordenacao.Nome);
+            if (!Canais.TryGetValue(driver, out var pipe))
+            {
+                pipe = new NamedPipeClientStream(".", servidor.Arguments[^1], PipeDirection.InOut,
+                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                await pipe.ConnectAsync(2_000);
+                await EscreverAsync(pipe, new { token = servidor.Environment[ServidorMcpDeCoordenacao.VariavelDoToken] });
+                Canais.Add(driver, pipe);
+            }
+            await EscreverAsync(pipe, new { nome, argumentos });
+            var bytes = new List<byte>();
+            var buffer = new byte[1];
+            using var prazo = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while (true)
+            {
+                if (await pipe.ReadAsync(buffer, prazo.Token) != 1) throw new IOException("canal fechado");
+                if (buffer[0] == '\n') break;
+                bytes.Add(buffer[0]);
+            }
+            return (string)JsonNode.Parse(Encoding.UTF8.GetString(bytes.ToArray()))!["content"]![0]!["text"]!;
+        }
+
+        private static async Task EscreverAsync(Stream pipe, object mensagem)
+        {
+            await pipe.WriteAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(mensagem) + "\n"));
+            await pipe.FlushAsync();
+        }
+
         public async ValueTask DisposeAsync()
         {
             if (processador is not null) await PararAsync();
             await Sessoes.DisposeAsync();
+            coordenacao.Dispose();
             await Espelho.DisposeAsync();
             await Provider.DisposeAsync();
             await banco.DisposeAsync();

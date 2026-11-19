@@ -1,5 +1,5 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
+using Dante.Worker.Coordenacao;
 using Dante.Application.Agentes;
 using Dante.Application.Contextos;
 using Dante.Application.Execucoes;
@@ -9,15 +9,16 @@ using Dante.Worker.Sessions;
 
 namespace Dante.Worker.Execucoes;
 
-// Executor das execuções delegadas (#309, AD-70, PR 2): uma subordinada por trabalho da fila durável, como qualquer
-// outra execução (lease, heartbeat, fencing, backoff e retomada da AD-67). Tudo vem do ledger, nada da memória: o
-// executor confere a delegação (destinatário ativo, versão congelada íntegra, concessão de coordenação, contrato,
-// entrada, autoridade, raiz, capacidade, só leitura e prazos) antes de qualquer processo, abre uma sessão reservada da
-// versão destinatária em plan, no contexto congelado da origem e sem o ambiente do Worker, e entrega ao agente só o
-// pedido da delegação, entre delimitadores de dado não confiável. O resultado é o JSON do contrato na última mensagem
-// do turno; o servidor o valida (contrato, credenciais e evidências de arquivo existentes no repositório), pede uma
-// correção uma vez e grava sob posse, com a sessão vinculada à etapa. A duração máxima corre a partir do início gravado.
-// Sem ferramentas de coordenação: delegar e entregar por MCP chegam no PR 3.
+// Executor das execuções delegadas (#309, AD-70): uma subordinada por trabalho da fila durável, como qualquer outra
+// execução (lease, heartbeat, fencing, backoff e retomada da AD-67). Tudo vem do ledger, nada da memória: o executor
+// confere a delegação (destinatário ativo, versão congelada íntegra, concessão de coordenação, contrato, entrada,
+// autoridade, raiz, capacidade, só leitura e prazos) antes de qualquer processo, abre uma sessão reservada da versão
+// destinatária em plan, no contexto congelado da origem e sem o ambiente do Worker, e entrega ao agente só o pedido da
+// delegação, entre delimitadores de dado não confiável. O resultado chega pela ferramenta entregar_resultado do
+// dante_coordenacao (PR 3), no perfil delegacao da sessão: validado (contrato, credenciais e evidências de arquivo
+// existentes no repositório) e gravado na hora sob posse, com a sessão vinculada à etapa. Texto livre nunca é
+// resultado: sem entrega ao fim do turno, um lembrete; ainda sem, a delegação falha. A duração máxima corre a partir do
+// início gravado.
 public sealed class ExecutorDeDelegacoesDaFila(
     IServiceScopeFactory escopos,
     Func<SessionRegistry> registroDeSessoes,
@@ -26,8 +27,6 @@ public sealed class ExecutorDeDelegacoesDaFila(
 {
     // A sessão da subordinada não herda o ambiente do Worker (token do Telegram, banco…), como no roteiro.
     private static readonly IReadOnlyDictionary<string, string> AmbienteMinimo = new Dictionary<string, string>();
-    private static readonly Regex BlocoJson = new(@"```(?:json)?\s*\n(?<json>\{.*?\})\s*\n?```",
-        RegexOptions.Singleline | RegexOptions.CultureInvariant);
 
     private readonly TimeProvider relogio = relogio ?? TimeProvider.System;
 
@@ -61,7 +60,7 @@ public sealed class ExecutorDeDelegacoesDaFila(
         }
         if (conferencia.Execucao is not { } delegada)
         {
-            await RecusarAsync(alvo, controle, conferencia.Recusa ?? "Delegação recusada.", conferencia.Expirada);
+            await RecusarAsync(alvo, controle, null, conferencia.Recusa ?? "Delegação recusada.", conferencia.Expirada);
             return;
         }
         DateTimeOffset limite;
@@ -71,99 +70,80 @@ public sealed class ExecutorDeDelegacoesDaFila(
         }
         catch (PrazoDaDelegacaoExcedidoException exception)
         {
-            await RecusarAsync(alvo, controle, exception.Message, expirada: true);
+            await RecusarAsync(alvo, controle, null, exception.Message, expirada: true);
             return;
         }
+        var contexto = Contexto(delegada.Contexto);
+        if (contexto is null)
+        {
+            await RecusarAsync(alvo, controle, null, "O contexto congelado da origem não está mais disponível.", false);
+            return;
+        }
+        // Entrega pela ferramenta e encerramento pelo executor passam pela mesma serialização.
+        var entrega = new EntregaPelaFerramenta(escopos, controle, alvo.IdExecucao, delegada.Delegacao.Contrato, contexto);
         using var duracao = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var restante = limite - relogio.GetUtcNow();
         if (restante <= TimeSpan.Zero) await duracao.CancelAsync();
         else duracao.CancelAfter(restante);
         try
         {
-            await ExecutarSessaoAsync(alvo, controle, delegada, duracao.Token);
+            await ExecutarSessaoAsync(alvo, controle, delegada, contexto, entrega, duracao.Token);
         }
         catch (OperationCanceledException) when (duracao.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            // Duração máxima: a sessão já foi encerrada; a delegação termina Expirada sob posse.
-            if (!controle.Concluida)
-                await RecusarAsync(alvo, controle,
-                    $"Duração máxima excedida ({delegada.MinutosDeDuracao} min); a sessão foi encerrada.", expirada: true);
+            // Duração máxima: a sessão já foi encerrada; a delegação termina Expirada sob posse (se nada foi entregue).
+            await RecusarAsync(alvo, controle, entrega,
+                $"Duração máxima excedida ({delegada.MinutosDeDuracao} min); a sessão foi encerrada.", expirada: true);
         }
     }
 
     private async Task ExecutarSessaoAsync(AlvoDoTrabalhoDto alvo, ExecucaoSobPosse controle, ExecucaoDelegadaDto delegada,
-        CancellationToken cancellationToken)
+        JobExecutionContext contexto, EntregaPelaFerramenta entrega, CancellationToken cancellationToken)
     {
-        var contexto = Contexto(delegada.Contexto);
-        if (contexto is null)
-        {
-            await RecusarAsync(alvo, controle, "O contexto congelado da origem não está mais disponível.", false);
-            return;
-        }
         var configuracao = delegada.Versao.Configuracao;
         var observador = new ObservadorDoRoteiro(Sessoes, delegada.IdDoUsuarioNoCanal);
-        // Só leitura: plan com teto plan, como a /tarefa de leitura; nada a delegação amplia.
+        // Só leitura: plan com teto plan, como a /tarefa de leitura; nada a delegação amplia. O dante_coordenacao vem no
+        // perfil delegacao, com o escopo desta etapa: a única forma de entregar o resultado.
         var pedido = new SessionStartRequest(delegada.IdDoUsuarioNoCanal, configuracao.Driver, contexto, AmbienteMinimo,
             AgentPermissionProfile.Plan, new AgentModelSelection(configuracao.Modelo, configuracao.Esforco),
             RegisteredAgent: new AgenteDaSessao(delegada.Delegacao.Destinatario, delegada.Versao, Instrucoes(delegada))
             {
-                TetoDaExecucao = AgentPermissionProfile.Plan
+                TetoDaExecucao = AgentPermissionProfile.Plan,
+                Coordenacao = new CoordenacaoDaDelegacao(entrega)
             },
             Observer: observador);
         var iniciada = await Sessoes.StartAsync(pedido, cancellationToken);
         if (!iniciada.Accepted || iniciada.Session is not { } sessao)
         {
-            await RecusarAsync(alvo, controle, $"Sessão do destinatário não iniciada: {iniciada.Error ?? "recusada"}.", false);
+            await RecusarAsync(alvo, controle, entrega, $"Sessão do destinatário não iniciada: {iniciada.Error ?? "recusada"}.",
+                false);
             return;
         }
         try
         {
             if (await Sessoes.LedgerNumberWrittenAsync(delegada.IdDoUsuarioNoCanal, sessao.Id, cancellationToken) is not { } numero)
             {
-                await RecusarAsync(alvo, controle, "A sessão do destinatário não foi registrada no ledger.", false);
+                await RecusarAsync(alvo, controle, entrega, "A sessão do destinatário não foi registrada no ledger.", false);
                 return;
             }
             await controle.VincularSessaoAsync(numero, cancellationToken);
             await controle.RegistrarProgressoAsync(MarcoDaDelegacao.SessaoAberta, cancellationToken);
-            var (desfecho, erro) = await TurnoAsync(delegada, sessao.Id, observador, Prompt(delegada), cancellationToken);
             await controle.RegistrarProgressoAsync(MarcoDaDelegacao.TurnoEnviado, cancellationToken);
-            if (desfecho != AgentTurnOutcome.Completed)
-            {
-                await RecusarAsync(alvo, controle, erro ?? "O turno do destinatário não terminou.", false);
-                return;
-            }
-            var (resultado, invalido) = await ResultadoAsync(alvo, delegada, contexto, observador.UltimaMensagem, cancellationToken);
-            if (invalido is not null)
-            {
-                // Uma correção, com o motivo exato; texto livre nunca vira resultado.
+            var (desfecho, erro) = await TurnoAsync(delegada, sessao.Id, observador, Prompt(delegada), cancellationToken);
+            if (!controle.Concluida && desfecho == AgentTurnOutcome.Completed)
+                // Um lembrete; o resultado só vale pela ferramenta.
                 (desfecho, erro) = await TurnoAsync(delegada, sessao.Id, observador,
-                    $"O resultado não foi aceito: {invalido}\nResponda de novo só com o bloco ```json``` do contrato " +
-                    $"{delegada.Delegacao.Contrato}.", cancellationToken);
-                if (desfecho != AgentTurnOutcome.Completed)
-                {
-                    await RecusarAsync(alvo, controle, erro ?? "O turno de correção do destinatário não terminou.", false);
-                    return;
-                }
-                (resultado, invalido) = await ResultadoAsync(alvo, delegada, contexto, observador.UltimaMensagem, cancellationToken);
-            }
-            if (invalido is not null)
+                    "O resultado não foi entregue. Chame agora a ferramenta entregar_resultado do dante_coordenacao com " +
+                    $"o objeto do contrato {delegada.Delegacao.Contrato}; texto livre não é resultado.", cancellationToken);
+            if (entrega.Desfecho is { } gravado)
             {
-                await RecusarAsync(alvo, controle, $"Resultado fora do contrato: {invalido}", false);
+                logger.LogInformation("Delegação {Delegacao} ({Execucao}) gravada como {Estado} pela ferramenta; origem " +
+                    "retomada: {Retomada}.", delegada.Delegacao.Id, alvo.Codigo, gravado.Estado, gravado.Retomada);
                 return;
             }
-            await controle.RegistrarProgressoAsync(MarcoDaDelegacao.ResultadoRecebido, cancellationToken);
-            try
-            {
-                var gravado = await controle.ConcluirDelegacaoAsync(new EntregaDaDelegacaoDto(resultado!, numero),
-                    CancellationToken.None);
-                logger.LogInformation("Delegação {Delegacao} ({Execucao}) gravada como {Estado}; origem retomada: {Retomada}.",
-                    delegada.Delegacao.Id, alvo.Codigo, gravado.Estado, gravado.Retomada);
-            }
-            catch (ArgumentException exception)
-            {
-                // O servidor recusou o que a validação prévia aceitou (corrida improvável): falha, nunca resultado parcial.
-                if (!controle.Concluida) await RecusarAsync(alvo, controle, $"Resultado recusado: {exception.Message}", false);
-            }
+            await RecusarAsync(alvo, controle, entrega, desfecho == AgentTurnOutcome.Completed
+                ? "O destinatário não entregou o resultado pela ferramenta entregar_resultado."
+                : erro ?? "O turno do destinatário não terminou.", false);
         }
         finally
         {
@@ -179,30 +159,6 @@ public sealed class ExecutorDeDelegacoesDaFila(
             cancellationToken);
         if (envio.Outcome == SubmitOutcome.Rejected) return (AgentTurnOutcome.Failed, envio.Error);
         return await observador.Turno.WaitAsync(cancellationToken);
-    }
-
-    // O JSON do contrato na última mensagem: validado pelo servidor e com cada evidência de arquivo existente no
-    // repositório do contexto. Erro: o motivo, para a correção.
-    private async Task<(string? Resultado, string? Erro)> ResultadoAsync(AlvoDoTrabalhoDto alvo, ExecucaoDelegadaDto delegada,
-        JobExecutionContext contexto, string? mensagem, CancellationToken cancellationToken)
-    {
-        var json = ExtrairJson(mensagem);
-        if (json is null) return (null, "a resposta não tem um bloco ```json``` com um objeto.");
-        await using (var escopo = escopos.CreateAsyncScope())
-            if (await escopo.ServiceProvider.GetRequiredService<IDelegacoesAppService>()
-                    .ValidarResultadoAsync(alvo.IdExecucao, json, cancellationToken) is { } erro)
-                return (null, erro);
-        return EvidenciaInexistente(json, contexto) is { } ausente
-            ? (null, $"a evidência {ausente} não existe no repositório.") : (json, null);
-    }
-
-    internal static string? ExtrairJson(string? mensagem)
-    {
-        if (string.IsNullOrWhiteSpace(mensagem)) return null;
-        var blocos = BlocoJson.Matches(mensagem);
-        if (blocos.Count > 0) return blocos[^1].Groups["json"].Value;
-        var texto = mensagem.Trim();
-        return texto.StartsWith('{') && texto.EndsWith('}') ? texto : null;
     }
 
     // Evidência do tipo arquivo (já relativa, sem "..", pelo contrato) que não existe sob a raiz do repositório principal
@@ -258,19 +214,25 @@ public sealed class ExecutorDeDelegacoesDaFila(
             $"Objetivo: {delegada.ObjetivoRedigido}\n" +
             (delegada.Criterios is null ? "" : $"Critérios de conclusão: {delegada.Criterios}\n") +
             $"Entrada ({d.Contrato}): {delegada.Entrada}\nDADO_NAO_CONFIAVEL>>>\n\n" +
-            "Você só lê: não altere arquivos nem execute ações de escrita. Responda com um único bloco ```json``` com o " +
-            "resultado neste schema (campos fora dele são recusados; evidências de arquivo são caminhos relativos ao " +
-            $"repositório que existem nele):\n{delegada.SchemaDaSaida}";
+            "Você só lê: não altere arquivos nem execute ações de escrita. Entregue o resultado chamando a ferramenta " +
+            "entregar_resultado do dante_coordenacao, com o objeto neste schema (campos fora dele são recusados; " +
+            "evidências de arquivo são caminhos relativos ao repositório que existem nele). Texto livre não é resultado:\n" +
+            delegada.SchemaDaSaida;
     }
 
     private static string Instrucoes(ExecucaoDelegadaDto delegada) =>
         $"Você responde à delegação {delegada.Delegacao.CodigoDaSubordinada} (contrato {delegada.Delegacao.Contrato}) " +
-        $"pedida pela execução {delegada.CodigoDaOrigem}. Só leitura; o resultado é o JSON do contrato.";
+        $"pedida pela execução {delegada.CodigoDaOrigem}. Só leitura; o resultado é entregue pela ferramenta " +
+        "entregar_resultado do dante_coordenacao.";
 
-    private async Task RecusarAsync(AlvoDoTrabalhoDto alvo, ExecucaoSobPosse controle, string motivo, bool expirada)
+    // Sem a entrega criada (antes da sessão), direto sob posse; com ela, serializado com a ferramenta: o que chegar
+    // primeiro grava.
+    private async Task RecusarAsync(AlvoDoTrabalhoDto alvo, ExecucaoSobPosse controle, EntregaPelaFerramenta? entrega,
+        string motivo, bool expirada)
     {
+        if (entrega is null) await controle.EncerrarDelegacaoAsync(motivo, expirada, CancellationToken.None);
+        else if (!await entrega.EncerrarAsync(motivo, expirada)) return;
         logger.LogWarning("Delegação de {Execucao} encerrada pelo executor ({Estado}): {Motivo}", alvo.Codigo,
             expirada ? "Expirada" : "Falhou", motivo);
-        await controle.EncerrarDelegacaoAsync(motivo, expirada, CancellationToken.None);
     }
 }

@@ -29,6 +29,10 @@ public sealed record AgenteDaSessao(string Handle, VersaoDoAgenteDto Versao, str
 
     public Dante.Application.Execucoes.EscopoDaRevisaoDto? EscopoDaRevisao { get; init; }
 
+    // Delegação (#309, PR 3): a sessão da etapa de origem (delega) ou da subordinada (entrega o resultado) recebe o
+    // dante_coordenacao no perfil deste escopo, fixado pelo orquestrador; o agente nunca informa execução, etapa nem dono.
+    public Dante.Worker.Coordenacao.EscopoDeCoordenacao? Coordenacao { get; init; }
+
     public AgentPermissionProfile PerfilMaximo => TetoDaExecucao is { } teto &&
         ConfiguracaoDoAgente.Amplitude(teto) < ConfiguracaoDoAgente.Amplitude(Configuracao.PerfilMaximo)
             ? teto : Configuracao.PerfilMaximo;

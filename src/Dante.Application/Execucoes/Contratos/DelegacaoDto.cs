@@ -3,8 +3,8 @@ using Dante.Domain.Execucoes;
 namespace Dante.Application.Execucoes;
 
 // Pedido de delegação feito pela etapa em curso de uma execução (#309, PR 2). A identidade de quem pede (execução e
-// etapa de origem) e o proprietário vêm de quem chama o caso de uso — no PR 3, da sessão autenticada no
-// dante_coordenacao, nunca do texto do agente. Do agente vêm só o destinatário (handle), o contrato do catálogo
+// etapa de origem) e o proprietário vêm de quem chama o caso de uso — pelo dante_coordenacao (PR 3), do escopo fixado
+// pelo orquestrador na sessão autenticada, nunca do texto do agente. Do agente vêm só o destinatário (handle), o contrato do catálogo
 // fechado, a entrada, o objetivo e os critérios; repositório, worktree, dono, canal e permissões nunca.
 public sealed record SolicitacaoDeDelegacaoDto(
     ProprietarioDaExecucao Proprietario,
@@ -40,6 +40,9 @@ public sealed record DelegacaoDto(
     DateTimeOffset? IniciadaEm,
     DateTimeOffset? EncerradaEm);
 
+// Delegação com o último marco de progresso registrado pelo executor da subordinada (nulo antes do primeiro).
+public sealed record AcompanhamentoDaDelegacaoDto(DelegacaoDto Delegacao, MarcoDaDelegacao? UltimoMarco);
+
 // Nova: false quando a mesma unidade já existia para o mesmo destinatário (a original, como está).
 public sealed record DelegacaoSolicitadaDto(DelegacaoDto Delegacao, bool Nova);
 
@@ -70,7 +73,8 @@ public sealed record ExecucaoDelegadaDto(
 // quando o motivo é prazo).
 public sealed record ConferenciaDaDelegacaoDto(ExecucaoDelegadaDto? Execucao, string? Recusa, bool Expirada = false);
 
-// Resultado entregue pela sessão vinculada à etapa da subordinada (o JSON do contrato).
+// Resultado entregue pela sessão vinculada à etapa da subordinada (o JSON do contrato, pela ferramenta entregar_resultado
+// do dante_coordenacao desde o PR 3).
 public sealed record EntregaDaDelegacaoDto(string Resultado, long NumeroDaSessao, string? HashDoArtefatoLido = null);
 
 // Estado gravado da delegação depois de uma gravação do executor; Retomada: a origem saiu da espera nesta transação.

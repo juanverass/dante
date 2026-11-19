@@ -465,6 +465,60 @@ public sealed class DelegacoesExecucaoPostgreSqlTests
 
     // ---- apoio ----
 
+    // ---- PR 3: pela sessão do dante_coordenacao ----
+
+    // A solicitação pela ferramenta grava sob a posse do trabalho da origem e só da sessão vinculada à etapa: sem
+    // vínculo, outra sessão, posse antiga ou etapa já concluída, nada é criado. O trabalho da origem continua
+    // reivindicado pela mesma posse. O acompanhamento mostra estado e último marco só ao dono.
+    [PostgreSqlFact]
+    public async Task PelaSessaoSoAVinculadaSobAPosseAtualDelegaEOAcompanhamentoMostraOProgresso()
+    {
+        await using var a = await Arvore.CriarAsync();
+        var sessao = await a.SessaoAsync();
+        var outra = await a.SessaoAsync();
+        SolicitacaoDeDelegacaoDto Pedido(string objetivo) =>
+            new(Dono, a.IdOrigem, a.IdEtapa, "revisor", "consulta.v1", Pergunta, objetivo);
+        Task<DelegacaoSolicitadaDto> Solicitar(PosseDoTrabalho posse, long numero, string objetivo) =>
+            a.DelegacoesAsync(s => s.SolicitarSobPosseAsync(posse, numero, Pedido(objetivo)));
+
+        // Sem vínculo: nenhuma sessão é a da etapa.
+        Assert.Equal(DelegacoesAppService.SessaoNaoAutorizada,
+            (await Assert.ThrowsAsync<DelegacaoRecusadaException>(() => Solicitar(a.Origem.Posse, sessao, "x"))).Message);
+        await AppAsync(a.Provider, f => f.VincularSessaoAsync(a.Origem.Posse, a.IdEtapa, sessao));
+        // Outra sessão do mesmo dono, ou uma que nem existe: recusadas.
+        await Assert.ThrowsAsync<DelegacaoRecusadaException>(() => Solicitar(a.Origem.Posse, outra, "x"));
+        await Assert.ThrowsAsync<DelegacaoRecusadaException>(() => Solicitar(a.Origem.Posse, 999_999, "x"));
+        // Fencing: geração antiga não grava.
+        await Assert.ThrowsAsync<PosseDoTrabalhoPerdidaException>(() =>
+            Solicitar(a.Origem.Posse with { Geracao = a.Origem.Posse.Geracao - 1 }, sessao, "x"));
+        Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.delegacoes"));
+
+        var nova = await Solicitar(a.Origem.Posse, sessao, "Conferir o índice por estado");
+        Assert.True(nova.Nova);
+        var repetida = await Solicitar(a.Origem.Posse, sessao, "Conferir o índice por estado");
+        Assert.Equal((nova.Delegacao.Id, false), (repetida.Delegacao.Id, repetida.Nova));
+        var trabalho = await TrabalhoAsync(a.Provider, $"tarefa:{a.IdOrigem:N}");
+        Assert.Equal((EstadoDoTrabalho.Reivindicado, a.Origem.Geracao), (trabalho.Estado, trabalho.Geracao));
+        Assert.Equal(1L, await a.Escalar("SELECT count(*) FROM orquestracao.delegacoes"));
+
+        var antes = Assert.Single(await a.DelegacoesAsync(s => s.AcompanharDaOrigemAsync(Dono, a.IdOrigem)));
+        Assert.Equal((EstadoDaDelegacao.Aceita, (MarcoDaDelegacao?)null), (antes.Delegacao.Estado, antes.UltimoMarco));
+        Assert.Empty(await a.DelegacoesAsync(s => s.AcompanharDaOrigemAsync(new ProprietarioDaExecucao("telegram", 2002), a.IdOrigem)));
+
+        // Etapa concluída: a posse acabou e a sessão não pede mais nada.
+        await a.ConcluirOrigemAsync();
+        await Assert.ThrowsAsync<PosseDoTrabalhoPerdidaException>(() => Solicitar(a.Origem.Posse, sessao, "Outra pergunta"));
+        Assert.Equal(1L, await a.Escalar("SELECT count(*) FROM orquestracao.delegacoes"));
+
+        var filha = await a.ReivindicarAsync();
+        await a.DelegacoesAsync(s => s.IniciarAsync(filha.Posse, filha.IdEtapa!.Value));
+        await a.DelegacoesAsync(s => s.RegistrarProgressoAsync(filha.Posse, filha.IdEtapa!.Value, MarcoDaDelegacao.SessaoAberta));
+        await a.DelegacoesAsync(s => s.RegistrarProgressoAsync(filha.Posse, filha.IdEtapa!.Value, MarcoDaDelegacao.TurnoEnviado));
+        var depois = Assert.Single(await a.DelegacoesAsync(s => s.AcompanharDaOrigemAsync(Dono, a.IdOrigem)));
+        Assert.Equal((EstadoDaDelegacao.EmAndamento, (MarcoDaDelegacao?)MarcoDaDelegacao.TurnoEnviado),
+            (depois.Delegacao.Estado, depois.UltimoMarco));
+    }
+
     internal sealed record Tentativa(string Destinatario, DelegacaoSolicitadaDto? Ok, MotivoDaRecusaDeDelegacao? Recusa, Exception? Erro);
 
     internal sealed class Arvore : IAsyncDisposable

@@ -1253,12 +1253,16 @@ public sealed class SessionRegistry(
         if (servers is null || request.RegisteredAgent is not { } registered) return servers;
         // Servidores de ferramentas rodam fora do sandbox da CLI: a sessão de escrita confinada não recebe nenhum (#307).
         if (registered.EscritaConfinada) return [];
-        // A revisão confinada recebe só o dante_coordenacao (#308), e ninguém mais o recebe.
+        // A revisão confinada recebe só o dante_coordenacao (#308).
         if (registered.LeituraConfinada) return servers.Where(server => server.Name == ServidorMcpDeCoordenacao.Nome).ToArray();
         return servers.Where(server => server.Name switch
         {
             ServidorMcpDoBrain.Nome => registered.Configuracao.PermiteFerramenta(FerramentaDoDante.Brain),
             ServidorMcpDePlanilhas.Nome => registered.Configuracao.PermiteFerramenta(FerramentaDoDante.Planilhas),
+            // Delegação (#309): só a sessão aberta pelo orquestrador com um escopo de coordenação, no perfil que o
+            // provedor conferiu (a origem com a concessão coordenacao; a subordinada para entregar o resultado).
+            ServidorMcpDeCoordenacao.Nome => registered.Coordenacao is not null &&
+                                             FerramentasDeCoordenacao.Perfil(request) == registered.Coordenacao.Perfil,
             _ => false
         }).ToArray();
     }

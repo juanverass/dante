@@ -16,16 +16,23 @@ namespace Dante.Worker.Coordenacao;
 // confinada de um Roteiro, com escopo fixado pelo orquestrador (execução, etapa, rodada e hash do diff). Autenticação:
 // pipe local de nome aleatório, só do mesmo usuário (CurrentUserOnly), uma conexão (a primeira) e um token aleatório
 // da sessão que o processo do servidor apresenta antes de qualquer chamada; sem o token, o canal fecha sem atender.
-// Nenhuma sessão comum, Tarefa ou etapa de escrita recebe este servidor. Cada chamada vira um caso de uso confiável da
+// Nenhuma sessão comum ou etapa de escrita recebe este servidor. Cada chamada vira um caso de uso confiável da
 // Application num escopo próprio; o agente nunca informa execução, etapa nem hash.
+// Delegação (#309, PR 3), no mesmo servidor, pipe, token e limite: a etapa de leitura (plan) de uma Tarefa cuja versão
+// concede coordenacao e pode consultar alguém recebe o perfil origem (consultar_agente e estado_da_execucao, sob a
+// posse da etapa e só da sessão vinculada a ela); a sessão da subordinada recebe o perfil delegacao (entregar o resultado pelo contrato). O
+// perfil é do canal, fixado aqui; o --perfil do processo só escolhe o que a CLI lista.
 public sealed class FerramentasDeCoordenacao(IServiceScopeFactory escopos, ILogger<FerramentasDeCoordenacao> logger,
     (string Command, IReadOnlyList<string> Prefix)? comando = null) : IProvedorDeFerramentas, IDisposable
 {
     public const int MaximoDeChamadas = 50;
 
-    private sealed class Canal(EscopoDaRevisaoDto escopo, string token, NamedPipeServerStream pipe)
+    private sealed class Canal(PerfilDeCoordenacao perfil, EscopoDaRevisaoDto? escopo, EscopoDeCoordenacao? coordenacao,
+        string token, NamedPipeServerStream pipe)
     {
-        public EscopoDaRevisaoDto Escopo { get; } = escopo;
+        public PerfilDeCoordenacao Perfil { get; } = perfil;
+        public EscopoDaRevisaoDto? Escopo { get; } = escopo;
+        public EscopoDeCoordenacao? Coordenacao { get; } = coordenacao;
         public string Token { get; } = token;
         public NamedPipeServerStream Pipe { get; } = pipe;
         public CancellationTokenSource Cancelamento { get; } = new();
@@ -40,15 +47,16 @@ public sealed class FerramentasDeCoordenacao(IServiceScopeFactory escopos, ILogg
     public Task<IReadOnlyList<AgentToolServer>> ForSessionAsync(string sessionId, SessionStartRequest request,
         CancellationToken ct = default)
     {
-        // Só a sessão reservada de revisão confinada, com o escopo do orquestrador.
-        if (descartado || request.Observer is null ||
-            request.RegisteredAgent is not { LeituraConfinada: true, EscopoDaRevisao: { } escopo })
+        // Só a sessão reservada (com observador) que o orquestrador abriu com um escopo: a revisão confinada, ou a
+        // origem/subordinada de uma delegação em plan.
+        if (descartado || request.Observer is null || Perfil(request) is not { } perfil)
             return Task.FromResult<IReadOnlyList<AgentToolServer>>([]);
         var nome = ServidorMcpDeCoordenacao.PrefixoDoPipe + Guid.NewGuid().ToString("N");
         var token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
         var pipe = new NamedPipeServerStream(nome, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
             PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly, 4096, 4096);
-        var canal = new Canal(escopo, token, pipe);
+        var agente = request.RegisteredAgent!;
+        var canal = new Canal(perfil, agente.EscopoDaRevisao, agente.Coordenacao, token, pipe);
         if (!canais.TryAdd(sessionId, canal))
         {
             pipe.Dispose();
@@ -60,13 +68,31 @@ public sealed class FerramentasDeCoordenacao(IServiceScopeFactory escopos, ILogg
         string[] prefixo = Path.GetFileNameWithoutExtension(executavel).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
             ? [Assembly.GetEntryAssembly()!.Location] : [];
         if (comando is { } customizado) (executavel, prefixo) = (customizado.Command, customizado.Prefix.ToArray());
+        // A revisão mantém os argumentos da #308; os perfis da #309 vêm antes do pipe (o pipe é sempre o último).
+        string[] doPerfil = perfil == PerfilDeCoordenacao.Revisao ? []
+            : [ServidorMcpDeCoordenacao.ArgumentoDoPerfil, ServidorMcpDeCoordenacao.NomeDoPerfil(perfil)];
         return Task.FromResult<IReadOnlyList<AgentToolServer>>(
         [
-            new(ServidorMcpDeCoordenacao.Nome, executavel, [.. prefixo, ServidorMcpDeCoordenacao.Argumento, "--pipe", nome],
+            new(ServidorMcpDeCoordenacao.Nome, executavel,
+                [.. prefixo, ServidorMcpDeCoordenacao.Argumento, .. doPerfil, "--pipe", nome],
                 new Dictionary<string, string> { [ServidorMcpDeCoordenacao.VariavelDoToken] = token },
-                ServidorMcpDeCoordenacao.FerramentasDeLeitura)
+                ServidorMcpDeCoordenacao.DeLeitura(perfil), ServidorMcpDeCoordenacao.PreAutorizadas(perfil))
         ]);
     }
+
+    // O perfil que a sessão pode receber, ou nulo. Delegação só em plan e nunca numa sessão confinada de outro tipo; a
+    // origem só com a concessão coordenacao e alguém a consultar na versão congelada.
+    internal static PerfilDeCoordenacao? Perfil(SessionStartRequest request) => request.RegisteredAgent switch
+    {
+        { LeituraConfinada: true, EscopoDaRevisao: not null, Coordenacao: null } => PerfilDeCoordenacao.Revisao,
+        { LeituraConfinada: false, EscritaConfinada: false, Coordenacao: CoordenacaoDaDelegacao }
+            when request.Profile == AgentPermissionProfile.Plan => PerfilDeCoordenacao.Delegacao,
+        { LeituraConfinada: false, EscritaConfinada: false, Coordenacao: CoordenacaoDaOrigem } agente
+            when request.Profile == AgentPermissionProfile.Plan &&
+                 agente.Configuracao.PermiteFerramenta(Dante.Domain.Agentes.FerramentaDoDante.Coordenacao) &&
+                 agente.Configuracao.PodeConsultar.Count > 0 => PerfilDeCoordenacao.Origem,
+        _ => null
+    };
 
     public void BeginTurn(string sessionId, AgentInput input) { }
 
@@ -113,8 +139,15 @@ public sealed class FerramentasDeCoordenacao(IServiceScopeFactory escopos, ILogg
                     using var documento = JsonDocument.Parse(lida.Texto!);
                     var nome = documento.RootElement.GetProperty("nome").GetString()!;
                     var argumentos = documento.RootElement.GetProperty("argumentos");
-                    ServidorMcpDeCoordenacao.Validar(nome, argumentos);
-                    resposta = await ChamarAsync(sessao, canal.Escopo, nome, argumentos, ct);
+                    ServidorMcpDeCoordenacao.Validar(nome, argumentos, canal.Perfil);
+                    resposta = canal.Perfil switch
+                    {
+                        PerfilDeCoordenacao.Origem => await ChamarDaOrigemAsync((CoordenacaoDaOrigem)canal.Coordenacao!, nome,
+                            argumentos, ct),
+                        PerfilDeCoordenacao.Delegacao => await ChamarDaDelegacaoAsync(
+                            (CoordenacaoDaDelegacao)canal.Coordenacao!, argumentos, ct),
+                        _ => await ChamarAsync(sessao, canal.Escopo!, nome, argumentos, ct)
+                    };
                 }
                 catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or JsonException
                                                       or KeyNotFoundException)
@@ -202,6 +235,68 @@ public sealed class FerramentasDeCoordenacao(IServiceScopeFactory escopos, ILogg
             mensagem = "Veredito registrado. Encerre a revisão com uma resposta curta."
         });
     }
+
+    // Origem: o pedido usa a execução, a etapa e o dono do escopo, sob a posse da etapa e pela sessão vinculada a ela.
+    // Do agente vêm só destinatário, contrato, objetivo, entrada e critérios; escrita nunca.
+    private async Task<JsonObject> ChamarDaOrigemAsync(CoordenacaoDaOrigem escopo, string nome, JsonElement argumentos,
+        CancellationToken ct)
+    {
+        var alvo = escopo.Controle.Alvo;
+        if (nome == ServidorMcpDeCoordenacao.EstadoDaExecucao)
+        {
+            await using var consulta = escopos.CreateAsyncScope();
+            var lista = await consulta.ServiceProvider.GetRequiredService<IDelegacoesAppService>()
+                .AcompanharDaOrigemAsync(escopo.Proprietario, alvo.IdExecucao, ct);
+            return ServidorMcpDeCoordenacao.Resultado(new
+            {
+                execucao = alvo.Codigo,
+                delegacoes = lista.Select(a => new
+                {
+                    delegacao = a.Delegacao.CodigoDaSubordinada, destinatario = a.Delegacao.Destinatario,
+                    contrato = a.Delegacao.Contrato, estado = a.Delegacao.Estado.ToString(),
+                    progresso = a.UltimoMarco?.ToString(), motivo = a.Delegacao.Motivo,
+                    resultado = a.Delegacao.Resultado is { } r ? JsonNode.Parse(r) : null,
+                    criada_em = a.Delegacao.CriadaEm, encerrada_em = a.Delegacao.EncerradaEm
+                })
+            });
+        }
+        var entrada = argumentos.GetProperty("entrada");
+        if (entrada.ValueKind != JsonValueKind.Object) throw new ArgumentException("entrada é um objeto do contrato.");
+        var criterios = argumentos.TryGetProperty("criterios", out var c) ? Texto(c, "criterios") : null;
+        var solicitada = await escopo.Controle.SolicitarDelegacaoAsync(new SolicitacaoDeDelegacaoDto(escopo.Proprietario,
+            alvo.IdExecucao, alvo.IdEtapa, Texto(argumentos.GetProperty("destinatario"), "destinatario"),
+            Texto(argumentos.GetProperty("contrato"), "contrato"), entrada.GetRawText(),
+            Texto(argumentos.GetProperty("objetivo"), "objetivo"), criterios), ct);
+        var d = solicitada.Delegacao;
+        return ServidorMcpDeCoordenacao.Resultado(new
+        {
+            delegacao = d.CodigoDaSubordinada, destinatario = d.Destinatario, contrato = d.Contrato,
+            estado = d.Estado.ToString(), nova = solicitada.Nova,
+            mensagem = solicitada.Nova
+                ? "Delegação registrada e enfileirada. Termine este turno: a tarefa aguarda as delegações e é " +
+                  "retomada com os resultados."
+                : "Esta unidade já estava delegada a este agente; nada novo foi criado."
+        });
+    }
+
+    // Subordinada: o resultado do contrato, gravado na hora sob a posse da etapa e pela sessão vinculada a ela.
+    private static async Task<JsonObject> ChamarDaDelegacaoAsync(CoordenacaoDaDelegacao escopo, JsonElement argumentos,
+        CancellationToken ct)
+    {
+        var resultado = argumentos.GetProperty("resultado");
+        if (resultado.ValueKind != JsonValueKind.Object) throw new ArgumentException("resultado é um objeto do contrato.");
+        var (desfecho, jaRegistrado) = await escopo.Entrega.EntregarAsync(resultado.GetRawText(), ct);
+        return desfecho.Estado == EstadoDaDelegacao.Respondida
+            ? ServidorMcpDeCoordenacao.Resultado(new
+            {
+                registrado = true, ja_registrado = jaRegistrado,
+                mensagem = "Resultado registrado. Encerre com uma resposta curta."
+            })
+            : ServidorMcpDeCoordenacao.Erro($"A delegação terminou como {desfecho.Estado}: {desfecho.Motivo}");
+    }
+
+    private static string Texto(JsonElement valor, string campo) => valor.ValueKind == JsonValueKind.String
+        ? valor.GetString()! : throw new ArgumentException($"{campo} é um texto.");
 
     private static string Nome(VereditoDeRevisao veredito) => veredito switch
     {

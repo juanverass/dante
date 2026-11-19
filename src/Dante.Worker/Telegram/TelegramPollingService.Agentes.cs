@@ -290,8 +290,9 @@ public sealed partial class TelegramPollingService
         {
             var observador = new ObservadorDaTarefa(sessions, userId);
             // Escrita (#307): só as worktrees prontas da execução, nunca o checkout principal.
+            // Leitura com a concessão coordenacao (#309): a sessão delega pelo dante_coordenacao, sob esta posse.
             var iniciada = await sessions.StartAsync(SolicitacaoDaTarefa.Para(plano, userId, ambiente?.Values,
-                plano.Escrita ? controle.Worktrees : null) with
+                plano.Escrita ? controle.Worktrees : null, controle) with
             {
                 Observer = observador
             }, cancellationToken);
