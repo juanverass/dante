@@ -34,6 +34,7 @@ internal static class OrquestracaoServiceCollectionExtensions
         // Coordenação por papel (AD-75, #310): snapshot e revisões do plano.
         services.AddScoped<ICoordenacaoDaExecucaoRepository, CoordenacaoDaExecucaoRepository>();
         services.AddScoped<IPlanoDaCoordenacaoRepository, PlanoDaCoordenacaoRepository>();
+        services.AddScoped<ISinteseDaCoordenacaoRepository, SinteseDaCoordenacaoRepository>();
         services.AddScoped<IUnitOfWorkDaOrquestracao, UnitOfWorkDaOrquestracao>();
         // Cadastro de agentes (AD-68): mesmo contexto e mesma unidade de trabalho do ledger.
         services.AddScoped<IAgenteRepository, AgenteRepository>();

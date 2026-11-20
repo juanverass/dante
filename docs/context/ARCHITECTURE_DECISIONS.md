@@ -3183,11 +3183,12 @@ Testes: `AcompanhamentoDeExecucoesTests`, `AcompanhamentoDeExecucoesPostgreSqlTe
 
 ## AD-75 — Coordenação por papel: plano validado, gate do plano e despacho só pelo snapshot (#310)
 
-Status: vigente no domínio e na persistência (PR 1 da #310, #321) e na Application, fila e executor (PR 2); etapa 8 do
-roadmap da Epic #296. Proposta da #310 aprovada com as decisões D1–D9 na própria Issue. Complementa a AD-69 (modo
-`Coordenador` na versão de grupo, gate humano reutilizado) e a AD-70 (cada unidade é uma delegação `consulta.v1`), sem
-reescrevê-las. Depende do mesmo banco e da mesma chave `Orquestracao:Habilitada`; migration `CoordenacaoPorPapel`, não
-aplicada no banco canônico. Ferramentas MCP, interface e documentação de uso (PR 3) ainda não existem.
+Status: vigente no domínio e na persistência (PR 1 da #310, #321), na Application, fila e executor (PR 2, #322) e nas
+ferramentas do coordenador, síntese validada e interface (PR 3); etapa 8 do roadmap da Epic #296. Proposta da #310
+aprovada com as decisões D1–D9 na própria Issue. Complementa a AD-69 (modo `Coordenador` na versão de grupo, gate humano
+reutilizado) e a AD-70 (cada unidade é uma delegação `consulta.v1`), sem reescrevê-las. Depende do mesmo banco e da
+mesma chave `Orquestracao:Habilitada`; migrations `CoordenacaoPorPapel` e `SinteseDaCoordenacao`, não aplicadas no banco
+canônico.
 
 Contexto: o roteiro da AD-69 não decompõe tarefas abertas. O coordenador precisa propor um plano que o sistema valide e
 uma pessoa aprove antes de qualquer delegação, sem ganhar permissões por ser coordenador, sem ampliar a execução quando
@@ -3241,7 +3242,8 @@ Decisão:
   * **Planejamento:**
     * sessão reservada da versão congelada do coordenador, em `plan`, no contexto congelado, sem o ambiente do Worker
       e vinculada à etapa (proveniência da sessão);
-    * a proposta é o bloco JSON da última mensagem; a ferramenta `propor_plano` é do PR 3;
+    * a proposta chega pela ferramenta `propor_plano` (PR 3; antes, o bloco JSON da última mensagem, que deixou de
+      valer); o turno que termina sem ela conta como recusa;
     * o servidor revalida contra o snapshot sob posse, antes de gravar qualquer plano;
     * a correção única é contada no ledger (evento `PlanoRecusado` por etapa, só com os motivos e nunca com o
       conteúdo); inválido de novo, a etapa e a execução falham sem plano, filhos nem trabalhos.
@@ -3254,8 +3256,9 @@ Decisão:
     * despacha a próxima unidade pronta da ordem topológica, uma por vez (paralelismo 1), pelo `CriarDoPlano`, com a
       mesma montagem da #309; uma recusa do domínio faz a unidade falhar sem delegação;
     * com a origem `AguardandoDelegacoes`, a retomada do ciclo das delegações cria o próximo avanço;
-    * sem nada a despachar, a execução termina `Concluida` (todas respondidas), abre um replanejamento
-      `UnidadeSemResposta` (se couber revisão e orçamento) ou termina `Falhou`, com as dependentes `Ignorada`.
+    * sem nada a despachar, abre um replanejamento `UnidadeSemResposta` (se couber revisão e orçamento); senão, abre
+      a síntese do coordenador (PR 3) se alguma unidade foi respondida, ou termina pelas unidades: `Concluida` (todas
+      respondidas) ou `Falhou`, com as dependentes `Ignorada`.
   * **Desfechos no replanejamento `UnidadeSemResposta`:** entram entre os marcadores de dado não confiável, e a
     fronteira é garantida pela representação, não pela instrução ao modelo:
     * cada valor vindo de agente (plano anterior, unidade, papel, motivo, resultado) vira um literal de string JSON
@@ -3284,6 +3287,42 @@ Decisão:
       com hash, sessão que entregou e motivo;
     * cada revisão aparece com a decisão do gate e a sessão do planejamento;
     * não avalia mérito nem infere consenso.
+* **Ferramentas do coordenador** (PR 3): o mesmo `dante_coordenacao` da #308/#309 (servidor, pipe, token e limite), com
+  dois perfis novos, um por etapa: `planejamento` (`propor_plano`) e `sintese` (`entregar_sintese`).
+  * O perfil é o da etapa que o orquestrador abriu (`CoordenacaoDoCoordenador`), só em `plan`; cada perfil lista só a
+    própria ferramenta, e o Worker confere o perfil de novo em cada chamada, pelo canal.
+  * Não exige concessão no agente: é o único canal de saída da etapa, de mundo fechado (só grava o plano ou a síntese
+    pelos casos de uso, sob a posse da etapa e só pela sessão vinculada), como o perfil `delegacao` da subordinada.
+  * A chamada valida e grava na hora (`EntregaDoCoordenador`, serializada com o encerramento pelo executor); as
+    recusas voltam na resposta, e a correção única continua contada no ledger.
+* **Síntese do coordenador** (D7, PR 3), separada da trilha mecânica:
+  * etapa própria, depois das unidades e só com ao menos uma respondida: turno do coordenador com o papel e a versão do
+    snapshot (o planejamento não tem papel), na mesma sessão reservada em `plan`; a trilha entra com motivos e
+    resultados de outros agentes como literal no bloco de dado não confiável;
+  * `ValidacaoDaSintese`, pura, contra a trilha recalculada do ledger sob posse: `resumo`, `conclusoes`,
+    `divergencias` e `inconclusivos`, cada item com texto e citações `{revisao, unidade, hash}`; toda unidade de toda
+    revisão citada; conclusão e divergência só com unidade respondida e o hash do resultado persistido (ao menos 12
+    caracteres; a forma canônica guarda o completo); divergência com ao menos duas unidades; unidade sem resposta só em
+    inconclusivo e sem hash; campo desconhecido (inclusive um hash da síntese) recusado; credencial recusada;
+  * forma canônica (NFC, `\n`, chaves em ordem, citações em ordem e sem repetição) e SHA-256 do servidor, gravadas em
+    `sinteses_da_coordenacao`: uma por execução e por etapa; o trigger confere a etapa de síntese do coordenador
+    congelado, a sessão vinculada e o hash do conteúdo, e recusa UPDATE e DELETE. Repete no banco as condições do
+    domínio, mesmo por SQL direto: execução não terminal e etapa `EmExecucao`, lidas sob trava `FOR NO KEY UPDATE`
+    (o nível do UPDATE que as encerra); sessão desta execução (canal e dono da execução, `id_execucao` nulo ou o desta,
+    nenhuma etapa de outra execução vinculada a ela) e do coordenador congelado (handle, versão e hash da configuração
+    do participante) — não basta o id coincidir com o vínculo da etapa. Por isso o caso de uso grava a síntese antes de
+    concluir a etapa, na mesma transação da posse. A leitura relê a forma canônica contra a trilha e não exibe o que não
+    confere;
+  * uma correção (evento `SinteseRecusada` por etapa); inválida de novo, não entregue ou com falha do processo, a etapa
+    de síntese falha e a execução termina pelas unidades, só com a trilha: uma síntese ruim não desfaz resultados;
+  * validação estrutural: não avalia o mérito nem resolve divergência, e é sempre exibida com esse alcance, ao lado da
+    trilha.
+* **Interface** (PR 3), só adaptadores sobre os casos de uso:
+  * cadastro `coordenador=<papel>` (o modo vem do papel; a edição mantém o modo; alguém além do coordenador precisa
+    ter capacidade para `consulta.v1`, conferido ao salvar, ativar e resolver);
+  * `/grupo <nome> @alias <tarefa>` cria a Coordenada quando a versão ativa é do modo coordenador;
+  * `/execucao` mostra plano, unidades e gate, decide o plano pelo hash e expõe `consolidacao` (trilha e síntese);
+  * avisos ao dono: plano aguardando decisão (unidades, hash e comandos), planejamento sem plano, fim e cancelamento.
 * **Limites de provider** (D9), comportamento inicial documentado:
   * O limite chega como falha do turno, com o texto do provider preservado literalmente na delegação, na etapa e na
     trilha.
@@ -3303,8 +3342,8 @@ Consequências:
 * escrita em grupo coordenado e ações protegidas continuam impossíveis até a #311 (domínio, check e trigger);
 * replanejar a pedido humano no meio da execução (fora do gate) não existe: o domínio só aceita `PedidoHumano` sobre o
   plano que aguarda decisão, e mudar isso é decisão pendente;
-* a trilha mecânica existe (PR 2); a síntese validada do coordenador (D7) é do PR 3;
-* criar um grupo no modo coordenador pelo cadastro e iniciar uma coordenação pela interface são do PR 3.
+* a trilha mecânica (PR 2) e a síntese validada (PR 3) ficam separadas; sem síntese válida, vale a trilha;
+* a interface só interpreta e formata: nenhuma regra de plano, gate, síntese ou permissão vive no Telegram.
 
 Código: `Dante.Domain/Grupos/{ModoDeCoordenacao, ConfiguracaoDoGrupo, VersaoDoGrupo}.cs`,
 `Dante.Domain/Execucoes/{CoordenacaoDaExecucao, ValidacaoDoPlano, PlanoDaCoordenacao, FinalidadeDaAprovacao,
@@ -3313,7 +3352,13 @@ PedidoDeAprovacao, Delegacao (CriarDoPlano), EtapaDaExecucao (DaUnidade), Execuc
 `Dante.Infrastructure/Modulos/Execucoes/{CoordenacaoDaExecucao*, PlanoDaCoordenacao*}.cs`, migration
 `CoordenacaoPorPapel`; PR 2: `Dante.Application/Execucoes/{ICoordenacoesAppService, CoordenacoesAppService,
 EncerramentoDaCoordenacao, Contratos/CoordenacaoDtos}.cs`, conferência e recuperação em `DelegacoesAppService`,
-`Dante.Worker/Execucoes/ExecutorDeCoordenacoesDaFila.cs`. Testes: `CoordenacaoPelaFilaEndToEndTests`,
+`Dante.Worker/Execucoes/ExecutorDeCoordenacoesDaFila.cs`; PR 3: `Dante.Domain/Execucoes/{ValidacaoDaSintese,
+SinteseDaCoordenacao}.cs`, `EtapaDaExecucao.DaSintese`, `Dante.Infrastructure/Modulos/Execucoes/SinteseDaCoordenacao*.cs`,
+migration `SinteseDaCoordenacao`, `Dante.Worker/Coordenacao/{ServidorMcpDeCoordenacao, FerramentasDeCoordenacao,
+EscopoDeCoordenacao}.cs`, `Dante.Worker/Execucoes/EntregaDoCoordenador.cs`, `Dante.Worker/Telegram/{TelegramGrupos,
+TelegramExecucoes}.cs`, cadastro em `CadastroDeGruposAppService`. Testes: `CoordenacaoPelaFilaEndToEndTests`,
 `ExecutorDeCoordenacoesTests`, `CoordenacaoDominioTests` (validação por tabela, canonicidade, revisões, gate,
 materialização e despacho) e `CoordenacaoPostgreSqlTests` (proveniência, triggers e checks por fora do domínio,
-replanejamento, revisões e materializações simultâneas, migration sobre dados anteriores).
+replanejamento, revisões e materializações simultâneas, migration sobre dados anteriores); PR 3:
+`SinteseDaCoordenacaoDominioTests`, `CoordenadorPeloMcpTests`, `CoordenacaoPeloTelegramEndToEndTests` e os de
+síntese em `CoordenacaoPelaFilaEndToEndTests` (inclusive o trigger por fora do domínio).

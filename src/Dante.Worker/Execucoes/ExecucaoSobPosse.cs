@@ -202,6 +202,35 @@ public sealed class ExecucaoSobPosse
         return registro;
     }
 
+    // Coordenação (#310, PR 3): a síntese do coordenador, validada contra a trilha e gravada sob posse. Correção pedida
+    // mantém o trabalho; gravada, encerrada ou cancelada terminam o trabalho.
+    internal async Task<RegistroDaSinteseDto> RegistrarSinteseAsync(string? sintese, CancellationToken cancellationToken)
+    {
+        if (Concluida) throw new InvalidOperationException("Etapa já concluída.");
+        await using var escopo = escopos.CreateAsyncScope();
+        var registro = await escopo.ServiceProvider.GetRequiredService<ICoordenacoesAppService>()
+            .RegistrarSinteseAsync(posse, Alvo.IdEtapa, sintese, cancellationToken);
+        if (registro.Desfecho != DesfechoDaSintese.CorrecaoPedida)
+        {
+            await pararHeartbeat();
+            Concluida = true;
+        }
+        return registro;
+    }
+
+    // Coordenação (#310, PR 3): a síntese terminou sem entrega (sessão, turno, integridade); a execução se encerra pelas
+    // unidades, só com a trilha.
+    internal async Task<RegistroDaSinteseDto> FalharSinteseAsync(string motivo, CancellationToken cancellationToken)
+    {
+        if (Concluida) throw new InvalidOperationException("Etapa já concluída.");
+        await pararHeartbeat();
+        await using var escopo = escopos.CreateAsyncScope();
+        var registro = await escopo.ServiceProvider.GetRequiredService<ICoordenacoesAppService>()
+            .FalharSinteseAsync(posse, Alvo.IdEtapa, motivo, cancellationToken);
+        Concluida = true;
+        return registro;
+    }
+
     // Coordenação (#310): a etapa mecânica de avanço (encerrar unidades, despachar a próxima, concluir ou replanejar) e
     // o fim do trabalho.
     internal async Task<AvancoDaCoordenacaoDto> AvancarCoordenacaoAsync(CancellationToken cancellationToken)

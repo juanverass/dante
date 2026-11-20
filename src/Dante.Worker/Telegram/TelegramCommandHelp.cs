@@ -60,7 +60,8 @@ internal static class TelegramCommandHelp
         new("/grupo", "AGENTE E CONTEXTO", "Crie, consulte, edite (nova versão), ative, desative ou arquive um grupo de agentes.",
             "/grupo criar engenharia roteiro=implementar:dev,revisar:rev,corrigir:dev,aprovar rodadas=2 repos=@exemplo\n" +
             "/grupo ver engenharia\n/grupo ativar engenharia v1 <hash>\n/grupo editar engenharia rodadas=3\n" +
-            "/grupo engenharia @exemplo crie o endpoint de saúde",
+            "/grupo engenharia @exemplo crie o endpoint de saúde\n" +
+            "/grupo criar pesquisa coordenador=chefe repos=@exemplo",
             "criar <nome> roteiro=implementar:<papel>,revisar:<papel>[,corrigir:<papel>],aprovar [rodadas=N] " +
             "[repos=@alias,…] [duracao=minutos]; participantes nas linhas seguintes, um por linha: <papel>=<handle> " +
             "[escrita] [: responsabilidades] (por exemplo dev=codex-dev escrita: implementa a tarefa e " +
@@ -70,6 +71,10 @@ internal static class TelegramCommandHelp
             "caracteres): a ativação é a decisão humana e não concede nada além das permissões de cada agente. " +
             "<nome> @alias <tarefa> executa o roteiro da versão ativa num repositório: cada passo numa sessão Codex " +
             "própria, o revisor só lê e registra o veredito pela ferramenta, e a decisão final é sua no /execucao. " +
+            "criar <nome> coordenador=<papel> cria um grupo coordenado: sem roteiro e sem escrita (que depende do " +
+            "gateway de aprovação); a cada <nome> @alias <tarefa>, o coordenador propõe um plano somente leitura de " +
+            "consultas aos outros papéis, você o aprova pelo hash no /execucao antes de qualquer delegação, as unidades " +
+            "rodam uma por vez e o coordenador entrega uma síntese que o servidor confere só na estrutura. " +
             "desativar recusa execuções novas sem interromper as iniciadas; arquivar exige desativado. Nome minúsculo, " +
             "único e nunca reutilizado. Credenciais nunca entram no cadastro."),
         new("/tarefa", "AGENTE E CONTEXTO", "Peça uma tarefa somente leitura a um agente registrado.",
@@ -109,12 +114,15 @@ internal static class TelegramCommandHelp
             "Exige o ledger de execuções habilitado no Worker."),
         new("/execucao", "ACOMPANHAMENTO", "Veja o detalhe de uma execução sua: etapas, sessão, motivo e erro.",
             "/execucao E42\n/execucao J000001\n/execucao aprovar E42 <hash>\n/execucao corrigir E42 <hash> trate o caso vazio\n" +
-            "/execucao recusar E42", "Mostra etapas (estado, tentativa, agente, modelo, sessão), contexto pelo " +
+            "/execucao recusar E42\n/execucao consolidacao E42", "Mostra etapas (estado, tentativa, agente, modelo, sessão), contexto pelo " +
             "@alias e erro com proteção de segredos. A saída do agente não é guardada e não aparece aqui. Num roteiro de " +
             "grupo, mostra também participantes, passos e, na aprovação humana, o hash do resultado: aprovar e corrigir " +
             "exigem esse hash (ao menos 12 caracteres), recusar não, e só valem se a worktree ainda tiver exatamente o " +
             "conteúdo revisado (senão, revisar E42 pede uma nova revisão); a decisão vale uma vez só e não faz commit, push, PR " +
-            "nem merge. objetivo E42 <tarefa> reenvia uma tarefa que a redação protegeu."),
+            "nem merge. objetivo E42 <tarefa> reenvia uma tarefa que a redação protegeu. Numa coordenação de grupo, " +
+            "mostra o plano e as unidades; aprovar, corrigir e recusar decidem o plano pelo hash dele (aprovar autoriza só " +
+            "esse plano somente leitura), e consolidacao E42 mostra a trilha das unidades e, à parte, a síntese do " +
+            "coordenador, validada só na estrutura: divergências aparecem, não são resolvidas."),
         new("/aguardando", "ACOMPANHAMENTO", "Veja quais execuções suas estão esperando e por quê.", "/aguardando",
             "Na fila, aguardando nova tentativa, interrompida ou bloqueada. Não há posição numérica: a fila não garante ordem estável."),
 

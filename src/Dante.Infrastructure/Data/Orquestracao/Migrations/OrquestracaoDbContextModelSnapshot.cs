@@ -1500,6 +1500,64 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Dante.Domain.Execucoes.SinteseDaCoordenacao", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Conteudo")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("conteudo");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("IdEtapa")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_etapa");
+
+                    b.Property<Guid>("IdExecucao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_execucao");
+
+                    b.Property<Guid>("IdSessaoDeAgente")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_sessao_de_agente");
+
+                    b.Property<DateTimeOffset>("RegistradaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("registrada_em");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdEtapa")
+                        .IsUnique();
+
+                    b.HasIndex("IdExecucao")
+                        .IsUnique();
+
+                    b.HasIndex("IdSessaoDeAgente");
+
+                    b.HasIndex("IdEtapa", "IdExecucao");
+
+                    b.ToTable("sinteses_da_coordenacao", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_sinteses_da_coordenacao_hash", "hash ~ '^[0-9a-f]{64}$'");
+                        });
+                });
+
             modelBuilder.Entity("Dante.Domain.Execucoes.TrabalhoDaFila", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2219,6 +2277,28 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .WithMany()
                         .HasForeignKey("IdVersaoDoAgente")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.SinteseDaCoordenacao", b =>
+                {
+                    b.HasOne("Dante.Domain.Execucoes.Execucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Execucoes.SessaoDeAgente", null)
+                        .WithMany()
+                        .HasForeignKey("IdSessaoDeAgente")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Execucoes.EtapaDaExecucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdEtapa", "IdExecucao")
+                        .HasPrincipalKey("Id", "IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Dante.Domain.Execucoes.TrabalhoDaFila", b =>

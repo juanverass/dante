@@ -16,16 +16,18 @@ using Dante.Worker.Sessions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 using static Dante.Tests.FilaDuravelPostgreSqlTests;
 
 namespace Dante.Tests;
 
 // #310 (AD-75), PR 2, de ponta a ponta contra PostgreSQL descartável: o ProcessadorDaFila real com o
 // ExecutorDeCoordenacoesDaFila e o ExecutorDeDelegacoesDaFila reais, sessões reservadas com drivers falsos, o ledger
-// espelhado e o dante_coordenacao real só para as entregas das unidades (o teste faz o papel do processo MCP). Fluxo:
-// coordenação criada → coordenador propõe (JSON da última mensagem) → validação pura no servidor (uma correção) → gate
-// do plano → aprovação humana pelo hash → unidades despachadas uma por vez como delegações consulta.v1 → resultados
-// pela ferramenta → consolidação mecânica. Também: plano inválido duas vezes, correção e recusa no gate, unidade sem
+// espelhado e o dante_coordenacao real (o teste faz o papel do processo MCP). Fluxo: coordenação criada → coordenador
+// propõe pela ferramenta propor_plano → validação pura no servidor (uma correção) → gate do plano, com aviso ao dono →
+// aprovação humana pelo hash → unidades despachadas uma por vez como delegações consulta.v1 → resultados pela ferramenta
+// → síntese do coordenador pela ferramenta entregar_sintese, validada só na estrutura (PR 3) → consolidação mecânica e
+// aviso do fim. Também: plano inválido duas vezes, correção e recusa no gate, unidade sem
 // resposta (motivo do provider preservado) com replanejamento, cancelamento pelo dono e Worker parado no meio.
 [Collection("FilaDuravel")]
 public sealed class CoordenacaoPelaFilaEndToEndTests
@@ -65,12 +67,16 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         var codigo = await a.CoordenacaoAsync();
         a.Iniciar();
 
-        // O coordenador planeja numa sessão reservada da versão congelada: plan, sem o ambiente do Worker, sem
-        // ferramentas de coordenação, com os papéis do snapshot e o schema da entrada; a sessão fica vinculada à etapa.
+        // O coordenador planeja numa sessão reservada da versão congelada: plan, sem o ambiente do Worker, com o
+        // dante_coordenacao só no perfil planejamento (propor_plano), com os papéis do snapshot e o schema da entrada; a
+        // sessão fica vinculada à etapa.
         var coordenador = await a.DriverAsync(c => c.StartsWith("turn:Planejamento da coordenação", StringComparison.Ordinal));
         var opcoes = coordenador.StartOptions!;
         Assert.Equal((AgentPermissionProfile.Plan, a.Repositorio), (opcoes.Profile, opcoes.WorkingDirectory));
-        Assert.True(opcoes.ToolServers is null or { Count: 0 });
+        var ferramentas = Assert.Single(opcoes.ToolServers!);
+        Assert.Equal(ServidorMcpDeCoordenacao.Nome, ferramentas.Name);
+        Assert.Equal(["--perfil", "planejamento"], ferramentas.Arguments.SkipWhile(x => x != "--perfil").Take(2));
+        Assert.Equal([ServidorMcpDeCoordenacao.ProporPlano], ferramentas.PreAuthorizedTools);
         Assert.DoesNotContain(opcoes.EnvironmentVariables ?? new Dictionary<string, string>(), v => v.Key == "DANTE_SEGREDO_DE_TESTE");
         var prompt = coordenador.TurnInputs[0].Text;
         Assert.Contains("- pesq: agente pesquisador v1; capacidades: Pesquisar", prompt);
@@ -79,19 +85,26 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         Assert.Contains("no máximo 4 unidade(s)", prompt);
         Assert.Contains("\"pergunta\"", prompt);
         Assert.Contains("Investigar o índice por estado", prompt);
+        Assert.Contains("propor_plano", prompt);
 
-        // Inválido: as recusas voltam ao coordenador na mesma sessão, uma vez; nada de plano gravado.
-        Responder(coordenador, $"Plano:\n```json\n{PlanoInvalido}\n```");
-        await Eventually(() => Task.FromResult(coordenador.TurnInputs.Count == 2));
-        Assert.Contains("RequerGateway (u1)", coordenador.TurnInputs[1].Text);
-        Assert.Contains("UnidadeDoCoordenador (u2)", coordenador.TurnInputs[1].Text);
+        // Inválido: as recusas voltam na resposta da ferramenta, na mesma sessão e no mesmo turno; nada de plano gravado.
+        var recusado = JsonNode.Parse(await a.ProporAsync(coordenador, PlanoInvalido))!["erro"]!.GetValue<string>();
+        Assert.Contains("RequerGateway (u1)", recusado);
+        Assert.Contains("UnidadeDoCoordenador (u2)", recusado);
         Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.planos_da_coordenacao"));
-        Responder(coordenador, $"Corrigido:\n```json\n{PlanoComTres}\n```");
+        var aceito = JsonNode.Parse(await a.ProporAsync(coordenador, PlanoComTres))!;
+        Assert.True((bool)aceito["registrado"]!);
+        // Depois do plano registrado, nada mais é aceito nesta etapa.
+        Assert.Contains("já terminou", JsonNode.Parse(await a.ProporAsync(coordenador, Plano))!["erro"]!.GetValue<string>());
+        Responder(coordenador, "Plano proposto.");
 
-        // Gate aberto com o hash calculado no servidor; nenhuma delegação antes da decisão.
+        // Gate aberto com o hash calculado no servidor; nenhuma delegação antes da decisão. A pessoa é avisada com as
+        // unidades, o hash e os comandos.
         await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.AguardandoAprovacao);
+        Assert.Single(coordenador.TurnInputs);
         var aguardando = (await a.CoordenacaoDtoAsync())!;
         var plano = aguardando.PlanoAtual!;
+        Assert.Equal(plano.Hash[..12], aceito["hash"]!.GetValue<string>());
         Assert.Equal((1, EstadoDoPlano.AguardandoAprovacao, 3), (plano.Revisao, plano.Estado, plano.QuantidadeDeUnidades));
         Assert.Equal(EstadoDoPedidoDeAprovacao.Pendente, aguardando.PedidoPendente!.Estado);
         Assert.Equal(plano.Hash, aguardando.PedidoPendente.HashDoArtefato);
@@ -99,6 +112,10 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         var planejamento = aguardando.Etapas.Single(e => e.Passo == PassoDaCoordenacao.Planejamento);
         Assert.NotNull(planejamento.CodigoDaSessao);
         Assert.Equal(1L, await a.Escalar($"SELECT count(*) FROM orquestracao.eventos WHERE tipo = {(int)TipoDeEventoDeOrquestracao.PlanoRecusado}"));
+        var avisoDoGate = await a.Api.ProximaAsync();
+        Assert.Contains($"{codigo} (pesquisa v1) aguarda sua aprovação do plano (revisão 1, 3 unidade(s), hash {plano.Hash[..12]})",
+            avisoDoGate);
+        Assert.Contains($"/execucao aprovar {codigo} {plano.Hash[..12]}", avisoDoGate);
 
         // Hash errado ou de outra pessoa: nada decidido. Com o hash exibido, aprovado.
         await Assert.ThrowsAsync<InvalidOperationException>(() => a.DecidirAsync(codigo, TipoDeDecisaoHumana.Aprovar,
@@ -130,7 +147,74 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         Assert.True((bool)JsonNode.Parse(await a.EntregarAsync(migracao, Resposta))!["registrado"]!);
         Responder(migracao, "Entregue.");
 
+        // Sem nada a despachar e com respostas, a execução não termina antes da síntese do coordenador: a mesma versão
+        // congelada, em plan, com o dante_coordenacao só no perfil síntese e a trilha como dado não confiável.
+        var sintetizador = await a.DriverAsync(c => c.StartsWith("turn:Síntese da coordenação", StringComparison.Ordinal));
+        Assert.Equal(EstadoDaExecucao.EmExecucao, await a.EstadoAsync());
+        var ferramentasDaSintese = Assert.Single(sintetizador.StartOptions!.ToolServers!);
+        Assert.Equal(["--perfil", "sintese"], ferramentasDaSintese.Arguments.SkipWhile(x => x != "--perfil").Take(2));
+        Assert.Equal(AgentPermissionProfile.Plan, sintetizador.StartOptions.Profile);
+        var antes = (await a.ConsolidarAsync(codigo))!;
+        var hashes = antes.Unidades.ToDictionary(u => u.Unidade, u => u.HashDoResultado!);
+        var promptDaSintese = sintetizador.TurnInputs[0].Text;
+        Assert.Contains("<<<DADO_NAO_CONFIAVEL", promptDaSintese);
+        Assert.Contains($"unidade indice, papel pesq (pesquisador v1): respondida; hash {hashes["indice"]}", promptDaSintese);
+
+        // Cobertura incompleta e conclusão com hash que não é o do resultado: recusada, uma correção.
+        var incompleta = JsonNode.Parse(await a.SintetizarAsync(sintetizador, new
+        {
+            resumo = "Há índice.",
+            conclusoes = new[] { new { texto = "Há ix_estado.", citacoes = new[] { new { revisao = 1, unidade = "indice", hash = new string('0', 12) } } } }
+        }))!["erro"]!.GetValue<string>();
+        Assert.Contains("HashDivergente", incompleta);
+        Assert.Contains("CoberturaIncompleta (r1/consulta)", incompleta);
+        Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.sinteses_da_coordenacao"));
+        // Válida: a migração e o índice concordam; a consulta diverge do índice e a divergência fica explícita.
+        var registrada = JsonNode.Parse(await a.SintetizarAsync(sintetizador, new
+        {
+            resumo = "O índice existe; há desacordo sobre a cobertura da consulta.",
+            conclusoes = new[]
+            {
+                new { texto = "Existe ix_estado.", citacoes = new object[]
+                {
+                    new { revisao = 1, unidade = "indice", hash = hashes["indice"][..12] },
+                    new { revisao = 1, unidade = "migracao", hash = hashes["migracao"] }
+                } }
+            },
+            divergencias = new[]
+            {
+                new { texto = "Cobertura da consulta.", citacoes = new object[]
+                {
+                    new { revisao = 1, unidade = "consulta", hash = hashes["consulta"][..16] },
+                    new { revisao = 1, unidade = "indice", hash = hashes["indice"][..12] }
+                } }
+            }
+        }))!;
+        Assert.True((bool)registrada["registrado"]!);
+        Responder(sintetizador, "Síntese entregue.");
+
         await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.Concluida);
+        Assert.Equal(1L, await a.Escalar($"SELECT count(*) FROM orquestracao.eventos WHERE tipo = {(int)TipoDeEventoDeOrquestracao.SinteseRecusada}"));
+        var resultado = (await a.ResultadoAsync(codigo))!;
+        var sintese = resultado.Sintese!;
+        Assert.Equal(sintese.Hash[..12], registrada["hash"]!.GetValue<string>());
+        Assert.Equal(["indice", "migracao"], sintese.Conclusoes.Single().Citacoes.Select(c => c.Unidade));
+        // O hash citado é gravado completo, o da trilha; a divergência continua divergência.
+        Assert.All(sintese.Conclusoes.Single().Citacoes, c => Assert.Equal(hashes[c.Unidade], c.Hash));
+        Assert.Equal(["consulta", "indice"], sintese.Divergencias.Single().Citacoes.Select(c => c.Unidade));
+        Assert.Empty(sintese.Inconclusivos);
+        Assert.NotNull(sintese.CodigoDaSessao);
+        Assert.Equal(EstadoDaEtapa.Concluida, resultado.EstadoDaSintese);
+        // A síntese não substitui a trilha: as duas existem lado a lado.
+        Assert.Equal(3, resultado.Trilha.Respondidas);
+        var avisoDoFim = await a.Api.ProximaAsync();
+        Assert.Contains($"Coordenação {codigo} (pesquisa v1) concluída. Unidades: 3 respondida(s)", avisoDoFim);
+        Assert.Contains("1 conclusão(ões), 1 divergência(s), 0 inconclusivo(s)", avisoDoFim);
+        Assert.Contains($"/execucao consolidacao {codigo}", avisoDoFim);
+        // A síntese é imutável no banco.
+        await Assert.ThrowsAnyAsync<Exception>(() => a.SqlAsync(
+            "UPDATE orquestracao.sinteses_da_coordenacao SET registrada_em = registrada_em + interval '1 second'"));
+
         // Consolidação mecânica: cada unidade atribuída ao agente, à versão congelada e à sessão que entregou, com o
         // resultado persistido e o hash; a revisão com a decisão do gate e a sessão do planejamento.
         var trilha = (await a.ConsolidarAsync(codigo))!;
@@ -161,13 +245,12 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         await a.CoordenacaoAsync();
         a.Iniciar();
         var coordenador = await a.DriverAsync(c => c.StartsWith("turn:Planejamento da coordenação", StringComparison.Ordinal));
-        Responder(coordenador, $"```json\n{PlanoInvalido}\n```");
-        await Eventually(() => Task.FromResult(coordenador.TurnInputs.Count == 2));
-        // Sem bloco JSON também conta como recusa.
+        Assert.Contains("RequerGateway", JsonNode.Parse(await a.ProporAsync(coordenador, PlanoInvalido))!["erro"]!.GetValue<string>());
+        // Terminar o turno sem plano pela ferramenta também conta como recusa: a segunda encerra.
         Responder(coordenador, "Não sei planejar isso.");
         await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.Falhou);
 
-        Assert.Equal(2, coordenador.TurnInputs.Count);
+        Assert.Single(coordenador.TurnInputs);
         Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.planos_da_coordenacao"));
         Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.pedidos_de_aprovacao"));
         Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.delegacoes"));
@@ -187,7 +270,7 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         var codigo = await a.CoordenacaoAsync();
         a.Iniciar();
         var primeiro = await a.DriverAsync(c => c.StartsWith("turn:Planejamento da coordenação", StringComparison.Ordinal));
-        Responder(primeiro, $"```json\n{Plano}\n```");
+        await a.ProporEEncerrarAsync(primeiro, Plano);
         await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.AguardandoAprovacao);
         var hash = (await a.CoordenacaoDtoAsync())!.PlanoAtual!.Hash;
 
@@ -200,7 +283,7 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
             depoisDe: primeiro);
         Assert.Contains("Pergunte também pelo índice parcial.", segundo.TurnInputs[0].Text);
         Assert.Contains("revisão 2 do plano", segundo.TurnInputs[0].Text);
-        Responder(segundo, $"```json\n{Plano.Replace("Quais índices existem?", "Quais índices, inclusive parciais?")}\n```");
+        await a.ProporEEncerrarAsync(segundo, Plano.Replace("Quais índices existem?", "Quais índices, inclusive parciais?"));
         await Eventually(async () => (await a.CoordenacaoDtoAsync())!.Planos.Count == 2 &&
             await a.EstadoAsync() == EstadoDaExecucao.AguardandoAprovacao);
 
@@ -230,7 +313,7 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         var codigo = await a.CoordenacaoAsync();
         a.Iniciar();
         var coordenador = await a.DriverAsync(c => c.StartsWith("turn:Planejamento da coordenação", StringComparison.Ordinal));
-        Responder(coordenador, $"```json\n{Plano}\n```");
+        await a.ProporEEncerrarAsync(coordenador, Plano);
         await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.AguardandoAprovacao);
         await a.DecidirAsync(codigo, TipoDeDecisaoHumana.Aprovar, (await a.CoordenacaoDtoAsync())!.PlanoAtual!.Hash[..12]);
 
@@ -248,7 +331,7 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         Assert.Contains($"- unidade \"indice\", papel \"pesq\": Falhou; motivo: \"{limite}\"", prompt);
         // Uma vaga do orçamento foi consumida pela delegação que falhou.
         Assert.Contains("no máximo 3 unidade(s)", prompt);
-        Responder(replanejar, $"```json\n{Plano}\n```");
+        await a.ProporEEncerrarAsync(replanejar, Plano);
         await Eventually(async () => (await a.CoordenacaoDtoAsync())!.Planos.Count == 2 &&
             await a.EstadoAsync() == EstadoDaExecucao.AguardandoAprovacao);
 
@@ -277,7 +360,7 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         var codigo = await a.CoordenacaoAsync();
         a.Iniciar();
         var coordenador = await a.DriverAsync(c => c.StartsWith("turn:Planejamento da coordenação", StringComparison.Ordinal));
-        Responder(coordenador, $"```json\n{Plano}\n```");
+        await a.ProporEEncerrarAsync(coordenador, Plano);
         await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.AguardandoAprovacao);
         await a.DecidirAsync(codigo, TipoDeDecisaoHumana.Aprovar, (await a.CoordenacaoDtoAsync())!.PlanoAtual!.Hash[..12]);
         var indice = await a.DriverAsync(c => c.StartsWith("turn:Delegação", StringComparison.Ordinal));
@@ -307,7 +390,7 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         var codigo = await a.CoordenacaoAsync();
         a.Iniciar();
         var coordenador = await a.DriverAsync(c => c.StartsWith("turn:Planejamento da coordenação", StringComparison.Ordinal));
-        Responder(coordenador, $"```json\n{Plano}\n```");
+        await a.ProporEEncerrarAsync(coordenador, Plano);
         await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.AguardandoAprovacao);
         await a.DecidirAsync(codigo, TipoDeDecisaoHumana.Aprovar, (await a.CoordenacaoDtoAsync())!.PlanoAtual!.Hash[..12]);
         var primeira = await a.DriverAsync(c => c.StartsWith("turn:Delegação", StringComparison.Ordinal));
@@ -323,6 +406,7 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         Assert.Contains("Conferir a consulta", consulta.TurnInputs[0].Text);
         Assert.True((bool)JsonNode.Parse(await a.EntregarAsync(consulta, Resposta))!["registrado"]!);
         Responder(consulta, "Entregue.");
+        await a.SintetizarTudoAsync(codigo);
         await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.Concluida);
 
         Assert.Equal(2, (await a.DelegacoesAsync()).Count);
@@ -337,7 +421,7 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         var codigo = await a.CoordenacaoAsync();
         a.Iniciar();
         var coordenador = await a.DriverAsync(c => c.StartsWith("turn:Planejamento da coordenação", StringComparison.Ordinal));
-        Responder(coordenador, $"```json\n{Plano}\n```");
+        await a.ProporEEncerrarAsync(coordenador, Plano);
         await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.AguardandoAprovacao);
         // Desativar restringe: o despacho do índice é recusado pelo domínio, sem delegação nem sessão do destinatário.
         await a.DesativarAgenteAsync("pesquisador");
@@ -373,7 +457,7 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         var codigo = await a.CoordenacaoAsync();
         a.Iniciar();
         var coordenador = await a.DriverAsync(c => c.StartsWith("turn:Planejamento da coordenação", StringComparison.Ordinal));
-        Responder(coordenador, $"```json\n{Plano}\n```");
+        await a.ProporEEncerrarAsync(coordenador, Plano);
         await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.AguardandoAprovacao);
         await a.PararAsync();
         await a.DecidirAsync(codigo, TipoDeDecisaoHumana.Aprovar, (await a.CoordenacaoDtoAsync())!.PlanoAtual!.Hash[..12]);
@@ -395,6 +479,219 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         Assert.Contains("snapshot íntegro", recusada.Recusa);
     }
 
+    // PR 3 (D7): a síntese é validada só na estrutura. Uma síntese que inventa consenso (cita uma unidade e deixa a outra
+    // de fora) é recusada; o turno que termina sem corrigir conta como a segunda recusa: a etapa de síntese falha e a
+    // execução termina pelo desfecho das unidades (concluída), só com a trilha. O banco só aceita síntese da etapa de
+    // síntese em curso do coordenador congelado, com a sessão vinculada e o hash do conteúdo — nunca depois da falha — e
+    // nunca a altera nem remove.
+    [PostgreSqlFact]
+    public async Task SinteseInvalidaDuasVezesEncerraPelasUnidadesSoComATrilha()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        var codigo = await a.CoordenacaoAsync();
+        a.Iniciar();
+        var coordenador = await a.DriverAsync(c => c.StartsWith("turn:Planejamento da coordenação", StringComparison.Ordinal));
+        await a.ProporEEncerrarAsync(coordenador, Plano);
+        await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.AguardandoAprovacao);
+        await a.DecidirAsync(codigo, TipoDeDecisaoHumana.Aprovar, (await a.CoordenacaoDtoAsync())!.PlanoAtual!.Hash[..12]);
+        var indice = await a.DriverAsync(c => c.StartsWith("turn:Delegação", StringComparison.Ordinal));
+        Assert.True((bool)JsonNode.Parse(await a.EntregarAsync(indice, Resposta))!["registrado"]!);
+        Responder(indice, "Entregue.");
+        var consulta = await a.DriverAsync(c => c.StartsWith("turn:Delegação", StringComparison.Ordinal), depoisDe: indice);
+        Assert.True((bool)JsonNode.Parse(await a.EntregarAsync(consulta, Resposta.Replace("Há ix_estado.", "Não cobre.")))!["registrado"]!);
+        Responder(consulta, "Entregue.");
+
+        var sintetizador = await a.DriverAsync(c => c.StartsWith("turn:Síntese da coordenação", StringComparison.Ordinal));
+        var hash = (await a.ConsolidarAsync(codigo))!.Unidades.Single(u => u.Unidade == "indice").HashDoResultado!;
+        var recusa = JsonNode.Parse(await a.SintetizarAsync(sintetizador, new
+        {
+            resumo = "Todos concordam.",
+            conclusoes = new[] { new { texto = "Consenso.", citacoes = new[] { new { revisao = 1, unidade = "indice", hash } } } }
+        }))!["erro"]!.GetValue<string>();
+        Assert.Contains("CoberturaIncompleta (r1/consulta)", recusa);
+        Responder(sintetizador, "Não vou corrigir.");
+
+        await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.Concluida);
+        Assert.Single(sintetizador.TurnInputs);
+        Assert.Equal(2L, await a.Escalar($"SELECT count(*) FROM orquestracao.eventos WHERE tipo = {(int)TipoDeEventoDeOrquestracao.SinteseRecusada}"));
+        Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.sinteses_da_coordenacao"));
+        var resultado = (await a.ResultadoAsync(codigo))!;
+        Assert.Null(resultado.Sintese);
+        Assert.Equal(EstadoDaEtapa.Falhou, resultado.EstadoDaSintese);
+        Assert.Contains("Síntese inválida depois da correção permitida", resultado.MotivoDaSintese);
+        Assert.Equal((2, 0), (resultado.Trilha.Respondidas, resultado.Trilha.SemResposta));
+        Assert.Contains("aguarda sua aprovação do plano", await a.Api.ProximaAsync());
+        var fim = await a.Api.ProximaAsync();
+        Assert.Contains($"Coordenação {codigo} (pesquisa v1) concluída", fim);
+        Assert.Contains("Sem síntese do coordenador (Síntese inválida depois da correção permitida", fim);
+
+        // Por fora do domínio: pela etapa de planejamento (sem papel), com o hash que não é o do conteúdo, ou pela etapa
+        // de síntese depois que ela falhou e a execução terminou, recusada.
+        string Inserir(string filtro, string hashDoConteudo) => $"""
+            INSERT INTO orquestracao.sinteses_da_coordenacao
+                (id, id_execucao, id_etapa, id_sessao_de_agente, conteudo, hash, registrada_em)
+            SELECT gen_random_uuid(), e.id_execucao, e.id, e.id_sessao_de_agente, 'x', {hashDoConteudo}, now()
+              FROM orquestracao.etapas_da_execucao e
+             WHERE e.id_execucao = '{a.IdExecucao}' AND e.tipo = {(int)TipoDeEtapa.TurnoDeAgente} AND e.agente IS NOT NULL AND {filtro}
+             LIMIT 1
+            """;
+        const string doConteudo = "encode(sha256(convert_to('x', 'UTF8')), 'hex')";
+        var planejamento = await Assert.ThrowsAnyAsync<Exception>(() => a.SqlAsync(Inserir("e.papel IS NULL", doConteudo)));
+        Assert.Contains("síntese só pela etapa de síntese", planejamento.Message);
+        var adulterada = await Assert.ThrowsAnyAsync<Exception>(() => a.SqlAsync(Inserir("e.papel IS NOT NULL", $"'{new string('0', 64)}'")));
+        Assert.Contains("o hash da síntese não é o do conteúdo", adulterada.Message);
+        var depoisDaFalha = await Assert.ThrowsAnyAsync<Exception>(() => a.SqlAsync(Inserir("e.papel IS NOT NULL", doConteudo)));
+        Assert.Contains("síntese só com a execução aberta e a etapa de síntese em execução", depoisDaFalha.Message);
+        Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.sinteses_da_coordenacao"));
+        // Uma linha que só existe com os triggers desligados (restauração adulterada): a leitura confere a forma canônica
+        // contra a trilha e não exibe o que não confere. Com os triggers ligados, nada muda nem sai.
+        await a.SqlAsync("SET session_replication_role = replica; " + Inserir("e.papel IS NOT NULL", doConteudo) +
+            "; SET session_replication_role = origin");
+        var naoConfere = (await a.ResultadoAsync(codigo))!;
+        Assert.Null(naoConfere.Sintese);
+        Assert.Contains("não confere com a trilha", naoConfere.MotivoDaSintese);
+        Assert.Contains("imutável", (await Assert.ThrowsAnyAsync<Exception>(() =>
+            a.SqlAsync("UPDATE orquestracao.sinteses_da_coordenacao SET conteudo = 'y'"))).Message);
+        Assert.Contains("imutável", (await Assert.ThrowsAnyAsync<Exception>(() =>
+            a.SqlAsync("DELETE FROM orquestracao.sinteses_da_coordenacao"))).Message);
+    }
+
+    // Review da PR 3: por SQL direto, o banco só aceita a síntese com a execução aberta, a etapa de síntese em execução e
+    // uma sessão desta execução e do coordenador congelado — não basta o id coincidir com o vínculo da etapa. Cada
+    // tentativa adultera o vínculo com os triggers desligados e insere com eles ligados, na mesma transação implícita,
+    // que a recusa desfaz.
+    [PostgreSqlFact]
+    public async Task SinteseSoPelaEtapaEmCursoComSessaoDestaExecucaoEDoCoordenadorCongelado()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        var codigo = await a.CoordenacaoAsync();
+        a.Iniciar();
+        var coordenador = await a.DriverAsync(c => c.StartsWith("turn:Planejamento da coordenação", StringComparison.Ordinal));
+        await a.ProporEEncerrarAsync(coordenador, Plano);
+        await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.AguardandoAprovacao);
+        await a.DecidirAsync(codigo, TipoDeDecisaoHumana.Aprovar, (await a.CoordenacaoDtoAsync())!.PlanoAtual!.Hash[..12]);
+        var indice = await a.DriverAsync(c => c.StartsWith("turn:Delegação", StringComparison.Ordinal));
+        Assert.True((bool)JsonNode.Parse(await a.EntregarAsync(indice, Resposta))!["registrado"]!);
+        Responder(indice, "Entregue.");
+        var consulta = await a.DriverAsync(c => c.StartsWith("turn:Delegação", StringComparison.Ordinal), depoisDe: indice);
+        Assert.True((bool)JsonNode.Parse(await a.EntregarAsync(consulta, Resposta.Replace("Há ix_estado.", "Cobre.")))!["registrado"]!);
+        Responder(consulta, "Entregue.");
+        var sintetizador = await a.DriverAsync(c => c.StartsWith("turn:Síntese da coordenação", StringComparison.Ordinal));
+        Assert.Equal(EstadoDaExecucao.EmExecucao, await a.EstadoAsync());
+        // Uma versão nova do coordenador, publicada depois do snapshot.
+        await a.EditarAgenteAsync("coordenador");
+
+        var id = a.IdExecucao;
+        var daSintese = $"id_execucao = '{id}' AND tipo = {(int)TipoDeEtapa.TurnoDeAgente} AND papel IS NOT NULL AND id_plano IS NULL";
+        Assert.Equal((long)EstadoDaEtapa.EmExecucao, await a.Escalar($"SELECT estado FROM orquestracao.etapas_da_execucao WHERE {daSintese}"));
+        var sessaoDaEtapa = await a.TextoAsync($"SELECT id_sessao_de_agente::text FROM orquestracao.etapas_da_execucao WHERE {daSintese}");
+        const string doConteudo = "encode(sha256(convert_to('x', 'UTF8')), 'hex')";
+        var inserir = $"""
+            INSERT INTO orquestracao.sinteses_da_coordenacao
+                (id, id_execucao, id_etapa, id_sessao_de_agente, conteudo, hash, registrada_em)
+            SELECT gen_random_uuid(), e.id_execucao, e.id, e.id_sessao_de_agente, 'x', {doConteudo}, now()
+              FROM orquestracao.etapas_da_execucao e WHERE {daSintese}
+            """;
+        string VincularEInserir(string sessao) =>
+            "SET session_replication_role = replica; " +
+            $"UPDATE orquestracao.etapas_da_execucao SET id_sessao_de_agente = {sessao} WHERE {daSintese}; " +
+            "SET session_replication_role = origin; " + inserir;
+        // Cópias da sessão do coordenador, cada uma com uma diferença (o resto, inclusive canal e dono, igual).
+        string[] colunas =
+        [
+            "id", "agente", "boot_do_worker", "canal", "contexto", "criada_em", "encerrada_em", "esforco", "estado",
+            "handle_do_agente", "hash_da_configuracao_do_agente", "id_do_dono", "id_execucao", "id_upstream",
+            "id_versao_do_agente", "iniciada_em", "maquina_do_worker", "modelo", "modelo_informado", "motivo_do_fim",
+            "numero", "perfil", "unidade_de_contencao"
+        ];
+        async Task<string> CopiarSessaoAsync(Dictionary<string, string> trocas)
+        {
+            var nova = Guid.NewGuid();
+            trocas["id"] = $"'{nova}'";
+            trocas["numero"] = "(SELECT max(numero) + 1 FROM orquestracao.sessoes_de_agente)";
+            await a.SqlAsync($"""
+                INSERT INTO orquestracao.sessoes_de_agente ({string.Join(", ", colunas)})
+                SELECT {string.Join(", ", colunas.Select(c => trocas.GetValueOrDefault(c, c)))}
+                  FROM orquestracao.sessoes_de_agente WHERE id = '{sessaoDaEtapa}'
+                """);
+            return $"'{nova}'";
+        }
+        const string daSubordinada = "(SELECT id FROM orquestracao.execucoes WHERE id_execucao_pai = '{0}' ORDER BY numero LIMIT 1)";
+        string Participante(string coluna, string papel) =>
+            $"(SELECT {coluna} FROM orquestracao.participantes_da_execucao WHERE id_execucao = '{id}' AND papel = '{papel}')";
+        const string versaoNova = """
+            (SELECT v.{0} FROM orquestracao.versoes_de_agente v JOIN orquestracao.agentes g ON g.id = v.id_agente
+              WHERE g.handle = 'coordenador' ORDER BY v.numero DESC LIMIT 1)
+            """;
+        var marcadaNaSubordinada = await CopiarSessaoAsync(new() { ["id_execucao"] = string.Format(daSubordinada, id) });
+        var deOutroDono = await CopiarSessaoAsync(new() { ["id_do_dono"] = "999" });
+        var deOutroAgente = await CopiarSessaoAsync(new()
+        {
+            ["handle_do_agente"] = Participante("handle_do_agente", "pesq"),
+            ["id_versao_do_agente"] = Participante("id_versao_do_agente", "pesq"),
+            ["hash_da_configuracao_do_agente"] = Participante("hash_da_configuracao_do_agente", "pesq")
+        });
+        var deOutraVersao = await CopiarSessaoAsync(new()
+        {
+            ["id_versao_do_agente"] = string.Format(versaoNova, "id"),
+            ["hash_da_configuracao_do_agente"] = string.Format(versaoNova, "hash_da_configuracao")
+        });
+        Assert.NotEqual(0L, await a.Escalar($"SELECT count(*) FROM orquestracao.sessoes_de_agente WHERE id = {deOutraVersao} " +
+            $"AND id_versao_do_agente <> {Participante("id_versao_do_agente", "coord")}"));
+        // A sessão real de uma etapa da subordinada (a unidade "indice"): pertence a outra execução.
+        var daOutraExecucao = $"""
+            (SELECT et.id_sessao_de_agente FROM orquestracao.etapas_da_execucao et
+               JOIN orquestracao.execucoes x ON x.id = et.id_execucao
+              WHERE x.id_execucao_pai = '{id}' AND et.id_sessao_de_agente IS NOT NULL ORDER BY x.numero LIMIT 1)
+            """;
+
+        foreach (var (sessao, recusa) in new[]
+                 {
+                     (daOutraExecucao, "a sessão da síntese não pertence a esta execução"),
+                     (marcadaNaSubordinada, "a sessão da síntese não pertence a esta execução"),
+                     (deOutroDono, "a sessão da síntese não pertence a esta execução"),
+                     (deOutroAgente, "a sessão da síntese não é a do coordenador congelado"),
+                     (deOutraVersao, "a sessão da síntese não é a do coordenador congelado")
+                 })
+        {
+            var erro = await Assert.ThrowsAnyAsync<Exception>(() => a.SqlAsync(VincularEInserir(sessao)));
+            Assert.Contains(recusa, erro.Message);
+            // A recusa desfaz a adulteração do vínculo junto com o INSERT.
+            Assert.Equal(sessaoDaEtapa, await a.TextoAsync(
+                $"SELECT id_sessao_de_agente::text FROM orquestracao.etapas_da_execucao WHERE {daSintese}"));
+        }
+        Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.sinteses_da_coordenacao"));
+
+        // Pela etapa em curso, com a sessão vinculada dela, o banco aceita (aqui numa transação desfeita, para a síntese
+        // seguir pelo caso de uso).
+        Assert.Equal(1L, await a.InserirEDesfazerAsync(inserir, "SELECT count(*) FROM orquestracao.sinteses_da_coordenacao"));
+        Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.sinteses_da_coordenacao"));
+
+        // Pelo caso de uso, a síntese é gravada com a etapa ainda em execução e só depois a etapa conclui.
+        var hashes = (await a.ConsolidarAsync(codigo))!.Unidades.ToDictionary(u => u.Unidade, u => u.HashDoResultado!);
+        var registrada = JsonNode.Parse(await a.SintetizarAsync(sintetizador, new
+        {
+            resumo = "O índice existe e cobre a consulta.",
+            conclusoes = new[]
+            {
+                new { texto = "Existe ix_estado e ele cobre a consulta.", citacoes = new object[]
+                {
+                    new { revisao = 1, unidade = "indice", hash = hashes["indice"] },
+                    new { revisao = 1, unidade = "consulta", hash = hashes["consulta"] }
+                } }
+            }
+        }))!;
+        Assert.True((bool)registrada["registrado"]!, registrada.ToJsonString());
+        Responder(sintetizador, "Síntese entregue.");
+        await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.Concluida);
+        Assert.Equal(1L, await a.Escalar($"SELECT count(*) FROM orquestracao.sinteses_da_coordenacao WHERE id_sessao_de_agente = '{sessaoDaEtapa}'"));
+
+        // Depois da conclusão, nem pela etapa de síntese com a sessão dela.
+        var depois = await Assert.ThrowsAnyAsync<Exception>(() => a.SqlAsync(inserir));
+        Assert.Contains("síntese só com a execução aberta e a etapa de síntese em execução", depois.Message);
+        Assert.Equal(1L, await a.Escalar("SELECT count(*) FROM orquestracao.sinteses_da_coordenacao"));
+    }
+
     private static void Responder(FakeSessionDriver driver, string mensagem)
     {
         driver.Emit(new MessageCompletedEvent("m", mensagem));
@@ -413,6 +710,7 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         public EspelhoDoLedger Espelho { get; private set; } = null!;
         public SessionRegistry Sessoes { get; private set; } = null!;
         public FakeSessionDriverFactory Drivers { get; } = new();
+        public TarefaPelaFilaEndToEndTests.BotDeTeste Api { get; } = new();
         public string Repositorio => Path.Combine(raiz, "dante");
         public Guid IdExecucao { get; private set; }
         public Guid VersaoOriginal { get; private set; }
@@ -499,7 +797,7 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
             IExecutorDeEtapa[] executores =
             [
                 new ExecutorDeDelegacoesDaFila(Escopos, () => Sessoes, NullLogger<ExecutorDeDelegacoesDaFila>.Instance),
-                new ExecutorDeCoordenacoesDaFila(Escopos, () => Sessoes, NullLogger<ExecutorDeCoordenacoesDaFila>.Instance)
+                new ExecutorDeCoordenacoesDaFila(Escopos, () => Sessoes, NullLogger<ExecutorDeCoordenacoesDaFila>.Instance, Api)
             ];
             processador = new ProcessadorDaFila(Escopos, Processador(), Rapidas, new SinalDaFila(), executores,
                 new MetricasDaFila(), NullLogger<ProcessadorDaFila>.Instance);
@@ -557,6 +855,28 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
 
         public Task SqlAsync(string sql) => Executar(banco, sql);
 
+        public async Task<string> TextoAsync(string sql)
+        {
+            await using var conexao = new NpgsqlConnection(banco.ConnectionString);
+            await conexao.OpenAsync();
+            await using var comando = new NpgsqlCommand(sql, conexao);
+            return (string)(await comando.ExecuteScalarAsync())!;
+        }
+
+        // Executa o comando numa transação, devolve a contagem vista dentro dela e desfaz tudo.
+        public async Task<long> InserirEDesfazerAsync(string sql, string contagem)
+        {
+            await using var conexao = new NpgsqlConnection(banco.ConnectionString);
+            await conexao.OpenAsync();
+            await using var transacao = await conexao.BeginTransactionAsync();
+            await using (var comando = new NpgsqlCommand(sql, conexao, transacao))
+                await comando.ExecuteNonQueryAsync();
+            await using var consulta = new NpgsqlCommand(contagem, conexao, transacao);
+            var vista = (long)(await consulta.ExecuteScalarAsync())!;
+            await transacao.RollbackAsync();
+            return vista;
+        }
+
         public Task<AvancoDaCoordenacaoDto> AvancarAsync(PosseDoTrabalho posse, Guid idEtapa) =>
             Servico(s => s.AvancarAsync(posse, idEtapa));
 
@@ -568,6 +888,42 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
 
         public Task<string> EntregarAsync(FakeSessionDriver filha, string resultado) =>
             ChamarAsync(filha, "entregar_resultado", new { resultado = JsonNode.Parse(resultado) });
+
+        public Task<string> ProporAsync(FakeSessionDriver coordenador, string plano) =>
+            ChamarAsync(coordenador, ServidorMcpDeCoordenacao.ProporPlano, new { plano = JsonNode.Parse(plano) });
+
+        // O coordenador propõe pela ferramenta (aceito) e termina o turno.
+        public async Task ProporEEncerrarAsync(FakeSessionDriver coordenador, string plano)
+        {
+            Assert.True((bool)JsonNode.Parse(await ProporAsync(coordenador, plano))!["registrado"]!);
+            Responder(coordenador, "Plano proposto.");
+        }
+
+        public Task<string> SintetizarAsync(FakeSessionDriver coordenador, object sintese) =>
+            ChamarAsync(coordenador, ServidorMcpDeCoordenacao.EntregarSintese, new { sintese });
+
+        // Síntese mínima válida: as respondidas numa conclusão (com o hash), as demais num inconclusivo.
+        public async Task SintetizarTudoAsync(string codigo, FakeSessionDriver? depoisDe = null)
+        {
+            var sintetizador = await DriverAsync(c => c.StartsWith("turn:Síntese da coordenação", StringComparison.Ordinal),
+                depoisDe);
+            var trilha = (await ConsolidarAsync(codigo))!;
+            var respondidas = trilha.Unidades.Where(u => u.Situacao == SituacaoDaUnidade.Respondida)
+                .Select(u => (object)new { revisao = u.Revisao, unidade = u.Unidade, hash = u.HashDoResultado }).ToArray();
+            var outras = trilha.Unidades.Where(u => u.Situacao != SituacaoDaUnidade.Respondida)
+                .Select(u => (object)new { revisao = u.Revisao, unidade = u.Unidade }).ToArray();
+            var sintese = new Dictionary<string, object>
+            {
+                ["resumo"] = "Resumo.",
+                ["conclusoes"] = new[] { new { texto = "O que as unidades responderam.", citacoes = respondidas } }
+            };
+            if (outras.Length > 0) sintese["inconclusivos"] = new[] { new { texto = "Sem resposta.", citacoes = outras } };
+            Assert.True((bool)JsonNode.Parse(await SintetizarAsync(sintetizador, sintese))!["registrado"]!);
+            Responder(sintetizador, "Síntese entregue.");
+        }
+
+        public Task<ResultadoDaCoordenacaoDto?> ResultadoAsync(string codigo) =>
+            Servico(s => s.ObterResultadoDoProprietarioAsync(new ProprietarioDaExecucao("telegram", Dono), codigo));
 
         private string Codigo() => $"E{(long)Escalar($"SELECT numero FROM orquestracao.execucoes WHERE id = '{IdExecucao}'").GetAwaiter().GetResult()}";
 

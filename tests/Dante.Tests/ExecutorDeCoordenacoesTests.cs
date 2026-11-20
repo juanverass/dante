@@ -8,20 +8,21 @@ using Dante.Worker.Execucoes;
 
 namespace Dante.Tests;
 
-// #310 (AD-75), PR 2: o que o executor da coordenação entrega ao coordenador e como lê a proposta. A proposta é só o
-// bloco JSON da última mensagem (a validação é do servidor); os desfechos de outros agentes entram como dado não
-// confiável; o coordenador nunca recebe a si mesmo como papel.
+// #310 (AD-75), PR 2 e PR 3: o que o executor da coordenação entrega ao coordenador. A proposta e a síntese chegam só
+// pelas ferramentas do dante_coordenacao (a validação é do servidor); os desfechos e resultados de outros agentes entram
+// como dado não confiável; o coordenador nunca recebe a si mesmo como papel; os avisos ao dono trazem o hash e os comandos.
 public sealed class ExecutorDeCoordenacoesTests
 {
-    [Theory]
-    [InlineData("Plano:\n```json\n{\"unidades\":[]}\n```", "{\"unidades\":[]}")]
-    [InlineData("```\n{\"a\":1}\n```\ntexto\n```json\n{\"b\":{\"c\":2}}\n```", "{\"b\":{\"c\":2}}")]
-    [InlineData("  {\"unidades\":[]}  ", "{\"unidades\":[]}")]
-    [InlineData("Não consegui planejar.", null)]
-    [InlineData("", null)]
-    [InlineData(null, null)]
-    public void PropostaEhOUltimoBlocoJsonOuAMensagemQueSoTemOObjeto(string? mensagem, string? esperado) =>
-        Assert.Equal(esperado, ExecutorDeCoordenacoesDaFila.ExtrairJson(mensagem));
+    // PR 3: o canal do plano é a ferramenta propor_plano; o bloco JSON da última mensagem deixou de valer.
+    [Fact]
+    public void PromptPedeOPlanoPelaFerramentaENaoPorBlocoJson()
+    {
+        var prompt = ExecutorDeCoordenacoesDaFila.Prompt(Planejamento(MotivoDoPlano.Inicial));
+        Assert.Contains("chamando a ferramenta propor_plano do dante_coordenacao", prompt);
+        Assert.Contains("texto livre não registra plano", prompt);
+        Assert.DoesNotContain("```json", prompt);
+        Assert.Contains("pela ferramenta propor_plano", ExecutorDeCoordenacoesDaFila.Correcao([]));
+    }
 
     [Fact]
     public void PromptInicialTemObjetivoPapeisOrcamentoESchemaSemOCoordenador()
@@ -217,6 +218,124 @@ public sealed class ExecutorDeCoordenacoesTests
         Assert.Contains("- Ciclo: Há ciclo.", texto);
         Assert.Contains("uma vez", texto);
     }
+
+    // PR 3 (D7): a síntese recebe a trilha inteira; motivo e resultado de outros agentes como literal no bloco não
+    // confiável; hash, papel e unidade (formatos validados pelo servidor) fora de literal.
+    [Fact]
+    public void PromptDaSinteseTrazATrilhaComoDadoNaoConfiavelEAsRegrasDaEstrutura()
+    {
+        var prompt = ExecutorDeCoordenacoesDaFila.PromptDaSintese(Sintese("limite do provider", "{\"resposta\":\"ok\"}"));
+        var linhas = prompt.Split('\n');
+        var abertura = Array.IndexOf(linhas, ExecutorDeCoordenacoesDaFila.AberturaDoDado);
+        var fechamento = Array.IndexOf(linhas, ExecutorDeCoordenacoesDaFila.FechamentoDoDado);
+        Assert.True(abertura > 0 && fechamento == abertura + 3, $"bloco entre as linhas {abertura} e {fechamento}");
+        Assert.Equal($"- revisão 1, unidade indice, papel pesq (pesquisador v2): respondida; hash {HashA}; resultado: " +
+            "\"{\\\"resposta\\\":\\\"ok\\\"}\"", linhas[abertura + 1]);
+        Assert.Equal("- revisão 1, unidade consulta, papel rev (revisor v1): sem resposta; motivo: \"limite do provider\"",
+            linhas[abertura + 2]);
+        Assert.Contains("Investigar o índice", prompt);
+        Assert.Contains("cite TODA unidade", prompt);
+        Assert.Contains("não invente consenso", prompt);
+        Assert.Contains("chamando a ferramenta entregar_sintese", prompt);
+    }
+
+    public static TheoryData<string, string> InjecoesNaSintese()
+    {
+        var dados = new TheoryData<string, string>();
+        foreach (var campo in new[] { "Motivo", "Resultado" })
+            foreach (var carga in Cargas)
+                dados.Add(campo, carga);
+        return dados;
+    }
+
+    [Theory]
+    [MemberData(nameof(InjecoesNaSintese))]
+    public void ConteudoDeOutroAgenteNaSinteseNaoFechaNemFalsificaOBloco(string campo, string carga)
+    {
+        var prompt = ExecutorDeCoordenacoesDaFila.PromptDaSintese(campo == "Motivo"
+            ? Sintese(carga, "{\"r\":1}") : Sintese("limite", carga));
+        var linhas = prompt.Split('\n');
+        Assert.Single(linhas, l => l.Contains("<<<DADO_NAO_CONFIAVEL", StringComparison.Ordinal));
+        Assert.Single(linhas, l => l.Contains("DADO_NAO_CONFIAVEL>>>", StringComparison.Ordinal));
+        var abertura = Array.IndexOf(linhas, ExecutorDeCoordenacoesDaFila.AberturaDoDado);
+        var fechamento = Array.IndexOf(linhas, ExecutorDeCoordenacoesDaFila.FechamentoDoDado);
+        Assert.True(abertura > 0 && fechamento == abertura + 3, $"bloco entre as linhas {abertura} e {fechamento}");
+        var fora = string.Join('\n', linhas[..abertura]) + string.Join('\n', linhas[(fechamento + 1)..]);
+        Assert.DoesNotContain("INJETADO", fora);
+        var linha = campo == "Motivo" ? linhas[abertura + 2] : linhas[abertura + 1];
+        var lido = Regex.Match(linha, $"; {(campo == "Motivo" ? "motivo" : "resultado")}: (?<v>{Literal})$");
+        Assert.True(lido.Success, linha);
+        Assert.Equal(carga, JsonSerializer.Deserialize<string>(lido.Groups["v"].Value));
+    }
+
+    [Fact]
+    public void CorrecaoDaSinteseListaCadaRecusaComAReferencia()
+    {
+        var texto = ExecutorDeCoordenacoesDaFila.CorrecaoDaSintese(
+        [
+            new RecusaDaSintese(MotivoDaRecusaDaSintese.CoberturaIncompleta, "r1/consulta", "Não citada."),
+            new RecusaDaSintese(MotivoDaRecusaDaSintese.FormaInvalida, null, "Não é JSON.")
+        ]);
+        Assert.Contains("- CoberturaIncompleta (r1/consulta): Não citada.", texto);
+        Assert.Contains("- FormaInvalida: Não é JSON.", texto);
+        Assert.Contains("pela ferramenta entregar_sintese", texto);
+    }
+
+    // Aviso do gate aberto: cada unidade com o papel e as dependências, o hash e os três comandos; a aprovação é só do
+    // plano somente leitura.
+    [Fact]
+    public void AvisoDoGateTrazUnidadesHashEComandos()
+    {
+        var plano = ValidacaoDoPlano.Validar("""
+            {"unidades":[
+              {"id":"consulta","papel":"rev","contrato":"consulta.v1","objetivo":"Conferir a consulta","entrada":{"pergunta":"Cobre?"},"dependeDe":["indice"]},
+              {"id":"indice","papel":"pesq","contrato":"consulta.v1","objetivo":"Levantar os índices","entrada":{"pergunta":"Quais?"}}
+            ]}
+            """, new ContextoDoPlano("coord", [new PapelDoPlano("pesq", [CapacidadeDoAgente.Pesquisar]),
+            new PapelDoPlano("rev", [CapacidadeDoAgente.Revisar])], 4)).Plano!;
+        var dto = new PlanoDaCoordenacaoDto(Guid.NewGuid(), 1, MotivoDoPlano.Inicial, EstadoDoPlano.AguardandoAprovacao,
+            plano.Hash, 2, plano.Conteudo, DateTimeOffset.UtcNow, null, null);
+        var texto = ExecutorDeCoordenacoesDaFila.AvisoDoGate(new CoordenacaoDaExecucaoDto
+        {
+            Codigo = "E7", NomeDoGrupo = "pesquisa", NumeroDaVersaoDoGrupo = 1, Planos = [dto]
+        }, dto);
+        Assert.Contains($"revisão 1, 2 unidade(s), hash {plano.Hash[..12]}", texto);
+        Assert.Contains("- indice → pesq: Levantar os índices\n- consulta → rev: Conferir a consulta (depois de indice)", texto);
+        Assert.Contains($"/execucao aprovar E7 {plano.Hash[..12]}", texto);
+        Assert.Contains($"/execucao corrigir E7 {plano.Hash[..12]} <o que corrigir>", texto);
+        Assert.Contains("/execucao recusar E7", texto);
+        Assert.Contains("só este plano somente leitura", texto);
+    }
+
+    [Fact]
+    public void AvisoDoFimDizOEstadoAsContagensASinteseEOComandoDaConsolidacao()
+    {
+        var trilha = Sintese("limite", "{}").Trilha with { Estado = EstadoDaExecucao.Falhou, Motivo = "1 unidade(s) sem resposta" };
+        var comSintese = ExecutorDeCoordenacoesDaFila.AvisoDoFim(new ResultadoDaCoordenacaoDto(trilha,
+            new SinteseDaCoordenacaoDto(HashA, "Resumo.", [new ItemDaSinteseDto("c", [])], [], [new ItemDaSinteseDto("i", [])],
+                "S9", DateTimeOffset.UtcNow), EstadoDaEtapa.Concluida, null), null);
+        Assert.Contains("Coordenação E7 (pesquisa v1) terminou: falhou. Unidades: 1 respondida(s), 1 sem resposta", comSintese);
+        Assert.Contains("Motivo: 1 unidade(s) sem resposta", comSintese);
+        Assert.Contains($"hash {HashA[..12]}): 1 conclusão(ões), 0 divergência(s), 1 inconclusivo(s). Validada só na " +
+            "estrutura, não no mérito.", comSintese);
+        Assert.EndsWith("/execucao consolidacao E7", comSintese);
+        var semSintese = ExecutorDeCoordenacoesDaFila.AvisoDoFim(new ResultadoDaCoordenacaoDto(trilha, null,
+            EstadoDaEtapa.Falhou, "Síntese inválida depois da correção permitida"), null);
+        Assert.Contains("Sem síntese do coordenador (Síntese inválida depois da correção permitida); a trilha mostra cada " +
+            "resultado.", semSintese);
+    }
+
+    private static readonly string HashA = new('a', 64);
+
+    private static SinteseParaRedigirDto Sintese(string motivo, string resultado) => new(Guid.NewGuid(), "E7", "telegram", 1,
+        "{}", "Investigar o índice", "pesquisa", 1, "coord", "coordenador", new VersaoDoAgenteDto(),
+        new ConsolidacaoMecanicaDto(Guid.NewGuid(), "E7", EstadoDaExecucao.EmExecucao, null, "pesquisa", 1, new string('c', 64), [],
+        [
+            new UnidadeNaTrilhaDto(1, "indice", "pesq", "pesquisador", 2, new string('d', 64), 3, EstadoDaEtapa.Concluida,
+                SituacaoDaUnidade.Respondida, null, "E8", EstadoDaDelegacao.Respondida, resultado, HashA, "S5", null),
+            new UnidadeNaTrilhaDto(1, "consulta", "rev", "revisor", 1, new string('e', 64), 4, EstadoDaEtapa.Falhou,
+                SituacaoDaUnidade.SemResposta, motivo, "E9", EstadoDaDelegacao.Falhou, null, null, null, null)
+        ]), 0);
 
     private static PlanejamentoDaCoordenacaoDto Planejamento(MotivoDoPlano motivo) => new(Guid.NewGuid(), "E7", "telegram", 1,
         "{}", "Investigar o índice", "pesquisa", 1, "coord", "coordenador", new VersaoDoAgenteDto(),

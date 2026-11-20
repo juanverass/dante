@@ -75,6 +75,61 @@ public sealed class CadastroDeGruposAppServiceTests : IDisposable
         Assert.Null(await cadastro.ObterAsync("inexistente"));
     }
 
+    // #310 (AD-75), PR 3: grupo no modo coordenador pelo cadastro. O modo vem do papel do coordenador; o domínio recusa
+    // roteiro, rodadas e escrita; o cadastro exige alguém além do coordenador com capacidade para consulta.v1. A edição
+    // mantém o modo da versão atual.
+    [Fact]
+    public async Task GrupoCoordenadoCriadoEditadoNoMesmoModoEConferidoPelasCapacidades()
+    {
+        await CriarAgentesAsync(agentes);
+        await agentes.CriarAsync(new NovoAgenteDto("coord", new ConfiguracaoDoAgenteDto
+        {
+            Driver = AgentKind.Codex, Capacidades = [CapacidadeDoAgente.Planejar], Repositorios = ["@dante"]
+        }, 1));
+        await agentes.CriarAsync(new NovoAgenteDto("analista", new ConfiguracaoDoAgenteDto
+        {
+            Driver = AgentKind.Codex, Capacidades = [CapacidadeDoAgente.Planejar], Repositorios = ["@dante"]
+        }, 1));
+        ConfiguracaoDoGrupoDto Coordenado(params ParticipanteInformadoDto[] participantes) => new()
+        {
+            PapelDoCoordenador = "chefe", Participantes = participantes, Repositorios = ["@dante"]
+        };
+        // Ninguém além do coordenador recebe consulta.v1 (planejar não basta).
+        var semQuemDelegar = await Assert.ThrowsAsync<InvalidOperationException>(() => cadastro.CriarAsync(new NovoGrupoDto(
+            "pesquisa", Coordenado(new("chefe", "coord", false, null), new("outro", "analista", false, null)), 1)));
+        Assert.Contains("não teria a quem delegar", semQuemDelegar.Message);
+        // Escrita num grupo coordenado depende do gateway (#311): recusada pelo domínio.
+        await Assert.ThrowsAsync<ArgumentException>(() => cadastro.CriarAsync(new NovoGrupoDto("pesquisa",
+            Coordenado(new("chefe", "coord", false, null), new("dev", "codex-dev", true, null)), 1)));
+        await Assert.ThrowsAsync<ArgumentException>(() => cadastro.CriarAsync(new NovoGrupoDto("pesquisa",
+            Coordenado(new("chefe", "coord", false, null), new("rev", "codex-rev", false, null)) with { Roteiro = Roteiro }, 1)));
+
+        var criado = await cadastro.CriarAsync(new NovoGrupoDto("pesquisa",
+            Coordenado(new("chefe", "coord", false, "Planeja."), new("rev", "codex-rev", false, "Revisa.")), 1));
+        var configuracao = criado.VersaoAtual!.Configuracao!;
+        Assert.Equal((ModoDeCoordenacao.Coordenador, "chefe", 0), (configuracao.Modo, configuracao.PapelDoCoordenador,
+            configuracao.Roteiro.Count));
+        var ativado = await cadastro.AtivarAsync("pesquisa", 1, criado.VersaoAtual.HashDaConfiguracao, 1);
+        var resolvido = await cadastro.ResolverParaExecucaoAsync("pesquisa");
+        Assert.True(resolvido.Resolvido, resolvido.Erro);
+        Assert.Equal(ModoDeCoordenacao.Coordenador, resolvido.Versao!.Configuracao!.Modo);
+        Assert.Equal(1, ativado.NumeroDaVersaoAtiva);
+
+        // A edição herda o modo. Trocar o coordenador para o único capaz de receber consulta.v1 deixaria o grupo sem a
+        // quem delegar: recusado. Outra mudança mantém o modo e o coordenador; roteiro é recusado.
+        Assert.Contains("não teria a quem delegar", (await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            cadastro.EditarAsync("pesquisa", new AlteracaoDoGrupoDto { PapelDoCoordenador = "rev" }, 1))).Message);
+        var editado = await cadastro.EditarAsync("pesquisa", new AlteracaoDoGrupoDto { DuracaoMaximaEmMinutos = 30 }, 1);
+        Assert.Equal((ModoDeCoordenacao.Coordenador, "chefe", 30), (editado.VersaoAtual!.Configuracao!.Modo,
+            editado.VersaoAtual.Configuracao.PapelDoCoordenador, editado.VersaoAtual.Configuracao.Politica.DuracaoMaximaEmMinutos));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            cadastro.EditarAsync("pesquisa", new AlteracaoDoGrupoDto { Roteiro = Roteiro }, 1));
+        // Um grupo de roteiro não vira coordenado numa edição.
+        await cadastro.CriarAsync(new NovoGrupoDto("eng", Configuracao(), 1));
+        Assert.Contains("o modo não muda", (await Assert.ThrowsAsync<ArgumentException>(() =>
+            cadastro.EditarAsync("eng", new AlteracaoDoGrupoDto { PapelDoCoordenador = "rev" }, 1))).Message);
+    }
+
     [Fact]
     public async Task NomeDuplicadoOuArquivadoNuncaEReutilizado()
     {

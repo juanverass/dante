@@ -64,9 +64,9 @@ public sealed record RegistroDaPropostaDto(DesfechoDaProposta Desfecho, EstadoDa
     IReadOnlyList<RecusaDoPlano> Recusas, int? Revisao = null, string? HashDoPlano = null);
 
 // O que a etapa mecânica de avanço fez: quantas unidades encerrou, qual despachou (código da subordinada), se abriu um
-// replanejamento e o estado final da execução.
+// replanejamento, se abriu a síntese do coordenador (PR 3) e o estado da execução.
 public sealed record AvancoDaCoordenacaoDto(EstadoDaExecucao Estado, int UnidadesEncerradas, string? Despachada,
-    bool Replanejamento, string? Motivo = null);
+    bool Replanejamento, string? Motivo = null, bool Sintese = false);
 
 // Uma revisão do plano para acompanhamento: o estado, o hash e a decisão do gate.
 public sealed record PlanoDaCoordenacaoDto(Guid Id, int Revisao, MotivoDoPlano Motivo, EstadoDoPlano Estado, string Hash,
@@ -74,13 +74,15 @@ public sealed record PlanoDaCoordenacaoDto(Guid Id, int Revisao, MotivoDoPlano M
     PedidoDeAprovacaoDto? Pedido);
 
 // O papel de uma etapa numa Coordenada (AD-75): o turno do coordenador que propõe o plano, o gate humano do plano, uma
-// unidade do plano aprovado (executada por delegação) ou o avanço mecânico, sem sessão, que conclui e despacha unidades.
+// unidade do plano aprovado (executada por delegação), o avanço mecânico, sem sessão, que conclui e despacha unidades,
+// ou a síntese do coordenador depois das unidades (PR 3).
 public enum PassoDaCoordenacao
 {
     Planejamento,
     Gate,
     Unidade,
-    Avanco
+    Avanco,
+    Sintese
 }
 
 // Uma etapa da Coordenada, com a revisão do plano (gate e unidade), a unidade e o papel, e a sessão vinculada.
@@ -173,3 +175,65 @@ public sealed record ConsolidacaoMecanicaDto(
     public int Ignoradas => Unidades.Count(u => u.Situacao == SituacaoDaUnidade.Ignorada);
     public int Abertas => Unidades.Count(u => u.Situacao is SituacaoDaUnidade.EmCurso or SituacaoDaUnidade.Pendente);
 }
+
+// O que o executor precisa para a etapa de síntese (D7, PR 3): a versão congelada do coordenador, o contexto e o objetivo
+// congelados e a trilha mecânica gerada pelo servidor, contra a qual a síntese é validada.
+public sealed record SinteseParaRedigirDto(
+    Guid IdExecucao,
+    string Codigo,
+    string Canal,
+    long IdDoUsuarioNoCanal,
+    string Contexto,
+    string Objetivo,
+    string NomeDoGrupo,
+    int NumeroDaVersaoDoGrupo,
+    string PapelDoCoordenador,
+    string HandleDoCoordenador,
+    VersaoDoAgenteDto VersaoDoCoordenador,
+    ConsolidacaoMecanicaDto Trilha,
+    // Sínteses já recusadas nesta etapa (a correção única), contadas pelo ledger.
+    int SintesesRecusadas);
+
+public enum DesfechoDaSintese
+{
+    // Síntese gravada; a execução terminou pelo desfecho das unidades.
+    Registrada,
+    // Recusada pela validação; o coordenador ainda pode corrigir uma vez.
+    CorrecaoPedida,
+    // Recusada de novo (ou não entregue): a etapa de síntese falhou e a execução terminou pelo desfecho das unidades,
+    // só com a trilha mecânica.
+    Encerrada,
+    // Pedido de cancelamento do dono registrado: a conclusão comum gravou Cancelada.
+    Cancelada
+}
+
+public sealed record RegistroDaSinteseDto(DesfechoDaSintese Desfecho, EstadoDaExecucao Estado,
+    IReadOnlyList<RecusaDaSintese> Recusas, string? Hash = null);
+
+// Uma citação da síntese: a unidade da trilha e o hash completo do resultado persistido (nulo num inconclusivo de
+// unidade sem resposta).
+public sealed record CitacaoDaSinteseDto(int Revisao, string Unidade, string? Hash);
+
+public sealed record ItemDaSinteseDto(string Texto, IReadOnlyList<CitacaoDaSinteseDto> Citacoes);
+
+// Síntese validada do coordenador (D7), lida da forma canônica gravada: separada da trilha mecânica e sempre exibida com
+// o alcance da validação.
+public sealed record SinteseDaCoordenacaoDto(
+    string Hash,
+    string Resumo,
+    IReadOnlyList<ItemDaSinteseDto> Conclusoes,
+    IReadOnlyList<ItemDaSinteseDto> Divergencias,
+    IReadOnlyList<ItemDaSinteseDto> Inconclusivos,
+    string? CodigoDaSessao,
+    DateTimeOffset RegistradaEm)
+{
+    public const string Alcance =
+        "Síntese do coordenador validada só na estrutura: cobre todas as unidades e cita resultados persistidos pelo hash. " +
+        "O servidor não avaliou o mérito das afirmações; divergências são mostradas, não resolvidas, e nada aqui prova " +
+        "consenso entre os agentes.";
+}
+
+// Resultado de uma Coordenada para a interface: a trilha mecânica (sempre) e a síntese do coordenador, se houver; sem
+// síntese, o estado e o motivo da etapa dela (nulos quando a execução nunca chegou à síntese).
+public sealed record ResultadoDaCoordenacaoDto(ConsolidacaoMecanicaDto Trilha, SinteseDaCoordenacaoDto? Sintese,
+    EstadoDaEtapa? EstadoDaSintese, string? MotivoDaSintese);

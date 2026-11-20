@@ -32,6 +32,8 @@ public sealed partial class TelegramPollingService
     // /grupo <nome> @alias <tarefa> (#308): resolve o grupo (versão ativa, participantes válidos) e o repositório
     // explícito e enfileira o roteiro pela fila durável; nada é inferido do texto. Implementar escreve só numa worktree
     // com agente Codex confinado; revisar lê em sandbox somente leitura; o fim é a decisão humana no /execucao.
+    // Grupo no modo coordenador (#310, AD-75): a mesma forma cria a Coordenada; o coordenador propõe o plano somente
+    // leitura e nada é delegado antes da aprovação humana dele.
     private async Task HandleRoteiroAsync(TelegramMessage message, string nome, string resto, CancellationToken cancellationToken)
     {
         var (userId, chatId) = (message.From!.Id, message.Chat.Id);
@@ -56,6 +58,24 @@ public sealed partial class TelegramPollingService
             return;
         }
         var chave = message.MessageId > 0 ? $"telegram:{chatId}:{message.MessageId}" : $"telegram:{chatId}:sem-id:{Guid.NewGuid():N}";
+        if (resolucao.Versao!.Configuracao!.Modo == Dante.Domain.Grupos.ModoDeCoordenacao.Coordenador)
+        {
+            if (filaDeCoordenacoes is null)
+            {
+                await SendReplyAsync(chatId, "A coordenação de grupos não está habilitada neste Worker; nada foi executado.",
+                    cancellationToken);
+                return;
+            }
+            var coordenacao = await filaDeCoordenacoes.CriarAsync(resolucao, resolved.Prompt, resolved.Context!, userId,
+                chave, jobs.LastNumber, cancellationToken);
+            await SendReplyAsync(chatId, coordenacao.Codigo is { } codigoDaCoordenacao
+                ? $"Coordenação {codigoDaCoordenacao} enfileirada: grupo {resolucao.Nome} v{resolucao.Versao.Numero}, " +
+                  $"coordenador {resolucao.Versao.Configuracao.PapelDoCoordenador}, em {resolved.Context!.Descricao}. O " +
+                  "coordenador propõe um plano somente leitura e você o aprova antes de qualquer delegação; acompanhe com " +
+                  $"/execucao {codigoDaCoordenacao}. Nenhum agente escreve, faz commit, push, PR ou merge."
+                : coordenacao.Recusa!, cancellationToken);
+            return;
+        }
         var criada = await filaDeRoteiros.CriarAsync(resolucao, resolved.Prompt, resolved.Context!, userId, chave,
             jobs.LastNumber, cancellationToken);
         await SendReplyAsync(chatId, criada.Codigo is { } codigo

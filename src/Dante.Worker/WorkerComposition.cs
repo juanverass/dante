@@ -101,8 +101,8 @@ internal static class WorkerComposition
         services.AddSingleton(provider => ActivatorUtilities.CreateInstance<ExecutorDeDelegacoesDaFila>(provider,
             (Func<SessionRegistry>)provider.GetRequiredService<SessionRegistry>));
         services.AddSingleton<IExecutorDeEtapa>(provider => provider.GetRequiredService<ExecutorDeDelegacoesDaFila>());
-        // Coordenação por papel (#310, AD-75, PR 2): o executor de TipoDeExecucao.Coordenada (planejamento e avanço).
-        // Nada cria uma coordenação em produção até o PR 3 (interface).
+        // Coordenação por papel (#310, AD-75): o executor de TipoDeExecucao.Coordenada (planejamento, avanço e síntese).
+        // A interface (/grupo de um grupo no modo coordenador) cria a coordenação por ele (PR 3).
         services.AddSingleton(provider => ActivatorUtilities.CreateInstance<ExecutorDeCoordenacoesDaFila>(provider,
             (Func<SessionRegistry>)provider.GetRequiredService<SessionRegistry>));
         services.AddSingleton<IExecutorDeEtapa>(provider => provider.GetRequiredService<ExecutorDeCoordenacoesDaFila>());

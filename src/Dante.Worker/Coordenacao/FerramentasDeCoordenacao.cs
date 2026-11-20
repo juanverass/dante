@@ -22,6 +22,9 @@ namespace Dante.Worker.Coordenacao;
 // concede coordenacao e pode consultar alguém recebe o perfil origem (consultar_agente e estado_da_execucao, sob a
 // posse da etapa e só da sessão vinculada a ela); a sessão da subordinada recebe o perfil delegacao (entregar o resultado pelo contrato). O
 // perfil é do canal, fixado aqui; o --perfil do processo só escolhe o que a CLI lista.
+// Coordenação (#310, PR 3): a sessão do coordenador de uma Coordenada, em plan, recebe o perfil planejamento
+// (propor_plano) ou síntese (entregar_sintese), conforme a etapa que o orquestrador abriu. Não exige concessão no agente:
+// é o único canal de saída da etapa, de mundo fechado, e não amplia nada (como o perfil delegacao da subordinada).
 public sealed class FerramentasDeCoordenacao(IServiceScopeFactory escopos, ILogger<FerramentasDeCoordenacao> logger,
     (string Command, IReadOnlyList<string> Prefix)? comando = null) : IProvedorDeFerramentas, IDisposable
 {
@@ -87,6 +90,8 @@ public sealed class FerramentasDeCoordenacao(IServiceScopeFactory escopos, ILogg
         { LeituraConfinada: true, EscopoDaRevisao: not null, Coordenacao: null } => PerfilDeCoordenacao.Revisao,
         { LeituraConfinada: false, EscritaConfinada: false, Coordenacao: CoordenacaoDaDelegacao }
             when request.Profile == AgentPermissionProfile.Plan => PerfilDeCoordenacao.Delegacao,
+        { LeituraConfinada: false, EscritaConfinada: false, Coordenacao: CoordenacaoDoCoordenador coordenador }
+            when request.Profile == AgentPermissionProfile.Plan => coordenador.Perfil,
         { LeituraConfinada: false, EscritaConfinada: false, Coordenacao: CoordenacaoDaOrigem } agente
             when request.Profile == AgentPermissionProfile.Plan &&
                  agente.Configuracao.PermiteFerramenta(Dante.Domain.Agentes.FerramentaDoDante.Coordenacao) &&
@@ -146,6 +151,8 @@ public sealed class FerramentasDeCoordenacao(IServiceScopeFactory escopos, ILogg
                             argumentos, ct),
                         PerfilDeCoordenacao.Delegacao => await ChamarDaDelegacaoAsync(
                             (CoordenacaoDaDelegacao)canal.Coordenacao!, argumentos, ct),
+                        PerfilDeCoordenacao.Planejamento or PerfilDeCoordenacao.Sintese => await ChamarDoCoordenadorAsync(
+                            (CoordenacaoDoCoordenador)canal.Coordenacao!, argumentos, ct),
                         _ => await ChamarAsync(sessao, canal.Escopo!, nome, argumentos, ct)
                     };
                 }
@@ -294,6 +301,60 @@ public sealed class FerramentasDeCoordenacao(IServiceScopeFactory escopos, ILogg
             })
             : ServidorMcpDeCoordenacao.Erro($"A delegação terminou como {desfecho.Estado}: {desfecho.Motivo}");
     }
+
+    // Coordenador: o plano ou a síntese, gravados na hora sob a posse da etapa e pela sessão vinculada a ela. Recusas da
+    // validação voltam como erro da ferramenta, com cada motivo, para a correção única.
+    private static async Task<JsonObject> ChamarDoCoordenadorAsync(CoordenacaoDoCoordenador escopo, JsonElement argumentos,
+        CancellationToken ct)
+    {
+        var entrega = escopo.Entrega;
+        var planejamento = entrega.Passo == PassoDaCoordenacao.Planejamento;
+        var valor = argumentos.GetProperty(planejamento ? "plano" : "sintese");
+        if (valor.ValueKind != JsonValueKind.Object)
+            throw new ArgumentException(planejamento ? "plano é um objeto." : "sintese é um objeto.");
+        await entrega.EntregarAsync(valor.GetRawText(), ct);
+        if (planejamento)
+        {
+            var proposta = entrega.Proposta!;
+            return proposta.Desfecho switch
+            {
+                DesfechoDaProposta.GateAberto => ServidorMcpDeCoordenacao.Resultado(new
+                {
+                    registrado = true, revisao = proposta.Revisao, hash = proposta.HashDoPlano![..12],
+                    mensagem = "Plano registrado e enviado à aprovação humana; nada é delegado antes dela. Encerre com " +
+                        "uma resposta curta."
+                }),
+                DesfechoDaProposta.CorrecaoPedida => ServidorMcpDeCoordenacao.Erro(
+                    "Plano recusado pela validação do servidor. Corrija e chame propor_plano de novo com o plano inteiro " +
+                    "(uma correção): " + Recusas(proposta.Recusas.Select(r =>
+                        $"{r.Motivo}{(r.Unidade is null ? "" : $" ({r.Unidade})")}: {r.Mensagem}"))),
+                DesfechoDaProposta.Encerrada => ServidorMcpDeCoordenacao.Erro(
+                    "Plano recusado de novo; a coordenação terminou sem plano: " + Recusas(proposta.Recusas.Select(r =>
+                        $"{r.Motivo}{(r.Unidade is null ? "" : $" ({r.Unidade})")}: {r.Mensagem}"))),
+                _ => ServidorMcpDeCoordenacao.Erro("A coordenação foi cancelada pelo dono.")
+            };
+        }
+        var sintese = entrega.Sintese!;
+        return sintese.Desfecho switch
+        {
+            DesfechoDaSintese.Registrada => ServidorMcpDeCoordenacao.Resultado(new
+            {
+                registrado = true, hash = sintese.Hash![..12],
+                mensagem = "Síntese registrada ao lado da trilha das unidades. Encerre com uma resposta curta."
+            }),
+            DesfechoDaSintese.CorrecaoPedida => ServidorMcpDeCoordenacao.Erro(
+                "Síntese recusada pela validação estrutural. Corrija e chame entregar_sintese de novo com a síntese inteira " +
+                "(uma correção): " + Recusas(sintese.Recusas.Select(r =>
+                    $"{r.Motivo}{(r.Referencia is null ? "" : $" ({r.Referencia})")}: {r.Mensagem}"))),
+            DesfechoDaSintese.Encerrada => ServidorMcpDeCoordenacao.Erro(
+                "Síntese recusada de novo; a coordenação terminou só com a trilha das unidades."),
+            _ => ServidorMcpDeCoordenacao.Erro("A coordenação foi cancelada pelo dono.")
+        };
+    }
+
+    // As recusas cabem na resposta do canal: no máximo 20, cada uma cortada.
+    private static string Recusas(IEnumerable<string> recusas) =>
+        string.Join("; ", recusas.Take(20).Select(r => r.Length <= 400 ? r : r[..400] + "…"));
 
     private static string Texto(JsonElement valor, string campo) => valor.ValueKind == JsonValueKind.String
         ? valor.GetString()! : throw new ArgumentException($"{campo} é um texto.");

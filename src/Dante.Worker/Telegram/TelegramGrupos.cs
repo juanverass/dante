@@ -13,8 +13,10 @@ public sealed class TelegramGrupos(IServiceScopeFactory escopos)
     internal const string Uso =
         "Uso: /grupo criar <nome> roteiro=implementar:<papel>,revisar:<papel>[,corrigir:<papel>],aprovar [rodadas=N] " +
         "[repos=@alias,…] [duracao=minutos] (participantes nas linhas seguintes: <papel>=<handle> [escrita] [: " +
-        "responsabilidades]) | /grupo ver|desativar|reativar|arquivar <nome> | /grupo editar <nome> [opções] " +
-        "[participantes nas linhas seguintes] | /grupo ativar <nome> v<N> <hash> | /grupo descricao <nome> <texto>";
+        "responsabilidades]) | /grupo criar <nome> coordenador=<papel> [repos=@alias,…] [duracao=minutos] " +
+        "(participantes nas linhas seguintes, sem escrita) | /grupo ver|desativar|reativar|arquivar <nome> | " +
+        "/grupo editar <nome> [opções] [participantes nas linhas seguintes] | /grupo ativar <nome> v<N> <hash> | " +
+        "/grupo descricao <nome> <texto>";
 
     // Grupo pronto para uma execução nova (versão ativa e versão atual de cada participante), ou o motivo da recusa.
     public async Task<ResolucaoDeGrupoDto> ResolverAsync(string nome, CancellationToken cancellationToken)
@@ -106,7 +108,7 @@ public sealed class TelegramGrupos(IServiceScopeFactory escopos)
     internal static string Resumo(GrupoDeAgentesDto grupo) =>
         $"- {grupo.Nome} v{grupo.NumeroDaVersaoAtual} — {Estado(grupo.Estado)}, " +
         (grupo.NumeroDaVersaoAtiva is { } ativa ? $"ativa v{ativa}" : "sem versão ativa") +
-        (grupo.VersaoAtiva is { } versao ? $" ({Roteiro(versao)})" : string.Empty) +
+        (grupo.VersaoAtiva is { } versao ? $" ({Forma(versao)})" : string.Empty) +
         (grupo.Descricao is null ? string.Empty : $" — {grupo.Descricao}");
 
     internal static string Detalhe(GrupoDeAgentesDto grupo)
@@ -134,11 +136,21 @@ public sealed class TelegramGrupos(IServiceScopeFactory escopos)
         yield return $"{titulo} v{versao.Numero} — hash {versao.HashDaConfiguracao[..12]}" +
             (versao.Integra ? string.Empty : " (NÃO CONFERE com o conteúdo gravado)");
         if (versao.Configuracao is not { } configuracao) yield break;
-        yield return $"Roteiro: {Roteiro(versao)}";
         var politica = configuracao.Politica;
-        yield return $"Rodadas de correção: {politica.RodadasDeRevisaoMaximas}; sequencial; repositórios: " +
-            (politica.RepositoriosPermitidos!.Count == 0 ? "os do pedido" : string.Join(", ", politica.RepositoriosPermitidos)) +
+        var repositorios = "repositórios: " + (politica.RepositoriosPermitidos!.Count == 0 ? "os do pedido"
+                : string.Join(", ", politica.RepositoriosPermitidos)) +
             (politica.DuracaoMaximaEmMinutos is { } minutos ? $"; duração máxima {minutos} min" : string.Empty);
+        if (configuracao.Modo == ModoDeCoordenacao.Coordenador)
+        {
+            // Coordenador (AD-75): o plano é proposto por execução e aprovado por uma pessoa; somente leitura.
+            yield return $"Coordenação: {Forma(versao)}; plano somente leitura aprovado por você a cada execução; " +
+                $"sequencial; {repositorios}";
+        }
+        else
+        {
+            yield return $"Roteiro: {Roteiro(versao)}";
+            yield return $"Rodadas de correção: {politica.RodadasDeRevisaoMaximas}; sequencial; {repositorios}";
+        }
         foreach (var participante in versao.Participantes)
             yield return $"- {participante.Papel}: {participante.Handle}" +
                 (participante.PodeEscrever ? " (escrita)" : " (leitura)") +
@@ -149,22 +161,32 @@ public sealed class TelegramGrupos(IServiceScopeFactory escopos)
         ? $"Para usá-la, confira e ative: /grupo ativar {grupo.Nome} v{versao.Numero} {versao.HashDaConfiguracao[..12]}"
         : string.Empty;
 
+    // Resumo da forma do grupo: o roteiro, ou o coordenador no modo coordenador.
+    private static string Forma(VersaoDoGrupoDto versao) => versao.Configuracao is { Modo: ModoDeCoordenacao.Coordenador } c
+        ? $"coordenador {c.PapelDoCoordenador}" : Roteiro(versao);
+
     private static string Roteiro(VersaoDoGrupoDto versao) => versao.Configuracao is not { } configuracao ? "?"
         : string.Join(" → ", configuracao.Roteiro.Select(passo => passo.Papel is null
             ? "aprovação humana" : $"{Passo(passo.Tipo)} ({passo.Papel})"));
 
     // Opções da linha de comando e participantes nas linhas seguintes. Interpretação só de forma; o caso de uso valida.
+    // roteiro= cria um grupo de roteiro; coordenador=<papel>, um grupo no modo coordenador (AD-75). Um dos dois, nunca ambos.
     internal static ConfiguracaoDoGrupoDto Criacao(string[] opcoes, string? corpo)
     {
         var lidas = Opcoes(opcoes);
-        if (lidas.Roteiro is null) throw new ArgumentException("Informe o roteiro: roteiro=implementar:<papel>,revisar:<papel>,…,aprovar.");
+        if (lidas.Roteiro is not null && lidas.Coordenador is not null)
+            throw new ArgumentException("Use roteiro= ou coordenador=, não os dois: o modo coordenador não tem roteiro fixo.");
+        if (lidas.Roteiro is null && lidas.Coordenador is null)
+            throw new ArgumentException("Informe o roteiro (roteiro=implementar:<papel>,revisar:<papel>,…,aprovar) ou o " +
+                "coordenador (coordenador=<papel>).");
         var participantes = Participantes(corpo);
         if (participantes is null) throw new ArgumentException("Informe os participantes nas linhas seguintes: <papel>=<handle> [escrita].");
-        var temCorrecao = lidas.Roteiro.Any(passo => passo.Tipo == TipoDePassoDoRoteiro.Corrigir);
+        var temCorrecao = lidas.Roteiro?.Any(passo => passo.Tipo == TipoDePassoDoRoteiro.Corrigir) ?? false;
         return new ConfiguracaoDoGrupoDto
         {
+            PapelDoCoordenador = lidas.Coordenador,
             Participantes = participantes,
-            Roteiro = lidas.Roteiro,
+            Roteiro = lidas.Roteiro ?? [],
             RodadasDeRevisaoMaximas = lidas.Rodadas ?? (temCorrecao ? 2 : 0),
             Repositorios = lidas.Repositorios ?? [],
             DuracaoMaximaEmMinutos = lidas.Duracao is 0 ? null : lidas.Duracao
@@ -176,6 +198,7 @@ public sealed class TelegramGrupos(IServiceScopeFactory escopos)
         var lidas = Opcoes(opcoes);
         return new AlteracaoDoGrupoDto
         {
+            PapelDoCoordenador = lidas.Coordenador,
             Participantes = Participantes(corpo),
             Roteiro = lidas.Roteiro,
             RodadasDeRevisaoMaximas = lidas.Rodadas,
@@ -184,12 +207,13 @@ public sealed class TelegramGrupos(IServiceScopeFactory escopos)
         };
     }
 
-    private static (IReadOnlyList<PassoDoRoteiro>? Roteiro, int? Rodadas, IReadOnlyList<string>? Repositorios, int? Duracao)
-        Opcoes(string[] opcoes)
+    private static (IReadOnlyList<PassoDoRoteiro>? Roteiro, int? Rodadas, IReadOnlyList<string>? Repositorios, int? Duracao,
+        string? Coordenador) Opcoes(string[] opcoes)
     {
         IReadOnlyList<PassoDoRoteiro>? roteiro = null;
         int? rodadas = null, duracao = null;
         IReadOnlyList<string>? repositorios = null;
+        string? coordenador = null;
         foreach (var opcao in opcoes)
         {
             var separador = opcao.IndexOf('=');
@@ -210,11 +234,14 @@ public sealed class TelegramGrupos(IServiceScopeFactory escopos)
                 case "duracao":
                     duracao = Numero(valor, chave);
                     break;
+                case "coordenador":
+                    coordenador = valor.Length > 0 ? valor : throw new ArgumentException("coordenador= espera o papel do coordenador.");
+                    break;
                 default:
                     throw new ArgumentException($"Opção desconhecida: {chave}. {Uso}");
             }
         }
-        return (roteiro, rodadas, repositorios, duracao);
+        return (roteiro, rodadas, repositorios, duracao, coordenador);
     }
 
     private static PassoDoRoteiro PassoInformado(string texto)

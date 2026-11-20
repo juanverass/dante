@@ -3,6 +3,7 @@ using Dante.Application.Execucoes;
 using Dante.Application.Mapeamento;
 using Dante.Application.SegurancaDoBrain;
 using Dante.Domain.Agentes;
+using Dante.Domain.Execucoes;
 using Dante.Domain.Grupos;
 
 namespace Dante.Application.Grupos;
@@ -34,9 +35,12 @@ public sealed class CadastroDeGruposAppService(
                 : $"Já existe um grupo {nome}.");
         var entrada = novo.Configuracao;
         var participantes = await ParticipantesAsync(entrada.Participantes, cancellationToken);
-        var configuracao = Dominio(() => new ConfiguracaoDoGrupo(ModoDeCoordenacao.Roteiro, participantes.Select(p => p.Participante),
+        SemSegredo(entrada.PapelDoCoordenador);
+        // Com coordenador, o modo Coordenador (AD-75): o domínio recusa roteiro, rodadas e participante com escrita.
+        var modo = entrada.PapelDoCoordenador is null ? ModoDeCoordenacao.Roteiro : ModoDeCoordenacao.Coordenador;
+        var configuracao = Dominio(() => new ConfiguracaoDoGrupo(modo, participantes.Select(p => p.Participante),
             entrada.Roteiro, new PoliticaDoGrupo(entrada.RodadasDeRevisaoMaximas, 1, entrada.Repositorios,
-                entrada.DuracaoMaximaEmMinutos)));
+                entrada.DuracaoMaximaEmMinutos), entrada.PapelDoCoordenador));
         ConferirParticipantes(configuracao, participantes);
         var agora = relogio.GetUtcNow();
         var grupo = Dominio(() => new GrupoDeAgentes(nome, novo.Descricao, novo.IdDoAutor, agora));
@@ -76,6 +80,11 @@ public sealed class CadastroDeGruposAppService(
         var participantes = alteracao.Participantes is { } informados
             ? await ParticipantesAsync(informados, cancellationToken)
             : await ParticipantesAtuaisAsync(atual, cancellationToken);
+        SemSegredo(alteracao.PapelDoCoordenador);
+        // O modo é o da versão atual: um grupo de roteiro não vira coordenado numa edição (nem o contrário).
+        if (atual.Modo == ModoDeCoordenacao.Roteiro && alteracao.PapelDoCoordenador is not null)
+            throw new ArgumentException($"O grupo {grupo.Nome} segue um roteiro; o modo não muda numa edição. Crie outro " +
+                "grupo com coordenador=<papel>.");
         var roteiro = alteracao.Roteiro ?? atual.Roteiro;
         var temCorrecao = roteiro.Any(passo => passo.Tipo == TipoDePassoDoRoteiro.Corrigir);
         // Trocar a forma do roteiro sem informar rodadas: sem correção, 0; com correção vinda de um roteiro sem ela, 1.
@@ -84,9 +93,12 @@ public sealed class CadastroDeGruposAppService(
         var duracao = alteracao.DuracaoMaximaEmMinutos is { } minutos
             ? minutos == 0 ? null : minutos
             : atual.Politica.DuracaoMaximaEmMinutos;
-        var configuracao = Dominio(() => new ConfiguracaoDoGrupo(ModoDeCoordenacao.Roteiro,
+        var coordenador = atual.Modo == ModoDeCoordenacao.Coordenador
+            ? alteracao.PapelDoCoordenador ?? atual.PapelDoCoordenador : null;
+        var configuracao = Dominio(() => new ConfiguracaoDoGrupo(atual.Modo,
             participantes.Select(p => p.Participante), roteiro,
-            new PoliticaDoGrupo(rodadas, 1, alteracao.Repositorios ?? atual.Politica.RepositoriosPermitidos, duracao)));
+            new PoliticaDoGrupo(rodadas, 1, alteracao.Repositorios ?? atual.Politica.RepositoriosPermitidos, duracao),
+            coordenador));
         if (configuracao.Hash() == atual.Hash())
             throw new InvalidOperationException($"Nada mudou na configuração de {grupo.Nome}; nenhuma versão criada.");
         ConferirParticipantes(configuracao, participantes);
@@ -263,6 +275,15 @@ public sealed class CadastroDeGruposAppService(
                     configuracao.Roteiro) is { } recusa)
                 throw new InvalidOperationException(recusa);
         }
+        // Coordenador (AD-75): cada unidade do plano é uma consulta.v1 a outro participante; sem ninguém capaz de
+        // recebê-la, nenhum plano seria válido. As capacidades são as da versão atual de cada agente (a execução congela).
+        if (configuracao.Modo == ModoDeCoordenacao.Coordenador &&
+            !configuracao.Participantes.Any(participante => participante.Papel != configuracao.PapelDoCoordenador &&
+                ContratosDeDelegacao.Consulta.Aceita(lidos.First(item => item.Participante.IdAgente == participante.IdAgente)
+                    .Versao.Capacidades)))
+            throw new InvalidOperationException(
+                $"Nenhum participante além do coordenador tem capacidade para {ContratosDeDelegacao.Consulta.Identificador}; " +
+                "o coordenador não teria a quem delegar.");
     }
 
     private async Task<GrupoDeAgentes> ExistenteAsync(string nome, CancellationToken cancellationToken)
