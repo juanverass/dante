@@ -439,9 +439,9 @@ public sealed class GateDoRoteiroPostgreSqlTests : IDisposable
         var funcoes = "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'orquestracao'";
         var antes = await Escalar(banco, funcoes);
         await contexto.GetService<IMigrator>().MigrateAsync("20261117200148_GruposDeAgentes");
-        // As 3 funções do gate, a dos vereditos, as 3 das delegações (#309) e as 8 da coordenação (#310): migrations
-        // seguintes, desfeitas junto.
-        Assert.Equal(antes - 15, await Escalar(banco, funcoes));
+        // As 3 funções do gate, a dos vereditos, as 3 das delegações (#309), as 8 da coordenação e a da síntese (#310):
+        // migrations seguintes, desfeitas junto.
+        Assert.Equal(antes - 16, await Escalar(banco, funcoes));
         Assert.Equal(0L, await Escalar(banco, "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'orquestracao' " +
             "AND table_name IN ('roteiros_da_execucao', 'participantes_da_execucao', 'pedidos_de_aprovacao')"));
         await contexto.Database.MigrateAsync();

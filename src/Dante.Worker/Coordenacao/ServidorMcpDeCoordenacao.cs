@@ -13,13 +13,16 @@ namespace Dante.Worker.Coordenacao;
 // (escopo fixado pelo orquestrador ao abrir a sessão), nunca este processo nem o agente. A #309 amplia o catálogo
 // aqui e o atendimento no Worker; não cria outro servidor nem outro IPC. O catálogo é por perfil, escolhido pelo Worker
 // no argumento --perfil ao declarar o servidor à sessão: revisão do roteiro (#308), origem que delega e subordinada que
-// responde (#309). O Worker confere o perfil de novo em cada chamada, pelo canal da sessão; o argumento só decide o
-// que a CLI lista.
+// responde (#309), e o coordenador de uma Coordenada (#310, PR 3): planejamento (propor_plano) e síntese
+// (entregar_sintese), um perfil por etapa. O Worker confere o perfil de novo em cada chamada, pelo canal da sessão; o
+// argumento só decide o que a CLI lista.
 public enum PerfilDeCoordenacao
 {
     Revisao,
     Origem,
-    Delegacao
+    Delegacao,
+    Planejamento,
+    Sintese
 }
 
 public static class ServidorMcpDeCoordenacao
@@ -36,6 +39,8 @@ public static class ServidorMcpDeCoordenacao
     public const string EstadoDaExecucao = "estado_da_execucao";
     public const string EntregarResultado = "entregar_resultado";
     public const string ConsultarAgente = "consultar_agente";
+    public const string ProporPlano = "propor_plano";
+    public const string EntregarSintese = "entregar_sintese";
 
     private static readonly JsonSerializerOptions JsonOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -45,6 +50,8 @@ public static class ServidorMcpDeCoordenacao
     {
         PerfilDeCoordenacao.Origem => "origem",
         PerfilDeCoordenacao.Delegacao => "delegacao",
+        PerfilDeCoordenacao.Planejamento => "planejamento",
+        PerfilDeCoordenacao.Sintese => "sintese",
         _ => "revisao"
     };
 
@@ -53,6 +60,8 @@ public static class ServidorMcpDeCoordenacao
         "revisao" => PerfilDeCoordenacao.Revisao,
         "origem" => PerfilDeCoordenacao.Origem,
         "delegacao" => PerfilDeCoordenacao.Delegacao,
+        "planejamento" => PerfilDeCoordenacao.Planejamento,
+        "sintese" => PerfilDeCoordenacao.Sintese,
         _ => null
     };
 
@@ -60,8 +69,52 @@ public static class ServidorMcpDeCoordenacao
     {
         PerfilDeCoordenacao.Origem => DaOrigem,
         PerfilDeCoordenacao.Delegacao => DaDelegacao,
+        PerfilDeCoordenacao.Planejamento => DoPlanejamento,
+        PerfilDeCoordenacao.Sintese => DaSintese,
         _ => Ferramentas
     };
+
+    // Coordenador no planejamento (#310): propõe o plano, que o servidor valida contra o snapshot e uma pessoa aprova
+    // antes de qualquer delegação. Substitui o bloco JSON da última mensagem.
+    private static readonly IReadOnlyList<Ferramenta> DoPlanejamento =
+    [
+        new(ProporPlano,
+            "Propõe o plano desta coordenação: unidades de consulta somente leitura (consulta.v1), cada uma para um papel " +
+            "do grupo, com dependências entre elas. O servidor valida o plano contra o snapshot congelado (papéis, " +
+            "capacidades, orçamento, ciclos) e calcula o hash; recusado, a resposta traz cada motivo e você pode corrigir " +
+            "uma vez. Aceito, ele vai à aprovação humana: nada é delegado antes dela. Escrita e ações protegidas são " +
+            "recusadas. Não envie hash. Nunca inclua credenciais.",
+            false, new JsonObject
+            {
+                ["plano"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["description"] = "{\"unidades\":[{\"id\",\"papel\",\"contrato\":\"consulta.v1\",\"objetivo\"," +
+                        "\"entrada\":{…},\"criterios\"?,\"dependeDe\"?:[ids]}]}; campos fora disso são recusados."
+                }
+            }, ["plano"])
+    ];
+
+    // Coordenador na síntese (#310, D7): entrega a síntese, validada só na estrutura contra a trilha mecânica.
+    private static readonly IReadOnlyList<Ferramenta> DaSintese =
+    [
+        new(EntregarSintese,
+            "Entrega a síntese desta coordenação, uma vez só. O servidor confere a estrutura contra a trilha das unidades: " +
+            "toda unidade de toda revisão citada ao menos uma vez; conclusões e divergências citam só unidades respondidas, " +
+            "com o hash do resultado; divergência cita ao menos duas unidades; unidade sem resposta só em inconclusivos. " +
+            "Não invente consenso: resultados que discordam são divergência. Recusada, corrija uma vez. Nunca inclua " +
+            "credenciais.",
+            false, new JsonObject
+            {
+                ["sintese"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["description"] = "{\"resumo\",\"conclusoes\":[item],\"divergencias\":[item],\"inconclusivos\":[item]}, " +
+                        "item = {\"texto\",\"citacoes\":[{\"revisao\",\"unidade\",\"hash\"}]} (sem hash para unidade sem " +
+                        "resposta)."
+                }
+            }, ["sintese"])
+    ];
 
     // Origem (#309): pede delegações só de leitura aos agentes que a versão dela pode consultar e acompanha o estado. A
     // execução, a etapa, o dono, o repositório e as permissões vêm do escopo da sessão, nunca dos argumentos.
@@ -297,6 +350,10 @@ public static class ServidorMcpDeCoordenacao
             "for retomada.",
         PerfilDeCoordenacao.Delegacao => "Ferramentas de coordenação do D.A.N.T.E. para esta delegação. Entregue o " +
             "resultado pela ferramenta entregar_resultado; texto livre não registra resultado.",
+        PerfilDeCoordenacao.Planejamento => "Ferramentas de coordenação do D.A.N.T.E. para o planejamento. Entregue o " +
+            "plano pela ferramenta propor_plano; texto livre não registra plano.",
+        PerfilDeCoordenacao.Sintese => "Ferramentas de coordenação do D.A.N.T.E. para a síntese. Entregue a síntese pela " +
+            "ferramenta entregar_sintese; texto livre não registra síntese.",
         _ => "Ferramentas de coordenação do D.A.N.T.E. para esta etapa. Entregue o resultado " +
             "pela ferramenta entregar_resultado; texto livre não registra veredito."
     };

@@ -32,3 +32,13 @@ public sealed class CoordenacaoDaDelegacao(EntregaPelaFerramenta entrega) : Esco
 
     public EntregaPelaFerramenta Entrega { get; } = entrega ?? throw new ArgumentNullException(nameof(entrega));
 }
+
+// Etapa do coordenador de uma Coordenada (#310, PR 3): propor_plano no planejamento, entregar_sintese na síntese. O perfil
+// vem da etapa que o orquestrador abriu, nunca do agente.
+public sealed class CoordenacaoDoCoordenador(EntregaDoCoordenador entrega) : EscopoDeCoordenacao
+{
+    public override PerfilDeCoordenacao Perfil => Entrega.Passo == PassoDaCoordenacao.Planejamento
+        ? PerfilDeCoordenacao.Planejamento : PerfilDeCoordenacao.Sintese;
+
+    public EntregaDoCoordenador Entrega { get; } = entrega ?? throw new ArgumentNullException(nameof(entrega));
+}

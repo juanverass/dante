@@ -56,8 +56,8 @@ public sealed class ApplicationArchitectureTests
             t.Name.EndsWith("Repository", StringComparison.Ordinal) && t.Namespace!.StartsWith("Dante.Infrastructure.Modulos.", StringComparison.Ordinal)).ToArray();
         // 8 do Brain + 5 do ledger de execuções (AD-66) + 2 do cadastro de agentes (AD-68) + reservas de worktree (AD-71)
         // + 3 do cadastro de grupos (AD-69) + 4 do roteiro de grupo (#308: snapshot, participantes, pedidos de aprovação,
-        // vereditos) + delegações (AD-70, #309) + 2 da coordenação (AD-75, #310: snapshot e revisões do plano).
-        Assert.Equal(26, repositories.Length);
+        // vereditos) + delegações (AD-70, #309) + 3 da coordenação (AD-75, #310: snapshot, revisões do plano e síntese).
+        Assert.Equal(27, repositories.Length);
         Assert.All(repositories, adapter =>
         {
             var porta = Assert.Single(adapter.GetInterfaces(), i => i.Name == "I" + adapter.Name);

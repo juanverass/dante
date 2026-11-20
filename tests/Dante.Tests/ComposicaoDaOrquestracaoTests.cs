@@ -97,7 +97,7 @@ public sealed class ComposicaoDaOrquestracaoTests
         // mesmo schema e histórico.
         Assert.Equal(["Agente", "AtivacaoDeVersaoDoGrupo", "CoordenacaoDaExecucao", "Delegacao", "DependenciaDeEtapa", "EtapaDaExecucao", "EventoDeOrquestracao",
             "Execucao", "GrupoDeAgentes", "ParticipanteDaExecucao", "ParticipanteDaVersaoDoGrupo", "PedidoDeAprovacao",
-            "PlanoDaCoordenacao", "ReservaDeWorktree", "RoteiroDaExecucao", "SessaoDeAgente", "TrabalhoDaFila", "VereditoRegistrado", "VersaoDoAgente", "VersaoDoGrupo"], ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
+            "PlanoDaCoordenacao", "ReservaDeWorktree", "RoteiroDaExecucao", "SessaoDeAgente", "SinteseDaCoordenacao", "TrabalhoDaFila", "VereditoRegistrado", "VersaoDoAgente", "VersaoDoGrupo"], ledger.Model.GetEntityTypes().Select(e => e.ClrType.Name).Order());
         Assert.All(ledger.Model.GetEntityTypes(), e =>
         {
             Assert.Equal("orquestracao", e.GetSchema());

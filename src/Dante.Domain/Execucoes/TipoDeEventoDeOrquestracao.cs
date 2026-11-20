@@ -40,5 +40,10 @@ public enum TipoDeEventoDeOrquestracao
     OrigemRetomada,
     // Coordenação (#310, AD-75): a proposta do coordenador foi recusada pela validação do plano. Dados: a tentativa e os
     // motivos com a unidade; nunca o conteúdo proposto. Contado por etapa de planejamento: é a correção única do ledger.
-    PlanoRecusado
+    PlanoRecusado,
+    // Coordenação (#310, AD-75, D7): a síntese do coordenador foi recusada pela validação estrutural. Dados: a tentativa
+    // e os motivos com a referência; nunca o conteúdo. Contado por etapa de síntese: é a correção única do ledger.
+    SinteseRecusada,
+    // A síntese validada foi gravada. Dados: o hash (12) e as quantidades de conclusões, divergências e inconclusivos.
+    SinteseRegistrada
 }

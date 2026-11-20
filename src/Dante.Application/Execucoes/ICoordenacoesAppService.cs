@@ -1,7 +1,7 @@
 namespace Dante.Application.Execucoes;
 
-// Coordenação por papel (#310, AD-75), PR 2: casos de uso, fila e executor, neutros de interface (ferramentas MCP e
-// interface chegam no PR 3). As regras são as do domínio da PR 1 (ValidacaoDoPlano, PlanoDaCoordenacao,
+// Coordenação por papel (#310, AD-75): casos de uso neutros de interface (PR 2), chamados pelo executor da fila, pelas
+// ferramentas do coordenador no dante_coordenacao e pela interface (PR 3). As regras são as do domínio da PR 1 (ValidacaoDoPlano, PlanoDaCoordenacao,
 // PedidoDeAprovacao.DoPlano, Delegacao.CriarDoPlano); aqui ficam a ordem das gravações, a fila e o ciclo da execução.
 // Toda gravação de quem executa é sob posse do trabalho (AD-67); as decisões da pessoa são do proprietário (AD-74), e
 // uma execução de outro dono é indistinguível de inexistente. Paralelismo 1: uma unidade em curso por vez.
@@ -64,5 +64,29 @@ public interface ICoordenacoesAppService
     Task<ConsolidacaoMecanicaDto?> ConsolidarAsync(Guid idExecucao, CancellationToken cancellationToken = default);
 
     Task<ConsolidacaoMecanicaDto?> ConsolidarDoProprietarioAsync(ProprietarioDaExecucao proprietario, string codigo,
+        CancellationToken cancellationToken = default);
+
+    // Síntese do coordenador (D7, PR 3). Aberta pelo avanço que encerra as unidades, só se ao menos uma foi respondida;
+    // o estado final da execução continua decidido pelas unidades. Para o executor (só leitura): a trilha mecânica e a
+    // versão congelada do coordenador. Etapa que não é síntese em aberto: InvalidOperationException.
+    Task<SinteseParaRedigirDto> ObterSinteseAsync(Guid idExecucao, Guid idEtapa, CancellationToken cancellationToken = default);
+
+    // A síntese entregue pelo coordenador, sob posse da etapa de síntese em curso. Validação pura do domínio
+    // (ValidacaoDaSintese) contra a trilha recalculada do ledger, inteira antes de qualquer gravação, e sem credenciais.
+    // Válida: síntese gravada (hash do servidor), etapa concluída e a execução encerrada pelo desfecho das unidades.
+    // Inválida: as recusas ficam no ledger (só motivos) e voltam ao coordenador; na segunda vez, a etapa falha e a
+    // execução se encerra só com a trilha. Nula: nada entregue, conta como recusa.
+    Task<RegistroDaSinteseDto> RegistrarSinteseAsync(PosseDoTrabalho posse, Guid idEtapa, string? sintese,
+        CancellationToken cancellationToken = default);
+
+    // A síntese terminou sem entrega por falha do processo (sessão, turno, integridade): a etapa falha com o motivo e a
+    // execução se encerra pelo desfecho das unidades, só com a trilha.
+    Task<RegistroDaSinteseDto> FalharSinteseAsync(PosseDoTrabalho posse, Guid idEtapa, string motivo,
+        CancellationToken cancellationToken = default);
+
+    // Trilha mecânica e síntese validada, separadas; do proprietário (de outro dono é indistinguível de inexistente).
+    Task<ResultadoDaCoordenacaoDto?> ObterResultadoAsync(Guid idExecucao, CancellationToken cancellationToken = default);
+
+    Task<ResultadoDaCoordenacaoDto?> ObterResultadoDoProprietarioAsync(ProprietarioDaExecucao proprietario, string codigo,
         CancellationToken cancellationToken = default);
 }

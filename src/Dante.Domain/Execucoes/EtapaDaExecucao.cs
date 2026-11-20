@@ -119,6 +119,27 @@ public sealed class EtapaDaExecucao : EntidadeBase
         };
     }
 
+    // Síntese do coordenador de uma Coordenada (AD-75, D7, #310 PR 3): turno da versão congelada do coordenador, de
+    // leitura, depois das unidades do plano. Leva o papel e a versão do coordenador no snapshot (nunca os atuais do
+    // cadastro); é o que a distingue do planejamento, que é um turno do coordenador sem papel. Não é unidade de plano.
+    public static EtapaDaExecucao DaSintese(Execucao execucao, int numero, CoordenacaoDaExecucao coordenacao,
+        ParticipanteDaExecucao coordenador, DateTimeOffset criadaEm, AgentKind agente, string? modelo = null,
+        string? esforco = null)
+    {
+        ArgumentNullException.ThrowIfNull(execucao);
+        ArgumentNullException.ThrowIfNull(coordenacao);
+        ArgumentNullException.ThrowIfNull(coordenador);
+        if (execucao.Tipo != TipoDeExecucao.Coordenada || coordenacao.IdExecucao != execucao.Id ||
+            coordenador.IdExecucao != execucao.Id || coordenador.Papel != coordenacao.PapelDoCoordenador)
+            throw new InvalidOperationException("Síntese só na própria Coordenada, pelo coordenador congelado nela.");
+        return new EtapaDaExecucao(execucao, numero, TipoDeEtapa.TurnoDeAgente, false, PoliticaDeRetomada.Automatica,
+            criadaEm, agente, modelo, esforco)
+        {
+            Papel = coordenador.Papel,
+            IdVersaoDoAgente = coordenador.IdVersaoDoAgente
+        };
+    }
+
     public Guid? IdPlano { get; private set; }
     // Identificador da unidade dentro do plano (u1, pesquisa…), único por plano.
     public string? Unidade { get; private set; }

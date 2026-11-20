@@ -1,4 +1,7 @@
 using System.Globalization;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Dante.Application.Comum;
 using Dante.Application.Execucoes;
 using Dante.Domain.Execucoes;
@@ -18,7 +21,11 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
     public const string Indisponivel = "Acompanhamento de execuções indisponível (banco de dados). Tente novamente.";
     internal const string UsoDaListagem = "Uso: /execucoes [todas]";
     internal const string UsoDoDetalhe = "Uso: /execucao <J…|E…> | /execucao aprovar|corrigir <E…> <hash> [instrução] | " +
-        "/execucao recusar <E…> [motivo] | /execucao revisar <E…> | /execucao objetivo <E…> <tarefa>";
+        "/execucao recusar <E…> [motivo] | /execucao revisar <E…> | /execucao objetivo <E…> <tarefa> | " +
+        "/execucao consolidacao <E…>";
+
+    // O Telegram recusa mensagens acima de 4096 caracteres; a consolidação corta trechos e o total, e o ledger guarda tudo.
+    internal const int LimiteDaMensagem = 3900;
 
     private readonly TimeProvider relogio = relogio ?? TimeProvider.System;
 
@@ -43,6 +50,9 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
         var partes = argumentos.Trim().Split([' ', '\t', '\n'], 3, StringSplitOptions.RemoveEmptyEntries);
         if (partes.Length > 0 && partes[0].ToLowerInvariant() is "aprovar" or "corrigir" or "recusar" or "revisar" or "objetivo")
             return DecidirAsync(idDoUsuario, partes, cancellationToken);
+        if (partes.Length > 0 && partes[0].ToLowerInvariant() is "consolidacao" or "consolidação")
+            return partes.Length == 2 ? ConsolidacaoAsync(idDoUsuario, partes[1], cancellationToken)
+                : Task.FromResult(UsoDoDetalhe);
         var codigo = argumentos.Trim();
         if (codigo.Length == 0 || codigo.IndexOfAny([' ', '\t', '\r', '\n']) >= 0) return Task.FromResult(UsoDoDetalhe);
         return ExecutarAsync(async servicos =>
@@ -56,9 +66,22 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
                     cancellationToken)
                     is { } roteiro)
                 texto += "\n" + Roteiro(roteiro);
+            if (detalhe.Resumo.Tipo == TipoDeExecucao.Coordenada &&
+                await servicos.GetRequiredService<ICoordenacoesAppService>().ObterDoProprietarioAsync(Dono(idDoUsuario),
+                    codigo, cancellationToken) is { } coordenacao)
+                texto += "\n" + Coordenacao(coordenacao);
             return texto;
         });
     }
+
+    // Resultado de uma Coordenada (#310, D7): a trilha mecânica e, à parte, a síntese do coordenador, com o alcance de
+    // cada uma. Só do dono; de outro dono é indistinguível de inexistente.
+    private Task<string> ConsolidacaoAsync(long idDoUsuario, string codigo, CancellationToken cancellationToken) =>
+        ExecutarAsync(async servicos =>
+            await servicos.GetRequiredService<ICoordenacoesAppService>().ObterResultadoDoProprietarioAsync(Dono(idDoUsuario),
+                codigo, cancellationToken) is { } resultado
+                ? Consolidacao(resultado)
+                : $"Coordenação {codigo} não encontrada. Veja /execucoes.");
 
     // Gate do roteiro (#308): só interpreta e chama o caso de uso; dono, integridade, hash e rodadas são da Application.
     private Task<string> DecidirAsync(long idDoUsuario, string[] partes, CancellationToken cancellationToken)
@@ -69,6 +92,26 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
         var resto = partes.Length > 2 ? partes[2].Trim() : "";
         return ExecutarAsync(servicos => RecusaComoTextoAsync(async () =>
         {
+            // Coordenada (#310): o gate do plano. Aprovar autoriza só o plano somente leitura (não é o gateway da #311).
+            var coordenacoes = servicos.GetService<ICoordenacoesAppService>();
+            if (coordenacoes is not null &&
+                await coordenacoes.ObterDoProprietarioAsync(Dono(idDoUsuario), codigo, cancellationToken) is not null)
+            {
+                if (acao is "objetivo" or "revisar")
+                    return $"{codigo.ToUpperInvariant()} é uma coordenação: decida o plano com /execucao aprovar|corrigir|" +
+                        "recusar.";
+                DecisaoHumanaDto decisaoDoPlano;
+                if (acao == "recusar") decisaoDoPlano = new(TipoDeDecisaoHumana.Recusar, Texto: resto.Length == 0 ? null : resto);
+                else
+                {
+                    var hashETexto = resto.Split([' ', '\t', '\n'], 2, StringSplitOptions.RemoveEmptyEntries);
+                    if (hashETexto.Length == 0) return UsoDoDetalhe;
+                    decisaoDoPlano = new(acao == "aprovar" ? TipoDeDecisaoHumana.Aprovar : TipoDeDecisaoHumana.Corrigir,
+                        hashETexto[0], hashETexto.Length > 1 ? hashETexto[1] : null);
+                }
+                return DecisaoDoPlano(await coordenacoes.DecidirAsync(Dono(idDoUsuario), codigo, decisaoDoPlano,
+                    cancellationToken), codigo);
+            }
             var roteiros = servicos.GetRequiredService<IRoteirosAppService>();
             if (acao == "objetivo")
                 return await roteiros.SubstituirObjetivoAsync(Dono(idDoUsuario), codigo, resto, cancellationToken)
@@ -105,6 +148,148 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
             ResultadoDaDecisao.SemPedidoPendente => $"{resultado.Codigo} não está aguardando aprovação (ou já foi decidida).",
             _ => NaoEncontrada(codigo)
         };
+
+    private static string DecisaoDoPlano(ResultadoDaDecisaoDto resultado, string codigo) =>
+        resultado.Resultado switch
+        {
+            ResultadoDaDecisao.Aprovada => $"{resultado.Codigo}: plano aprovado (revisão {resultado.Rodada}). As unidades " +
+                "são delegadas uma por vez, só para leitura; você recebe um aviso no fim. A aprovação não concede escrita, " +
+                "commit, push nem outra ação protegida.",
+            ResultadoDaDecisao.CorrecaoAgendada => $"{resultado.Codigo}: correção pedida; o coordenador propõe a revisão " +
+                $"{resultado.Rodada} do plano, que volta a você antes de qualquer delegação.",
+            ResultadoDaDecisao.Recusada => $"{resultado.Codigo}: plano recusado e coordenação encerrada; nada foi delegado " +
+                "por este plano.",
+            ResultadoDaDecisao.SemPedidoPendente => $"{resultado.Codigo} não está aguardando a aprovação de um plano (ou já " +
+                "foi decidida).",
+            _ => NaoEncontrada(codigo)
+        };
+
+    private static string Coordenacao(CoordenacaoDaExecucaoDto c)
+    {
+        var coordenador = c.Participantes.FirstOrDefault(p => p.Papel == c.PapelDoCoordenador);
+        var linhas = new List<string>
+        {
+            $"Grupo: {c.NomeDoGrupo} v{c.NumeroDaVersaoDoGrupo} (snapshot {c.HashDoSnapshot[..12]}); coordenador: " +
+            $"{c.PapelDoCoordenador}{(coordenador is null ? "" : $" = {coordenador.Handle} v{coordenador.NumeroDaVersao}")}",
+            "Participantes: " + string.Join(", ", c.Participantes.Where(p => p.Papel != c.PapelDoCoordenador)
+                .Select(p => $"{p.Papel} = {p.Handle} v{p.NumeroDaVersao}"))
+        };
+        foreach (var plano in c.Planos)
+            linhas.Add($"Plano r{plano.Revisao} ({Motivo(plano.Motivo)}): {Estado(plano.Estado)}, " +
+                $"{plano.QuantidadeDeUnidades} unidade(s), hash {plano.Hash[..12]}");
+        var unidades = c.Etapas.Where(e => e.Passo == PassoDaCoordenacao.Unidade).ToList();
+        if (unidades.Count > 0)
+            linhas.Add("Unidades: " + string.Join("; ", unidades.Select(u =>
+                $"r{u.Revisao} {u.Unidade} → {u.Papel} ({Estado(u.Estado)})")));
+        if (c.Etapas.LastOrDefault(e => e.Passo == PassoDaCoordenacao.Sintese) is { } sintese)
+            linhas.Add($"Síntese do coordenador: {Estado(sintese.Estado)}" +
+                (sintese.CodigoDaSessao is null ? "" : $" (sessão {sintese.CodigoDaSessao})"));
+        if (c.PedidoPendente is { } pedido && c.PlanoAtual is { } atual)
+            linhas.Add($"Aguardando sua decisão sobre o plano r{atual.Revisao} (hash {pedido.HashDoArtefato[..12]}):\n" +
+                $"/execucao aprovar {c.Codigo} {pedido.HashDoArtefato[..12]}\n" +
+                $"/execucao corrigir {c.Codigo} {pedido.HashDoArtefato[..12]} <o que corrigir>\n" +
+                $"/execucao recusar {c.Codigo} [motivo]\n" +
+                "Aprovar autoriza só este plano somente leitura: não concede escrita, commit, push nem outra ação protegida.");
+        if (c.Planos.Any(p => p.Estado is EstadoDoPlano.Aprovado or EstadoDoPlano.Substituido))
+            linhas.Add($"Resultados: /execucao consolidacao {c.Codigo}");
+        return string.Join('\n', linhas);
+    }
+
+    // A trilha mecânica primeiro (sempre), depois a síntese do coordenador, cada uma com o próprio alcance. Resultados e
+    // textos vindos de agentes são cortados; nada é resumido pelo servidor.
+    internal static string Consolidacao(ResultadoDaCoordenacaoDto resultado)
+    {
+        var t = resultado.Trilha;
+        var linhas = new List<string>
+        {
+            $"Consolidação de {t.Codigo} — {t.NomeDoGrupo} v{t.NumeroDaVersaoDoGrupo} (snapshot {t.HashDoSnapshot[..12]}); " +
+            $"{Estado(t.Estado)}" + (t.Motivo is null ? "" : $" — {Curto(t.Motivo, 300)}"),
+            $"Trilha mecânica: {ConsolidacaoMecanicaDto.Alcance}"
+        };
+        foreach (var r in t.Revisoes)
+            linhas.Add($"Plano r{r.Revisao} ({Motivo(r.Motivo)}): {Estado(r.Estado)}, hash {r.Hash[..12]}" +
+                (r.Decisor is null ? "" : $", decidido por {r.Decisor}") +
+                (r.CodigoDaSessaoDoPlanejamento is null ? "" : $"; planejado na sessão {r.CodigoDaSessaoDoPlanejamento}"));
+        linhas.Add($"Unidades ({t.Respondidas} respondida(s), {t.SemResposta} sem resposta, {t.Ignoradas} ignorada(s)" +
+            (t.Abertas > 0 ? $", {t.Abertas} em aberto" : "") + "):");
+        foreach (var u in t.Unidades)
+            linhas.Add($"- r{u.Revisao} {u.Unidade} → {u.Papel} = {u.Handle} v{u.NumeroDaVersao}: {Situacao(u.Situacao)}" +
+                (u.CodigoDaSubordinada is null ? "" : $"; delegação {u.CodigoDaSubordinada}") +
+                (u.CodigoDaSessao is null ? "" : $"; sessão {u.CodigoDaSessao}") +
+                (u.HashDoResultado is null ? "" : $"; hash {u.HashDoResultado[..12]}") +
+                (u.Motivo is null ? "" : $"\n  motivo: {Curto(u.Motivo, 200)}") +
+                (u.Resultado is null ? "" : $"\n  resultado: {Curto(Legivel(u.Resultado), 300)}"));
+        if (resultado.Sintese is { } s)
+        {
+            linhas.Add($"Síntese do coordenador (hash {s.Hash[..12]}" +
+                (s.CodigoDaSessao is null ? "" : $", sessão {s.CodigoDaSessao}") + $"): {SinteseDaCoordenacaoDto.Alcance}");
+            linhas.Add($"Resumo: {Curto(s.Resumo, 500)}");
+            Itens("Conclusões", s.Conclusoes);
+            Itens("Divergências (não resolvidas)", s.Divergencias);
+            Itens("Inconclusivos", s.Inconclusivos);
+        }
+        else if (resultado.EstadoDaSintese is EstadoDaEtapa.Pendente or EstadoDaEtapa.Pronta or EstadoDaEtapa.EmExecucao)
+            linhas.Add("Síntese do coordenador: ainda não (o coordenador está elaborando).");
+        else if (resultado.EstadoDaSintese is { } estado)
+            linhas.Add($"Síntese do coordenador: {Estado(estado)}" +
+                (resultado.MotivoDaSintese is null ? "" : $" — {Curto(resultado.MotivoDaSintese, 300)}") +
+                ". Vale a trilha acima.");
+        else if (t.Estado is not (EstadoDaExecucao.Concluida or EstadoDaExecucao.Falhou or EstadoDaExecucao.Cancelada))
+            linhas.Add("Síntese do coordenador: ainda não (as unidades não terminaram).");
+        else linhas.Add("Sem síntese do coordenador: nenhuma unidade foi respondida.");
+        var texto = string.Join('\n', linhas);
+        return texto.Length <= LimiteDaMensagem ? texto
+            : texto[..LimiteDaMensagem] + "\n… (cortado; o ledger guarda a trilha e a síntese inteiras)";
+
+        void Itens(string titulo, IReadOnlyList<ItemDaSinteseDto> itens)
+        {
+            if (itens.Count == 0) return;
+            linhas.Add($"{titulo}:");
+            foreach (var item in itens)
+                linhas.Add($"- {Curto(item.Texto, 400)} [" + string.Join(", ", item.Citacoes.Select(c =>
+                    $"r{c.Revisao}/{c.Unidade}" + (c.Hash is null ? "" : $" {c.Hash[..12]}"))) + "]");
+        }
+    }
+
+    // O resultado gravado é a forma canônica (acentos escapados); para ler, o mesmo JSON sem os escapes.
+    private static readonly JsonSerializerOptions JsonLegivel = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    private static string Legivel(string json)
+    {
+        try { return JsonNode.Parse(json)?.ToJsonString(JsonLegivel) ?? json; }
+        catch (JsonException) { return json; }
+    }
+
+    private static string Curto(string texto, int limite)
+    {
+        var linha = texto.ReplaceLineEndings(" ");
+        return linha.Length <= limite ? linha : linha[..limite] + "…";
+    }
+
+    private static string Situacao(SituacaoDaUnidade situacao) => situacao switch
+    {
+        SituacaoDaUnidade.Respondida => "respondida",
+        SituacaoDaUnidade.SemResposta => "sem resposta",
+        SituacaoDaUnidade.Ignorada => "ignorada",
+        SituacaoDaUnidade.EmCurso => "em curso",
+        _ => "pendente"
+    };
+
+    private static string Motivo(MotivoDoPlano motivo) => motivo switch
+    {
+        MotivoDoPlano.Inicial => "inicial",
+        MotivoDoPlano.UnidadeSemResposta => "replanejado por unidade sem resposta",
+        _ => "corrigido a seu pedido"
+    };
+
+    private static string Estado(EstadoDoPlano estado) => estado switch
+    {
+        EstadoDoPlano.AguardandoAprovacao => "aguardando aprovação",
+        EstadoDoPlano.Aprovado => "aprovado",
+        EstadoDoPlano.Recusado => "recusado",
+        EstadoDoPlano.Substituido => "substituído",
+        _ => "cancelado"
+    };
 
     // Recusas do caso de uso (hash errado, instrução com credencial, sem rodada) já vêm em texto para o usuário; falha de
     // infraestrutura continua indo ao tratamento comum (indisponível).
@@ -271,6 +456,7 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
     {
         TipoDeExecucao.Avulsa => "job",
         TipoDeExecucao.Roteiro => "roteiro de grupo",
+        TipoDeExecucao.Coordenada => "coordenação de grupo",
         _ => "tarefa"
     };
 

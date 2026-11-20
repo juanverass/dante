@@ -15,7 +15,10 @@ namespace Dante.Application.Execucoes;
 // * gate: AprovacaoHumana com o pedido do plano (finalidade PlanoSomenteLeitura);
 // * unidades: UnidadeDoPlano materializadas do plano aprovado, cada uma executada por uma delegação consulta.v1;
 // * avanço: etapa mecânica (TurnoDeAgente sem agente, sem sessão) que encerra as unidades pelo desfecho das delegações
-//   e despacha a próxima. É a retomada da origem do ciclo das delegações (#309) e a etapa aberta pela aprovação.
+//   e despacha a próxima. É a retomada da origem do ciclo das delegações (#309) e a etapa aberta pela aprovação;
+// * síntese (PR 3, D7): turno do coordenador com o papel e a versão congelados dele, depois das unidades, só se ao menos
+//   uma foi respondida. A síntese é validada contra a trilha mecânica e gravada à parte; o estado final da execução
+//   continua decidido pelas unidades.
 public sealed class CoordenacoesAppService(
     IFilaDeTrabalho fila,
     IExecucaoRepository execucoes,
@@ -25,6 +28,7 @@ public sealed class CoordenacoesAppService(
     IParticipanteDaExecucaoRepository participantes,
     ICoordenacaoDaExecucaoRepository coordenacoes,
     IPlanoDaCoordenacaoRepository planos,
+    ISinteseDaCoordenacaoRepository sinteses,
     IPedidoDeAprovacaoRepository pedidos,
     IDelegacaoRepository delegacoes,
     ISessaoDeAgenteRepository sessoes,
@@ -35,12 +39,19 @@ public sealed class CoordenacoesAppService(
     IUnitOfWorkDaOrquestracao unidade,
     Dante.Application.Mapeamento.IMapsterTypeAdapter mapper) : ICoordenacoesAppService
 {
-    public const string SemProposta = "O coordenador terminou sem entregar o plano num bloco JSON.";
+    public const string SemProposta = "O coordenador terminou sem entregar o plano pela ferramenta propor_plano.";
+    public const string SemSintese = "O coordenador terminou sem entregar a síntese pela ferramenta entregar_sintese.";
+    public const string SinteseComCredencial = "A síntese parece conter uma credencial; reescreva sem ela.";
 
     private CicloDaDelegacao.Servicos Ciclo => new(delegacoes, execucoes, etapas, eventos, fila);
 
-    // Planejamento: turno do coordenador; avanço: a etapa mecânica, sem agente.
-    public static bool EhPlanejamento(EtapaDaExecucao etapa) => etapa.Tipo == TipoDeEtapa.TurnoDeAgente && etapa.Agente is not null;
+    // Planejamento: turno do coordenador sem papel; síntese: turno do coordenador com o papel e a versão congelados;
+    // avanço: a etapa mecânica, sem agente.
+    public static bool EhPlanejamento(EtapaDaExecucao etapa) =>
+        etapa.Tipo == TipoDeEtapa.TurnoDeAgente && etapa.Agente is not null && etapa.Papel is null;
+
+    public static bool EhSintese(EtapaDaExecucao etapa) =>
+        etapa.Tipo == TipoDeEtapa.TurnoDeAgente && etapa.Agente is not null && etapa.Papel is not null;
 
     public static bool EhAvanco(EtapaDaExecucao etapa) => etapa.Tipo == TipoDeEtapa.TurnoDeAgente && etapa.Agente is null;
 
@@ -48,7 +59,8 @@ public sealed class CoordenacoesAppService(
     {
         TipoDeEtapa.AprovacaoHumana => PassoDaCoordenacao.Gate,
         TipoDeEtapa.UnidadeDoPlano => PassoDaCoordenacao.Unidade,
-        _ => EhPlanejamento(etapa) ? PassoDaCoordenacao.Planejamento : PassoDaCoordenacao.Avanco
+        _ => EhPlanejamento(etapa) ? PassoDaCoordenacao.Planejamento
+            : EhSintese(etapa) ? PassoDaCoordenacao.Sintese : PassoDaCoordenacao.Avanco
     };
 
     public async Task<ExecucaoNaFilaDto> EnfileirarAsync(NovaCoordenacaoDto nova, CancellationToken cancellationToken = default)
@@ -511,9 +523,11 @@ public sealed class CoordenacoesAppService(
             await Transicao(execucao, etapa, etapaAntes, etapa.Estado, agora, token);
             var execucaoAntes = execucao.Estado;
             var replanejar = false;
+            var sintetizar = false;
             string? motivo = null;
             if (despachada is not null) execucao.AguardarDelegacoes();
-            else if (unidades.All(u => u.Estado == EstadoDaEtapa.Concluida)) execucao.Concluir(agora);
+            else if (unidades.All(u => u.Estado == EstadoDaEtapa.Concluida))
+                sintetizar = await SintetizarOuEncerrarAsync(execucao, etapa, plano, unidades, agora, token);
             else
             {
                 var semResposta = unidades.Count(u => u.Estado is EstadoDaEtapa.Falhou or EstadoDaEtapa.Cancelada);
@@ -539,18 +553,14 @@ public sealed class CoordenacoesAppService(
                         pendente.Ignorar("Depende de unidade sem resposta.");
                         await Transicao(execucao, pendente, antes, pendente.Estado, agora, token);
                     }
-                    motivo = $"{semResposta} unidade(s) do plano sem resposta" +
-                        (plano.Revisao >= PlanoDaCoordenacao.RevisoesMaximas
-                            ? $" e o limite de {PlanoDaCoordenacao.RevisoesMaximas} versões do plano atingido"
-                            : restantes <= 0 ? " e o orçamento de delegações esgotado" : "") +
-                        "; a consolidação mostra cada desfecho.";
-                    execucao.Falhar(motivo, agora);
+                    motivo = MotivoDaFalha(plano, semResposta, restantes);
+                    sintetizar = await SintetizarOuEncerrarAsync(execucao, etapa, plano, unidades, agora, token);
                 }
             }
             await Transicao(execucao, null, execucaoAntes, execucao.Estado, agora, token);
             if (execucao.Terminal) await EncerramentoDaCoordenacao.AoEncerrarAsync(planos, etapas, eventos, execucao, agora, token);
             await unidade.SalvarAlteracoesAsync(token);
-            avanco = new(execucao.Estado, encerradas, despachada, replanejar, motivo);
+            avanco = new(execucao.Estado, encerradas, despachada, replanejar, motivo, sintetizar);
         }, null, cancellationToken: cancellationToken);
         if (cancelar)
         {
@@ -619,6 +629,273 @@ public sealed class CoordenacoesAppService(
         return await LocalizarAsync(proprietario, codigo, cancellationToken) is { } execucao
             ? await ConsolidarAsync(execucao.Id, cancellationToken) : null;
     }
+
+    public async Task<SinteseParaRedigirDto> ObterSinteseAsync(Guid idExecucao, Guid idEtapa,
+        CancellationToken cancellationToken = default)
+    {
+        var execucao = await execucoes.ObterPorIdAsync(idExecucao, cancellationToken);
+        var etapa = await etapas.ObterPorIdAsync(idEtapa, cancellationToken);
+        if (execucao is not { Tipo: TipoDeExecucao.Coordenada } || etapa is null || etapa.IdExecucao != execucao.Id ||
+            !EhSintese(etapa) || etapa.Terminal)
+            throw new InvalidOperationException("A etapa não é uma síntese em aberto desta coordenação.");
+        var coordenacao = await coordenacoes.ObterDaExecucaoAsync(execucao.Id, cancellationToken) ??
+            throw new InvalidOperationException("A coordenação da execução não está registrada.");
+        var linhas = await participantes.ListarDaExecucaoAsync(execucao.Id, cancellationToken);
+        var participanteCoordenador = linhas.Single(p => p.Papel == coordenacao.PapelDoCoordenador);
+        var versaoDoCoordenador = await VersaoAsync(participanteCoordenador, cancellationToken);
+        var trilha = await ConsolidarAsync(execucao.Id, cancellationToken) ??
+            throw new InvalidOperationException("A trilha da coordenação não está disponível.");
+        var recusadas = (await eventos.ConsultarDoTipoAsync([execucao.Id], TipoDeEventoDeOrquestracao.SinteseRecusada,
+            cancellationToken)).Count(e => e.IdEtapa == etapa.Id);
+        return new SinteseParaRedigirDto(execucao.Id, execucao.Codigo, execucao.Canal, execucao.IdDoUsuarioNoCanal,
+            execucao.Contexto, coordenacao.ObjetivoRedigido, coordenacao.NomeDoGrupo, coordenacao.NumeroDaVersaoDoGrupo,
+            coordenacao.PapelDoCoordenador, participanteCoordenador.HandleDoAgente,
+            mapper.Mapear<VersaoDoAgente, VersaoDoAgenteDto>(versaoDoCoordenador), trilha, recusadas);
+    }
+
+    public async Task<RegistroDaSinteseDto> RegistrarSinteseAsync(PosseDoTrabalho posse, Guid idEtapa, string? sintese,
+        CancellationToken cancellationToken = default)
+    {
+        RegistroDaSinteseDto? registro = null;
+        var cancelar = false;
+        await fila.GravarComPosseAsync(posse, async token =>
+        {
+            var (execucao, etapa) = await CarregarAsync(idEtapa, token);
+            if (!EhSintese(etapa) || etapa.Estado != EstadoDaEtapa.EmExecucao)
+                throw new InvalidOperationException("Só a síntese em curso recebe a síntese do coordenador.");
+            if (await CancelamentoPedidoAsync(execucao.Id, token))
+            {
+                cancelar = true;
+                return;
+            }
+            // A trilha é recalculada do ledger aqui, sob posse: a síntese é conferida contra o que está gravado, nunca
+            // contra o que o executor ou o agente viram antes.
+            var trilha = await ConsolidarAsync(execucao.Id, token) ??
+                throw new InvalidOperationException("A trilha da coordenação não está disponível.");
+            var citaveis = trilha.Unidades.Select(u => new UnidadeDaTrilha(u.Revisao, u.Unidade,
+                u.Situacao == SituacaoDaUnidade.Respondida ? u.HashDoResultado : null)).ToArray();
+            // A síntese vai ao ledger e à pessoa: com aparência de credencial, é recusada como qualquer síntese inválida.
+            var validacao = sintese is null
+                ? new ResultadoDaValidacaoDaSintese(null,
+                    [new RecusaDaSintese(MotivoDaRecusaDaSintese.FormaInvalida, null, SemSintese)])
+                : ProtecaoDeSegredos.ContemSegredo(sintese)
+                    ? new ResultadoDaValidacaoDaSintese(null,
+                        [new RecusaDaSintese(MotivoDaRecusaDaSintese.TextoInvalido, null, SinteseComCredencial)])
+                    : ValidacaoDaSintese.Validar(sintese, citaveis);
+            var agora = fila.Agora;
+            var execucaoAntes = execucao.Estado;
+            var etapaAntes = etapa.Estado;
+            if (!validacao.Valido)
+            {
+                var anteriores = (await eventos.ConsultarDoTipoAsync([execucao.Id], TipoDeEventoDeOrquestracao.SinteseRecusada,
+                    token)).Count(e => e.IdEtapa == etapa.Id);
+                var tentativa = anteriores + 1;
+                await eventos.AdicionarAsync(EventoDeOrquestracao.DaExecucao(execucao, TipoDeEventoDeOrquestracao.SinteseRecusada,
+                    Json(new()
+                    {
+                        ["tentativa"] = Numero(tentativa),
+                        ["recusas"] = Cortar(string.Join("; ", validacao.Recusas.Select(r =>
+                            r.Referencia is null ? r.Motivo.ToString() : $"{r.Motivo}:{r.Referencia}")), 1000)
+                    }), agora, etapa), token);
+                if (tentativa <= ValidacaoDaSintese.CorrecoesPermitidas)
+                {
+                    await unidade.SalvarAlteracoesAsync(token);
+                    registro = new(DesfechoDaSintese.CorrecaoPedida, execucao.Estado, validacao.Recusas);
+                    return;
+                }
+                var erro = Cortar("Síntese inválida depois da correção permitida: " +
+                    string.Join("; ", validacao.Recusas.Select(r => r.Mensagem)), Execucao.TamanhoMaximoDoTexto);
+                etapa.Falhar(erro, null, agora);
+                await Transicao(execucao, etapa, etapaAntes, etapa.Estado, agora, token);
+                await EncerrarPelasUnidadesAsync(execucao, agora, token);
+                await Transicao(execucao, null, execucaoAntes, execucao.Estado, agora, token);
+                await EncerramentoDaCoordenacao.AoEncerrarAsync(planos, etapas, eventos, execucao, agora, token);
+                await unidade.SalvarAlteracoesAsync(token);
+                registro = new(DesfechoDaSintese.Encerrada, execucao.Estado, validacao.Recusas);
+                return;
+            }
+            var gravada = new SinteseDaCoordenacao(execucao, etapa, validacao.Sintese!, agora);
+            await sinteses.AdicionarAsync(gravada, token);
+            var lida = Ler(gravada, null);
+            await eventos.AdicionarAsync(EventoDeOrquestracao.DaExecucao(execucao, TipoDeEventoDeOrquestracao.SinteseRegistrada,
+                Json(new()
+                {
+                    ["sintese"] = gravada.Hash[..12],
+                    ["conclusoes"] = Numero(lida.Conclusoes.Count),
+                    ["divergencias"] = Numero(lida.Divergencias.Count),
+                    ["inconclusivos"] = Numero(lida.Inconclusivos.Count)
+                }), agora, etapa), token);
+            etapa.Concluir(null, agora);
+            await Transicao(execucao, etapa, etapaAntes, etapa.Estado, agora, token);
+            await EncerrarPelasUnidadesAsync(execucao, agora, token);
+            await Transicao(execucao, null, execucaoAntes, execucao.Estado, agora, token);
+            await EncerramentoDaCoordenacao.AoEncerrarAsync(planos, etapas, eventos, execucao, agora, token);
+            await unidade.SalvarAlteracoesAsync(token);
+            registro = new(DesfechoDaSintese.Registrada, execucao.Estado, [], gravada.Hash);
+        }, null, cancellationToken: cancellationToken);
+        if (cancelar)
+        {
+            var estado = await filaDeExecucoes.ConcluirEtapaAsync(posse, idEtapa,
+                new ResultadoDaEtapaDto(EstadoDaEtapa.Cancelada), cancellationToken);
+            return new(DesfechoDaSintese.Cancelada, estado == EstadoDaEtapa.Cancelada ? EstadoDaExecucao.Cancelada
+                : EstadoDaExecucao.Falhou, []);
+        }
+        if (registro!.Desfecho != DesfechoDaSintese.CorrecaoPedida)
+            await fila.GravarComPosseAsync(posse, null, EstadoDoTrabalho.Concluido, cancellationToken: cancellationToken);
+        return registro;
+    }
+
+    public async Task<RegistroDaSinteseDto> FalharSinteseAsync(PosseDoTrabalho posse, Guid idEtapa, string motivo,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(motivo);
+        RegistroDaSinteseDto? registro = null;
+        var cancelar = false;
+        await fila.GravarComPosseAsync(posse, async token =>
+        {
+            var (execucao, etapa) = await CarregarAsync(idEtapa, token);
+            if (!EhSintese(etapa) || etapa.Terminal)
+                throw new InvalidOperationException("Só uma síntese em aberto é encerrada aqui.");
+            if (await CancelamentoPedidoAsync(execucao.Id, token))
+            {
+                cancelar = true;
+                return;
+            }
+            var agora = fila.Agora;
+            var execucaoAntes = execucao.Estado;
+            var etapaAntes = etapa.Estado;
+            if (etapa.Estado is EstadoDaEtapa.Pendente)
+            {
+                etapa.TornarPronta([]);
+                etapa.Iniciar(agora);
+            }
+            else if (etapa.Estado is EstadoDaEtapa.Pronta) etapa.Iniciar(agora);
+            // Sem síntese, o fim é o das unidades: uma falha do coordenador ao sintetizar não desfaz resultados entregues.
+            etapa.Falhar(Cortar(motivo, Execucao.TamanhoMaximoDoTexto), null, agora);
+            await Transicao(execucao, etapa, etapaAntes, etapa.Estado, agora, token);
+            await EncerrarPelasUnidadesAsync(execucao, agora, token);
+            await Transicao(execucao, null, execucaoAntes, execucao.Estado, agora, token);
+            await EncerramentoDaCoordenacao.AoEncerrarAsync(planos, etapas, eventos, execucao, agora, token);
+            await unidade.SalvarAlteracoesAsync(token);
+            registro = new(DesfechoDaSintese.Encerrada, execucao.Estado, []);
+        }, null, cancellationToken: cancellationToken);
+        if (cancelar)
+        {
+            var estado = await filaDeExecucoes.ConcluirEtapaAsync(posse, idEtapa,
+                new ResultadoDaEtapaDto(EstadoDaEtapa.Cancelada), cancellationToken);
+            return new(DesfechoDaSintese.Cancelada, estado == EstadoDaEtapa.Cancelada ? EstadoDaExecucao.Cancelada
+                : EstadoDaExecucao.Falhou, []);
+        }
+        await fila.GravarComPosseAsync(posse, null, EstadoDoTrabalho.Concluido, cancellationToken: cancellationToken);
+        return registro!;
+    }
+
+    public async Task<ResultadoDaCoordenacaoDto?> ObterResultadoAsync(Guid idExecucao,
+        CancellationToken cancellationToken = default)
+    {
+        if (await ConsolidarAsync(idExecucao, cancellationToken) is not { } trilha) return null;
+        var etapaDaSintese = (await etapas.ListarDaExecucaoAsync(idExecucao, cancellationToken)).LastOrDefault(EhSintese);
+        if (await sinteses.ObterDaExecucaoAsync(idExecucao, cancellationToken) is not { } gravada)
+            return new ResultadoDaCoordenacaoDto(trilha, null, etapaDaSintese?.Estado,
+                etapaDaSintese?.Erro ?? etapaDaSintese?.Motivo);
+        var sessao = await sessoes.ObterPorIdAsync(gravada.IdSessaoDeAgente, cancellationToken);
+        // O que o banco guardou precisa ser exatamente a forma canônica validada contra esta trilha: não se mostra uma
+        // síntese que não confere.
+        var citaveis = trilha.Unidades.Select(u => new UnidadeDaTrilha(u.Revisao, u.Unidade,
+            u.Situacao == SituacaoDaUnidade.Respondida ? u.HashDoResultado : null)).ToArray();
+        try
+        {
+            ValidacaoDaSintese.LerCanonico(gravada.Conteudo, citaveis);
+        }
+        catch (InvalidOperationException)
+        {
+            return new ResultadoDaCoordenacaoDto(trilha, null, etapaDaSintese?.Estado,
+                "A síntese gravada não confere com a trilha desta execução; ela não é exibida.");
+        }
+        return new ResultadoDaCoordenacaoDto(trilha, Ler(gravada, sessao?.Codigo), etapaDaSintese?.Estado, null);
+    }
+
+    public async Task<ResultadoDaCoordenacaoDto?> ObterResultadoDoProprietarioAsync(ProprietarioDaExecucao proprietario,
+        string codigo, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(proprietario);
+        return await LocalizarAsync(proprietario, codigo, cancellationToken) is { } execucao
+            ? await ObterResultadoAsync(execucao.Id, cancellationToken) : null;
+    }
+
+    // Sem nada a despachar: abre a síntese do coordenador (se ao menos uma unidade de qualquer revisão foi respondida) ou
+    // encerra a execução pelo desfecho das unidades. A síntese depende da etapa de avanço que a abriu.
+    private async Task<bool> SintetizarOuEncerrarAsync(Execucao execucao, EtapaDaExecucao avanco, PlanoDaCoordenacao plano,
+        IReadOnlyList<EtapaDaExecucao> unidades, DateTimeOffset agora, CancellationToken cancellationToken)
+    {
+        var respondidas = (await delegacoes.ListarDaOrigemAsync(execucao.Id, cancellationToken))
+            .Count(d => d.Estado == EstadoDaDelegacao.Respondida);
+        if (respondidas == 0)
+        {
+            await EncerrarPeloPlanoAsync(execucao, plano, unidades, agora, cancellationToken);
+            return false;
+        }
+        var coordenacao = await coordenacoes.ObterDaExecucaoAsync(execucao.Id, cancellationToken) ??
+            throw new InvalidOperationException("A coordenação da execução não está registrada.");
+        var coordenador = (await participantes.ListarDaExecucaoAsync(execucao.Id, cancellationToken))
+            .Single(p => p.Papel == coordenacao.PapelDoCoordenador);
+        var configuracao = await ConfiguracaoDoCoordenadorAsync(execucao, cancellationToken);
+        var sintese = EtapaDaExecucao.DaSintese(execucao, await ProximoNumeroAsync(execucao.Id, cancellationToken),
+            coordenacao, coordenador, agora, configuracao.Driver, configuracao.Modelo, configuracao.Esforco);
+        await etapas.AdicionarAsync(sintese, cancellationToken);
+        await dependencias.AdicionarAsync(new DependenciaDeEtapa(sintese, avanco), cancellationToken);
+        await fila.EnfileirarAsync(TrabalhoDaFila.AvancarExecucao(execucao, sintese, ChaveDoAvanco(execucao, sintese), agora),
+            cancellationToken);
+        return true;
+    }
+
+    // Fim pelas unidades da última revisão (que, aqui, já não tem nada a despachar nem a replanejar): todas concluídas,
+    // Concluida; senão, Falhou com o motivo.
+    private async Task EncerrarPelasUnidadesAsync(Execucao execucao, DateTimeOffset agora, CancellationToken cancellationToken)
+    {
+        var plano = await planos.ObterUltimaRevisaoAsync(execucao.Id, cancellationToken) ??
+            throw new InvalidOperationException("A coordenação não tem plano.");
+        await EncerrarPeloPlanoAsync(execucao, plano, await etapas.ListarDoPlanoAsync(plano.Id, cancellationToken), agora,
+            cancellationToken);
+    }
+
+    private async Task EncerrarPeloPlanoAsync(Execucao execucao, PlanoDaCoordenacao plano,
+        IReadOnlyList<EtapaDaExecucao> unidades, DateTimeOffset agora, CancellationToken cancellationToken)
+    {
+        if (unidades.All(u => u.Estado == EstadoDaEtapa.Concluida))
+        {
+            execucao.Concluir(agora);
+            return;
+        }
+        var semResposta = unidades.Count(u => u.Estado is EstadoDaEtapa.Falhou or EstadoDaEtapa.Cancelada);
+        var restantes = LimitesDeDelegacao.Teto.DelegacoesPorExecucao -
+            await delegacoes.ContarDaRaizAsync(execucao.IdExecucaoRaiz, cancellationToken);
+        execucao.Falhar(MotivoDaFalha(plano, semResposta, restantes), agora);
+    }
+
+    private static string MotivoDaFalha(PlanoDaCoordenacao plano, int semResposta, int restantes) =>
+        $"{semResposta} unidade(s) do plano sem resposta" +
+        (plano.Revisao >= PlanoDaCoordenacao.RevisoesMaximas
+            ? $" e o limite de {PlanoDaCoordenacao.RevisoesMaximas} versões do plano atingido"
+            : restantes <= 0 ? " e o orçamento de delegações esgotado" : "") +
+        "; a consolidação mostra cada desfecho.";
+
+    // A forma canônica gravada, lida para exibição.
+    internal static SinteseDaCoordenacaoDto Ler(SinteseDaCoordenacao sintese, string? codigoDaSessao)
+    {
+        using var documento = JsonDocument.Parse(sintese.Conteudo);
+        var raiz = documento.RootElement;
+        IReadOnlyList<ItemDaSinteseDto> Itens(string nome) => raiz.GetProperty(nome).EnumerateArray()
+            .Select(item => new ItemDaSinteseDto(item.GetProperty("texto").GetString()!,
+                item.GetProperty("citacoes").EnumerateArray().Select(c => new CitacaoDaSinteseDto(
+                    c.GetProperty("revisao").GetInt32(), c.GetProperty("unidade").GetString()!,
+                    c.GetProperty("hash").ValueKind == JsonValueKind.Null ? null : c.GetProperty("hash").GetString())).ToArray()))
+            .ToArray();
+        return new SinteseDaCoordenacaoDto(sintese.Hash, raiz.GetProperty("resumo").GetString()!, Itens("conclusoes"),
+            Itens("divergencias"), Itens("inconclusivos"), codigoDaSessao, sintese.RegistradaEm);
+    }
+
+    private static string Cortar(string texto, int limite) => texto.Length <= limite ? texto : texto[..limite];
 
     // A proposta inválida: as recusas (só motivo e unidade) no ledger, contadas por etapa. Dentro da correção única, a
     // etapa continua; além dela, etapa e execução falham e a coordenação é encerrada (sem plano novo, filhos nem trabalhos).

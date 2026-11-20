@@ -256,6 +256,36 @@ public sealed class TelegramAgentesTests : IAsyncDisposable
         Assert.StartsWith("Uso: /grupo", await Send("/grupo qualquer"));
     }
 
+    // #310 (AD-75), PR 3: /grupo criar <nome> coordenador=<papel> cria um grupo no modo coordenador: sem roteiro, ninguém
+    // escreve e alguém além do coordenador recebe consulta.v1. A edição mantém o modo; o roteiro não vira coordenado.
+    [Fact]
+    public async Task GrupoCoordenadoPeloTelegramCriaEditaNoMesmoModoEAtivaComHash()
+    {
+        await using var service = await StartAsync();
+        Assert.Contains("criado (v1)", await Send("/agente criar coord driver=codex capacidades=planejar"));
+        Assert.Contains("criado (v1)", await Send("/agente criar pesq driver=codex capacidades=pesquisar"));
+        Assert.Contains("criado (v1)", await Send("/agente criar rev driver=codex capacidades=revisar"));
+        Assert.Contains("criado (v1)", await Send("/agente criar analista driver=codex capacidades=planejar"));
+        Assert.Contains("roteiro= ou coordenador=", await Send(
+            "/grupo criar pesquisa coordenador=chefe roteiro=implementar:dev,revisar:rev,aprovar\nchefe=coord\nquem=pesq"));
+        Assert.Contains("depende do gateway de aprovação", await Send(
+            "/grupo criar pesquisa coordenador=chefe\nchefe=coord\nquem=pesq escrita"));
+        Assert.Contains("não teria a quem delegar", await Send("/grupo criar pesquisa coordenador=chefe\nchefe=coord\nquem=analista"));
+        var criado = await Send("/grupo criar pesquisa coordenador=chefe repos=@dante\nchefe=coord: planeja e consolida\n" +
+            "quem=pesq: pesquisa no código\ncritico=rev");
+        Assert.Contains("Grupo pesquisa criado (v1), ainda não ativado.", criado);
+        Assert.Contains("Coordenação: coordenador chefe; plano somente leitura aprovado por você a cada execução", criado);
+        Assert.DoesNotContain("Roteiro:", criado);
+        Assert.Contains("- quem: pesq (leitura) — pesquisa no código", criado);
+        var comando = criado.Split('\n').Single(linha => linha.StartsWith("Para usá-la", StringComparison.Ordinal));
+        Assert.Contains("v1 ativada", await Send(comando[comando.IndexOf("/grupo ativar", StringComparison.Ordinal)..]));
+        Assert.Contains("pesquisa v1 — ativo, ativa v1 (coordenador chefe)", await Send("/grupos"));
+        // Edição no mesmo modo: troca o coordenador; roteiro é recusado pelo domínio.
+        Assert.Contains("agora tem a v2", await Send("/grupo editar pesquisa coordenador=quem"));
+        Assert.Contains("Coordenação: coordenador quem", await Send("/grupo ver pesquisa"));
+        Assert.Contains("não tem roteiro fixo", await Send("/grupo editar pesquisa roteiro=implementar:quem,revisar:critico,aprovar"));
+    }
+
     [Fact]
     public async Task SemCadastroOsComandosNovosFicamIndisponiveisEOsLegadosNaoMudam()
     {
