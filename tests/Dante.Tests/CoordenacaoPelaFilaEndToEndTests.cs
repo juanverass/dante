@@ -16,6 +16,7 @@ using Dante.Worker.Sessions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 using static Dante.Tests.FilaDuravelPostgreSqlTests;
 
 namespace Dante.Tests;
@@ -481,7 +482,8 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
     // PR 3 (D7): a síntese é validada só na estrutura. Uma síntese que inventa consenso (cita uma unidade e deixa a outra
     // de fora) é recusada; o turno que termina sem corrigir conta como a segunda recusa: a etapa de síntese falha e a
     // execução termina pelo desfecho das unidades (concluída), só com a trilha. O banco só aceita síntese da etapa de
-    // síntese do coordenador congelado, com a sessão vinculada e o hash do conteúdo, e nunca a altera nem remove.
+    // síntese em curso do coordenador congelado, com a sessão vinculada e o hash do conteúdo — nunca depois da falha — e
+    // nunca a altera nem remove.
     [PostgreSqlFact]
     public async Task SinteseInvalidaDuasVezesEncerraPelasUnidadesSoComATrilha()
     {
@@ -523,7 +525,8 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         Assert.Contains($"Coordenação {codigo} (pesquisa v1) concluída", fim);
         Assert.Contains("Sem síntese do coordenador (Síntese inválida depois da correção permitida", fim);
 
-        // Por fora do domínio: pela etapa de planejamento (sem papel), ou com o hash que não é o do conteúdo, recusada.
+        // Por fora do domínio: pela etapa de planejamento (sem papel), com o hash que não é o do conteúdo, ou pela etapa
+        // de síntese depois que ela falhou e a execução terminou, recusada.
         string Inserir(string filtro, string hashDoConteudo) => $"""
             INSERT INTO orquestracao.sinteses_da_coordenacao
                 (id, id_execucao, id_etapa, id_sessao_de_agente, conteudo, hash, registrada_em)
@@ -537,17 +540,156 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         Assert.Contains("síntese só pela etapa de síntese", planejamento.Message);
         var adulterada = await Assert.ThrowsAnyAsync<Exception>(() => a.SqlAsync(Inserir("e.papel IS NOT NULL", $"'{new string('0', 64)}'")));
         Assert.Contains("o hash da síntese não é o do conteúdo", adulterada.Message);
-        // Pela etapa de síntese, com a sessão vinculada e o hash do conteúdo, o banco aceita; a leitura confere a forma
-        // canônica contra a trilha e não exibe o que não confere. Depois, nada muda nem sai.
-        await a.SqlAsync(Inserir("e.papel IS NOT NULL", doConteudo));
+        var depoisDaFalha = await Assert.ThrowsAnyAsync<Exception>(() => a.SqlAsync(Inserir("e.papel IS NOT NULL", doConteudo)));
+        Assert.Contains("síntese só com a execução aberta e a etapa de síntese em execução", depoisDaFalha.Message);
+        Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.sinteses_da_coordenacao"));
+        // Uma linha que só existe com os triggers desligados (restauração adulterada): a leitura confere a forma canônica
+        // contra a trilha e não exibe o que não confere. Com os triggers ligados, nada muda nem sai.
+        await a.SqlAsync("SET session_replication_role = replica; " + Inserir("e.papel IS NOT NULL", doConteudo) +
+            "; SET session_replication_role = origin");
         var naoConfere = (await a.ResultadoAsync(codigo))!;
         Assert.Null(naoConfere.Sintese);
         Assert.Contains("não confere com a trilha", naoConfere.MotivoDaSintese);
-        await Assert.ThrowsAnyAsync<Exception>(() => a.SqlAsync(Inserir("e.papel IS NOT NULL", doConteudo)));
         Assert.Contains("imutável", (await Assert.ThrowsAnyAsync<Exception>(() =>
             a.SqlAsync("UPDATE orquestracao.sinteses_da_coordenacao SET conteudo = 'y'"))).Message);
         Assert.Contains("imutável", (await Assert.ThrowsAnyAsync<Exception>(() =>
             a.SqlAsync("DELETE FROM orquestracao.sinteses_da_coordenacao"))).Message);
+    }
+
+    // Review da PR 3: por SQL direto, o banco só aceita a síntese com a execução aberta, a etapa de síntese em execução e
+    // uma sessão desta execução e do coordenador congelado — não basta o id coincidir com o vínculo da etapa. Cada
+    // tentativa adultera o vínculo com os triggers desligados e insere com eles ligados, na mesma transação implícita,
+    // que a recusa desfaz.
+    [PostgreSqlFact]
+    public async Task SinteseSoPelaEtapaEmCursoComSessaoDestaExecucaoEDoCoordenadorCongelado()
+    {
+        await using var a = await Ambiente.CriarAsync();
+        var codigo = await a.CoordenacaoAsync();
+        a.Iniciar();
+        var coordenador = await a.DriverAsync(c => c.StartsWith("turn:Planejamento da coordenação", StringComparison.Ordinal));
+        await a.ProporEEncerrarAsync(coordenador, Plano);
+        await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.AguardandoAprovacao);
+        await a.DecidirAsync(codigo, TipoDeDecisaoHumana.Aprovar, (await a.CoordenacaoDtoAsync())!.PlanoAtual!.Hash[..12]);
+        var indice = await a.DriverAsync(c => c.StartsWith("turn:Delegação", StringComparison.Ordinal));
+        Assert.True((bool)JsonNode.Parse(await a.EntregarAsync(indice, Resposta))!["registrado"]!);
+        Responder(indice, "Entregue.");
+        var consulta = await a.DriverAsync(c => c.StartsWith("turn:Delegação", StringComparison.Ordinal), depoisDe: indice);
+        Assert.True((bool)JsonNode.Parse(await a.EntregarAsync(consulta, Resposta.Replace("Há ix_estado.", "Cobre.")))!["registrado"]!);
+        Responder(consulta, "Entregue.");
+        var sintetizador = await a.DriverAsync(c => c.StartsWith("turn:Síntese da coordenação", StringComparison.Ordinal));
+        Assert.Equal(EstadoDaExecucao.EmExecucao, await a.EstadoAsync());
+        // Uma versão nova do coordenador, publicada depois do snapshot.
+        await a.EditarAgenteAsync("coordenador");
+
+        var id = a.IdExecucao;
+        var daSintese = $"id_execucao = '{id}' AND tipo = {(int)TipoDeEtapa.TurnoDeAgente} AND papel IS NOT NULL AND id_plano IS NULL";
+        Assert.Equal((long)EstadoDaEtapa.EmExecucao, await a.Escalar($"SELECT estado FROM orquestracao.etapas_da_execucao WHERE {daSintese}"));
+        var sessaoDaEtapa = await a.TextoAsync($"SELECT id_sessao_de_agente::text FROM orquestracao.etapas_da_execucao WHERE {daSintese}");
+        const string doConteudo = "encode(sha256(convert_to('x', 'UTF8')), 'hex')";
+        var inserir = $"""
+            INSERT INTO orquestracao.sinteses_da_coordenacao
+                (id, id_execucao, id_etapa, id_sessao_de_agente, conteudo, hash, registrada_em)
+            SELECT gen_random_uuid(), e.id_execucao, e.id, e.id_sessao_de_agente, 'x', {doConteudo}, now()
+              FROM orquestracao.etapas_da_execucao e WHERE {daSintese}
+            """;
+        string VincularEInserir(string sessao) =>
+            "SET session_replication_role = replica; " +
+            $"UPDATE orquestracao.etapas_da_execucao SET id_sessao_de_agente = {sessao} WHERE {daSintese}; " +
+            "SET session_replication_role = origin; " + inserir;
+        // Cópias da sessão do coordenador, cada uma com uma diferença (o resto, inclusive canal e dono, igual).
+        string[] colunas =
+        [
+            "id", "agente", "boot_do_worker", "canal", "contexto", "criada_em", "encerrada_em", "esforco", "estado",
+            "handle_do_agente", "hash_da_configuracao_do_agente", "id_do_dono", "id_execucao", "id_upstream",
+            "id_versao_do_agente", "iniciada_em", "maquina_do_worker", "modelo", "modelo_informado", "motivo_do_fim",
+            "numero", "perfil", "unidade_de_contencao"
+        ];
+        async Task<string> CopiarSessaoAsync(Dictionary<string, string> trocas)
+        {
+            var nova = Guid.NewGuid();
+            trocas["id"] = $"'{nova}'";
+            trocas["numero"] = "(SELECT max(numero) + 1 FROM orquestracao.sessoes_de_agente)";
+            await a.SqlAsync($"""
+                INSERT INTO orquestracao.sessoes_de_agente ({string.Join(", ", colunas)})
+                SELECT {string.Join(", ", colunas.Select(c => trocas.GetValueOrDefault(c, c)))}
+                  FROM orquestracao.sessoes_de_agente WHERE id = '{sessaoDaEtapa}'
+                """);
+            return $"'{nova}'";
+        }
+        const string daSubordinada = "(SELECT id FROM orquestracao.execucoes WHERE id_execucao_pai = '{0}' ORDER BY numero LIMIT 1)";
+        string Participante(string coluna, string papel) =>
+            $"(SELECT {coluna} FROM orquestracao.participantes_da_execucao WHERE id_execucao = '{id}' AND papel = '{papel}')";
+        const string versaoNova = """
+            (SELECT v.{0} FROM orquestracao.versoes_de_agente v JOIN orquestracao.agentes g ON g.id = v.id_agente
+              WHERE g.handle = 'coordenador' ORDER BY v.numero DESC LIMIT 1)
+            """;
+        var marcadaNaSubordinada = await CopiarSessaoAsync(new() { ["id_execucao"] = string.Format(daSubordinada, id) });
+        var deOutroDono = await CopiarSessaoAsync(new() { ["id_do_dono"] = "999" });
+        var deOutroAgente = await CopiarSessaoAsync(new()
+        {
+            ["handle_do_agente"] = Participante("handle_do_agente", "pesq"),
+            ["id_versao_do_agente"] = Participante("id_versao_do_agente", "pesq"),
+            ["hash_da_configuracao_do_agente"] = Participante("hash_da_configuracao_do_agente", "pesq")
+        });
+        var deOutraVersao = await CopiarSessaoAsync(new()
+        {
+            ["id_versao_do_agente"] = string.Format(versaoNova, "id"),
+            ["hash_da_configuracao_do_agente"] = string.Format(versaoNova, "hash_da_configuracao")
+        });
+        Assert.NotEqual(0L, await a.Escalar($"SELECT count(*) FROM orquestracao.sessoes_de_agente WHERE id = {deOutraVersao} " +
+            $"AND id_versao_do_agente <> {Participante("id_versao_do_agente", "coord")}"));
+        // A sessão real de uma etapa da subordinada (a unidade "indice"): pertence a outra execução.
+        var daOutraExecucao = $"""
+            (SELECT et.id_sessao_de_agente FROM orquestracao.etapas_da_execucao et
+               JOIN orquestracao.execucoes x ON x.id = et.id_execucao
+              WHERE x.id_execucao_pai = '{id}' AND et.id_sessao_de_agente IS NOT NULL ORDER BY x.numero LIMIT 1)
+            """;
+
+        foreach (var (sessao, recusa) in new[]
+                 {
+                     (daOutraExecucao, "a sessão da síntese não pertence a esta execução"),
+                     (marcadaNaSubordinada, "a sessão da síntese não pertence a esta execução"),
+                     (deOutroDono, "a sessão da síntese não pertence a esta execução"),
+                     (deOutroAgente, "a sessão da síntese não é a do coordenador congelado"),
+                     (deOutraVersao, "a sessão da síntese não é a do coordenador congelado")
+                 })
+        {
+            var erro = await Assert.ThrowsAnyAsync<Exception>(() => a.SqlAsync(VincularEInserir(sessao)));
+            Assert.Contains(recusa, erro.Message);
+            // A recusa desfaz a adulteração do vínculo junto com o INSERT.
+            Assert.Equal(sessaoDaEtapa, await a.TextoAsync(
+                $"SELECT id_sessao_de_agente::text FROM orquestracao.etapas_da_execucao WHERE {daSintese}"));
+        }
+        Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.sinteses_da_coordenacao"));
+
+        // Pela etapa em curso, com a sessão vinculada dela, o banco aceita (aqui numa transação desfeita, para a síntese
+        // seguir pelo caso de uso).
+        Assert.Equal(1L, await a.InserirEDesfazerAsync(inserir, "SELECT count(*) FROM orquestracao.sinteses_da_coordenacao"));
+        Assert.Equal(0L, await a.Escalar("SELECT count(*) FROM orquestracao.sinteses_da_coordenacao"));
+
+        // Pelo caso de uso, a síntese é gravada com a etapa ainda em execução e só depois a etapa conclui.
+        var hashes = (await a.ConsolidarAsync(codigo))!.Unidades.ToDictionary(u => u.Unidade, u => u.HashDoResultado!);
+        var registrada = JsonNode.Parse(await a.SintetizarAsync(sintetizador, new
+        {
+            resumo = "O índice existe e cobre a consulta.",
+            conclusoes = new[]
+            {
+                new { texto = "Existe ix_estado e ele cobre a consulta.", citacoes = new object[]
+                {
+                    new { revisao = 1, unidade = "indice", hash = hashes["indice"] },
+                    new { revisao = 1, unidade = "consulta", hash = hashes["consulta"] }
+                } }
+            }
+        }))!;
+        Assert.True((bool)registrada["registrado"]!, registrada.ToJsonString());
+        Responder(sintetizador, "Síntese entregue.");
+        await Eventually(async () => await a.EstadoAsync() == EstadoDaExecucao.Concluida);
+        Assert.Equal(1L, await a.Escalar($"SELECT count(*) FROM orquestracao.sinteses_da_coordenacao WHERE id_sessao_de_agente = '{sessaoDaEtapa}'"));
+
+        // Depois da conclusão, nem pela etapa de síntese com a sessão dela.
+        var depois = await Assert.ThrowsAnyAsync<Exception>(() => a.SqlAsync(inserir));
+        Assert.Contains("síntese só com a execução aberta e a etapa de síntese em execução", depois.Message);
+        Assert.Equal(1L, await a.Escalar("SELECT count(*) FROM orquestracao.sinteses_da_coordenacao"));
     }
 
     private static void Responder(FakeSessionDriver driver, string mensagem)
@@ -712,6 +854,28 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         public Task<long> Escalar(string sql) => FilaDuravelPostgreSqlTests.Escalar(banco, sql);
 
         public Task SqlAsync(string sql) => Executar(banco, sql);
+
+        public async Task<string> TextoAsync(string sql)
+        {
+            await using var conexao = new NpgsqlConnection(banco.ConnectionString);
+            await conexao.OpenAsync();
+            await using var comando = new NpgsqlCommand(sql, conexao);
+            return (string)(await comando.ExecuteScalarAsync())!;
+        }
+
+        // Executa o comando numa transação, devolve a contagem vista dentro dela e desfaz tudo.
+        public async Task<long> InserirEDesfazerAsync(string sql, string contagem)
+        {
+            await using var conexao = new NpgsqlConnection(banco.ConnectionString);
+            await conexao.OpenAsync();
+            await using var transacao = await conexao.BeginTransactionAsync();
+            await using (var comando = new NpgsqlCommand(sql, conexao, transacao))
+                await comando.ExecuteNonQueryAsync();
+            await using var consulta = new NpgsqlCommand(contagem, conexao, transacao);
+            var vista = (long)(await consulta.ExecuteScalarAsync())!;
+            await transacao.RollbackAsync();
+            return vista;
+        }
 
         public Task<AvancoDaCoordenacaoDto> AvancarAsync(PosseDoTrabalho posse, Guid idEtapa) =>
             Servico(s => s.AvancarAsync(posse, idEtapa));
