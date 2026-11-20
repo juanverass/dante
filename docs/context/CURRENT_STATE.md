@@ -864,8 +864,9 @@ MCP, síntese e interface (PR 3):
   ledger: todas as unidades de todas as revisões citadas; conclusão e divergência só com unidade respondida, citada
   pelo hash do resultado persistido; divergência com ao menos duas unidades; unidade sem resposta só em inconclusivo;
   sem campo desconhecido nem credencial. Forma canônica e SHA-256 do servidor, gravadas em `sinteses_da_coordenacao`
-  (uma por execução, imutável, conferida por trigger; migration `SinteseDaCoordenacao`, não aplicada no banco
-  canônico). Uma correção; inválida de novo ou não entregue, a etapa de síntese falha e a execução termina pelas
+  (uma por execução, imutável; o trigger só aceita com a execução aberta, a etapa de síntese em execução e a sessão
+  desta execução e do coordenador congelado, mesmo por SQL direto; migration `SinteseDaCoordenacao`, não aplicada no
+  banco canônico). Uma correção; inválida de novo ou não entregue, a etapa de síntese falha e a execução termina pelas
   unidades, só com a trilha. A etapa de síntese é um turno do coordenador com o papel e a versão do snapshot.
 - **Cadastro:** `/grupo criar <nome> coordenador=<papel>` (sem roteiro, sem escrita, alguém além do coordenador com
   capacidade para `consulta.v1`); a edição mantém o modo.

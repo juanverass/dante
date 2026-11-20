@@ -3306,8 +3306,13 @@ Decisão:
     inconclusivo e sem hash; campo desconhecido (inclusive um hash da síntese) recusado; credencial recusada;
   * forma canônica (NFC, `\n`, chaves em ordem, citações em ordem e sem repetição) e SHA-256 do servidor, gravadas em
     `sinteses_da_coordenacao`: uma por execução e por etapa; o trigger confere a etapa de síntese do coordenador
-    congelado, a sessão vinculada e o hash do conteúdo, e recusa UPDATE e DELETE. A leitura relê a forma canônica contra
-    a trilha e não exibe o que não confere;
+    congelado, a sessão vinculada e o hash do conteúdo, e recusa UPDATE e DELETE. Repete no banco as condições do
+    domínio, mesmo por SQL direto: execução não terminal e etapa `EmExecucao`, lidas sob trava `FOR NO KEY UPDATE`
+    (o nível do UPDATE que as encerra); sessão desta execução (canal e dono da execução, `id_execucao` nulo ou o desta,
+    nenhuma etapa de outra execução vinculada a ela) e do coordenador congelado (handle, versão e hash da configuração
+    do participante) — não basta o id coincidir com o vínculo da etapa. Por isso o caso de uso grava a síntese antes de
+    concluir a etapa, na mesma transação da posse. A leitura relê a forma canônica contra a trilha e não exibe o que não
+    confere;
   * uma correção (evento `SinteseRecusada` por etapa); inválida de novo, não entregue ou com falha do processo, a etapa
     de síntese falha e a execução termina pelas unidades, só com a trilha: uma síntese ruim não desfaz resultados;
   * validação estrutural: não avalia o mérito nem resolve divergência, e é sempre exibida com esse alcance, ao lado da
