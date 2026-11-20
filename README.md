@@ -820,6 +820,43 @@ na hora da decisão e, se o conteúdo mudou, não decide nada e pede uma nova re
 Enquanto espera a decisão, o roteiro não ocupa a vaga de escrita, e a worktree dele continua reservada; as
 alterações aprovadas ficam na worktree, preservada.
 
+### Grupos coordenados
+
+Um grupo também pode ter um **coordenador** em vez de um roteiro fixo. O coordenador é um papel do grupo, não um agente
+especial: não ganha permissão nenhuma por coordenar. Ninguém escreve num grupo coordenado (escrita e ações protegidas
+dependem do gateway de aprovação, ainda inexistente), e ao menos um participante além do coordenador precisa ter
+capacidade para consultas de leitura (`pesquisar`, `revisar`, …).
+
+```text
+/grupo criar pesquisa coordenador=chefe repos=@dante
+chefe=coord: planeja e consolida
+quem=pesq: pesquisa no código
+critico=rev: revisa as conclusões
+/grupo ativar pesquisa v1 <hash>
+/grupo pesquisa @dante investigue o índice por estado
+```
+
+A cada pedido, o coordenador propõe um **plano somente leitura**: até 4 consultas, cada uma para um papel do grupo, com
+as dependências entre elas. O D.A.N.T.E. valida o plano contra a versão congelada do grupo e calcula o hash; você
+recebe o plano com o hash e decide:
+
+```text
+/execucao aprovar E42 <hash>                         autoriza só este plano somente leitura
+/execucao corrigir E42 <hash> inclua o índice parcial  o coordenador propõe outra versão (até 3)
+/execucao recusar E42 [motivo]                       encerra sem delegar nada
+```
+
+Aprovado, as consultas rodam uma por vez, cada uma numa sessão de leitura do agente do papel. No fim, o coordenador
+entrega uma síntese com conclusões, divergências e itens inconclusivos, e você recebe um aviso:
+
+```text
+/execucao consolidacao E42   a trilha de cada consulta (agente, versão, sessão, resultado e hash) e, à parte, a síntese
+```
+
+A síntese é conferida só na estrutura: cobre todas as consultas e cita os resultados gravados pelo hash. O D.A.N.T.E.
+não avalia o mérito do que o coordenador afirma; resultados que discordam aparecem como divergência, não são
+resolvidos, e nada ali prova consenso. Sem síntese válida, vale a trilha.
+
 ## Acompanhamento de execuções
 
 Com o mesmo banco e `Orquestracao:Habilitada=true`, cada usuário acompanha e cancela as **próprias** execuções

@@ -276,8 +276,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   determinístico e gate humano (#308, AD-69) integrados em três PRs (cadastro, gate durável e executor com a fundação
   do `dante_coordenacao`); delegação rastreada (#309, AD-70) integrada em três PRs (domínio e persistência;
   Application, fila e executor; ferramentas MCP no `dante_coordenacao`); coordenação por papel (#310, AD-75) em
-  andamento: domínio e persistência no PR 1 (integrado, #321), Application/fila/executor no PR 2 (em revisão) e
-  MCP/interface no PR 3, cada um só depois da revisão do anterior.
+  andamento: domínio e persistência no PR 1 (integrado, #321), Application/fila/executor no PR 2 (integrado, #322) e
+  MCP, síntese e interface no PR 3 (em revisão).
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -804,11 +804,12 @@ subordinada, rodam sem pedir aprovação em plan (Claude: `--allowedTools`; Code
 existir artefato verificável. Exige banco e
 `Orquestracao:Habilitada` (desligado no homelab). Migration `Delegacoes` não aplicada no banco canônico.
 
-## Coordenação por papel (#310, AD-75 — domínio, persistência, Application, fila e executor)
+## Coordenação por papel (#310, AD-75 — domínio, persistência, execução, MCP, síntese e interface)
 
-Etapa 8 da Epic #296, em duas entregas até aqui (PR 1: domínio e persistência; PR 2: casos de uso, fila e executor).
-Ainda sem ferramenta MCP, comando ou cadastro de grupo no modo coordenador pela interface, então nada cria uma
-coordenação em produção. Um grupo pode ter o modo `Coordenador` (papel do coordenador indicado, sem roteiro e
+Etapa 8 da Epic #296, em três entregas (PR 1: domínio e persistência; PR 2: casos de uso, fila e executor; PR 3:
+ferramentas do coordenador no `dante_coordenacao`, síntese validada, cadastro, comandos e avisos). Exige banco e
+`Orquestracao:Habilitada`, desligado no homelab: em produção, nada cria uma coordenação enquanto a chave não for
+ativada. Um grupo pode ter o modo `Coordenador` (papel do coordenador indicado, sem roteiro e
 sem participante com escrita; o hash do modo Roteiro continua byte a byte o mesmo). A execução `Coordenada` aponta para
 a versão do grupo e para a versão congelada do coordenador, com snapshot imutável (`CoordenacaoDaExecucao` +
 participantes) que é a autoridade da execução: mudanças posteriores no cadastro não a ampliam.
@@ -833,7 +834,8 @@ Paralelismo continua 1.
 
 Execução (PR 2, `ICoordenacoesAppService` e `ExecutorDeCoordenacoesDaFila`):
 - **Planejamento:** sessão reservada da versão congelada do coordenador, em `plan`, no contexto congelado, sem o
-  ambiente do Worker e vinculada à etapa. A proposta é o bloco JSON da última mensagem. O servidor valida e:
+  ambiente do Worker e vinculada à etapa. A proposta chega pela ferramenta `propor_plano` (PR 3), gravada na hora sob
+  a posse da etapa; o turno que termina sem ela conta como recusa. O servidor valida e:
   - se o plano é válido, grava a revisão e abre o gate;
   - se é inválido, devolve as recusas uma vez, na mesma sessão (contadas pelo evento `PlanoRecusado`);
   - se é inválido de novo, encerra sem plano, filhos nem trabalhos.
@@ -844,18 +846,41 @@ Execução (PR 2, `ICoordenacoesAppService` e `ExecutorDeCoordenacoesDaFila`):
   não por `PodeConsultar`.
 - **Retomada:** a retomada da origem conclui a unidade pelo desfecho da delegação e despacha a seguinte.
 - **Fim da execução:**
-  - todas as unidades respondidas: `Concluida`;
-  - unidade sem resposta: replanejamento `UnidadeSemResposta`, com gate próprio, se couber revisão e orçamento;
-  - senão, `Falhou`, com as dependentes `Ignorada`.
+  - nada a despachar e unidade sem resposta: replanejamento `UnidadeSemResposta`, com gate próprio, se couber revisão
+    e orçamento;
+  - senão, com ao menos uma unidade respondida, a síntese do coordenador (PR 3); sem nenhuma, o fim direto;
+  - o estado final vem das unidades: todas respondidas, `Concluida`; senão, `Falhou`, com as dependentes `Ignorada`.
 - **Cancelamento e qualquer fim:** encerram o plano em espera e as etapas abertas; as subordinadas recebem o pedido
   durável.
 - **Consolidação mecânica:** trilha do ledger com todas as unidades de todas as revisões, com agente, versão, sessão,
   resultado, hash e desfecho. É validação estrutural: não avalia mérito nem infere consenso.
 
+MCP, síntese e interface (PR 3):
+- **Ferramentas do coordenador:** dois perfis novos no mesmo `dante_coordenacao` (servidor, pipe, token e limite),
+  um por etapa: `planejamento` (`propor_plano`) e `sintese` (`entregar_sintese`). O perfil é o da etapa que o
+  orquestrador abriu, só em `plan`, e não exige concessão no agente (é o único canal de saída da etapa, de mundo
+  fechado). Recusas voltam na resposta da ferramenta; a correção única continua contada no ledger.
+- **Síntese validada (D7):** `ValidacaoDaSintese`, pura, confere a síntese contra a trilha mecânica recalculada do
+  ledger: todas as unidades de todas as revisões citadas; conclusão e divergência só com unidade respondida, citada
+  pelo hash do resultado persistido; divergência com ao menos duas unidades; unidade sem resposta só em inconclusivo;
+  sem campo desconhecido nem credencial. Forma canônica e SHA-256 do servidor, gravadas em `sinteses_da_coordenacao`
+  (uma por execução, imutável, conferida por trigger; migration `SinteseDaCoordenacao`, não aplicada no banco
+  canônico). Uma correção; inválida de novo ou não entregue, a etapa de síntese falha e a execução termina pelas
+  unidades, só com a trilha. A etapa de síntese é um turno do coordenador com o papel e a versão do snapshot.
+- **Cadastro:** `/grupo criar <nome> coordenador=<papel>` (sem roteiro, sem escrita, alguém além do coordenador com
+  capacidade para `consulta.v1`); a edição mantém o modo.
+- **Comandos:** `/grupo <nome> @alias <tarefa>` cria a Coordenada quando a versão ativa é do modo coordenador;
+  `/execucao E…` mostra plano, unidades e gate; `/execucao aprovar|corrigir|recusar E… <hash>` decide o plano;
+  `/execucao consolidacao E…` mostra a trilha mecânica e, à parte, a síntese, cada uma com o seu alcance.
+- **Avisos ao dono:** plano aguardando aprovação (unidades, hash e comandos), planejamento sem plano, fim (estado,
+  contagens e síntese) e cancelamento.
+
 Limitações:
 - Limite de provider (D9) chega como falha do turno, com o texto do provider preservado. Os drivers não expõem
-  classificação nem `Retry-After`, e a unidade consome a vaga do orçamento.
-- Não há replanejamento humano fora do gate nem síntese do coordenador (PR 3).
+  classificação nem `Retry-After`, e a unidade consome a vaga do orçamento (decisão pendente).
+- Não há replanejamento humano fora do gate (decisão pendente).
+- A síntese é validação estrutural: não avalia o mérito, não resolve divergência e não prova consenso.
+- A consolidação no Telegram corta resultados e textos longos para caber numa mensagem; o ledger guarda tudo.
 
 ## Worktrees por execução de escrita (#307, AD-71)
 
