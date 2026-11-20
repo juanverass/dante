@@ -80,10 +80,20 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
 
             // Síntese do coordenador (AD-75, D7): só numa Coordenada, pela etapa de síntese dela (turno do coordenador
             // congelado no snapshot, fora de plano), com a sessão vinculada à etapa e o hash dos bytes do conteúdo.
-            // Depois de gravada, nunca muda nem é removida.
+            // Só enquanto a síntese está em curso: execução não terminal (Concluida 7, Falhou 8, Cancelada 9) e etapa
+            // EmExecucao (2), lidas sob trava (o mesmo nível do UPDATE que as encerra, sem upgrade de trava). A sessão é
+            // desta execução (mesmo canal e dono, id_execucao nulo ou o desta, nenhuma etapa de outra execução vinculada a
+            // ela) e do coordenador congelado (handle, versão e hash da configuração do participante): não basta o id
+            // coincidir com o vínculo da etapa. Depois de gravada, nunca muda nem é removida.
             migrationBuilder.Sql("""
                 CREATE FUNCTION orquestracao.proteger_sintese_da_coordenacao() RETURNS trigger
                 LANGUAGE plpgsql AS $$
+                DECLARE
+                    estado_da_execucao integer;
+                    estado_da_etapa integer;
+                    handle_do_coordenador text;
+                    versao_do_coordenador uuid;
+                    hash_do_coordenador text;
                 BEGIN
                     IF TG_OP <> 'INSERT' THEN
                         RAISE EXCEPTION 'a síntese da coordenação é imutável e não é removida' USING ERRCODE = 'restrict_violation';
@@ -91,17 +101,43 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                     IF NEW.hash <> encode(sha256(convert_to(NEW.conteudo, 'UTF8')), 'hex') THEN
                         RAISE EXCEPTION 'o hash da síntese não é o do conteúdo' USING ERRCODE = 'check_violation';
                     END IF;
-                    IF NOT EXISTS (
-                           SELECT 1 FROM orquestracao.etapas_da_execucao et
-                           JOIN orquestracao.execucoes e ON e.id = et.id_execucao AND e.tipo = 4
-                           JOIN orquestracao.coordenacoes_da_execucao c ON c.id_execucao = e.id
-                           JOIN orquestracao.participantes_da_execucao pe
-                             ON pe.id_execucao = e.id AND pe.papel = c.papel_do_coordenador
-                           WHERE et.id = NEW.id_etapa AND et.id_execucao = NEW.id_execucao AND et.tipo = 1
-                             AND et.id_plano IS NULL AND et.papel = pe.papel
-                             AND et.id_versao_do_agente = pe.id_versao_do_agente
-                             AND et.id_sessao_de_agente = NEW.id_sessao_de_agente) THEN
+                    SELECT e.estado, et.estado, pe.handle_do_agente, pe.id_versao_do_agente, pe.hash_da_configuracao_do_agente
+                      INTO estado_da_execucao, estado_da_etapa, handle_do_coordenador, versao_do_coordenador, hash_do_coordenador
+                      FROM orquestracao.etapas_da_execucao et
+                      JOIN orquestracao.execucoes e ON e.id = et.id_execucao AND e.tipo = 4
+                      JOIN orquestracao.coordenacoes_da_execucao c ON c.id_execucao = e.id
+                      JOIN orquestracao.participantes_da_execucao pe
+                        ON pe.id_execucao = e.id AND pe.papel = c.papel_do_coordenador
+                     WHERE et.id = NEW.id_etapa AND et.id_execucao = NEW.id_execucao AND et.tipo = 1
+                       AND et.id_plano IS NULL AND et.papel = pe.papel
+                       AND et.id_versao_do_agente = pe.id_versao_do_agente
+                       AND et.id_sessao_de_agente = NEW.id_sessao_de_agente
+                       FOR NO KEY UPDATE OF et, e;
+                    IF NOT FOUND THEN
                         RAISE EXCEPTION 'síntese só pela etapa de síntese do coordenador congelado, com a sessão vinculada'
+                            USING ERRCODE = 'check_violation';
+                    END IF;
+                    IF estado_da_execucao IN (7, 8, 9) OR estado_da_etapa <> 2 THEN
+                        RAISE EXCEPTION 'síntese só com a execução aberta e a etapa de síntese em execução'
+                            USING ERRCODE = 'check_violation';
+                    END IF;
+                    IF NOT EXISTS (
+                           SELECT 1 FROM orquestracao.sessoes_de_agente s
+                           JOIN orquestracao.execucoes e ON e.id = NEW.id_execucao
+                           WHERE s.id = NEW.id_sessao_de_agente AND s.canal = e.canal
+                             AND s.id_do_dono = e.id_do_usuario_no_canal
+                             AND (s.id_execucao IS NULL OR s.id_execucao = NEW.id_execucao))
+                       OR EXISTS (
+                           SELECT 1 FROM orquestracao.etapas_da_execucao o
+                           WHERE o.id_sessao_de_agente = NEW.id_sessao_de_agente AND o.id_execucao <> NEW.id_execucao) THEN
+                        RAISE EXCEPTION 'a sessão da síntese não pertence a esta execução' USING ERRCODE = 'check_violation';
+                    END IF;
+                    IF NOT EXISTS (
+                           SELECT 1 FROM orquestracao.sessoes_de_agente s
+                           WHERE s.id = NEW.id_sessao_de_agente AND s.handle_do_agente = handle_do_coordenador
+                             AND s.id_versao_do_agente = versao_do_coordenador
+                             AND s.hash_da_configuracao_do_agente = hash_do_coordenador) THEN
+                        RAISE EXCEPTION 'a sessão da síntese não é a do coordenador congelado (handle, versão e configuração)'
                             USING ERRCODE = 'check_violation';
                     END IF;
                     RETURN NEW;

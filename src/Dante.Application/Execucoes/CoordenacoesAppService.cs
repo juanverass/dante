@@ -716,6 +716,9 @@ public sealed class CoordenacoesAppService(
             }
             var gravada = new SinteseDaCoordenacao(execucao, etapa, validacao.Sintese!, agora);
             await sinteses.AdicionarAsync(gravada, token);
+            // Gravada antes de concluir a etapa e encerrar a execução (mesma transação da posse): o trigger só aceita a
+            // síntese com a etapa ainda em execução, e a ordem dos comandos de um único SaveChanges não é garantida.
+            await unidade.SalvarAlteracoesAsync(token);
             var lida = Ler(gravada, null);
             await eventos.AdicionarAsync(EventoDeOrquestracao.DaExecucao(execucao, TipoDeEventoDeOrquestracao.SinteseRegistrada,
                 Json(new()
