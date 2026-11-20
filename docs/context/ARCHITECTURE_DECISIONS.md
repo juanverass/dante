@@ -3264,6 +3264,14 @@ Decisão:
       escape; `<` e `>` viram `<` e `>`;
     * assim nenhum valor fecha o literal, começa linha nova ou contém um marcador; o escape é reversível por um leitor
       JSON (revisão da PR #322).
+  * **Plano anterior no replanejamento `PedidoHumano`:** a regra de confiança vale para todo replanejamento, não só
+    para `UnidadeSemResposta`. Pedir correção no gate não torna confiável o plano anterior, que foi escrito pelo
+    coordenador e pode carregar conteúdo adversarial (segunda revisão da PR #322):
+    * a instrução da pessoa responsável é a instrução confiável e vai, sem escape, num bloco próprio entre
+      `<<<INSTRUCAO_HUMANA` e `INSTRUCAO_HUMANA>>>`, antes e separado do plano;
+    * o plano anterior entra depois, como o mesmo literal de string JSON (`LiteralNaoConfiavel`) numa linha só,
+      dentro dos marcadores de dado não confiável;
+    * como `<` e `>` são escapados no literal, o plano não fecha o bloco de dado nem falsifica o bloco da instrução.
   * **Conferência da subordinada de uma Coordenada:**
     * pela unidade de plano aprovado e pelo snapshot íntegro, com solicitante e destinatário nas versões e hashes
       congelados;
