@@ -245,7 +245,7 @@ public sealed class CoordenacaoPelaFilaEndToEndTests
         var prompt = replanejar.TurnInputs[0].Text;
         Assert.Contains("revisão 2 do plano", prompt);
         Assert.Contains("<<<DADO_NAO_CONFIAVEL", prompt);
-        Assert.Contains($"indice (pesq): Falhou; motivo: {limite}", prompt);
+        Assert.Contains($"- unidade \"indice\", papel \"pesq\": Falhou; motivo: \"{limite}\"", prompt);
         // Uma vaga do orçamento foi consumida pela delegação que falhou.
         Assert.Contains("no máximo 3 unidade(s)", prompt);
         Responder(replanejar, $"```json\n{Plano}\n```");

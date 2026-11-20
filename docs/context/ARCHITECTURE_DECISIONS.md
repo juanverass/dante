@@ -3256,6 +3256,14 @@ Decisão:
     * com a origem `AguardandoDelegacoes`, a retomada do ciclo das delegações cria o próximo avanço;
     * sem nada a despachar, a execução termina `Concluida` (todas respondidas), abre um replanejamento
       `UnidadeSemResposta` (se couber revisão e orçamento) ou termina `Falhou`, com as dependentes `Ignorada`.
+  * **Desfechos no replanejamento `UnidadeSemResposta`:** entram entre os marcadores de dado não confiável, e a
+    fronteira é garantida pela representação, não pela instrução ao modelo:
+    * cada valor vindo de agente (plano anterior, unidade, papel, motivo, resultado) vira um literal de string JSON
+      numa linha só;
+    * aspas e barra invertida são escapadas; quebras de linha (inclusive U+0085, U+2028 e U+2029) e controles viram
+      escape; `<` e `>` viram `<` e `>`;
+    * assim nenhum valor fecha o literal, começa linha nova ou contém um marcador; o escape é reversível por um leitor
+      JSON (revisão da PR #322).
   * **Conferência da subordinada de uma Coordenada:**
     * pela unidade de plano aprovado e pelo snapshot íntegro, com solicitante e destinatário nas versões e hashes
       congelados;
