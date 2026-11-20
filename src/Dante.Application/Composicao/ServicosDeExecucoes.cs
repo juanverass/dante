@@ -33,5 +33,8 @@ internal static class ServicosDeExecucoes
         // Delegação rastreada (#309, AD-70): solicitação serializada por raiz, ciclo da subordinada e retomada da origem.
         services.TryAddScoped<Dante.Application.Execucoes.IDelegacoesAppService>(provider =>
             ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.DelegacoesAppService>(provider));
+        // Coordenação por papel (#310, AD-75): plano validado, gate do plano, despacho sequencial e consolidação mecânica.
+        services.TryAddScoped<Dante.Application.Execucoes.ICoordenacoesAppService>(provider =>
+            ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.CoordenacoesAppService>(provider));
     }
 }

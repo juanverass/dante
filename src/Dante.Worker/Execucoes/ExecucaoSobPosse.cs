@@ -173,6 +173,48 @@ public sealed class ExecucaoSobPosse
         return desfecho;
     }
 
+    // Coordenação (#310): a proposta do coordenador, validada e gravada sob posse. Correção pedida mantém o trabalho
+    // (o coordenador corrige na mesma sessão); gate aberto ou execução encerrada terminam o trabalho.
+    internal async Task<RegistroDaPropostaDto> RegistrarPropostaDoPlanoAsync(string? proposta,
+        CancellationToken cancellationToken)
+    {
+        if (Concluida) throw new InvalidOperationException("Etapa já concluída.");
+        await using var escopo = escopos.CreateAsyncScope();
+        var registro = await escopo.ServiceProvider.GetRequiredService<ICoordenacoesAppService>()
+            .RegistrarPropostaAsync(posse, Alvo.IdEtapa, proposta, cancellationToken);
+        if (registro.Desfecho != DesfechoDaProposta.CorrecaoPedida)
+        {
+            await pararHeartbeat();
+            Concluida = true;
+        }
+        return registro;
+    }
+
+    // Coordenação (#310): o planejamento terminou sem proposta (sessão, turno, integridade); etapa e execução falham.
+    internal async Task<RegistroDaPropostaDto> FalharPlanejamentoAsync(string motivo, CancellationToken cancellationToken)
+    {
+        if (Concluida) throw new InvalidOperationException("Etapa já concluída.");
+        await pararHeartbeat();
+        await using var escopo = escopos.CreateAsyncScope();
+        var registro = await escopo.ServiceProvider.GetRequiredService<ICoordenacoesAppService>()
+            .FalharPlanejamentoAsync(posse, Alvo.IdEtapa, motivo, cancellationToken);
+        Concluida = true;
+        return registro;
+    }
+
+    // Coordenação (#310): a etapa mecânica de avanço (encerrar unidades, despachar a próxima, concluir ou replanejar) e
+    // o fim do trabalho.
+    internal async Task<AvancoDaCoordenacaoDto> AvancarCoordenacaoAsync(CancellationToken cancellationToken)
+    {
+        if (Concluida) throw new InvalidOperationException("Etapa já concluída.");
+        await pararHeartbeat();
+        await using var escopo = escopos.CreateAsyncScope();
+        var avanco = await escopo.ServiceProvider.GetRequiredService<ICoordenacoesAppService>()
+            .AvancarAsync(posse, Alvo.IdEtapa, cancellationToken);
+        Concluida = true;
+        return avanco;
+    }
+
     // Grava o resultado e encerra o trabalho numa transação, antes de qualquer efeito seguinte (entrega da resposta).
     // O heartbeat para antes: renovar a linha travada pela gravação só a atrasaria.
     public async Task ConcluirAsync(ResultadoDaEtapaDto resultado, CancellationToken cancellationToken)

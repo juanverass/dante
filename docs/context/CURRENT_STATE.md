@@ -276,8 +276,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   determinístico e gate humano (#308, AD-69) integrados em três PRs (cadastro, gate durável e executor com a fundação
   do `dante_coordenacao`); delegação rastreada (#309, AD-70) integrada em três PRs (domínio e persistência;
   Application, fila e executor; ferramentas MCP no `dante_coordenacao`); coordenação por papel (#310, AD-75) em
-  andamento: domínio e persistência no PR 1 (em revisão), Application/fila/executor no PR 2 e MCP/interface no PR 3,
-  cada um só depois da revisão do anterior.
+  andamento: domínio e persistência no PR 1 (integrado, #321), Application/fila/executor no PR 2 (em revisão) e
+  MCP/interface no PR 3, cada um só depois da revisão do anterior.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -804,10 +804,11 @@ subordinada, rodam sem pedir aprovação em plan (Claude: `--allowedTools`; Code
 existir artefato verificável. Exige banco e
 `Orquestracao:Habilitada` (desligado no homelab). Migration `Delegacoes` não aplicada no banco canônico.
 
-## Coordenação por papel (#310, AD-75 — domínio e persistência)
+## Coordenação por papel (#310, AD-75 — domínio, persistência, Application, fila e executor)
 
-Primeira entrega da etapa 8 da Epic #296; ainda sem caso de uso, executor, ferramenta MCP ou comando, então nada
-cria uma coordenação no runtime. Um grupo pode ter o modo `Coordenador` (papel do coordenador indicado, sem roteiro e
+Etapa 8 da Epic #296, em duas entregas até aqui (PR 1: domínio e persistência; PR 2: casos de uso, fila e executor).
+Ainda sem ferramenta MCP, comando ou cadastro de grupo no modo coordenador pela interface, então nada cria uma
+coordenação em produção. Um grupo pode ter o modo `Coordenador` (papel do coordenador indicado, sem roteiro e
 sem participante com escrita; o hash do modo Roteiro continua byte a byte o mesmo). A execução `Coordenada` aponta para
 a versão do grupo e para a versão congelada do coordenador, com snapshot imutável (`CoordenacaoDaExecucao` +
 participantes) que é a autoridade da execução: mudanças posteriores no cadastro não a ampliam.
@@ -829,6 +830,32 @@ coordenador, dependência em ordem topológica, despacho de Coordenada só de un
 participante do papel (versão e hash do snapshot), por `consulta.v1` e com a capacidade. Migration
 `CoordenacaoPorPapel`, não aplicada no banco canônico; exige banco e `Orquestracao:Habilitada` (desligado no homelab).
 Paralelismo continua 1.
+
+Execução (PR 2, `ICoordenacoesAppService` e `ExecutorDeCoordenacoesDaFila`):
+- **Planejamento:** sessão reservada da versão congelada do coordenador, em `plan`, no contexto congelado, sem o
+  ambiente do Worker e vinculada à etapa. A proposta é o bloco JSON da última mensagem. O servidor valida e:
+  - se o plano é válido, grava a revisão e abre o gate;
+  - se é inválido, devolve as recusas uma vez, na mesma sessão (contadas pelo evento `PlanoRecusado`);
+  - se é inválido de novo, encerra sem plano, filhos nem trabalhos.
+- **Gate do plano:** aprovar (pelo hash) materializa as unidades. Corrigir abre uma revisão `PedidoHumano`, com
+  planejamento próprio. Recusar cancela.
+- **Despacho:** uma etapa mecânica de avanço despacha uma unidade por vez como delegação `consulta.v1`, executada pelo
+  `ExecutorDeDelegacoesDaFila`. A conferência da subordinada de uma Coordenada é pelo plano aprovado e pelo snapshot,
+  não por `PodeConsultar`.
+- **Retomada:** a retomada da origem conclui a unidade pelo desfecho da delegação e despacha a seguinte.
+- **Fim da execução:**
+  - todas as unidades respondidas: `Concluida`;
+  - unidade sem resposta: replanejamento `UnidadeSemResposta`, com gate próprio, se couber revisão e orçamento;
+  - senão, `Falhou`, com as dependentes `Ignorada`.
+- **Cancelamento e qualquer fim:** encerram o plano em espera e as etapas abertas; as subordinadas recebem o pedido
+  durável.
+- **Consolidação mecânica:** trilha do ledger com todas as unidades de todas as revisões, com agente, versão, sessão,
+  resultado, hash e desfecho. É validação estrutural: não avalia mérito nem infere consenso.
+
+Limitações:
+- Limite de provider (D9) chega como falha do turno, com o texto do provider preservado. Os drivers não expõem
+  classificação nem `Retry-After`, e a unidade consome a vaga do orçamento.
+- Não há replanejamento humano fora do gate nem síntese do coordenador (PR 3).
 
 ## Worktrees por execução de escrita (#307, AD-71)
 

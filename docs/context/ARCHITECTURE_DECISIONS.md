@@ -3183,11 +3183,11 @@ Testes: `AcompanhamentoDeExecucoesTests`, `AcompanhamentoDeExecucoesPostgreSqlTe
 
 ## AD-75 — Coordenação por papel: plano validado, gate do plano e despacho só pelo snapshot (#310)
 
-Status: vigente no domínio e na persistência (PR 1 da #310); etapa 8 do roadmap da Epic #296. Proposta da #310 aprovada
-com as decisões D1–D9 na própria Issue. Complementa a AD-69 (modo `Coordenador` na versão de grupo, gate humano
-reutilizado) e a AD-70 (cada unidade é uma delegação `consulta.v1`), sem reescrevê-las. Depende do mesmo banco e da
-mesma chave `Orquestracao:Habilitada`; migration `CoordenacaoPorPapel`, não aplicada no banco canônico. Application,
-fila e executor (PR 2) e ferramentas MCP, interface e documentação de uso (PR 3) ainda não existem.
+Status: vigente no domínio e na persistência (PR 1 da #310, #321) e na Application, fila e executor (PR 2); etapa 8 do
+roadmap da Epic #296. Proposta da #310 aprovada com as decisões D1–D9 na própria Issue. Complementa a AD-69 (modo
+`Coordenador` na versão de grupo, gate humano reutilizado) e a AD-70 (cada unidade é uma delegação `consulta.v1`), sem
+reescrevê-las. Depende do mesmo banco e da mesma chave `Orquestracao:Habilitada`; migration `CoordenacaoPorPapel`, não
+aplicada no banco canônico. Ferramentas MCP, interface e documentação de uso (PR 3) ainda não existem.
 
 Contexto: o roteiro da AD-69 não decompõe tarefas abertas. O coordenador precisa propor um plano que o sistema valide e
 uma pessoa aprove antes de qualquer delegação, sem ganhar permissões por ser coordenador, sem ampliar a execução quando
@@ -3232,8 +3232,67 @@ Decisão:
   objetivo e critérios do plano, repositórios na interseção das versões congeladas e o teto global. Não usa
   `PodeConsultar`. O trigger da delegação confere de novo, para origem `Coordenada`: etapa de unidade de plano aprovado,
   destinatário e solicitante no snapshot (versão e hash), contrato e capacidade.
-* **Limites de provider** (D9): sem mecanismo novo nesta entrega; o comportamento inicial (falha com motivo, backoff da
-  fila) e a distinção de limite conhecido são do PR 2, com a decisão trazida antes de ampliar a fila.
+* **Execução** (PR 2): `ICoordenacoesAppService` (neutro de interface) e `ExecutorDeCoordenacoesDaFila`.
+  * **Etapas da Coordenada, todas no ledger:**
+    * planejamento: turno do coordenador, `TurnoDeAgente` com o driver da versão congelada;
+    * gate: `AprovacaoHumana` com o pedido do plano;
+    * unidades;
+    * avanço: etapa mecânica, `TurnoDeAgente` sem agente e sem sessão.
+  * **Planejamento:**
+    * sessão reservada da versão congelada do coordenador, em `plan`, no contexto congelado, sem o ambiente do Worker
+      e vinculada à etapa (proveniência da sessão);
+    * a proposta é o bloco JSON da última mensagem; a ferramenta `propor_plano` é do PR 3;
+    * o servidor revalida contra o snapshot sob posse, antes de gravar qualquer plano;
+    * a correção única é contada no ledger (evento `PlanoRecusado` por etapa, só com os motivos e nunca com o
+      conteúdo); inválido de novo, a etapa e a execução falham sem plano, filhos nem trabalhos.
+  * **Gate:**
+    * aprovar pelo hash materializa as unidades e enfileira o avanço;
+    * corrigir abre um planejamento `PedidoHumano`, dentro de 3 versões;
+    * recusar marca o plano `Recusado` e cancela a execução.
+  * **Avanço** (sob posse, numa transação):
+    * conclui as unidades em curso pelo desfecho da delegação;
+    * despacha a próxima unidade pronta da ordem topológica, uma por vez (paralelismo 1), pelo `CriarDoPlano`, com a
+      mesma montagem da #309; uma recusa do domínio faz a unidade falhar sem delegação;
+    * com a origem `AguardandoDelegacoes`, a retomada do ciclo das delegações cria o próximo avanço;
+    * sem nada a despachar, a execução termina `Concluida` (todas respondidas), abre um replanejamento
+      `UnidadeSemResposta` (se couber revisão e orçamento) ou termina `Falhou`, com as dependentes `Ignorada`.
+  * **Desfechos no replanejamento `UnidadeSemResposta`:** entram entre os marcadores de dado não confiável, e a
+    fronteira é garantida pela representação, não pela instrução ao modelo:
+    * cada valor vindo de agente (plano anterior, unidade, papel, motivo, resultado) vira um literal de string JSON
+      numa linha só;
+    * aspas e barra invertida são escapadas; quebras de linha (inclusive U+0085, U+2028 e U+2029) e controles viram
+      escape; `<` e `>` viram `<` e `>`;
+    * assim nenhum valor fecha o literal, começa linha nova ou contém um marcador; o escape é reversível por um leitor
+      JSON (revisão da PR #322).
+  * **Plano anterior no replanejamento `PedidoHumano`:** a regra de confiança vale para todo replanejamento, não só
+    para `UnidadeSemResposta`. Pedir correção no gate não torna confiável o plano anterior, que foi escrito pelo
+    coordenador e pode carregar conteúdo adversarial (segunda revisão da PR #322):
+    * a instrução da pessoa responsável é a instrução confiável e vai, sem escape, num bloco próprio entre
+      `<<<INSTRUCAO_HUMANA` e `INSTRUCAO_HUMANA>>>`, antes e separado do plano;
+    * o plano anterior entra depois, como o mesmo literal de string JSON (`LiteralNaoConfiavel`) numa linha só,
+      dentro dos marcadores de dado não confiável;
+    * como `<` e `>` são escapados no literal, o plano não fecha o bloco de dado nem falsifica o bloco da instrução.
+  * **Conferência da subordinada de uma Coordenada:**
+    * pela unidade de plano aprovado e pelo snapshot íntegro, com solicitante e destinatário nas versões e hashes
+      congelados;
+    * não pela concessão `PodeConsultar` nem pela versão atual do cadastro (editar não amplia; desativar restringe).
+  * **Fim por qualquer caminho:** a revisão em espera vira `Cancelado`; as etapas abertas viram `Ignorada` (não
+    iniciadas) ou `Cancelada`. A recuperação de origem pronta reconhece a unidade da delegação mais recente.
+  * **Consolidação mecânica (D7):**
+    * trilha gerada a partir do ledger, separada da síntese do coordenador (PR 3);
+    * cobre todas as unidades de todas as revisões, com papel, agente, versão, etapa, delegação, resultado persistido
+      com hash, sessão que entregou e motivo;
+    * cada revisão aparece com a decisão do gate e a sessão do planejamento;
+    * não avalia mérito nem infere consenso.
+* **Limites de provider** (D9), comportamento inicial documentado:
+  * O limite chega como falha do turno, com o texto do provider preservado literalmente na delegação, na etapa e na
+    trilha.
+  * `Retry-After` não chega ao D.A.N.T.E.:
+    * o driver Codex descarta o `codexErrorInfo`;
+    * o driver Claude ignora o `rate_limit_event`.
+  * A fila já sabe devolver sem consumir tentativa (`DevolverAsync(contarTentativa: false)`), mas falta o sinal. Um
+    limite durante uma unidade a termina `Falhou` e consome uma vaga do orçamento.
+  * Classificar nos drivers e devolver com `Retry-After` é mecanismo novo, pendente de decisão (registrada na #310).
 
 Consequências:
 
@@ -3242,14 +3301,19 @@ Consequências:
 * paralelismo continua 1; com profundidade 1, o orçamento de 4 delegações vale para a execução inteira, também somando
   revisões;
 * escrita em grupo coordenado e ações protegidas continuam impossíveis até a #311 (domínio, check e trigger);
-* replanejar a pedido humano no meio da execução (fora do gate) não existe nesta entrega;
-* consolidação (trilha mecânica + síntese validada, D7) é do PR 2/3.
+* replanejar a pedido humano no meio da execução (fora do gate) não existe: o domínio só aceita `PedidoHumano` sobre o
+  plano que aguarda decisão, e mudar isso é decisão pendente;
+* a trilha mecânica existe (PR 2); a síntese validada do coordenador (D7) é do PR 3;
+* criar um grupo no modo coordenador pelo cadastro e iniciar uma coordenação pela interface são do PR 3.
 
 Código: `Dante.Domain/Grupos/{ModoDeCoordenacao, ConfiguracaoDoGrupo, VersaoDoGrupo}.cs`,
 `Dante.Domain/Execucoes/{CoordenacaoDaExecucao, ValidacaoDoPlano, PlanoDaCoordenacao, FinalidadeDaAprovacao,
 PedidoDeAprovacao, Delegacao (CriarDoPlano), EtapaDaExecucao (DaUnidade), Execucao, TipoDeExecucao, TipoDeEtapa}.cs`,
 `Dante.Application/Execucoes/Portas/{ICoordenacaoDaExecucaoRepository, IPlanoDaCoordenacaoRepository}.cs`,
 `Dante.Infrastructure/Modulos/Execucoes/{CoordenacaoDaExecucao*, PlanoDaCoordenacao*}.cs`, migration
-`CoordenacaoPorPapel`. Testes: `CoordenacaoDominioTests` (validação por tabela, canonicidade, revisões, gate,
+`CoordenacaoPorPapel`; PR 2: `Dante.Application/Execucoes/{ICoordenacoesAppService, CoordenacoesAppService,
+EncerramentoDaCoordenacao, Contratos/CoordenacaoDtos}.cs`, conferência e recuperação em `DelegacoesAppService`,
+`Dante.Worker/Execucoes/ExecutorDeCoordenacoesDaFila.cs`. Testes: `CoordenacaoPelaFilaEndToEndTests`,
+`ExecutorDeCoordenacoesTests`, `CoordenacaoDominioTests` (validação por tabela, canonicidade, revisões, gate,
 materialização e despacho) e `CoordenacaoPostgreSqlTests` (proveniência, triggers e checks por fora do domínio,
 replanejamento, revisões e materializações simultâneas, migration sobre dados anteriores).

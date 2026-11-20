@@ -101,6 +101,11 @@ internal static class WorkerComposition
         services.AddSingleton(provider => ActivatorUtilities.CreateInstance<ExecutorDeDelegacoesDaFila>(provider,
             (Func<SessionRegistry>)provider.GetRequiredService<SessionRegistry>));
         services.AddSingleton<IExecutorDeEtapa>(provider => provider.GetRequiredService<ExecutorDeDelegacoesDaFila>());
+        // Coordenação por papel (#310, AD-75, PR 2): o executor de TipoDeExecucao.Coordenada (planejamento e avanço).
+        // Nada cria uma coordenação em produção até o PR 3 (interface).
+        services.AddSingleton(provider => ActivatorUtilities.CreateInstance<ExecutorDeCoordenacoesDaFila>(provider,
+            (Func<SessionRegistry>)provider.GetRequiredService<SessionRegistry>));
+        services.AddSingleton<IExecutorDeEtapa>(provider => provider.GetRequiredService<ExecutorDeCoordenacoesDaFila>());
         // Worktrees de execução de escrita (#307, AD-71). O limite global fica em 1 até a ativação autorizada da AD-63:
         // a composição recusa qualquer valor maior (OpcoesDeWorktrees.Validar sem paralelismo autorizado).
         // O gerenciador Git vem da Infrastructure e lê estas opções.

@@ -17,7 +17,8 @@ public sealed class FilaDeExecucoesAppService(
     IUnitOfWorkDaOrquestracao unidade,
     ISessaoDeAgenteRepository sessoes,
     IReservaDeWorktreeRepository reservas,
-    IDelegacaoRepository delegacoes) : IFilaDeExecucoesAppService
+    IDelegacaoRepository delegacoes,
+    IPlanoDaCoordenacaoRepository planos) : IFilaDeExecucoesAppService
 {
     public const string MotivoDeResultadoIncerto =
         "Resultado incerto: a etapa foi interrompida durante uma ação externa e não é repetida automaticamente. " +
@@ -390,10 +391,11 @@ public sealed class FilaDeExecucoesAppService(
 
     // Execução que acabou de ficar terminal libera as próprias worktrees na mesma transação (#307, AD-71) e leva o ciclo
     // das delegações junto (#309): a delegação da subordinada termina e a origem pode ser retomada; uma origem encerrada
-    // pede o cancelamento das subordinadas abertas.
+    // pede o cancelamento das subordinadas abertas. Uma Coordenada (#310) fecha o plano em espera e as etapas abertas.
     private async Task LiberarWorktreesAsync(Execucao execucao, DateTimeOffset agora, CancellationToken cancellationToken)
     {
         await LiberacaoDeWorktrees.LiberarSeEncerradaAsync(reservas, eventos, execucao, agora, cancellationToken);
+        await EncerramentoDaCoordenacao.AoEncerrarAsync(planos, etapas, eventos, execucao, agora, cancellationToken);
         await CicloDaDelegacao.AoEncerrarAsync(Ciclo, execucao, agora, cancellationToken);
     }
 
