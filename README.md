@@ -820,6 +820,25 @@ na hora da decisão e, se o conteúdo mudou, não decide nada e pede uma nova re
 Enquanto espera a decisão, o roteiro não ocupa a vaga de escrita, e a worktree dele continua reservada; as
 alterações aprovadas ficam na worktree, preservada.
 
+Para entregar o resultado aprovado, faça um commit local na branch da worktree, sempre com uma segunda aprovação:
+
+```text
+/execucao entregar E42 feat: endpoint de saúde   pede a entrega (mensagem opcional)
+/acoes aprovar <id> <hash>                         aprova o hash da entrega; o commit é feito em seguida
+```
+
+O D.A.N.T.E. confere de novo, na hora, se a worktree ainda tem exatamente o conteúdo aprovado e se a branch continua
+na base. Só então faz um único commit, com o autor configurado. Ele nunca faz push, PR nem merge e nunca toca o
+checkout principal. Se algo mudou, nada é gravado. Se a entrega for interrompida no meio, ela não é repetida: o
+estado real da branch (HEAD e commits além da base) é informado.
+
+A identidade do autor é obrigatória e nunca vem do Git da máquina:
+
+```bash
+export Orquestracao__Entrega__AutorNome="Dante Bot"
+export Orquestracao__Entrega__AutorEmail="dante@example.com"
+```
+
 ### Grupos coordenados
 
 Um grupo também pode ter um **coordenador** em vez de um roteiro fixo. O coordenador é um papel do grupo, não um agente
@@ -1324,6 +1343,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/execucao <J…\|E…>` | Detalhe de uma execução sua: etapas, estado, sessão `S…` da tarefa, motivo e erro redigido |
 | `/aguardando` | Suas execuções que esperam, e por quê |
 | `/acoes` | Pedidos de ação protegida aguardando você (resumo redigido, hash curto, prazo); aprovar exige o hash exibido e autoriza uma execução. `/acoes aprovar\|recusar <id> …` sem botões |
+| `/execucao entregar <E…> [mensagem]` | Pede a entrega do resultado aprovado de um roteiro: um commit local na branch da worktree, sem push, depois de aprovado em `/acoes` (exige `Orquestracao:Entrega:AutorNome`/`AutorEmail`) |
 | `/session start [claude\|codex] [@alias] [manual\|auto\|plan] [model=<modelo>] [effort=<nível>]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e modo selecionados se omitidos |
 | `/session list` | Lista as suas sessões |
 | `/session select <id\|none>` | Seleciona uma sessão; `none` faz a próxima mensagem abrir uma sessão nova |

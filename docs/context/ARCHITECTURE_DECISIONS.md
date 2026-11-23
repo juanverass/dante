@@ -3068,6 +3068,11 @@ Complemento (#308, AD-69): uma reserva pode ficar `AguardandoDecisao` enquanto u
 ativa para os índices únicos e fora da limpeza, mas fora da capacidade; volta a `Pronta` só por `ReadquirirAsync`, sob
 a mesma trava e os mesmos limites.
 
+Complemento (#311, AD-72): o conjunto fechado ganhou a única escrita Git do D.A.N.T.E. O commit local do artefato
+aprovado de um roteiro usa `add --all`, `write-tree`, `commit-tree` e `update-ref` da branch da execução com o valor
+antigo; `read-tree <base>` desfaz o index antes do commit, e `cat-file blob` e `diff --cached` só leem. Tudo isso só
+depois da aprovação do gateway, só na worktree e sem push. Nenhuma variável `GIT_*` herdada chega aos processos Git.
+
 Consequências:
 
 * a `/tarefa` escreve de verdade, mas só com Codex, só em worktrees e só deixando alterações não commitadas; commit,
@@ -3098,15 +3103,16 @@ Testes: `GerenciadorDeWorktreesGitTests`, `EscritaEmWorktreeTests`, `ReservasDeW
 
 ## AD-72 — Aprovação de ação protegida vinculada ao hash do payload, com catálogo fechado e execução única (#311)
 
-Status: vigente no domínio e na persistência (PR 1 da #311) e no gateway na Application, com as ferramentas do
-`dante_coordenacao` pelo catálogo e o adaptador de decisão do Telegram (PR 2); etapa 9 do roadmap da Epic #296. A
-entrega do artefato do roteiro (primeiro consumidor), no PR 3. Proposta da AD-72 em
+Status: vigente no domínio e na persistência (PR 1 da #311), no gateway na Application, com as ferramentas do
+`dante_coordenacao` pelo catálogo e o adaptador de decisão do Telegram (PR 2), e na entrega do artefato do roteiro,
+primeiro consumidor (PR 3); etapa 9 do roadmap da Epic #296. Proposta da AD-72 em
 [ADRS_PROPOSTAS](../architecture/multi-agent-platform/ADRS_PROPOSTAS.md), refinada e aprovada na própria #311 (entidade
 própria, primeiro consumidor por commit local, identidade Git explícita, dois passos humanos). Complementa a AD-22 (as
 approvals da CLI continuam separadas) e a AD-69/AD-75 (o gate de etapa continua não sendo aprovação de ação). Depende do
 mesmo banco e da mesma chave `Orquestracao:Habilitada`; migration `AprovacoesDeAcao`, não aplicada no banco canônico.
 O PR 1 não expõe nada em tempo de execução; o PR 2 põe as ferramentas atuais no gateway, sem mudar comportamento, e
-expõe `/acoes` com a chave ligada, sem nenhuma ação protegida pedida ainda.
+expõe `/acoes` com a chave ligada, sem nenhuma ação protegida pedida ainda; o PR 3 expõe a entrega
+(`/execucao entregar`), atrás da mesma chave e da identidade Git configurada, sem migration nova.
 
 Contexto: até a #310, nenhum fluxo de orquestração tinha ação protegida. O gate de etapa (`PedidoDeAprovacao`) decide um
 artefato e, por decisão travada, não autoriza commit, push nem outra ação. A entrega do artefato aprovado de um roteiro
@@ -3201,16 +3207,75 @@ Decisão:
   hash curto, prazo e botões. O botão (`ac:<id>:<hash curto>:a|r`) leva só o pedido e o hash exibido. Sem teclado,
   `/acoes aprovar|recusar <id>`. Nenhuma regra de autorização no adaptador.
 
-Fora desta decisão: os comandos Git da entrega e o estado real observado num `Incerto` (PR 3), push/PR (Issue própria), Brain e planilhas atrás do gateway (Issue própria, depois da
-ativação operacional) e a auditoria das approvals nativas da CLI.
+* **Entrega do artefato aprovado do roteiro** (PR 3), primeiro consumidor, em dois passos humanos separados:
+  1. o gate do roteiro aprova o artefato (AD-69), e só ele;
+  2. `/execucao entregar E… [mensagem]` (`IEntregaDoArtefatoAppService`) pede a ação, e a pessoa aprova o hash dela
+     em `/acoes`.
+
+  O pedido:
+  * só o dono pede, e só para um roteiro `Concluida` com o pedido do gate `Aprovado`;
+  * a worktree principal precisa ser deste host, estar liberada ou preservada (nunca removida), com o HEAD na base, e
+    ter o conteúdo atual igual ao hash aprovado no gate;
+  * mensagem com aparência de credencial é recusada;
+  * o payload leva `artefato` (o hash do gate), `base` (o HEAD atual da worktree), `branch`, `mensagem` (padrão:
+    "Artefato aprovado do roteiro E…"), `autor_nome` e `autor_email`, com alvo `@alias`, a etapa do gate e as
+    capacidades `git.add` e `git.commit`;
+  * uma entrega por execução no caso de uso: a executada é informada; a incerta, em execução, ou com pedido em aberto
+    de outra mensagem é recusada; a pendente é devolvida; a aprovada e ainda não executada é executada (o caminho
+    depois de um reinício entre a aprovação e a execução).
+
+  A identidade Git é explícita e obrigatória (`Orquestracao:Entrega:AutorNome` e `AutorEmail`), nunca herdada do Git
+  do host, do repositório ou do agente. Ausente ou inválida, a entrega é recusada com o motivo, sem pedido; o resto
+  do Worker sobe normalmente.
+
+  Depois da aprovação (o adaptador chama a execução logo após aprovar, e a Application decide se há o que executar),
+  o gateway remonta o payload com os fatos de agora: o hash do conteúdo atual, o HEAD atual, o autor configurado, a
+  reserva e o gate. Qualquer diferença cancela sem executar.
+* **Commit pelo Git fechado** (`ICommitDeWorktree`, implementado pelo `GerenciadorDeWorktreesGit`):
+  1. reconfere a worktree (validação da AD-71, HEAD = base, hash = o aprovado, alterações não vazias);
+  2. `add --all`. Um `add` que falha não altera o index, porque o Git grava o index de forma atômica;
+  3. recalcula o mesmo hash canônico **a partir do index**, que é o que o commit grava. O diff rastreado vem de
+     `diff --cached --diff-filter=a` contra a base; cada arquivo novo vem pelo conteúdo do blob preparado
+     (`cat-file blob`), e o conjunto precisa ser exatamente o dos não rastreados. A função de hash é a mesma da
+     revisão;
+  4. `write-tree` e `commit-tree --no-gpg-sign -p <base> -m <mensagem> <árvore>`, com o autor e o committer
+     configurados por `GIT_AUTHOR_*`/`GIT_COMMITTER_*`. Isso só cria objetos;
+  5. o único efeito: `update-ref -m <reflog> refs/heads/<branch da execução> <novo> <base>`. É um compare-and-swap
+     do Git: a branch só sai da base uma vez, então duas aprovações executadas ao mesmo tempo nunca geram dois
+     commits. A outra vê o HEAD já movido (payload alterado) ou perde o CAS e fica sem efeito;
+  6. a branch é conferida de novo: commit novo, filho da base, com a árvore conferida e a worktree nele.
+
+  O conjunto fechado aceita só essas formas: `update-ref` só numa branch `dante/<handle>/e<n>` e com o valor antigo;
+  nunca push, reset, checkout, merge, criação ou remoção de branch. Hooks, gc e maintenance automáticos ficam
+  desligados, e nenhuma variável `GIT_*` herdada chega a qualquer processo Git. O checkout principal nunca é tocado.
+
+  Desfechos:
+  * **antes do `update-ref`**, divergência ou falha restaura o index na base (`read-tree <base>`, sem tocar arquivos)
+    e é `Falhou`. Se a branch já tinha andado por outra entrega, o index não é tocado e também é `Falhou`;
+  * **depois do `update-ref`**, só o estado real decide. Se a branch está no commit conferido, `Executada` (com o SHA
+    no resultado), mesmo que o Git tenha relatado erro. Se continua na base, `Falhou`. Qualquer outra coisa é
+    `Incerto`.
+* **Estado real num `Incerto`** (`IObservadorDeAcaoProtegida`; para a entrega, `ObservadorDaEntregaDoArtefato`): a
+  recuperação depois do reinício e a falha inesperada no meio consultam o observador da ação antes de gravar o
+  `Incerto`. Ele informa HEAD e branch, commits além da base e arquivos no index e fora dele. O estado vai redigido ao
+  ledger e ao aviso. Nada é repetido nem desfeito, e um pedido novo de entrega da execução é recusado com esse estado.
+
+Fora desta decisão: push/PR (Issue própria), Brain e planilhas atrás do gateway (Issue própria, depois da ativação
+operacional) e a auditoria das approvals nativas da CLI.
 
 Código: `Dante.Domain/Execucoes/{AprovacaoDeAcao, CatalogoDeAcoes, PayloadDaAcao}.cs`,
 `Dante.Application/Execucoes/Portas/IAprovacaoDeAcaoRepository.cs`, `Dante.Infrastructure/Modulos/Execucoes/AprovacaoDeAcao*`,
 migration `AprovacoesDeAcao`; PR 2: `Dante.Application/Execucoes/{GatewayDeFerramentas, AprovacoesDeAcaoAppService}.cs`,
 `Dante.Worker/Coordenacao/FerramentasDeCoordenacao.cs`, `Dante.Worker/Telegram/{TelegramAprovacoesDeAcao,
-TelegramAcaoCallback}.cs`, `Dante.Worker/Execucoes/ManutencaoDasAprovacoesDeAcao.cs`.
+TelegramAcaoCallback}.cs`, `Dante.Worker/Execucoes/ManutencaoDasAprovacoesDeAcao.cs`; PR 3:
+`Dante.Application/Execucoes/{EntregaDoArtefatoAppService, IEntregaDoArtefatoAppService,
+ObservadorDaEntregaDoArtefato}.cs`, `Dante.Application/Execucoes/Portas/ICommitDeWorktree.cs`,
+`Dante.Application/Execucoes/Contratos/EntregaDoArtefatoDtos.cs`, `Dante.Infrastructure/Contextos/GerenciadorDeWorktreesGit.cs`,
+`Dante.Worker/Telegram/TelegramExecucoes.cs` (`/execucao entregar`), `Dante.Worker/WorkerComposition.cs`
+(`Orquestracao:Entrega`).
 Testes: `AprovacaoDeAcaoDominioTests`, `AprovacoesDeAcaoPostgreSqlTests`, `GatewayDeFerramentasTests`,
-`GatewayDeAprovacoesPostgreSqlTests`.
+`GatewayDeAprovacoesPostgreSqlTests`; PR 3: `CommitDeWorktreeGitTests` (Git real) e
+`RoteiroPelaFilaEndToEndTests.Entrega` (PostgreSQL, Git real e Telegram falso).
 
 ## AD-74 — Acompanhamento e cancelamento de execuções na Application, neutros de interface (#305)
 

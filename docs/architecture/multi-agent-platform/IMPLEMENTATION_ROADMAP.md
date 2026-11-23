@@ -167,7 +167,9 @@ etapa de escrita exige worktree reservada. Só os fluxos legados (sessão comum,
   2. Gateway na Application, ferramentas do `dante_coordenacao` pelo catálogo (política `Nunca`) e adaptador de
      decisão no Telegram (`/acoes`), com expiração e recuperação após reinício.
   3. Primeiro consumidor: a entrega do artefato aprovado do roteiro por commit local na branch da worktree, sem
-     push.
+     push (`/execucao entregar`, aprovada em `/acoes`, identidade Git em `Orquestracao:Entrega`). O hash é
+     reconferido a partir do index, e a branch avança por compare-and-swap do Git (`update-ref` com o valor antigo).
+     O estado real de um `Incerto` vai ao ledger.
 
   **Divergências**:
   - o primeiro consumidor é a entrega do roteiro, não `pedir_aprovacao` de agentes;

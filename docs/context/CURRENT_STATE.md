@@ -277,8 +277,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   do `dante_coordenacao`); delegação rastreada (#309, AD-70) integrada em três PRs (domínio e persistência;
   Application, fila e executor; ferramentas MCP no `dante_coordenacao`); coordenação por papel (#310, AD-75) integrada
   em três PRs (#321, #322, #323); gateway de aprovações vinculadas a hash (#311, AD-72) em andamento: domínio e
-  persistência no PR 1 (#324, integrado), gateway na Application e adaptador do Telegram no PR 2 (em revisão), e
-  entrega do artefato do roteiro por commit local no PR 3.
+  persistência no PR 1 (#324, integrado), gateway na Application e adaptador do Telegram no PR 2 (#325, integrado), e
+  entrega do artefato do roteiro por commit local no PR 3 (em revisão).
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -884,11 +884,38 @@ Limitações:
 - A síntese é validação estrutural: não avalia o mérito, não resolve divergência e não prova consenso.
 - A consolidação no Telegram corta resultados e textos longos para caber numa mensagem; o ledger guarda tudo.
 
-## Aprovação de ação protegida (#311, AD-72 — domínio, persistência, gateway e decisão)
+## Aprovação de ação protegida (#311, AD-72 — domínio, persistência, gateway, decisão e entrega)
 
-Duas das três entregas do gateway (etapa 9 da Epic #296): domínio e persistência (PR 1, #324) e o gateway na
-Application com o adaptador de decisão do Telegram (PR 2). Nenhum fluxo pede uma ação protegida ainda: o primeiro
-consumidor (a entrega do artefato do roteiro) vem no PR 3, e nenhum executor de ação protegida está registrado.
+As três entregas do gateway (etapa 9 da Epic #296):
+- PR 1 (#324): domínio e persistência;
+- PR 2 (#325): o gateway na Application com o adaptador de decisão do Telegram;
+- PR 3: o primeiro consumidor, a entrega do artefato aprovado do roteiro por commit local.
+
+- **Entrega do artefato do roteiro** (`/execucao entregar E… [mensagem]`, `IEntregaDoArtefatoAppService`): depois do
+  gate do roteiro aprovado, o dono pede a entrega, que vira um pedido no gateway. Ela só existe com a worktree deste
+  host na base e com o conteúdo igual ao aprovado no gate.
+
+  O payload leva o hash do gate, o HEAD como base, a branch, a mensagem e o autor configurado. A aprovação é a do
+  `/acoes`, e o adaptador executa logo depois de aprovar. O gateway remonta o payload com o conteúdo, o HEAD e o autor
+  de agora: qualquer diferença cancela.
+
+  O commit é feito pelo Git fechado do `GerenciadorDeWorktreesGit`:
+  - reconfere o hash na worktree, faz `add --all` e confere o mesmo hash a partir do index;
+  - `commit-tree` cria o commit com o autor configurado;
+  - a branch da worktree passa da base para o commit por `update-ref` com o valor antigo (compare-and-swap).
+
+  Resultado: exatamente um commit, sem push, sem hooks e sem tocar o checkout principal. O SHA fica no resultado da
+  aprovação no ledger e a worktree e a branch são preservadas.
+
+  Desfechos:
+  - falha antes de mover a branch restaura o index e é `Falhou`; um pedido novo pode ser feito;
+  - depois, só o estado real da branch decide entre `Executada` e `Incerto`;
+  - num `Incerto`, inclusive por reinício no meio, o estado observado (HEAD, commits além da base, index) vai ao
+    ledger e ao aviso, e nada é repetido.
+
+  Uma entrega por execução: a executada é informada; a incerta ou em execução recusa um pedido novo.
+- **Identidade Git** (`Orquestracao:Entrega:AutorNome` e `AutorEmail`): explícita e obrigatória, nunca herdada do Git
+  do host. Sem ela, ou inválida, a entrega é recusada com o motivo e nada é pedido; o resto do Worker não muda.
 
 - **Gateway das ferramentas de sessão** (`GatewayDeFerramentas`, Application): toda chamada do `dante_coordenacao`
   passa por ele, na ordem identidade (sessão e perfil do canal exclusivo, nunca do agente), catálogo fechado,
@@ -934,9 +961,14 @@ consumidor (a entrega do artefato do roteiro) vem no PR 3, e nenhum executor de 
   homelab: sem a chave, `/acoes` responde que não está habilitado e a manutenção não roda.
 
 Limitações:
-- O estado real observado numa execução `Incerto` por reinício depende do consumidor (PR 3); aqui, o motivo diz que o
-  efeito não é conhecido.
-- A política `ConformeModo` continua sem uso; nenhuma ação é pedida por agente nesta entrega.
+- A política `ConformeModo` continua sem uso; nenhuma ação é pedida por agente.
+- Push, PR e merge pelo D.A.N.T.E. continuam fora (Issue própria, com credencial por repositório). Brain e planilhas
+  ainda não passam pelo gateway.
+- O hash a partir do index compara os bytes preparados: um repositório com filtros de conteúdo (`clean`, LFS,
+  conversão de fim de linha) faz o index diferir dos arquivos. Nesse caso a entrega fica sem efeito, com o motivo, e
+  nunca commita um conteúdo diferente do aprovado.
+- Um roteiro tem uma worktree principal. A entrega cobre só ela, como o gate, porque roteiros não têm repositórios
+  vinculados.
 
 ## Worktrees por execução de escrita (#307, AD-71)
 
