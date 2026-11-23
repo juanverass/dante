@@ -160,6 +160,20 @@ etapa de escrita exige worktree reservada. Só os fluxos legados (sessão comum,
 - **Critérios**: aprovação não executa chamada diferente, não executa duas vezes, expira, sobrevive a reinício, reconfere concessão revogada; delegação `Tarefa` com escrita passa a ser aceita só com aprovação e worktree.
 - **Testes**: hash canônico, CAS de execução, revogação entre pedido e execução, regressão Brain/planilhas.
 - **Entregável**: AD-72.
+- **Implementação (#311, AD-72)**: em três PRs.
+  1. Domínio e persistência: aprovação de ação protegida como entidade própria (o gate de etapa continua sem
+     autorizar ação), catálogo fechado, payload canônico com hash do servidor, decisão única do dono da raiz, execução
+     única por CAS, `Incerto` sem repetição, triggers e migration.
+  2. Gateway na Application, ferramentas do `dante_coordenacao` pelo catálogo (política `Nunca`) e adaptador de
+     decisão no Telegram.
+  3. Primeiro consumidor: a entrega do artefato aprovado do roteiro por commit local na branch da worktree, sem
+     push.
+
+  **Divergências**:
+  - o primeiro consumidor é a entrega do roteiro, não `pedir_aprovacao` de agentes;
+  - Brain e planilhas atrás do gateway saíram da etapa (Issue própria, depois da ativação operacional), assim como
+    push/PR pelo D.A.N.T.E. e a auditoria das approvals da CLI;
+  - só o escopo `UmaVez` (sem `EstaExecucao`).
 
 ### 10. Chat web — complexidade alta
 

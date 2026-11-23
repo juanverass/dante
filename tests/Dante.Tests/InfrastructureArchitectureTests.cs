@@ -13,7 +13,7 @@ public sealed class InfrastructureArchitectureTests
     // sem contexto.
     [Theory]
     [InlineData(typeof(DanteDbContext), 14, "Dante.Infrastructure.Data.Migrations", "Data/Migrations")]
-    [InlineData(typeof(Dante.Infrastructure.Data.Orquestracao.OrquestracaoDbContext), 10,
+    [InlineData(typeof(Dante.Infrastructure.Data.Orquestracao.OrquestracaoDbContext), 11,
         "Dante.Infrastructure.Data.Orquestracao.Migrations", "Data/Orquestracao/Migrations")]
     public void MigrationsESnapshotPertencemSomenteAInfrastructure(Type contexto, int quantidade, string ns, string pasta)
     {

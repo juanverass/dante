@@ -189,6 +189,7 @@ public sealed class CrudBasicoAppServiceTests : IDisposable
                 typeof(Application.Execucoes.IDelegacaoRepository), typeof(Application.Execucoes.IDependenciaDeEtapaRepository), typeof(Application.Execucoes.ISessaoDeAgenteRepository),
                 typeof(Application.Execucoes.IEventoDeOrquestracaoRepository), typeof(Application.Execucoes.IReservaDeWorktreeRepository),
                 typeof(Application.Agentes.IAgenteRepository), typeof(Application.Agentes.IVersaoDoAgenteRepository),
+                typeof(Application.Execucoes.IAprovacaoDeAcaoRepository),
                 typeof(Application.Grupos.IGrupoDeAgentesRepository), typeof(Application.Grupos.IVersaoDoGrupoRepository),
                 typeof(Application.Grupos.IAtivacaoDeVersaoDoGrupoRepository),
                 typeof(Application.Execucoes.IRoteiroDaExecucaoRepository), typeof(Application.Execucoes.IParticipanteDaExecucaoRepository),

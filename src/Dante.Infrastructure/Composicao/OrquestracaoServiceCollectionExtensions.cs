@@ -35,6 +35,8 @@ internal static class OrquestracaoServiceCollectionExtensions
         services.AddScoped<ICoordenacaoDaExecucaoRepository, CoordenacaoDaExecucaoRepository>();
         services.AddScoped<IPlanoDaCoordenacaoRepository, PlanoDaCoordenacaoRepository>();
         services.AddScoped<ISinteseDaCoordenacaoRepository, SinteseDaCoordenacaoRepository>();
+        // Aprovações de ação protegida do gateway (AD-72, #311).
+        services.AddScoped<IAprovacaoDeAcaoRepository, AprovacaoDeAcaoRepository>();
         services.AddScoped<IUnitOfWorkDaOrquestracao, UnitOfWorkDaOrquestracao>();
         // Cadastro de agentes (AD-68): mesmo contexto e mesma unidade de trabalho do ledger.
         services.AddScoped<IAgenteRepository, AgenteRepository>();

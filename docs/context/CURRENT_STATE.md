@@ -275,9 +275,10 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   execução de escrita e limites de concorrência (#307, AD-71) integradas; grupos versionados com roteiro
   determinístico e gate humano (#308, AD-69) integrados em três PRs (cadastro, gate durável e executor com a fundação
   do `dante_coordenacao`); delegação rastreada (#309, AD-70) integrada em três PRs (domínio e persistência;
-  Application, fila e executor; ferramentas MCP no `dante_coordenacao`); coordenação por papel (#310, AD-75) em
-  andamento: domínio e persistência no PR 1 (integrado, #321), Application/fila/executor no PR 2 (integrado, #322) e
-  MCP, síntese e interface no PR 3 (em revisão).
+  Application, fila e executor; ferramentas MCP no `dante_coordenacao`); coordenação por papel (#310, AD-75) integrada
+  em três PRs (#321, #322, #323); gateway de aprovações vinculadas a hash (#311, AD-72) em andamento: domínio e
+  persistência no PR 1 (em revisão), gateway na Application e adaptador do Telegram no PR 2, e entrega do artefato do
+  roteiro por commit local no PR 3.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -882,6 +883,32 @@ Limitações:
 - Não há replanejamento humano fora do gate (decisão pendente).
 - A síntese é validação estrutural: não avalia o mérito, não resolve divergência e não prova consenso.
 - A consolidação no Telegram corta resultados e textos longos para caber numa mensagem; o ledger guarda tudo.
+
+## Aprovação de ação protegida (#311, AD-72 — domínio e persistência)
+
+Primeira das três entregas do gateway (etapa 9 da Epic #296). Só domínio e persistência: nada é exposto em tempo de
+execução, e nenhum fluxo pede, decide ou executa uma ação protegida ainda.
+
+- **Catálogo fechado** (`CatalogoDeAcoes`): nome, risco (`Leitura`, `EscritaInterna`, `EfeitoExterno`), política
+  (`Nunca`, `ConformeModo`, `Sempre`), repositório alvo e parâmetros tipados. As cinco ferramentas do
+  `dante_coordenacao` entram com política `Nunca`. A única ação protegida é `dante.entregar_artefato_do_roteiro`
+  (commit local do artefato aprovado no gate, com identidade explícita do autor), consumida no PR 3.
+- **Payload canônico** (`PayloadDaAcao`): ação, alvo, capacidades, escopo, execução, etapa, parâmetros e solicitante
+  (o dono da raiz ou a versão congelada de um agente), em JSON de chaves ordenadas e texto normalizado, com SHA-256
+  calculado pelo servidor. Campo desconhecido, repetido, ausente ou fora da forma é recusado com o motivo.
+- **Aprovação** (`AprovacaoDeAcao`, tabela `aprovacoes_de_acao`), entidade própria, separada do gate de etapa:
+  - escopo `UmaVez` e validade obrigatória (24 h por padrão);
+  - decisão única só do dono da raiz, com o hash exibido (12+ caracteres) e antes do prazo;
+  - execução única: o payload é remontado com os fatos atuais, um hash diferente cancela e um prazo vencido expira, e
+    a transição para `EmExecucao` sob o `xmin` é o CAS;
+  - desfecho `Executada`, `Falhou` ou `Incerto`, este terminal e sem repetição automática.
+- **Banco:** confere o hash pelo SHA-256 do payload e prende o payload às colunas. Também confere a ação e o risco do
+  catálogo e a etapa da própria execução. O trigger `proteger_aprovacao_de_acao` cobre o dono da raiz, o solicitante
+  (o dono da raiz, sem versão nem hash, ou a versão referenciada com o hash da configuração gravado nela, com tipo
+  explícito e sem chave a mais), as transições, o decisor, os prazos e a imutabilidade. Um índice único parcial recusa replay por pedido
+  novo do mesmo payload vigente, executado ou incerto.
+- Migration `AprovacoesDeAcao`, não aplicada no banco canônico. Exige banco e `Orquestracao:Habilitada`, desligado no
+  homelab.
 
 ## Worktrees por execução de escrita (#307, AD-71)
 

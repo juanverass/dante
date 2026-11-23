@@ -237,6 +237,167 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Dante.Domain.Execucoes.AprovacaoDeAcao", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Acao")
+                        .IsRequired()
+                        .HasMaxLength(63)
+                        .HasColumnType("character varying(63)")
+                        .HasColumnName("acao");
+
+                    b.Property<string>("Alvo")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("alvo");
+
+                    b.Property<string>("CanalDoDecisor")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("canal_do_decisor");
+
+                    b.Property<string>("CanalDoDono")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("canal_do_dono");
+
+                    b.Property<DateTimeOffset>("CriadaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("criada_em");
+
+                    b.Property<DateTimeOffset?>("DecididaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decidida_em");
+
+                    b.Property<DateTimeOffset?>("EncerradaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("encerrada_em");
+
+                    b.Property<int>("Escopo")
+                        .HasColumnType("integer")
+                        .HasColumnName("escopo");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("integer")
+                        .HasColumnName("estado");
+
+                    b.Property<DateTimeOffset>("ExpiraEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expira_em");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash")
+                        .IsFixedLength();
+
+                    b.Property<string>("HashDaVersaoDoSolicitante")
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("hash_da_versao_do_solicitante")
+                        .IsFixedLength();
+
+                    b.Property<long?>("IdDoDecisor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("id_do_decisor");
+
+                    b.Property<long>("IdDoDono")
+                        .HasColumnType("bigint")
+                        .HasColumnName("id_do_dono");
+
+                    b.Property<Guid?>("IdEtapa")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_etapa");
+
+                    b.Property<Guid>("IdExecucao")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_execucao");
+
+                    b.Property<Guid>("IdExecucaoRaiz")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_execucao_raiz");
+
+                    b.Property<Guid?>("IdVersaoDoSolicitante")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_versao_do_solicitante");
+
+                    b.Property<DateTimeOffset?>("IniciadaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("iniciada_em");
+
+                    b.Property<string>("Motivo")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("motivo");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("payload");
+
+                    b.Property<string>("Resultado")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("resultado");
+
+                    b.Property<int>("Risco")
+                        .HasColumnType("integer")
+                        .HasColumnName("risco");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Hash")
+                        .IsUnique()
+                        .HasDatabaseName("ux_aprovacoes_de_acao_hash_vigente")
+                        .HasFilter("estado IN (0, 1, 5, 6, 8)");
+
+                    b.HasIndex("IdExecucao");
+
+                    b.HasIndex("IdExecucaoRaiz");
+
+                    b.HasIndex("IdVersaoDoSolicitante");
+
+                    b.HasIndex("CanalDoDono", "IdDoDono")
+                        .HasDatabaseName("ix_aprovacoes_de_acao_em_aberto_do_dono")
+                        .HasFilter("estado IN (0, 1)");
+
+                    b.HasIndex("IdEtapa", "IdExecucao");
+
+                    b.ToTable("aprovacoes_de_acao", "orquestracao", t =>
+                        {
+                            t.HasCheckConstraint("ck_aprovacoes_de_acao_acao", "(acao, risco) IN (('dante.entregar_artefato_do_roteiro', 1))");
+
+                            t.HasCheckConstraint("ck_aprovacoes_de_acao_decisao", "(canal_do_decisor IS NULL) = (id_do_decisor IS NULL) AND (id_do_decisor IS NULL) = (decidida_em IS NULL) AND (estado <> 0 OR decidida_em IS NULL) AND (estado NOT IN (1, 2, 5, 6, 7, 8) OR decidida_em IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_aprovacoes_de_acao_encerramento", "(encerrada_em IS NOT NULL) = (estado IN (2, 3, 4, 6, 7, 8))");
+
+                            t.HasCheckConstraint("ck_aprovacoes_de_acao_escopo", "escopo = 0");
+
+                            t.HasCheckConstraint("ck_aprovacoes_de_acao_estado", "estado BETWEEN 0 AND 8");
+
+                            t.HasCheckConstraint("ck_aprovacoes_de_acao_execucao", "(iniciada_em IS NOT NULL) = (estado IN (5, 6, 7, 8))");
+
+                            t.HasCheckConstraint("ck_aprovacoes_de_acao_hash", "hash ~ '^[0-9a-f]{64}$' AND hash = encode(sha256(convert_to(payload, 'UTF8')), 'hex')");
+
+                            t.HasCheckConstraint("ck_aprovacoes_de_acao_payload", "payload::jsonb ->> 'acao' = acao AND payload::jsonb ->> 'execucao' = id_execucao::text AND (payload::jsonb ->> 'etapa') IS NOT DISTINCT FROM id_etapa::text AND (payload::jsonb ->> 'alvo') IS NOT DISTINCT FROM alvo AND payload::jsonb ->> 'escopo' = 'UmaVez' AND payload::jsonb ->> 'formato' = '1' AND (payload::jsonb -> 'solicitante' ->> 'versao') IS NOT DISTINCT FROM id_versao_do_solicitante::text AND (payload::jsonb -> 'solicitante' ->> 'hash') IS NOT DISTINCT FROM hash_da_versao_do_solicitante::text AND COALESCE(CASE WHEN id_versao_do_solicitante IS NULL THEN payload::jsonb -> 'solicitante' ->> 'tipo' = 'dono' AND payload::jsonb -> 'solicitante' ->> 'canal' = canal_do_dono AND payload::jsonb -> 'solicitante' ->> 'usuario' = id_do_dono::text ELSE payload::jsonb -> 'solicitante' ->> 'tipo' = 'agente' END, false)");
+
+                            t.HasCheckConstraint("ck_aprovacoes_de_acao_solicitante", "(id_versao_do_solicitante IS NULL) = (hash_da_versao_do_solicitante IS NULL) AND (hash_da_versao_do_solicitante IS NULL OR hash_da_versao_do_solicitante ~ '^[0-9a-f]{64}$')");
+
+                            t.HasCheckConstraint("ck_aprovacoes_de_acao_validade", "expira_em > criada_em");
+                        });
+                });
+
             modelBuilder.Entity("Dante.Domain.Execucoes.CoordenacaoDaExecucao", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2011,6 +2172,32 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         .HasForeignKey("IdAgente")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Dante.Domain.Execucoes.AprovacaoDeAcao", b =>
+                {
+                    b.HasOne("Dante.Domain.Execucoes.Execucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Execucoes.Execucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdExecucaoRaiz")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dante.Domain.Agentes.VersaoDoAgente", null)
+                        .WithMany()
+                        .HasForeignKey("IdVersaoDoSolicitante")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Dante.Domain.Execucoes.EtapaDaExecucao", null)
+                        .WithMany()
+                        .HasForeignKey("IdEtapa", "IdExecucao")
+                        .HasPrincipalKey("Id", "IdExecucao")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Dante.Domain.Execucoes.CoordenacaoDaExecucao", b =>
