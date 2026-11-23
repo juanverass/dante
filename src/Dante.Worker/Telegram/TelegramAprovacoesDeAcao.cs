@@ -42,7 +42,7 @@ public sealed class TelegramAprovacoesDeAcao(IServiceScopeFactory escopos, ITele
                 ? await aprovacoes.AprovarAsync(Dono(idDoUsuario), id, resto!.Split([' ', '\t', '\n'])[0], cancellationToken)
                 : await aprovacoes.RecusarAsync(Dono(idDoUsuario), id, string.IsNullOrWhiteSpace(resto) ? null : resto,
                     cancellationToken);
-            return Decisao(decisao);
+            return await DecisaoEExecucaoAsync(servicos, idDoUsuario, decisao, cancellationToken);
         });
     }
 
@@ -54,8 +54,44 @@ public sealed class TelegramAprovacoesDeAcao(IServiceScopeFactory escopos, ITele
             var decisao = botao.Aprovar
                 ? await aprovacoes.AprovarAsync(Dono(idDoUsuario), botao.Id, botao.Hash, cancellationToken)
                 : await aprovacoes.RecusarAsync(Dono(idDoUsuario), botao.Id, null, cancellationToken);
-            return Decisao(decisao);
+            return await DecisaoEExecucaoAsync(servicos, idDoUsuario, decisao, cancellationToken);
         });
+
+    // Depois de uma aprovação, o consumidor da ação a executa (#311, PR 3): hoje só a entrega do artefato responde; para
+    // qualquer outra ação, nulo e nada muda. A Application confere de novo a aprovação, o prazo e o payload.
+    private static async Task<string> DecisaoEExecucaoAsync(IServiceProvider servicos, long idDoUsuario,
+        DecisaoDeAcaoDto decisao, CancellationToken cancellationToken)
+    {
+        var texto = Decisao(decisao);
+        if (decisao.Desfecho != DesfechoDaDecisaoDeAcao.Aprovada || decisao.Aprovacao is not { } aprovada ||
+            servicos.GetService<IEntregaDoArtefatoAppService>() is not { } entregas)
+            return texto;
+        return await entregas.ExecutarAprovadaAsync(Dono(idDoUsuario), aprovada.Id, cancellationToken) is { } execucao
+            ? texto + "\n" + Execucao(execucao)
+            : texto;
+    }
+
+    // O desfecho de uma execução, como o ledger o registrou (motivo e resultado já redigidos pela Application).
+    internal static string Execucao(ExecucaoDeAcaoDto? execucao)
+    {
+        var a = execucao?.Aprovacao;
+        var id = a is null ? "" : IdCurto(a.Id);
+        return execucao?.Resultado switch
+        {
+            ResultadoDaExecucaoDeAcao.Executada => $"✅ Ação {id} executada: {a?.Resultado}",
+            ResultadoDaExecucaoDeAcao.Falhou => $"❌ Ação {id} não teve efeito: {a?.Motivo} Peça de novo se ainda quiser.",
+            ResultadoDaExecucaoDeAcao.Incerta => $"⚠️ Ação {id} ficou incerta e não será repetida: {a?.Motivo} " +
+                $"Estado observado: {a?.Resultado ?? "não disponível"}. Confira antes de qualquer outra ação.",
+            ResultadoDaExecucaoDeAcao.PayloadAlterado => $"🚫 Ação {id} não executada: o conteúdo ou os fatos mudaram " +
+                "depois da aprovação (outro hash). Nada foi feito; peça de novo.",
+            ResultadoDaExecucaoDeAcao.Revogada => $"🚫 Ação {id} cancelada sem executar: {a?.Motivo}",
+            ResultadoDaExecucaoDeAcao.Expirada => $"⌛ Ação {id} expirou antes de executar; nada foi feito.",
+            ResultadoDaExecucaoDeAcao.JaIniciada => "Esta ação já foi iniciada por outra solicitação; nada foi repetido.",
+            ResultadoDaExecucaoDeAcao.NaoAutorizada => $"A ação {id} não está aprovada para execução " +
+                $"({a?.Estado.ToString() ?? "desconhecida"}); nada foi feito.",
+            _ => "Pedido não encontrado."
+        };
+    }
 
     // Aviso ao dono de um pedido encerrado pela manutenção (expirado ou incerto depois de reinício).
     public async Task AvisarAsync(AprovacaoDeAcaoDto aprovacao, CancellationToken cancellationToken)
@@ -68,7 +104,9 @@ public sealed class TelegramAprovacoesDeAcao(IServiceScopeFactory escopos, ITele
                 "Nada foi feito; peça de novo se ainda quiser.",
             EstadoDaAprovacaoDeAcao.Incerto =>
                 $"⚠️ A ação {IdCurto(aprovacao.Id)} ({aprovacao.Descricao}) foi interrompida por um reinício: o efeito não " +
-                "é conhecido e ela não será repetida. Confira o estado real antes de pedir de novo.",
+                "é conhecido e ela não será repetida." +
+                (aprovacao.Resultado is { } estado ? $" Estado observado: {estado}" : "") +
+                " Confira o estado real antes de pedir de novo.",
             _ => null
         };
         if (texto is null) return;

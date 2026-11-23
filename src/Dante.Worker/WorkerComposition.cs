@@ -117,6 +117,9 @@ internal static class WorkerComposition
         // a composição recusa qualquer valor maior (OpcoesDeWorktrees.Validar sem paralelismo autorizado).
         // O gerenciador Git vem da Infrastructure e lê estas opções.
         services.AddSingleton(OpcoesDeWorktrees(configuration));
+        // Entrega do artefato aprovado (#311, PR 3): a identidade Git explícita do commit. Ausente ou inválida, só a
+        // entrega fica bloqueada (com o motivo); o resto do Worker sobe normalmente.
+        services.AddSingleton(OpcoesDaEntrega(configuration));
         services.AddSingleton<ProcessadorDaFila>();
         services.AddHostedService(provider => provider.GetRequiredService<ProcessadorDaFila>());
         return services;
@@ -136,6 +139,13 @@ internal static class WorkerComposition
         };
         opcoes.Validar(paralelismoAutorizado: false);
         return opcoes;
+    }
+
+    // Orquestracao:Entrega:{AutorNome, AutorEmail}: obrigatórias para entregar; nunca herdadas do Git do host.
+    internal static OpcoesDaEntrega OpcoesDaEntrega(IConfiguration configuration)
+    {
+        var secao = configuration.GetSection("Orquestracao:Entrega");
+        return Dante.Application.Execucoes.OpcoesDaEntrega.De(secao["AutorNome"], secao["AutorEmail"]);
     }
 
     private static int? Inteiro(string? valor) => string.IsNullOrWhiteSpace(valor) ? null

@@ -22,7 +22,7 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
     internal const string UsoDaListagem = "Uso: /execucoes [todas]";
     internal const string UsoDoDetalhe = "Uso: /execucao <J…|E…> | /execucao aprovar|corrigir <E…> <hash> [instrução] | " +
         "/execucao recusar <E…> [motivo] | /execucao revisar <E…> | /execucao objetivo <E…> <tarefa> | " +
-        "/execucao consolidacao <E…>";
+        "/execucao consolidacao <E…> | /execucao entregar <E…> [mensagem do commit]";
 
     // O Telegram recusa mensagens acima de 4096 caracteres; a consolidação corta trechos e o total, e o ledger guarda tudo.
     internal const int LimiteDaMensagem = 3900;
@@ -50,6 +50,10 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
         var partes = argumentos.Trim().Split([' ', '\t', '\n'], 3, StringSplitOptions.RemoveEmptyEntries);
         if (partes.Length > 0 && partes[0].ToLowerInvariant() is "aprovar" or "corrigir" or "recusar" or "revisar" or "objetivo")
             return DecidirAsync(idDoUsuario, partes, cancellationToken);
+        // Entrega do artefato aprovado (#311, PR 3): pedido no gateway, ou execução do pedido já aprovado.
+        if (partes.Length > 0 && partes[0].ToLowerInvariant() == "entregar")
+            return partes.Length >= 2 ? EntregarAsync(idDoUsuario, partes[1], partes.Length > 2 ? partes[2] : null,
+                cancellationToken) : Task.FromResult(UsoDoDetalhe);
         if (partes.Length > 0 && partes[0].ToLowerInvariant() is "consolidacao" or "consolidação")
             return partes.Length == 2 ? ConsolidacaoAsync(idDoUsuario, partes[1], cancellationToken)
                 : Task.FromResult(UsoDoDetalhe);
@@ -82,6 +86,28 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
                 codigo, cancellationToken) is { } resultado
                 ? Consolidacao(resultado)
                 : $"Coordenação {codigo} não encontrada. Veja /execucoes.");
+
+    // Entrega do artefato aprovado (#311, PR 3): só encaminha. Dono, gate aprovado, worktree, conteúdo, identidade Git,
+    // pedido único e execução são da Application; a aprovação da entrega é a do gateway (/acoes).
+    private Task<string> EntregarAsync(long idDoUsuario, string codigo, string? mensagem, CancellationToken cancellationToken) =>
+        ExecutarAsync(servicos => RecusaComoTextoAsync(async () =>
+        {
+            if (servicos.GetService<IEntregaDoArtefatoAppService>() is not { } entregas)
+                return TelegramAprovacoesDeAcao.Desabilitado;
+            var resultado = await entregas.SolicitarAsync(Dono(idDoUsuario), codigo, mensagem, cancellationToken);
+            return resultado.Resultado switch
+            {
+                ResultadoDaSolicitacaoDeEntrega.NaoEncontrada => NaoEncontrada(codigo),
+                ResultadoDaSolicitacaoDeEntrega.JaEntregue => $"{resultado.Codigo} já foi entregue: " +
+                    $"{resultado.Aprovacao?.Resultado ?? "commit registrado no ledger"}",
+                ResultadoDaSolicitacaoDeEntrega.Executada => TelegramAprovacoesDeAcao.Execucao(resultado.Execucao),
+                _ when resultado.Aprovacao is { } a => $"📦 Entrega de {resultado.Codigo} " +
+                    (resultado.Resultado == ResultadoDaSolicitacaoDeEntrega.Solicitada ? "pedida" : "já pedida") +
+                    ": commit local na branch da worktree, sem push.\n" + TelegramAprovacoesDeAcao.Texto(a) + "\n" +
+                    $"Aprove em /acoes ou com /acoes aprovar {TelegramAprovacoesDeAcao.IdCurto(a.Id)} {a.HashCurto}",
+                _ => NaoEncontrada(codigo)
+            };
+        }), conflito: "A entrega mudou durante o pedido. Consulte /acoes e tente novamente.");
 
     // Gate do roteiro (#308): só interpreta e chama o caso de uso; dono, integridade, hash e rodadas são da Application.
     private Task<string> DecidirAsync(long idDoUsuario, string[] partes, CancellationToken cancellationToken)
@@ -141,7 +167,9 @@ public sealed class TelegramExecucoes(IServiceScopeFactory escopos, ILogger<Tele
             ResultadoDaDecisao.RevisaoAgendada => $"{resultado.Codigo}: nova revisão da rodada {resultado.Rodada} " +
                 $"agendada para o conteúdo atual ({resultado.HashAtual![..12]}); a decisão volta a você depois dela.",
             ResultadoDaDecisao.Aprovada => $"{resultado.Codigo} aprovada (rodada {resultado.Rodada}) e encerrada. " +
-                "Nada foi commitado nem enviado: as alterações ficam na worktree, preservada para a entrega.",
+                "Nada foi commitado nem enviado: as alterações ficam na worktree, preservada para a entrega. Para " +
+                $"entregar (commit local, sem push, com uma segunda aprovação): /execucao entregar {resultado.Codigo} " +
+                "[mensagem do commit]",
             ResultadoDaDecisao.CorrecaoAgendada => $"{resultado.Codigo}: correção agendada (rodada {resultado.Rodada}); " +
                 "o roteiro volta à fila e continua quando houver vaga de escrita.",
             ResultadoDaDecisao.Recusada => $"{resultado.Codigo} recusada e encerrada; a worktree alterada é preservada.",

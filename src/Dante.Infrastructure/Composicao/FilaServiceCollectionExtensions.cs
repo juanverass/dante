@@ -22,8 +22,11 @@ internal static class FilaServiceCollectionExtensions
         services.AddSingleton<IUnidadesDeContencao, UnidadesDeContencaoSystemd>();
         // Worktrees de execução de escrita (#307, AD-71): o host registra OpcoesDeWorktrees configuradas; sem elas, o
         // padrão (~/.dante/worktrees, limites 1). Registrar não cria diretório nem executa Git.
-        services.AddSingleton<IGerenciadorDeWorktrees>(provider => new GerenciadorDeWorktreesGit(
+        services.AddSingleton(provider => new GerenciadorDeWorktreesGit(
             provider.GetService<OpcoesDeWorktrees>() ?? new OpcoesDeWorktrees(),
             provider.GetRequiredService<ICatalogoDeRepositorios>()));
+        services.AddSingleton<IGerenciadorDeWorktrees>(provider => provider.GetRequiredService<GerenciadorDeWorktreesGit>());
+        // Entrega do artefato aprovado (#311, PR 3): o mesmo Git fechado faz o commit local.
+        services.AddSingleton<ICommitDeWorktree>(provider => provider.GetRequiredService<GerenciadorDeWorktreesGit>());
     }
 }

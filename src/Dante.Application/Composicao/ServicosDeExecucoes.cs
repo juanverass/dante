@@ -42,5 +42,13 @@ internal static class ServicosDeExecucoes
             Dante.Application.Execucoes.GatewayDeFerramentas>();
         services.TryAddScoped<Dante.Application.Execucoes.IAprovacoesDeAcaoAppService>(provider =>
             ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.AprovacoesDeAcaoAppService>(provider));
+        // Entrega do artefato aprovado do roteiro (#311, PR 3), primeiro consumidor do gateway: depende do Git fechado
+        // (ICommitDeWorktree) composto com a fila e da identidade configurada pelo host (OpcoesDaEntrega).
+        services.TryAddScoped<Dante.Application.Execucoes.IEntregaDoArtefatoAppService>(provider =>
+            ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.EntregaDoArtefatoAppService>(provider));
+        // O estado real de uma entrega que ficou Incerta, para o gateway; sem o Git fechado, não observa nada.
+        if (!services.Any(s => s.ServiceType == typeof(Dante.Application.Execucoes.IObservadorDeAcaoProtegida)))
+            services.AddScoped<Dante.Application.Execucoes.IObservadorDeAcaoProtegida>(provider =>
+                ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.ObservadorDaEntregaDoArtefato>(provider));
     }
 }
