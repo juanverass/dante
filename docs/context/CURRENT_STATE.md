@@ -900,7 +900,9 @@ As três entregas do gateway (etapa 9 da Epic #296):
   de agora: qualquer diferença cancela.
 
   O commit é feito pelo Git fechado do `GerenciadorDeWorktreesGit`:
-  - reconfere o hash na worktree, faz `add --all` e confere o mesmo hash a partir do index;
+  - recusa filtros de conteúdo configurados (comandos externos como o do Git LFS), antes de ler qualquer conteúdo;
+  - reconfere o hash na worktree, faz `add --all`, grava a árvore e confere o mesmo hash a partir dela, que é
+    exatamente o que o commit recebe;
   - `commit-tree` cria o commit com o autor configurado;
   - a branch da worktree passa da base para o commit por `update-ref` com o valor antigo (compare-and-swap).
 
@@ -913,7 +915,8 @@ As três entregas do gateway (etapa 9 da Epic #296):
   - num `Incerto`, inclusive por reinício no meio, o estado observado (HEAD, commits além da base, index) vai ao
     ledger e ao aviso, e nada é repetido.
 
-  Uma entrega por execução: a executada é informada; a incerta ou em execução recusa um pedido novo.
+  Uma entrega por execução, com a execução travada do exame dos pedidos à gravação: pedidos simultâneos criam um
+  só. A executada é informada; a incerta ou em execução recusa um pedido novo.
 - **Identidade Git** (`Orquestracao:Entrega:AutorNome` e `AutorEmail`): explícita e obrigatória, nunca herdada do Git
   do host. Sem ela, ou inválida, a entrega é recusada com o motivo e nada é pedido; o resto do Worker não muda.
 
@@ -964,9 +967,12 @@ Limitações:
 - A política `ConformeModo` continua sem uso; nenhuma ação é pedida por agente.
 - Push, PR e merge pelo D.A.N.T.E. continuam fora (Issue própria, com credencial por repositório). Brain e planilhas
   ainda não passam pelo gateway.
-- O hash a partir do index compara os bytes preparados: um repositório com filtros de conteúdo (`clean`, LFS,
-  conversão de fim de linha) faz o index diferir dos arquivos. Nesse caso a entrega fica sem efeito, com o motivo, e
-  nunca commita um conteúdo diferente do aprovado.
+- Repositórios com filtros de conteúdo configurados (`clean`/`smudge`/`process`, como o do Git LFS) não são
+  entregues: a recusa vem antes de qualquer leitura, e o filtro nunca roda. Conversões sem processo (fim de linha,
+  `ident`) fazem a árvore diferir dos arquivos, e a entrega fica sem efeito, com o motivo.
+- A leitura do diff para o revisor e para a decisão do gate (#308, `ResumirAlteracoesAsync`) ainda não recusa
+  filtros de conteúdo: num repositório com filtro configurado, eles rodam nessa leitura. Isso está registrado para
+  uma Issue própria.
 - Um roteiro tem uma worktree principal. A entrega cobre só ela, como o gate, porque roteiros não têm repositórios
   vinculados.
 

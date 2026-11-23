@@ -3070,7 +3070,8 @@ a mesma trava e os mesmos limites.
 
 Complemento (#311, AD-72): o conjunto fechado ganhou a única escrita Git do D.A.N.T.E. O commit local do artefato
 aprovado de um roteiro usa `add --all`, `write-tree`, `commit-tree` e `update-ref` da branch da execução com o valor
-antigo; `read-tree <base>` desfaz o index antes do commit, e `cat-file blob` e `diff --cached` só leem. Tudo isso só
+antigo; `read-tree <base>` desfaz o index antes do commit. Só leem: `cat-file blob`, `diff` entre a base e a árvore e
+`config --get-regexp` dos filtros de conteúdo, que a entrega recusa. Tudo isso só
 depois da aprovação do gateway, só na worktree e sem push. Nenhuma variável `GIT_*` herdada chega aos processos Git.
 
 Consequências:
@@ -3220,9 +3221,15 @@ Decisão:
   * o payload leva `artefato` (o hash do gate), `base` (o HEAD atual da worktree), `branch`, `mensagem` (padrão:
     "Artefato aprovado do roteiro E…"), `autor_nome` e `autor_email`, com alvo `@alias`, a etapa do gate e as
     capacidades `git.add` e `git.commit`;
-  * uma entrega por execução no caso de uso: a executada é informada; a incerta, em execução, ou com pedido em aberto
-    de outra mensagem é recusada; a pendente é devolvida; a aprovada e ainda não executada é executada (o caminho
-    depois de um reinício entre a aprovação e a execução).
+  * uma entrega por execução no caso de uso, com a execução travada (`FOR UPDATE`, na transação do ledger) da leitura
+    dos pedidos existentes até a gravação do novo, então pedidos simultâneos nunca criam dois (revisão do PR #326):
+    * a executada é informada;
+    * a incerta, a em execução e o pedido em aberto com outra mensagem são recusados;
+    * a pendente é devolvida;
+    * a aprovada e ainda não executada é executada fora da transação. É o caminho depois de um reinício entre a
+      aprovação e a execução.
+
+    O gateway continua aceitando payloads diferentes para a mesma execução: a semântica da PR 2 não muda.
 
   A identidade Git é explícita e obrigatória (`Orquestracao:Entrega:AutorNome` e `AutorEmail`), nunca herdada do Git
   do host, do repositório ou do agente. Ausente ou inválida, a entrega é recusada com o motivo, sem pedido; o resto
@@ -3233,17 +3240,24 @@ Decisão:
   reserva e o gate. Qualquer diferença cancela sem executar.
 * **Commit pelo Git fechado** (`ICommitDeWorktree`, implementado pelo `GerenciadorDeWorktreesGit`):
   1. reconfere a worktree (validação da AD-71, HEAD = base, hash = o aprovado, alterações não vazias);
-  2. `add --all`. Um `add` que falha não altera o index, porque o Git grava o index de forma atômica;
-  3. recalcula o mesmo hash canônico **a partir do index**, que é o que o commit grava. O diff rastreado vem de
-     `diff --cached --diff-filter=a` contra a base; cada arquivo novo vem pelo conteúdo do blob preparado
-     (`cat-file blob`), e o conjunto precisa ser exatamente o dos não rastreados. A função de hash é a mesma da
-     revisão;
-  4. `write-tree` e `commit-tree --no-gpg-sign -p <base> -m <mensagem> <árvore>`, com o autor e o committer
-     configurados por `GIT_AUTHOR_*`/`GIT_COMMITTER_*`. Isso só cria objetos;
-  5. o único efeito: `update-ref -m <reflog> refs/heads/<branch da execução> <novo> <base>`. É um compare-and-swap
+  2. **recusa filtros de conteúdo** (`filter.<driver>.clean`, `smudge` ou `process`, inclusive o do Git LFS) em
+     qualquer escopo de configuração, antes de qualquer comando que leia o conteúdo. Esses filtros são comandos
+     externos que `diff`, `status` e `add` executariam. A conferência fica no `LerHeadAsync`, por onde passam o
+     pedido, a remontagem e o commit, e a observação do estado não roda `status` com filtro configurado (revisão do
+     PR #326). Atributos que não chamam processo (`eol`, `ident`, `working-tree-encoding`) mudam os bytes preparados
+     e caem na conferência do hash;
+  3. `add --all`. Um `add` que falha não altera o index, porque o Git grava o index de forma atômica;
+  4. `write-tree` e recálculo do mesmo hash canônico **a partir da árvore escrita**, um objeto imutável e exatamente o
+     que o commit recebe. Assim, uma alteração do index entre o `add` e o `write-tree` não passa (revisão do PR #326).
+     O diff rastreado vem de `diff --diff-filter=a <base> <árvore>`; cada arquivo novo vem pelo conteúdo do blob
+     (`cat-file blob`), e o conjunto precisa ser exatamente o dos não rastreados. Só objetos: nenhum filtro roda. A
+     função de hash é a mesma da revisão;
+  5. `commit-tree --no-gpg-sign -p <base> -m <mensagem> <árvore>`, com o autor e o committer configurados por
+     `GIT_AUTHOR_*`/`GIT_COMMITTER_*`. Isso só cria o objeto;
+  6. o único efeito: `update-ref -m <reflog> refs/heads/<branch da execução> <novo> <base>`. É um compare-and-swap
      do Git: a branch só sai da base uma vez, então duas aprovações executadas ao mesmo tempo nunca geram dois
      commits. A outra vê o HEAD já movido (payload alterado) ou perde o CAS e fica sem efeito;
-  6. a branch é conferida de novo: commit novo, filho da base, com a árvore conferida e a worktree nele.
+  7. a branch é conferida de novo: commit novo, filho da base, com a árvore conferida e a worktree nele.
 
   O conjunto fechado aceita só essas formas: `update-ref` só numa branch `dante/<handle>/e<n>` e com o valor antigo;
   nunca push, reset, checkout, merge, criação ou remoção de branch. Hooks, gc e maintenance automáticos ficam
