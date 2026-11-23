@@ -37,7 +37,7 @@ public sealed class LedgerDeExecucoesPostgreSqlTests
 
         Assert.Equal(0, await ComandosDoBanco.ExecutarAsync(provider, ["--orquestracao", "migrate"]));
         Assert.Equal(0, await ComandosDoBanco.ExecutarAsync(provider, ["--orquestracao", "migrate"]));
-        Assert.Equal(["__historico_de_migrations", "agentes", "ativacoes_de_grupo", "coordenacoes_da_execucao", "delegacoes", "dependencias_de_etapa", "etapas_da_execucao",
+        Assert.Equal(["__historico_de_migrations", "agentes", "aprovacoes_de_acao", "ativacoes_de_grupo", "coordenacoes_da_execucao", "delegacoes", "dependencias_de_etapa", "etapas_da_execucao",
             "eventos", "execucoes", "grupos_de_agentes", "participantes_da_execucao", "participantes_de_grupo",
             "pedidos_de_aprovacao", "planos_da_coordenacao", "reservas_de_worktree", "roteiros_da_execucao", "sessoes_de_agente", "sinteses_da_coordenacao", "trabalhos_da_fila",
             "vereditos_de_revisao", "versoes_de_agente", "versoes_de_grupo"], await Tabelas(banco, "orquestracao"));
