@@ -44,7 +44,7 @@ public sealed partial class TelegramPollingService(
     ExecutorDeJobsDaFila? filaDeJobs = null, TelegramAgentes? agentes = null,
     ExecutorDeTarefasDaFila? filaDeTarefas = null, TelegramExecucoes? execucoes = null,
     TelegramGrupos? grupos = null, ExecutorDeRoteirosDaFila? filaDeRoteiros = null,
-    ExecutorDeCoordenacoesDaFila? filaDeCoordenacoes = null) : BackgroundService
+    ExecutorDeCoordenacoesDaFila? filaDeCoordenacoes = null, TelegramAprovacoesDeAcao? acoes = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private static readonly TimeSpan PollRetryDelay = TimeSpan.FromSeconds(3);
@@ -165,6 +165,21 @@ public sealed partial class TelegramPollingService(
             else if (authorizer.IsAuthorized(callback.From) && sessions is not null && callback.Message is not null &&
                      TelegramInputCallback.TryParse(callback.Data, out var input))
                 reply = await HandleInputCallbackAsync(callback, input, cancellationToken);
+            // Ação protegida (AD-72, #311): o botão só encaminha; a Application decide se a decisão vale.
+            else if (authorizer.IsAuthorized(callback.From) && acoes is not null && callback.Message is { } decidida &&
+                     TelegramAcaoCallback.TryParse(callback.Data, out var acao))
+            {
+                reply = await acoes.DecidirAsync(callback.From.Id, acao, cancellationToken);
+                try
+                {
+                    await botApi.EditApprovalAsync(decidida.Chat.Id, decidida.MessageId,
+                        (decidida.Text is { Length: > 0 } texto ? texto + "\n\n" : "") + reply, cancellationToken);
+                }
+                catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    logger.LogDebug("Falha ao atualizar a mensagem da ação ({ErrorType}).", exception.GetType().Name);
+                }
+            }
         }
         finally
         {
@@ -334,6 +349,15 @@ public sealed partial class TelegramPollingService(
                 _ => await execucoes.AguardandoAsync(userId, prompt, cancellationToken)
             };
             await SendLongMessageAsync(message.Chat.Id, reply, cancellationToken);
+            return;
+        }
+
+        // Protected actions (AD-72, #311): listing and decision only forward to the application use case.
+        if (string.Equals(command, "/acoes", StringComparison.OrdinalIgnoreCase))
+        {
+            var reply = acoes is null ? TelegramAprovacoesDeAcao.Desabilitado
+                : await acoes.AtenderAsync(message.Chat.Id, message.From!.Id, prompt, cancellationToken);
+            if (reply is not null) await SendLongMessageAsync(message.Chat.Id, reply, cancellationToken);
             return;
         }
 

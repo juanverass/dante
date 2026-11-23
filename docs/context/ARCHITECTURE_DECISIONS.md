@@ -3098,14 +3098,15 @@ Testes: `GerenciadorDeWorktreesGitTests`, `EscritaEmWorktreeTests`, `ReservasDeW
 
 ## AD-72 — Aprovação de ação protegida vinculada ao hash do payload, com catálogo fechado e execução única (#311)
 
-Status: vigente no domínio e na persistência (PR 1 da #311); etapa 9 do roadmap da Epic #296. O gateway na Application,
-as ferramentas do `dante_coordenacao` pelo catálogo e o adaptador de decisão do Telegram vêm no PR 2; a entrega do
-artefato do roteiro (primeiro consumidor), no PR 3. Proposta da AD-72 em
+Status: vigente no domínio e na persistência (PR 1 da #311) e no gateway na Application, com as ferramentas do
+`dante_coordenacao` pelo catálogo e o adaptador de decisão do Telegram (PR 2); etapa 9 do roadmap da Epic #296. A
+entrega do artefato do roteiro (primeiro consumidor), no PR 3. Proposta da AD-72 em
 [ADRS_PROPOSTAS](../architecture/multi-agent-platform/ADRS_PROPOSTAS.md), refinada e aprovada na própria #311 (entidade
 própria, primeiro consumidor por commit local, identidade Git explícita, dois passos humanos). Complementa a AD-22 (as
 approvals da CLI continuam separadas) e a AD-69/AD-75 (o gate de etapa continua não sendo aprovação de ação). Depende do
 mesmo banco e da mesma chave `Orquestracao:Habilitada`; migration `AprovacoesDeAcao`, não aplicada no banco canônico.
-Nada é exposto em tempo de execução nesta entrega.
+O PR 1 não expõe nada em tempo de execução; o PR 2 põe as ferramentas atuais no gateway, sem mudar comportamento, e
+expõe `/acoes` com a chave ligada, sem nenhuma ação protegida pedida ainda.
 
 Contexto: até a #310, nenhum fluxo de orquestração tinha ação protegida. O gate de etapa (`PedidoDeAprovacao`) decide um
 artefato e, por decisão travada, não autoriza commit, push nem outra ação. A entrega do artefato aprovado de um roteiro
@@ -3161,14 +3162,55 @@ Decisão:
   * um índice único parcial impede um segundo pedido do mesmo payload enquanto ele está pendente, aprovado, em
     execução, executado ou incerto: replay por pedido novo é recusado.
 
-Fora desta decisão: o gateway que identifica a sessão e aplica a política (PR 2), o adaptador do Telegram (PR 2), os
-comandos Git da entrega (PR 3), push/PR (Issue própria), Brain e planilhas atrás do gateway (Issue própria, depois da
+* **Gateway das ferramentas de sessão** (`GatewayDeFerramentas`, PR 2), sem estado e sem banco, na Application. Cada
+  chamada do `dante_coordenacao` passa por cinco passos:
+  1. identidade só do canal (sessão, servidor e as ferramentas que o perfil da sessão concede, fixados ao abrir);
+  2. catálogo fechado pelo nome `servidor.ferramenta`;
+  3. concessão do perfil;
+  4. schema da ferramenta (o do adaptador MCP, aplicado aqui);
+  5. política.
+
+  `Nunca` executa uma vez pelo caso de uso da própria ferramenta. Qualquer outra política é recusada: ação protegida
+  só existe por pedido de aprovação, nunca por chamada direta. Desconhecida e não concedida têm a mesma recusa da
+  validação anterior ("Ferramenta desconhecida."). Sem o gateway, o canal responde indisponível (fail-closed).
+
+  A concessão é a do perfil fixado na abertura da sessão: as versões são imutáveis, e as ferramentas `Nunca` não
+  releem o banco. Nenhum evento novo vai ao ledger por chamada: o efeito de cada ferramenta já é gravado pelo caso
+  de uso dela, e a auditoria da chamada fica no log do Worker, sem argumentos.
+* **Caso de uso das aprovações** (`IAprovacoesDeAcaoAppService`, PR 2), neutro de interface:
+  * o pedido passa pelo catálogo e pela política;
+  * o solicitante é o dono pelo próprio comando (conferido contra a raiz) ou o agente pela etapa da sessão (versão
+    congelada da etapa ou, sem ela, da execução), nunca por argumento;
+  * o mesmo payload vigente devolve o pedido existente;
+  * decisão de outro usuário é tratada como inexistente; decisões simultâneas: uma grava (`xmin`), a outra vê o
+    pedido decidido;
+  * **revogação**: o agente solicitante deixou de estar ativo, ou a versão atual dele não é mais a que pediu (versão
+    nova = concessões alteradas). Na decisão, ou antes de executar, cancela;
+  * **execução** pelo consumidor da ação (`ExecucaoDaAcaoProtegida`: remontar o payload e executar), sem registro
+    global de executores nesta entrega:
+    * payload impossível de remontar cancela sem executar;
+    * o início é gravado antes da ação (CAS); quem perde não executa;
+    * exceção ou cancelamento durante a ação viram `Incerto`;
+    * o desfecho é gravado sem o token de cancelamento;
+  * motivos, resultados e parâmetros exibidos são redigidos (`ProtecaoDeSegredos`) e cortados; o payload bruto não
+    sai da Application.
+* **Expiração e recuperação** (PR 2): o serviço de manutenção do Worker roda na partida, antes do polling:
+  `EmExecucao` vira `Incerto` (o processo que executava não existe mais) e os vencidos expiram. Depois, expira a cada
+  minuto. O dono é avisado. Pressupõe um Worker por banco (paralelismo 1).
+* **Adaptador de decisão do Telegram** (PR 2): `/acoes` lista os pedidos em aberto do ledger com resumo redigido,
+  hash curto, prazo e botões. O botão (`ac:<id>:<hash curto>:a|r`) leva só o pedido e o hash exibido. Sem teclado,
+  `/acoes aprovar|recusar <id>`. Nenhuma regra de autorização no adaptador.
+
+Fora desta decisão: os comandos Git da entrega e o estado real observado num `Incerto` (PR 3), push/PR (Issue própria), Brain e planilhas atrás do gateway (Issue própria, depois da
 ativação operacional) e a auditoria das approvals nativas da CLI.
 
 Código: `Dante.Domain/Execucoes/{AprovacaoDeAcao, CatalogoDeAcoes, PayloadDaAcao}.cs`,
 `Dante.Application/Execucoes/Portas/IAprovacaoDeAcaoRepository.cs`, `Dante.Infrastructure/Modulos/Execucoes/AprovacaoDeAcao*`,
-migration `AprovacoesDeAcao`.
-Testes: `AprovacaoDeAcaoDominioTests`, `AprovacoesDeAcaoPostgreSqlTests`.
+migration `AprovacoesDeAcao`; PR 2: `Dante.Application/Execucoes/{GatewayDeFerramentas, AprovacoesDeAcaoAppService}.cs`,
+`Dante.Worker/Coordenacao/FerramentasDeCoordenacao.cs`, `Dante.Worker/Telegram/{TelegramAprovacoesDeAcao,
+TelegramAcaoCallback}.cs`, `Dante.Worker/Execucoes/ManutencaoDasAprovacoesDeAcao.cs`.
+Testes: `AprovacaoDeAcaoDominioTests`, `AprovacoesDeAcaoPostgreSqlTests`, `GatewayDeFerramentasTests`,
+`GatewayDeAprovacoesPostgreSqlTests`.
 
 ## AD-74 — Acompanhamento e cancelamento de execuções na Application, neutros de interface (#305)
 

@@ -125,6 +125,12 @@ internal static class TelegramCommandHelp
             "coordenador, validada só na estrutura: divergências aparecem, não são resolvidas."),
         new("/aguardando", "ACOMPANHAMENTO", "Veja quais execuções suas estão esperando e por quê.", "/aguardando",
             "Na fila, aguardando nova tentativa, interrompida ou bloqueada. Não há posição numérica: a fila não garante ordem estável."),
+        new("/acoes", "ACOMPANHAMENTO", "Veja e decida os pedidos de ação protegida que aguardam você.",
+            "/acoes\n/acoes aprovar 1a2b3c4d <hash>\n/acoes recusar 1a2b3c4d não agora",
+            "Cada pedido mostra a ação, o alvo, os parâmetros com proteção de segredos, o hash curto e o prazo (24 h por " +
+            "padrão), com botões Aprovar e Recusar. Aprovar exige o hash exibido e autoriza uma única execução daquele " +
+            "conteúdo exato; qualquer mudança invalida a aprovação. Pedido vencido expira sem executar. Exige o ledger de " +
+            "execuções habilitado no Worker."),
 
         new("/repos", "REPOSITÓRIOS", "Liste os repositórios cadastrados.", "/repos"),
         new("/repo", "REPOSITÓRIOS", "Cadastre, consulte, vincule ou remova repositórios e configurações persistentes de ambiente.",

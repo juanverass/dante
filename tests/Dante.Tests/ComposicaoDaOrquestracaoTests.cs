@@ -36,6 +36,9 @@ public sealed class ComposicaoDaOrquestracaoTests
         Assert.DoesNotContain(services, s => s.ServiceType == typeof(Dante.Worker.Telegram.TelegramAgentes));
         // Sem a fila, /tarefa não tem executor: nada é criado nem executado.
         Assert.DoesNotContain(services, s => s.ServiceType == typeof(ExecutorDeTarefasDaFila));
+        // Aprovações de ação (AD-72, #311): sem a chave, nem o adaptador nem a manutenção; /acoes responde desabilitado.
+        Assert.DoesNotContain(services, s => s.ServiceType == typeof(Dante.Worker.Telegram.TelegramAprovacoesDeAcao));
+        Assert.DoesNotContain(services, s => s.ImplementationType == typeof(ManutencaoDasAprovacoesDeAcao));
         Assert.Equal(banco is not null, services.Any(s => s.ServiceType == typeof(OrquestracaoDbContext)));
         Assert.False(WorkerComposition.OrquestracaoHabilitada(configuracao));
     }
@@ -62,6 +65,10 @@ public sealed class ComposicaoDaOrquestracaoTests
             .Select(s => s.ImplementationType).ToArray();
         Assert.Equal(typeof(EncerramentoDoLedger), hospedados[0]);
         Assert.Contains(typeof(Dante.Worker.Telegram.TelegramPollingService), hospedados);
+        // Aprovações de ação (AD-72, #311): a recuperação depois de reinício começa antes do polling aceitar decisões.
+        Assert.Single(services, s => s.ServiceType == typeof(Dante.Worker.Telegram.TelegramAprovacoesDeAcao));
+        Assert.True(Array.IndexOf(hospedados, typeof(ManutencaoDasAprovacoesDeAcao)) is var manutencao and > 0 &&
+            manutencao < Array.IndexOf(hospedados, typeof(Dante.Worker.Telegram.TelegramPollingService)));
         // Mesmo registro do Worker para SessionRegistry, com driver falso: o grafo real tocaria ~/.dante.
         services.AddSingleton<IAgentSessionDriverFactory, FakeSessionDriverFactory>();
         services.AddSingleton<IAgentSessionEventSink, RecordingSessionSink>();

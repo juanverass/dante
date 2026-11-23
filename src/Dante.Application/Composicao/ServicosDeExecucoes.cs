@@ -36,5 +36,11 @@ internal static class ServicosDeExecucoes
         // Coordenação por papel (#310, AD-75): plano validado, gate do plano, despacho sequencial e consolidação mecânica.
         services.TryAddScoped<Dante.Application.Execucoes.ICoordenacoesAppService>(provider =>
             ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.CoordenacoesAppService>(provider));
+        // Gateway das ferramentas de sessão (AD-72, #311): sem estado e sem banco; as ferramentas do dante_coordenacao
+        // passam por ele com política Nunca. As aprovações de ação protegida dependem do ledger, como os demais.
+        services.TryAddScoped<Dante.Application.Execucoes.IGatewayDeFerramentas,
+            Dante.Application.Execucoes.GatewayDeFerramentas>();
+        services.TryAddScoped<Dante.Application.Execucoes.IAprovacoesDeAcaoAppService>(provider =>
+            ActivatorUtilities.CreateInstance<Dante.Application.Execucoes.AprovacoesDeAcaoAppService>(provider));
     }
 }

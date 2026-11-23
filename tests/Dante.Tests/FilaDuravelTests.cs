@@ -43,11 +43,13 @@ public sealed class FilaDuravelTests
         var configuracao = Configuracao(BancoFicticio, "true");
         var services = new ServiceCollection().AddLogging().AddApplication().AddInfrastructure(configuracao).AddWorker(configuracao);
         var hospedados = services.Where(s => s.ServiceType == typeof(IHostedService)).ToArray();
-        Assert.Equal(4, hospedados.Length);
+        Assert.Equal(5, hospedados.Length);
         Assert.Equal(typeof(EncerramentoDoLedger), hospedados[0].ImplementationType);
         // Registrado por fábrica, logo depois do encerramento do ledger e antes do Worker e do polling.
         Assert.NotNull(hospedados[1].ImplementationFactory);
-        Assert.Equal([typeof(Dante.Worker.Worker), typeof(TelegramPollingService)], hospedados[2..].Select(s => s.ImplementationType));
+        // A manutenção das aprovações de ação (#311) recupera pelo ledger antes do polling aceitar decisões.
+        Assert.Equal([typeof(ManutencaoDasAprovacoesDeAcao), typeof(Dante.Worker.Worker), typeof(TelegramPollingService)],
+            hospedados[2..].Select(s => s.ImplementationType));
         Assert.Equal(new OpcoesDaFila(), Assert.Single(services, s => s.ServiceType == typeof(OpcoesDaFila)).ImplementationInstance);
         using var provider = services.BuildServiceProvider();
         // Resolver não abre conexão: o banco fictício não existe.

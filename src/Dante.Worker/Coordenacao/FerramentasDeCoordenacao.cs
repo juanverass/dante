@@ -25,6 +25,8 @@ namespace Dante.Worker.Coordenacao;
 // Coordenação (#310, PR 3): a sessão do coordenador de uma Coordenada, em plan, recebe o perfil planejamento
 // (propor_plano) ou síntese (entregar_sintese), conforme a etapa que o orquestrador abriu. Não exige concessão no agente:
 // é o único canal de saída da etapa, de mundo fechado, e não amplia nada (como o perfil delegacao da subordinada).
+// Gateway (AD-72, #311, PR 2): cada chamada passa pelo IGatewayDeFerramentas da Application com a identidade deste canal;
+// as ferramentas estão no catálogo com política Nunca e continuam fazendo exatamente o que faziam.
 public sealed class FerramentasDeCoordenacao(IServiceScopeFactory escopos, ILogger<FerramentasDeCoordenacao> logger,
     (string Command, IReadOnlyList<string> Prefix)? comando = null) : IProvedorDeFerramentas, IDisposable
 {
@@ -144,17 +146,7 @@ public sealed class FerramentasDeCoordenacao(IServiceScopeFactory escopos, ILogg
                     using var documento = JsonDocument.Parse(lida.Texto!);
                     var nome = documento.RootElement.GetProperty("nome").GetString()!;
                     var argumentos = documento.RootElement.GetProperty("argumentos");
-                    ServidorMcpDeCoordenacao.Validar(nome, argumentos, canal.Perfil);
-                    resposta = canal.Perfil switch
-                    {
-                        PerfilDeCoordenacao.Origem => await ChamarDaOrigemAsync((CoordenacaoDaOrigem)canal.Coordenacao!, nome,
-                            argumentos, ct),
-                        PerfilDeCoordenacao.Delegacao => await ChamarDaDelegacaoAsync(
-                            (CoordenacaoDaDelegacao)canal.Coordenacao!, argumentos, ct),
-                        PerfilDeCoordenacao.Planejamento or PerfilDeCoordenacao.Sintese => await ChamarDoCoordenadorAsync(
-                            (CoordenacaoDoCoordenador)canal.Coordenacao!, argumentos, ct),
-                        _ => await ChamarAsync(sessao, canal.Escopo!, nome, argumentos, ct)
-                    };
+                    resposta = await PeloGatewayAsync(sessao, canal, nome, argumentos, ct);
                 }
                 catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or JsonException
                                                       or KeyNotFoundException)
@@ -180,6 +172,53 @@ public sealed class FerramentasDeCoordenacao(IServiceScopeFactory escopos, ILogg
             EndSession(sessao);
         }
     }
+
+    // Toda chamada passa pelo gateway da Application (AD-72, #311, PR 2): identidade pelo canal (a sessão e o perfil
+    // fixados aqui, nunca pelo agente), catálogo fechado, concessão do perfil, schema da ferramenta e política Nunca.
+    // Sem gateway, nada executa (fail-closed). A auditoria registra ferramenta, perfil, sessão e desfecho, sem argumentos.
+    private async Task<JsonObject> PeloGatewayAsync(string sessao, Canal canal, string nome, JsonElement argumentos,
+        CancellationToken ct)
+    {
+        await using var escopo = escopos.CreateAsyncScope();
+        var gateway = escopo.ServiceProvider.GetService<IGatewayDeFerramentas>();
+        if (gateway is null)
+        {
+            logger.LogWarning("dante_coordenacao sem gateway; chamada {Ferramenta} recusada.", nome);
+            return ServidorMcpDeCoordenacao.Erro("dante_coordenacao indisponível; tente de novo.");
+        }
+        var perfil = canal.Perfil;
+        var chamada = new ChamadaDeFerramentaDto(
+            new SessaoDaFerramentaDto(sessao, ServidorMcpDeCoordenacao.Nome,
+                ServidorMcpDeCoordenacao.Catalogo(perfil).Select(f => f.Nome).ToArray()),
+            nome, argumentos, a => ServidorMcpDeCoordenacao.Validar(nome, a, perfil));
+        try
+        {
+            var resposta = await gateway.ChamarAsync(chamada, token => perfil switch
+            {
+                PerfilDeCoordenacao.Origem => ChamarDaOrigemAsync((CoordenacaoDaOrigem)canal.Coordenacao!, nome, argumentos,
+                    token),
+                PerfilDeCoordenacao.Delegacao => ChamarDaDelegacaoAsync((CoordenacaoDaDelegacao)canal.Coordenacao!, argumentos,
+                    token),
+                PerfilDeCoordenacao.Planejamento or PerfilDeCoordenacao.Sintese => ChamarDoCoordenadorAsync(
+                    (CoordenacaoDoCoordenador)canal.Coordenacao!, argumentos, token),
+                _ => ChamarAsync(sessao, canal.Escopo!, nome, argumentos, token)
+            }, ct);
+            logger.LogInformation("dante_coordenacao: {Ferramenta} ({Perfil}) na sessão {Sessao}: {Desfecho}.",
+                Auditavel(nome), ServidorMcpDeCoordenacao.NomeDoPerfil(perfil), sessao,
+                resposta["isError"]?.GetValue<bool>() == true ? "recusada pelo caso de uso" : "executada");
+            return resposta;
+        }
+        catch (ChamadaRecusadaException)
+        {
+            logger.LogInformation("dante_coordenacao: {Ferramenta} ({Perfil}) na sessão {Sessao}: recusada pelo gateway.",
+                Auditavel(nome), ServidorMcpDeCoordenacao.NomeDoPerfil(perfil), sessao);
+            throw;
+        }
+    }
+
+    // O nome vem do agente: só entra na auditoria se for de uma ferramenta conhecida.
+    private static string Auditavel(string nome) =>
+        CatalogoDeAcoes.Obter(ServidorMcpDeCoordenacao.Nome + "." + nome) is null ? "(desconhecida)" : nome;
 
     private static async Task<bool> AutenticarAsync(StreamReader leitor, Canal canal, CancellationToken ct)
     {

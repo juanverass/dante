@@ -347,6 +347,8 @@ public sealed class CoordenacaoDaDelegacaoTests : IDisposable
         var provider = new ServiceCollection()
             .AddSingleton(delegacoes.Servico)
             .AddSingleton(fila.Servico)
+            // Toda chamada passa pelo gateway da Application (#311, PR 2); sem ele, o canal recusa (fail-closed).
+            .AddSingleton<IGatewayDeFerramentas, GatewayDeFerramentas>()
             .BuildServiceProvider();
         return (provider, delegacoes, fila);
     }

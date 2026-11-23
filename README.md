@@ -866,6 +866,7 @@ Com o mesmo banco e `Orquestracao:Habilitada=true`, cada usuário acompanha e ca
 /execucoes                     ativas e últimas encerradas (todas: mais encerradas)
 /execucao E42                  etapas, tentativa, agente, modelo, sessão S…, contexto (@alias), motivo e erro
 /aguardando                    o que espera e por quê: fila, nova tentativa, interrompida, bloqueada
+/acoes                         pedidos de ação protegida aguardando você, com hash curto e botões
 /cancel E42 não preciso mais   cancela a tarefa (com motivo opcional, registrado no ledger)
 ```
 
@@ -1322,6 +1323,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/execucoes [todas]` | Lista suas execuções no ledger: ativas e últimas encerradas |
 | `/execucao <J…\|E…>` | Detalhe de uma execução sua: etapas, estado, sessão `S…` da tarefa, motivo e erro redigido |
 | `/aguardando` | Suas execuções que esperam, e por quê |
+| `/acoes` | Pedidos de ação protegida aguardando você (resumo redigido, hash curto, prazo); aprovar exige o hash exibido e autoriza uma execução. `/acoes aprovar\|recusar <id> …` sem botões |
 | `/session start [claude\|codex] [@alias] [manual\|auto\|plan] [model=<modelo>] [effort=<nível>]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e modo selecionados se omitidos |
 | `/session list` | Lista as suas sessões |
 | `/session select <id\|none>` | Seleciona uma sessão; `none` faz a próxima mensagem abrir uma sessão nova |
