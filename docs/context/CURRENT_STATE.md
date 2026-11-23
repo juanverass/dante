@@ -277,8 +277,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   do `dante_coordenacao`); delegação rastreada (#309, AD-70) integrada em três PRs (domínio e persistência;
   Application, fila e executor; ferramentas MCP no `dante_coordenacao`); coordenação por papel (#310, AD-75) integrada
   em três PRs (#321, #322, #323); gateway de aprovações vinculadas a hash (#311, AD-72) em andamento: domínio e
-  persistência no PR 1 (em revisão), gateway na Application e adaptador do Telegram no PR 2, e entrega do artefato do
-  roteiro por commit local no PR 3.
+  persistência no PR 1 (#324, integrado), gateway na Application e adaptador do Telegram no PR 2 (em revisão), e
+  entrega do artefato do roteiro por commit local no PR 3.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -884,10 +884,33 @@ Limitações:
 - A síntese é validação estrutural: não avalia o mérito, não resolve divergência e não prova consenso.
 - A consolidação no Telegram corta resultados e textos longos para caber numa mensagem; o ledger guarda tudo.
 
-## Aprovação de ação protegida (#311, AD-72 — domínio e persistência)
+## Aprovação de ação protegida (#311, AD-72 — domínio, persistência, gateway e decisão)
 
-Primeira das três entregas do gateway (etapa 9 da Epic #296). Só domínio e persistência: nada é exposto em tempo de
-execução, e nenhum fluxo pede, decide ou executa uma ação protegida ainda.
+Duas das três entregas do gateway (etapa 9 da Epic #296): domínio e persistência (PR 1, #324) e o gateway na
+Application com o adaptador de decisão do Telegram (PR 2). Nenhum fluxo pede uma ação protegida ainda: o primeiro
+consumidor (a entrega do artefato do roteiro) vem no PR 3, e nenhum executor de ação protegida está registrado.
+
+- **Gateway das ferramentas de sessão** (`GatewayDeFerramentas`, Application): toda chamada do `dante_coordenacao`
+  passa por ele, na ordem identidade (sessão e perfil do canal exclusivo, nunca do agente), catálogo fechado,
+  concessão do perfil, schema da ferramenta e política. As cinco ferramentas têm política `Nunca` e fazem exatamente o
+  que faziam, com as mesmas mensagens; ferramenta desconhecida ou não concedida recebe a mesma recusa; ação protegida
+  nunca executa por chamada direta. Sem gateway, o canal responde indisponível e nada executa (fail-closed). O Worker
+  registra no log ferramenta, perfil, sessão e desfecho, sem argumentos; o efeito de cada ferramenta continua no
+  ledger pelo caso de uso dela.
+- **Caso de uso das aprovações** (`IAprovacoesDeAcaoAppService`): pedido pelo catálogo (fora dele ou sem proteção, é
+  recusado) com o solicitante identificado pelo comando do dono ou pela etapa da sessão (versão congelada); o mesmo
+  payload vigente devolve o pedido existente. Decisão só do dono da raiz, com o hash exibido, uma vez (decisões
+  simultâneas: uma vale). Agente desativado ou com outra versão entre o pedido e a decisão ou a execução cancela.
+  Execução única pelo consumidor da ação: payload remontado e comparado pelo hash, início gravado sob `xmin` (de
+  tentativas simultâneas, uma executa), exceção ou interrupção no meio vira `Incerto`, nunca repetido. Motivos e
+  resultados são redigidos; os parâmetros aparecem redigidos e cortados, nunca o payload bruto.
+- **Expiração e recuperação**: na partida do Worker, antes do polling, o que estava `EmExecucao` vira `Incerto` e o
+  vencido expira; depois, a cada minuto, os vencidos expiram. O dono é avisado no Telegram. Pressupõe um Worker por
+  banco (paralelismo 1).
+- **Telegram** (`/acoes`, `TelegramAprovacoesDeAcao`): lista os pedidos em aberto do ledger com resumo redigido, hash
+  curto, prazo e botões Aprovar/Recusar (ou os comandos `/acoes aprovar|recusar <id>`). O botão leva só o pedido e o
+  hash exibido; dono, prazo, hash e revogação são conferidos pela Application. Botões de antes de um reinício
+  continuam valendo só se a Application aceitar a decisão.
 
 - **Catálogo fechado** (`CatalogoDeAcoes`): nome, risco (`Leitura`, `EscritaInterna`, `EfeitoExterno`), política
   (`Nunca`, `ConformeModo`, `Sempre`), repositório alvo e parâmetros tipados. As cinco ferramentas do
@@ -908,7 +931,12 @@ execução, e nenhum fluxo pede, decide ou executa uma ação protegida ainda.
   explícito e sem chave a mais), as transições, o decisor, os prazos e a imutabilidade. Um índice único parcial recusa replay por pedido
   novo do mesmo payload vigente, executado ou incerto.
 - Migration `AprovacoesDeAcao`, não aplicada no banco canônico. Exige banco e `Orquestracao:Habilitada`, desligado no
-  homelab.
+  homelab: sem a chave, `/acoes` responde que não está habilitado e a manutenção não roda.
+
+Limitações:
+- O estado real observado numa execução `Incerto` por reinício depende do consumidor (PR 3); aqui, o motivo diz que o
+  efeito não é conhecido.
+- A política `ConformeModo` continua sem uso; nenhuma ação é pedida por agente nesta entrega.
 
 ## Worktrees por execução de escrita (#307, AD-71)
 

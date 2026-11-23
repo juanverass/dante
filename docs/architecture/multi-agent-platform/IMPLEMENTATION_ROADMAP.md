@@ -165,7 +165,7 @@ etapa de escrita exige worktree reservada. Só os fluxos legados (sessão comum,
      autorizar ação), catálogo fechado, payload canônico com hash do servidor, decisão única do dono da raiz, execução
      única por CAS, `Incerto` sem repetição, triggers e migration.
   2. Gateway na Application, ferramentas do `dante_coordenacao` pelo catálogo (política `Nunca`) e adaptador de
-     decisão no Telegram.
+     decisão no Telegram (`/acoes`), com expiração e recuperação após reinício.
   3. Primeiro consumidor: a entrega do artefato aprovado do roteiro por commit local na branch da worktree, sem
      push.
 
