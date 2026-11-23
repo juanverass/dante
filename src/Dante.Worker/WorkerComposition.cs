@@ -27,6 +27,13 @@ internal static class WorkerComposition
         // Acompanhamento e controle de execuções (#305): mesma condição; sem ele, /execucoes, /execucao e /aguardando
         // respondem que não está habilitado, e /cancel segue só com os jobs em memória.
         if (OrquestracaoHabilitada(configuration)) services.AddSingleton<TelegramExecucoes>();
+        // Aprovações de ação protegida (AD-72, #311): mesma condição; sem ela, /acoes responde que não está habilitado.
+        // A manutenção (Incerto depois de reinício, expiração e avisos) começa antes do polling do Telegram.
+        if (OrquestracaoHabilitada(configuration))
+        {
+            services.AddSingleton<TelegramAprovacoesDeAcao>();
+            services.AddHostedService<ManutencaoDasAprovacoesDeAcao>();
+        }
         services.AddSingleton<JobRegistry>();
         services.AddSingleton<RegistroDeOperacoesBrain>();
         services.AddSingleton(provider => new TelegramBrain(provider.GetRequiredService<IServiceScopeFactory>(), configuration, provider.GetRequiredService<RegistroDeOperacoesBrain>()));

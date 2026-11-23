@@ -61,7 +61,9 @@ public sealed class CoordenacaoDoRoteiroTests : IDisposable
     public async Task CanalSoExisteNaRevisaoConfinadaExigeOTokenDaSessaoEUsaOEscopoDoOrquestrador()
     {
         var roteiros = new RoteirosFalso();
-        await using var provider = new ServiceCollection().AddSingleton<IRoteirosAppService>(roteiros).BuildServiceProvider();
+        // Toda chamada passa pelo gateway da Application (#311, PR 2).
+        await using var provider = new ServiceCollection().AddSingleton<IRoteirosAppService>(roteiros)
+            .AddSingleton<IGatewayDeFerramentas, GatewayDeFerramentas>().BuildServiceProvider();
         using var ferramentas = new FerramentasDeCoordenacao(provider.GetRequiredService<IServiceScopeFactory>(),
             NullLogger<FerramentasDeCoordenacao>.Instance);
         var escopo = new EscopoDaRevisaoDto(Guid.NewGuid(), "E7", Guid.NewGuid(), 1, Hash);
@@ -116,6 +118,31 @@ public sealed class CoordenacaoDoRoteiroTests : IDisposable
             registro.Sessao));
         Assert.Equal(["teste do caso vazio"], registro.Veredito.Itens);
         ferramentas.EndSession("S5");
+    }
+
+    // Fail-closed (#311, PR 2): sem o gateway da Application, o canal autenticado não executa nada e responde
+    // indisponível; nenhuma chamada chega ao caso de uso.
+    [Fact]
+    public async Task SemGatewayNenhumaChamadaChegaAoCasoDeUso()
+    {
+        var roteiros = new RoteirosFalso();
+        await using var provider = new ServiceCollection().AddSingleton<IRoteirosAppService>(roteiros).BuildServiceProvider();
+        using var ferramentas = new FerramentasDeCoordenacao(provider.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<FerramentasDeCoordenacao>.Instance);
+        var escopo = new EscopoDaRevisaoDto(Guid.NewGuid(), "E7", Guid.NewGuid(), 1, Hash);
+        var servidor = Assert.Single(await ferramentas.ForSessionAsync("S1", new SessionStartRequest(1, AgentKind.Codex,
+            JobExecutionContext.Repository("@dante", "/wt/dante/E7"), RegisteredAgent: Agente(leitura: true, escopo),
+            Observer: new ObservadorNulo())));
+        await using (var cliente = await ConectarAsync(servidor.Arguments[^1]))
+        {
+            await Escrever(cliente, new { token = servidor.Environment[ServidorMcpDeCoordenacao.VariavelDoToken] });
+            await Escrever(cliente, new { nome = "estado_da_execucao", argumentos = new { } });
+            Assert.Contains("indisponível", Texto(await LerAsync(cliente)));
+            await Escrever(cliente, new { nome = "entregar_resultado", argumentos = new { veredito = "aprovado", resumo = "ok" } });
+            Assert.Contains("indisponível", Texto(await LerAsync(cliente)));
+        }
+        Assert.Empty(roteiros.Chamadas);
+        ferramentas.EndSession("S1");
     }
 
     [Fact]
