@@ -259,6 +259,61 @@ public sealed class CommitDeWorktreeGitTests : IDisposable
         Assert.Equal("M  codigo.txt", Estado(w));
     }
 
+    // Revisão do PR #326, ponto 1: um filtro de conteúdo (clean/smudge/process, como o do Git LFS) é um comando externo
+    // que o Git roda ao ler ou preparar arquivos. A entrega o recusa antes de qualquer leitura de conteúdo: o comando
+    // nunca roda (a marca não é criada), nada é preparado nem commitado, e a observação do estado também não o aciona.
+    [Theory]
+    [InlineData("clean")]
+    [InlineData("process")]
+    public async Task FiltroDeConteudoConfiguradoNuncaRodaEAEntregaERecusada(string tipo)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var (repo, w, gerenciador) = await PrepararAsync();
+        File.WriteAllText(Path.Combine(w.Caminho, "codigo.txt"), "alterado\n");
+        var aprovado = (await gerenciador.ResumirAlteracoesAsync(w, 0)).Hash;
+        var marca = Path.Combine(temp.Raiz, "filtro-rodou");
+        // O filtro vale para todos os arquivos (atributo no diretório Git comum) e marca quando roda.
+        RepositorioGitDeTeste.Git(repo.Caminho, "config", $"filter.perigoso.{tipo}", $"sh -c 'touch {marca}; cat'");
+        File.WriteAllText(Path.Combine(repo.Caminho, ".git", "info", "attributes"), "* filter=perigoso\n");
+
+        var desfecho = await gerenciador.CommitarAsync(w, new(w.ShaBase, aprovado, Autor, "m"));
+        var leitura = await Assert.ThrowsAsync<WorktreeInvalidaException>(() => gerenciador.LerHeadAsync(w));
+        var estado = await gerenciador.DescreverEstadoAsync(w);
+
+        Assert.False(File.Exists(marca), "o filtro rodou");
+        Assert.Contains($"filtros de conteúdo configurados (filter.perigoso.{tipo})",
+            Assert.IsType<DesfechoDoCommitDto.SemEfeito>(desfecho).Motivo);
+        Assert.Contains("nada foi feito", leitura.Message);
+        Assert.Contains("alterações não lidas (filtros de conteúdo configurados)", estado);
+        Assert.Contains("0 commit(s) além da base", estado);
+        // Sem o filtro, nada tinha sido preparado: o index continua o da base.
+        File.Delete(Path.Combine(repo.Caminho, ".git", "info", "attributes"));
+        RepositorioGitDeTeste.Git(repo.Caminho, "config", "--unset", $"filter.perigoso.{tipo}");
+        Assert.Equal("", RepositorioGitDeTeste.Git(w.Caminho, "diff", "--cached", "--name-only"));
+        Assert.Equal("codigo.txt", RepositorioGitDeTeste.Git(w.Caminho, "diff", "--name-only"));
+        Assert.False(File.Exists(marca));
+    }
+
+    // Revisão do PR #326, ponto 3: outro processo altera o index entre o add e o write-tree. A conferência é da árvore
+    // já escrita (imutável, a mesma que o commit-tree recebe), então a alteração é recusada e nada é commitado.
+    [Fact]
+    public async Task IndexAlteradoAntesDoWriteTreeERecusadoPelaArvoreConferida()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var (repo, w, _) = await PrepararAsync();
+        var gerenciador = ComGitFalso(repo,
+            "for a in \"$@\"; do if [ \"$a\" = \"write-tree\" ]; then " +
+            $"echo intruso >> '{w.Caminho}/novo.txt'; git -C '{w.Caminho}' add novo.txt; fi; done\n");
+        File.WriteAllText(Path.Combine(w.Caminho, "novo.txt"), "novo\n");
+        var aprovado = (await gerenciador.ResumirAlteracoesAsync(w, 0)).Hash;
+
+        var desfecho = await gerenciador.CommitarAsync(w, new(w.ShaBase, aprovado, Autor, "m"));
+
+        Assert.Contains("difere do aprovado", Assert.IsType<DesfechoDoCommitDto.SemEfeito>(desfecho).Motivo);
+        Assert.Equal(w.ShaBase, RepositorioGitDeTeste.Git(w.Caminho, "rev-parse", "HEAD"));
+        Assert.Equal($"refs/heads/{w.Branch}", "refs/heads/" + RepositorioGitDeTeste.Git(w.Caminho, "branch", "--show-current"));
+    }
+
     [Fact]
     public async Task FalhaAoRestaurarOIndexEIncerta()
     {
@@ -285,6 +340,11 @@ public sealed class CommitDeWorktreeGitTests : IDisposable
         "89abcdef0123456789abcdef0123456789abcdef")]
     [InlineData(true, "update-ref", "-m", GerenciadorDeWorktreesGit.MensagemDoReflog, "refs/heads/dante/dev/e7",
         "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef")]
+    [InlineData(true, "config", "--null", "--get-regexp", GerenciadorDeWorktreesGit.ExpressaoDosFiltros)]
+    [InlineData(false, "config", "--null", "--get-regexp", "^user\\.")]
+    [InlineData(false, "config", "filter.x.clean", "cat")]
+    [InlineData(false, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--no-color", "--binary", "--no-renames",
+        "--diff-filter=a", "0123456789abcdef0123456789abcdef01234567")]
     [InlineData(false, "commit", "-m", "x")]
     [InlineData(false, "commit-tree", "-p", "0123456789abcdef0123456789abcdef01234567", "-m", "x",
         "89abcdef0123456789abcdef0123456789abcdef")]

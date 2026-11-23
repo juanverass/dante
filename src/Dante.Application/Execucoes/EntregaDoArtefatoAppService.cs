@@ -10,6 +10,7 @@ namespace Dante.Application.Execucoes;
 // (IAprovacoesDeAcaoAppService: dono, hash, prazo, revogação e execução única por CAS); o commit é do Git fechado
 // (ICommitDeWorktree), que reconfere o conteúdo imediatamente antes de gravar.
 public sealed class EntregaDoArtefatoAppService(
+    IFilaDeTrabalho fila,
     IExecucaoRepository execucoes,
     IPedidoDeAprovacaoRepository pedidos,
     IReservaDeWorktreeRepository reservas,
@@ -40,49 +41,65 @@ public sealed class EntregaDoArtefatoAppService(
         if (ProtecaoDeSegredos.ContemSegredo(mensagemNormalizada))
             throw new ArgumentException("A mensagem parece conter uma credencial; reescreva sem ela.");
 
-        // Uma entrega por execução: a existente decide o que acontece.
-        var existentes = (await aprovacoes.ListarDaExecucaoAsync(execucao.Id, cancellationToken))
-            .Where(a => a.Acao == CatalogoDeAcoes.EntregarArtefatoDoRoteiro.Nome).ToArray();
-        if (existentes.FirstOrDefault(a => a.Estado == EstadoDaAprovacaoDeAcao.Executada) is { } entregue)
-            return new(ResultadoDaSolicitacaoDeEntrega.JaEntregue, execucao.Codigo, await DtoAsync(dono, entregue, cancellationToken));
-        if (existentes.FirstOrDefault(a => a.Estado is EstadoDaAprovacaoDeAcao.Incerto or EstadoDaAprovacaoDeAcao.EmExecucao)
-            is { } incerta)
-            throw new InvalidOperationException(incerta.Estado == EstadoDaAprovacaoDeAcao.Incerto
-                ? $"A entrega de {execucao.Codigo} ficou incerta e não será repetida ({incerta.Resultado ?? "estado não observado"}). " +
-                  "Confira a branch da worktree antes de qualquer outra ação."
-                : $"A entrega de {execucao.Codigo} está em execução.");
-        if (existentes.FirstOrDefault(a => a.Estado is EstadoDaAprovacaoDeAcao.Pendente or EstadoDaAprovacaoDeAcao.Aprovada)
-            is { } aberta)
+        // Uma entrega por execução, com a execução travada (FOR UPDATE) da leitura dos pedidos existentes até a gravação
+        // do novo: dois pedidos simultâneos da mesma execução, mesmo com mensagens diferentes, nunca criam dois; o
+        // segundo espera o primeiro gravar e o encontra. A execução de uma entrega já aprovada fica fora da transação
+        // (ela tem as próprias gravações e o CAS do gateway).
+        SolicitacaoDeEntregaDto? resultado = null;
+        AprovacaoDeAcao? aprovadaParaExecutar = null;
+        await fila.ExecutarEmTransacaoAsync(async token =>
         {
-            if (mensagemNormalizada is not null &&
-                mensagemNormalizada != PayloadDaAcao.Parametro(aberta.Payload, "mensagem"))
-                throw new InvalidOperationException($"Já há um pedido de entrega de {execucao.Codigo} em aberto, com outra " +
-                    "mensagem. Recuse-o em /acoes antes de pedir outro.");
-            if (aberta.Estado == EstadoDaAprovacaoDeAcao.Pendente)
-                return new(ResultadoDaSolicitacaoDeEntrega.EmAberto, execucao.Codigo, await DtoAsync(dono, aberta, cancellationToken));
-            var executada = await ExecutarAprovadaAsync(dono, aberta.Id, cancellationToken);
-            return new(ResultadoDaSolicitacaoDeEntrega.Executada, execucao.Codigo, executada?.Aprovacao, executada);
-        }
+            _ = await execucoes.ObterParaAtualizarAsync(execucao.Id, token) ??
+                throw new InvalidOperationException("Execução não registrada no ledger.");
+            var existentes = (await aprovacoes.ListarDaExecucaoAsync(execucao.Id, token))
+                .Where(a => a.Acao == CatalogoDeAcoes.EntregarArtefatoDoRoteiro.Nome).ToArray();
+            if (existentes.FirstOrDefault(a => a.Estado == EstadoDaAprovacaoDeAcao.Executada) is { } entregue)
+            {
+                resultado = new(ResultadoDaSolicitacaoDeEntrega.JaEntregue, execucao.Codigo, await DtoAsync(dono, entregue, token));
+                return;
+            }
+            if (existentes.FirstOrDefault(a => a.Estado is EstadoDaAprovacaoDeAcao.Incerto or EstadoDaAprovacaoDeAcao.EmExecucao)
+                is { } incerta)
+                throw new InvalidOperationException(incerta.Estado == EstadoDaAprovacaoDeAcao.Incerto
+                    ? $"A entrega de {execucao.Codigo} ficou incerta e não será repetida ({incerta.Resultado ?? "estado não observado"}). " +
+                      "Confira a branch da worktree antes de qualquer outra ação."
+                    : $"A entrega de {execucao.Codigo} está em execução.");
+            if (existentes.FirstOrDefault(a => a.Estado is EstadoDaAprovacaoDeAcao.Pendente or EstadoDaAprovacaoDeAcao.Aprovada)
+                is { } aberta)
+            {
+                if (mensagemNormalizada is not null &&
+                    mensagemNormalizada != PayloadDaAcao.Parametro(aberta.Payload, "mensagem"))
+                    throw new InvalidOperationException($"Já há um pedido de entrega de {execucao.Codigo} em aberto, com outra " +
+                        "mensagem. Recuse-o em /acoes antes de pedir outro.");
+                if (aberta.Estado == EstadoDaAprovacaoDeAcao.Pendente)
+                    resultado = new(ResultadoDaSolicitacaoDeEntrega.EmAberto, execucao.Codigo, await DtoAsync(dono, aberta, token));
+                else aprovadaParaExecutar = aberta;
+                return;
+            }
 
-        var autor = opcoes.Autor ?? throw new InvalidOperationException(opcoes.ProblemaDaConfiguracao is { } problema
-            ? $"A identidade Git da entrega está inválida ({problema}); nada foi pedido."
-            : SemIdentidade);
-        var fatos = await FatosAsync(execucao, cancellationToken);
-        if (fatos.Head != fatos.Reserva.ShaBase)
-            throw new InvalidOperationException($"A branch da worktree de {execucao.Codigo} já tem commits além da base; " +
-                "nada foi pedido.");
-        if (fatos.Alteracoes.Hash != fatos.Gate.HashDoArtefato)
-            throw new InvalidOperationException($"O conteúdo da worktree de {execucao.Codigo} mudou depois da aprovação no " +
-                $"gate (agora {fatos.Alteracoes.Hash[..12]}, aprovado {fatos.Gate.HashDoArtefato[..12]}); nada foi pedido.");
-        if (fatos.Alteracoes.Vazias)
-            throw new InvalidOperationException($"A worktree de {execucao.Codigo} não tem alterações; nada a entregar.");
+            var autor = opcoes.Autor ?? throw new InvalidOperationException(opcoes.ProblemaDaConfiguracao is { } problema
+                ? $"A identidade Git da entrega está inválida ({problema}); nada foi pedido."
+                : SemIdentidade);
+            var fatos = await FatosAsync(execucao, token);
+            if (fatos.Head != fatos.Reserva.ShaBase)
+                throw new InvalidOperationException($"A branch da worktree de {execucao.Codigo} já tem commits além da base; " +
+                    "nada foi pedido.");
+            if (fatos.Alteracoes.Hash != fatos.Gate.HashDoArtefato)
+                throw new InvalidOperationException($"O conteúdo da worktree de {execucao.Codigo} mudou depois da aprovação no " +
+                    $"gate (agora {fatos.Alteracoes.Hash[..12]}, aprovado {fatos.Gate.HashDoArtefato[..12]}); nada foi pedido.");
+            if (fatos.Alteracoes.Vazias)
+                throw new InvalidOperationException($"A worktree de {execucao.Codigo} não tem alterações; nada a entregar.");
 
-        var parametros = Parametros(fatos.Gate.HashDoArtefato, autor, fatos.Head, fatos.Reserva.Branch,
-            mensagemNormalizada ?? $"Artefato aprovado do roteiro {execucao.Codigo} (D.A.N.T.E.)");
-        var pedido = await gateway.SolicitarAsync(new SolicitacaoDeAcaoDto(CatalogoDeAcoes.EntregarArtefatoDoRoteiro.Nome,
-            execucao.Id, fatos.Gate.IdEtapa, fatos.Reserva.Alias, Capacidades, parametros, dono), cancellationToken);
-        return new(pedido.Novo ? ResultadoDaSolicitacaoDeEntrega.Solicitada : ResultadoDaSolicitacaoDeEntrega.EmAberto,
-            execucao.Codigo, pedido.Aprovacao);
+            var parametros = Parametros(fatos.Gate.HashDoArtefato, autor, fatos.Head, fatos.Reserva.Branch,
+                mensagemNormalizada ?? $"Artefato aprovado do roteiro {execucao.Codigo} (D.A.N.T.E.)");
+            var pedido = await gateway.SolicitarAsync(new SolicitacaoDeAcaoDto(CatalogoDeAcoes.EntregarArtefatoDoRoteiro.Nome,
+                execucao.Id, fatos.Gate.IdEtapa, fatos.Reserva.Alias, Capacidades, parametros, dono), token);
+            resultado = new(pedido.Novo ? ResultadoDaSolicitacaoDeEntrega.Solicitada : ResultadoDaSolicitacaoDeEntrega.EmAberto,
+                execucao.Codigo, pedido.Aprovacao);
+        }, cancellationToken);
+        if (aprovadaParaExecutar is null) return resultado!;
+        var executada = await ExecutarAprovadaAsync(dono, aprovadaParaExecutar.Id, cancellationToken);
+        return new(ResultadoDaSolicitacaoDeEntrega.Executada, execucao.Codigo, executada?.Aprovacao, executada);
     }
 
     public async Task<ExecucaoDeAcaoDto?> ExecutarAprovadaAsync(ProprietarioDaExecucao dono, Guid idAprovacao,

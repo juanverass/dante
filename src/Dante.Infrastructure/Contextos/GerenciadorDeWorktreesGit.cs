@@ -196,8 +196,28 @@ public sealed partial class GerenciadorDeWorktreesGit(
     {
         ArgumentNullException.ThrowIfNull(worktree);
         await ValidarAsync(worktree, cancellationToken);
+        // Antes de qualquer comando que leia o conteúdo da worktree (diff, add): é aqui que um filtro rodaria.
+        await ConferirSemFiltrosDeConteudoAsync(worktree, cancellationToken);
         return await HeadAsync(worktree.Caminho, cancellationToken) ??
             throw new WorktreeInvalidaException("Não foi possível ler o HEAD da worktree.");
+    }
+
+    // Filtros de conteúdo (filter.<driver>.clean, smudge ou process, inclusive o do Git LFS) são comandos externos que o
+    // Git executa ao ler ou preparar arquivos (diff, status, add). A entrega não executa comando do repositório nem do
+    // host: com qualquer driver desses configurado em qualquer escopo (sistema, global, repositório, worktree), ela é
+    // recusada antes de ler o conteúdo, sem efeito. Só os nomes das chaves aparecem no motivo, nunca os comandos.
+    private async Task ConferirSemFiltrosDeConteudoAsync(WorktreePlanejada worktree, CancellationToken cancellationToken)
+    {
+        var filtros = await GitAsync(worktree.Caminho, cancellationToken, "config", "--null", "--get-regexp",
+            ExpressaoDosFiltros);
+        // 1: nenhuma chave; 0: há filtros; qualquer outro código: configuração ilegível (fail-closed).
+        if (filtros.Codigo == 1) return;
+        if (filtros.Codigo != 0)
+            throw new WorktreeInvalidaException("Não foi possível ler a configuração de filtros do Git; nada foi feito.");
+        var chaves = filtros.Saida.Split('\0', StringSplitOptions.RemoveEmptyEntries)
+            .Select(item => item.Split('\n', 2)[0]).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Take(5);
+        throw new WorktreeInvalidaException("O Git deste repositório tem filtros de conteúdo configurados (" +
+            string.Join(", ", chaves) + "), que executam comandos externos; a entrega não os executa e nada foi feito.");
     }
 
     public async Task<DesfechoDoCommitDto> CommitarAsync(WorktreePlanejada worktree, CommitDoArtefatoDto commit,
@@ -239,13 +259,16 @@ public sealed partial class GerenciadorDeWorktreesGit(
             if (preparo.Codigo != 0)
                 return new DesfechoDoCommitDto.SemEfeito("O Git recusou preparar as alterações" + Detalhe(preparo.Erro) +
                     "; o index não foi alterado e nenhum commit foi feito.");
-            // O commit grava o index, não a worktree: é o index que precisa ser exatamente o aprovado.
-            if (await HashDoIndexAsync(worktree, commit.Base, antes.NaoRastreados, cancellationToken) != commit.HashDoArtefato)
-                return await DesfazerIndexAsync(worktree, commit.Base, "O conteúdo preparado difere do aprovado");
             var escrita = await GitAsync(worktree.Caminho, cancellationToken, "write-tree");
             if (escrita.Codigo != 0 || !Sha1().IsMatch(escrita.Saida))
                 return await DesfazerIndexAsync(worktree, commit.Base, "O Git não gravou a árvore do commit");
             arvore = escrita.Saida;
+            // O commit grava esta árvore, um objeto imutável: é ela que precisa ser exatamente o aprovado. Conferir a
+            // árvore já escrita (e não o index, que outro processo poderia mudar entre a conferência e o write-tree)
+            // fecha a janela: o que foi conferido é o que o commit-tree recebe.
+            if (await HashDaArvoreAsync(worktree, commit.Base, arvore, antes.NaoRastreados, cancellationToken) !=
+                commit.HashDoArtefato)
+                return await DesfazerIndexAsync(worktree, commit.Base, "O conteúdo preparado difere do aprovado");
         }
         catch (Exception exception) when (exception is WorktreeInvalidaException or IOException or OperationCanceledException)
         {
@@ -326,14 +349,22 @@ public sealed partial class GerenciadorDeWorktreesGit(
             var adiante = await ConsultarAsync(worktree.Caminho, cancellationToken, "rev-list", "--count",
                 $"{worktree.ShaBase}..HEAD");
             var branch = await ConsultarAsync(worktree.Caminho, cancellationToken, "symbolic-ref", "--quiet", "HEAD");
-            var status = await GitAsync(worktree.Caminho, cancellationToken, "status", "--porcelain", "--untracked-files=all");
-            var linhas = status.Codigo == 0 ? status.Saida.Split('\n', StringSplitOptions.RemoveEmptyEntries) : null;
+            // status lê os arquivos e acionaria um filtro de conteúdo: com filtro configurado, as alterações não são lidas.
+            string[]? linhas = null;
+            var semFiltros = (await GitAsync(worktree.Caminho, cancellationToken, "config", "--null", "--get-regexp",
+                ExpressaoDosFiltros)).Codigo == 1;
+            if (semFiltros)
+            {
+                var status = await GitAsync(worktree.Caminho, cancellationToken, "status", "--porcelain", "--untracked-files=all");
+                linhas = status.Codigo == 0 ? status.Saida.Split('\n', StringSplitOptions.RemoveEmptyEntries) : null;
+            }
             var preparados = linhas?.Count(l => l.Length > 1 && l[0] is not (' ' or '?'));
             var foraDoIndex = linhas?.Count(l => l.Length > 1 && (l[1] != ' ' || l[0] == '?'));
             return $"HEAD {(head is null ? "ilegível" : head[..12])} na " +
                 $"{(branch is null ? "branch ilegível" : branch.Replace("refs/heads/", "", StringComparison.Ordinal))}; " +
                 $"{adiante ?? "?"} commit(s) além da base {worktree.ShaBase[..12]}; " +
-                (linhas is null ? "alterações ilegíveis." : $"{preparados} arquivo(s) no index e {foraDoIndex} fora dele.");
+                (linhas is not null ? $"{preparados} arquivo(s) no index e {foraDoIndex} fora dele."
+                    : semFiltros ? "alterações ilegíveis." : "alterações não lidas (filtros de conteúdo configurados).");
         }
         catch (Exception exception) when (exception is WorktreeInvalidaException or IOException or InvalidOperationException
                                               or UnauthorizedAccessException or OperationCanceledException)
@@ -342,18 +373,18 @@ public sealed partial class GerenciadorDeWorktreesGit(
         }
     }
 
-    // Hash canônico a partir do index (o que o commit grava), na mesma forma de ResumirAlteracoesAsync: o diff rastreado
-    // do index contra a base, sem os arquivos novos, e cada arquivo novo pelo conteúdo do blob preparado. Os arquivos
-    // novos precisam ser exatamente os que eram não rastreados antes do add. Nulo quando algo não pode ser lido ou não
-    // confere (um submódulo, por exemplo).
-    private async Task<string?> HashDoIndexAsync(WorktreePlanejada worktree, string baseDoCommit,
+    // Hash canônico a partir da árvore que o commit vai gravar, na mesma forma de ResumirAlteracoesAsync: o diff
+    // rastreado da árvore contra a base, sem os arquivos novos, e cada arquivo novo pelo conteúdo do blob. Os arquivos
+    // novos precisam ser exatamente os que eram não rastreados antes do add. Só objetos (nenhum filtro roda). Nulo
+    // quando algo não pode ser lido ou não confere (um submódulo, por exemplo).
+    private async Task<string?> HashDaArvoreAsync(WorktreePlanejada worktree, string baseDoCommit, string arvore,
         IReadOnlyList<string> naoRastreados, CancellationToken cancellationToken)
     {
-        var diff = await GitAsync(worktree.Caminho, cancellationToken, "diff", "--cached", "--no-ext-diff", "--no-textconv",
-            "--no-color", "--binary", "--no-renames", "--diff-filter=a", baseDoCommit);
+        var diff = await GitAsync(worktree.Caminho, cancellationToken, "diff", "--no-ext-diff", "--no-textconv",
+            "--no-color", "--binary", "--no-renames", "--diff-filter=a", baseDoCommit, arvore);
         if (diff.Codigo != 0) return null;
-        var bruto = await GitAsync(worktree.Caminho, cancellationToken, "diff", "--cached", "--raw", "-z", "--no-abbrev",
-            "--no-renames", "--diff-filter=A", baseDoCommit);
+        var bruto = await GitAsync(worktree.Caminho, cancellationToken, "diff", "--raw", "-z", "--no-abbrev",
+            "--no-renames", "--diff-filter=A", baseDoCommit, arvore);
         if (bruto.Codigo != 0) return null;
         var partes = bruto.Saida.Split('\0', StringSplitOptions.RemoveEmptyEntries);
         if (partes.Length % 2 != 0) return null;
@@ -535,9 +566,12 @@ public sealed partial class GerenciadorDeWorktreesGit(
         ["ls-files", "--others", "--exclude-standard", "-z"] => true,
         // Entrega do artefato aprovado (#311, PR 3): o index contra a base, o conteúdo de um blob preparado, a árvore e
         // exatamente um commit de forma fixa; read-tree só da base (desfaz o index antes do commit, sem tocar arquivos).
-        ["diff", "--cached", "--no-ext-diff", "--no-textconv", "--no-color", "--binary", "--no-renames", "--diff-filter=a", var b]
-            => Sha1().IsMatch(b),
-        ["diff", "--cached", "--raw", "-z", "--no-abbrev", "--no-renames", "--diff-filter=A", var b] => Sha1().IsMatch(b),
+        ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--binary", "--no-renames", "--diff-filter=a", var b, var t]
+            => Sha1().IsMatch(b) && Sha1().IsMatch(t),
+        ["diff", "--raw", "-z", "--no-abbrev", "--no-renames", "--diff-filter=A", var b, var t] =>
+            Sha1().IsMatch(b) && Sha1().IsMatch(t),
+        // Só leitura: quais drivers de filtro de conteúdo estão configurados (a entrega os recusa).
+        ["config", "--null", "--get-regexp", ExpressaoDosFiltros] => true,
         ["cat-file", "blob", var oid] => Sha1().IsMatch(oid),
         ["add", "--all"] or ["write-tree"] => true,
         ["read-tree", var b] => Sha1().IsMatch(b),
@@ -550,6 +584,7 @@ public sealed partial class GerenciadorDeWorktreesGit(
     };
 
     internal const string MensagemDoReflog = "dante: entrega do artefato aprovado";
+    internal const string ExpressaoDosFiltros = "^filter\\..*\\.(clean|smudge|process)$";
 
     private Task<(int Codigo, string Saida, string Erro)> GitAsync(string cwd, CancellationToken cancellationToken,
         params string[] argumentos) => GitAsync(cwd, null, cancellationToken, argumentos);

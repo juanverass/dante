@@ -237,6 +237,37 @@ public sealed partial class RoteiroPelaFilaEndToEndTests
 
     // Nada configurado: sem autor e sem problema (a entrega diz que falta). Válida: o autor. Inválida: sem autor, com o
     // motivo (sem o valor).
+    // Revisão do PR #326, ponto 2: pedidos simultâneos da mesma execução com mensagens diferentes. A execução fica
+    // travada da leitura dos pedidos até a gravação, então só um pedido existe; os outros veem o pedido em aberto com
+    // outra mensagem e são recusados. O gateway continua aceitando payloads diferentes (semântica da PR 2 intacta).
+    [PostgreSqlFact]
+    public async Task PedidosSimultaneosDaMesmaEntregaCriamUmSoPedido()
+    {
+        await using var banco = await FilaAsync();
+        await using var a = await Ambiente.CriarAsync(banco);
+        await a.IniciarAsync();
+        var (codigo, _) = await GateAprovadoAsync(a);
+        var dono = new ProprietarioDaExecucao(LedgerChannel.Telegram, 123);
+
+        var tentativas = await Task.WhenAll(Enumerable.Range(1, 6).Select(i => Task.Run(async () =>
+        {
+            try
+            {
+                return (await NoEscopoAsync(a, s => s.GetRequiredService<IEntregaDoArtefatoAppService>()
+                    .SolicitarAsync(dono, codigo, $"mensagem {i}"))).Resultado.ToString();
+            }
+            catch (InvalidOperationException recusa)
+            {
+                return recusa.Message;
+            }
+        })));
+
+        Assert.Single(tentativas, t => t == nameof(ResultadoDaSolicitacaoDeEntrega.Solicitada));
+        Assert.All(tentativas.Where(t => t != nameof(ResultadoDaSolicitacaoDeEntrega.Solicitada)),
+            t => Assert.Contains("em aberto, com outra mensagem", t));
+        Assert.Equal(1L, await Escalar(banco, "SELECT count(*) FROM orquestracao.aprovacoes_de_acao"));
+    }
+
     [Theory]
     [InlineData(null, null, false, null)]
     [InlineData("Dante Bot", "dante@example.com", true, null)]
