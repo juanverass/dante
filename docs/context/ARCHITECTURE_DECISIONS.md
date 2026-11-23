@@ -3096,6 +3096,75 @@ Testes: `GerenciadorDeWorktreesGitTests`, `EscritaEmWorktreeTests`, `ReservasDeW
 `TarefaPelaFilaEndToEndTests` (escrita), `CodexSessionDriverTests` (confinamento) e a evidência opt-in
 `LiveCodexSandboxEvidenceTests` (`DANTE_LIVE_CODEX_SANDBOX=1`, Codex real, sem chamada de modelo).
 
+## AD-72 — Aprovação de ação protegida vinculada ao hash do payload, com catálogo fechado e execução única (#311)
+
+Status: vigente no domínio e na persistência (PR 1 da #311); etapa 9 do roadmap da Epic #296. O gateway na Application,
+as ferramentas do `dante_coordenacao` pelo catálogo e o adaptador de decisão do Telegram vêm no PR 2; a entrega do
+artefato do roteiro (primeiro consumidor), no PR 3. Proposta da AD-72 em
+[ADRS_PROPOSTAS](../architecture/multi-agent-platform/ADRS_PROPOSTAS.md), refinada e aprovada na própria #311 (entidade
+própria, primeiro consumidor por commit local, identidade Git explícita, dois passos humanos). Complementa a AD-22 (as
+approvals da CLI continuam separadas) e a AD-69/AD-75 (o gate de etapa continua não sendo aprovação de ação). Depende do
+mesmo banco e da mesma chave `Orquestracao:Habilitada`; migration `AprovacoesDeAcao`, não aplicada no banco canônico.
+Nada é exposto em tempo de execução nesta entrega.
+
+Contexto: até a #310, nenhum fluxo de orquestração tinha ação protegida. O gate de etapa (`PedidoDeAprovacao`) decide um
+artefato e, por decisão travada, não autoriza commit, push nem outra ação. A entrega do artefato aprovado de um roteiro
+(e, depois, push, PR e as ações de agentes) precisa de uma aprovação que autorize **exatamente uma execução de
+exatamente um payload**, sobreviva a reinício e não possa ser reaproveitada.
+
+Decisão:
+
+* **Entidade própria** (`AprovacaoDeAcao`, tabela `aprovacoes_de_acao`), separada do gate de etapa: não reutiliza
+  `pedidos_de_aprovacao` nem os triggers dele.
+* **Catálogo fechado** (`CatalogoDeAcoes`): cada ação tem nome (`servidor.ferramenta` ou `dante.acao`), classe de risco
+  (`Leitura`, `EscritaInterna`, `EfeitoExterno`), política (`Nunca`, `ConformeModo`, `Sempre`), se exige um repositório
+  alvo, e parâmetros tipados, todos obrigatórios. Ação fora do catálogo não existe: não há payload, pedido nem execução.
+  As ferramentas atuais do `dante_coordenacao` (`estado_da_execucao`, `entregar_resultado`, `consultar_agente`,
+  `propor_plano`, `entregar_sintese`) entram com política `Nunca`, sem mudar comportamento; a única ação protegida é
+  `dante.entregar_artefato_do_roteiro` (`EscritaInterna`, `Sempre`), com artefato (hash do diff aprovado no gate),
+  base, branch, mensagem e identidade explícita do autor. `ConformeModo` depende de quem conhece o modo da sessão
+  (o gateway, PR 2); nenhuma ação usa essa política ainda.
+* **Payload canônico com hash do servidor** (`PayloadDaAcao`): ação, alvo (`@alias`), capacidades (ordenadas e sem
+  repetição), escopo, execução, etapa, formato, parâmetros e solicitante. O JSON tem as chaves em ordem ordinal e
+  nenhum espaço, e o texto é normalizado (NFC, `\n`, sem pontas). Campo desconhecido, repetido, ausente ou fora da
+  forma é recusado com o motivo, inclusive um hash informado. O hash é o SHA-256 dos bytes UTF-8, calculado no domínio
+  e nunca recebido de fora. O solicitante é o dono da raiz (por um comando dele) ou a versão congelada de um agente
+  (versão e hash da configuração), nunca um argumento.
+* **Escopo `UmaVez` e validade obrigatória** (padrão de 24 h): nenhum escopo por execução, global ou permanente nesta
+  fase.
+* **Decisão única do dono da raiz.** Aprovar exige o hash exibido (ao menos 12 caracteres do início) e só vale antes
+  de `expira_em`. Recusar não depende do hash nem do prazo. Expirar só vale depois do prazo. A revogação
+  (`Cancelada`, com motivo) só ocorre antes de executar.
+* **Execução única**:
+  * quem executa remonta o payload com os fatos atuais (versão do agente, capacidades, conteúdo do artefato);
+  * se o hash for diferente, a aprovação é cancelada sem executar; se o prazo venceu, ela expira;
+  * a transição `Aprovada → EmExecucao` gravada sob o `xmin` da linha é o CAS: de duas tentativas concorrentes, só
+    uma grava;
+  * o desfecho é `Executada` (com resultado), `Falhou` (comprovadamente sem efeito) ou `Incerto` (interrompida sem
+    saber se teve efeito, com o estado observado). `Incerto` é terminal: nunca é repetida automaticamente.
+* **O banco confere de novo**:
+  * `hash = encode(sha256(convert_to(payload, 'UTF8')), 'hex')`;
+  * o payload preso às colunas: ação, execução, etapa, alvo, escopo, formato e solicitante (dono ou versão e hash);
+  * a ação e o risco entre os protegidos do catálogo;
+  * a etapa é da própria execução (chave composta), e a versão do solicitante existe;
+  * no trigger `proteger_aprovacao_de_acao`:
+    * nasce pendente e do dono da execução raiz;
+    * as transições da tabela do domínio, com todo UPDATE sendo uma transição;
+    * o decisor é o dono;
+    * aprovar e iniciar só antes do prazo, expirar só depois;
+    * pedido, decisão e início da execução imutáveis; nenhum DELETE.
+  * um índice único parcial impede um segundo pedido do mesmo payload enquanto ele está pendente, aprovado, em
+    execução, executado ou incerto: replay por pedido novo é recusado.
+
+Fora desta decisão: o gateway que identifica a sessão e aplica a política (PR 2), o adaptador do Telegram (PR 2), os
+comandos Git da entrega (PR 3), push/PR (Issue própria), Brain e planilhas atrás do gateway (Issue própria, depois da
+ativação operacional) e a auditoria das approvals nativas da CLI.
+
+Código: `Dante.Domain/Execucoes/{AprovacaoDeAcao, CatalogoDeAcoes, PayloadDaAcao}.cs`,
+`Dante.Application/Execucoes/Portas/IAprovacaoDeAcaoRepository.cs`, `Dante.Infrastructure/Modulos/Execucoes/AprovacaoDeAcao*`,
+migration `AprovacoesDeAcao`.
+Testes: `AprovacaoDeAcaoDominioTests`, `AprovacoesDeAcaoPostgreSqlTests`.
+
 ## AD-74 — Acompanhamento e cancelamento de execuções na Application, neutros de interface (#305)
 
 Status: vigente, etapa 4 do roadmap da Epic #296. Complementa a AD-66 (consultas sobre o ledger) e a AD-67 (o
