@@ -52,7 +52,7 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                     table.CheckConstraint("ck_aprovacoes_de_acao_estado", "estado BETWEEN 0 AND 8");
                     table.CheckConstraint("ck_aprovacoes_de_acao_execucao", "(iniciada_em IS NOT NULL) = (estado IN (5, 6, 7, 8))");
                     table.CheckConstraint("ck_aprovacoes_de_acao_hash", "hash ~ '^[0-9a-f]{64}$' AND hash = encode(sha256(convert_to(payload, 'UTF8')), 'hex')");
-                    table.CheckConstraint("ck_aprovacoes_de_acao_payload", "payload::jsonb ->> 'acao' = acao AND payload::jsonb ->> 'execucao' = id_execucao::text AND (payload::jsonb ->> 'etapa') IS NOT DISTINCT FROM id_etapa::text AND (payload::jsonb ->> 'alvo') IS NOT DISTINCT FROM alvo AND payload::jsonb ->> 'escopo' = 'UmaVez' AND payload::jsonb ->> 'formato' = '1' AND (payload::jsonb -> 'solicitante' ->> 'versao') IS NOT DISTINCT FROM id_versao_do_solicitante::text AND (payload::jsonb -> 'solicitante' ->> 'hash') IS NOT DISTINCT FROM hash_da_versao_do_solicitante::text AND (id_versao_do_solicitante IS NOT NULL OR (payload::jsonb -> 'solicitante' ->> 'tipo' = 'dono' AND payload::jsonb -> 'solicitante' ->> 'canal' = canal_do_dono AND payload::jsonb -> 'solicitante' ->> 'usuario' = id_do_dono::text))");
+                    table.CheckConstraint("ck_aprovacoes_de_acao_payload", "payload::jsonb ->> 'acao' = acao AND payload::jsonb ->> 'execucao' = id_execucao::text AND (payload::jsonb ->> 'etapa') IS NOT DISTINCT FROM id_etapa::text AND (payload::jsonb ->> 'alvo') IS NOT DISTINCT FROM alvo AND payload::jsonb ->> 'escopo' = 'UmaVez' AND payload::jsonb ->> 'formato' = '1' AND (payload::jsonb -> 'solicitante' ->> 'versao') IS NOT DISTINCT FROM id_versao_do_solicitante::text AND (payload::jsonb -> 'solicitante' ->> 'hash') IS NOT DISTINCT FROM hash_da_versao_do_solicitante::text AND COALESCE(CASE WHEN id_versao_do_solicitante IS NULL THEN payload::jsonb -> 'solicitante' ->> 'tipo' = 'dono' AND payload::jsonb -> 'solicitante' ->> 'canal' = canal_do_dono AND payload::jsonb -> 'solicitante' ->> 'usuario' = id_do_dono::text ELSE payload::jsonb -> 'solicitante' ->> 'tipo' = 'agente' END, false)");
                     table.CheckConstraint("ck_aprovacoes_de_acao_solicitante", "(id_versao_do_solicitante IS NULL) = (hash_da_versao_do_solicitante IS NULL) AND (hash_da_versao_do_solicitante IS NULL OR hash_da_versao_do_solicitante ~ '^[0-9a-f]{64}$')");
                     table.CheckConstraint("ck_aprovacoes_de_acao_validade", "expira_em > criada_em");
                     table.ForeignKey(
@@ -148,6 +148,24 @@ namespace Dante.Infrastructure.Data.Orquestracao.Migrations
                         IF NOT FOUND OR raiz.id <> NEW.id_execucao_raiz OR raiz.canal <> NEW.canal_do_dono
                            OR raiz.id_do_usuario_no_canal <> NEW.id_do_dono THEN
                             RAISE EXCEPTION 'a aprovação de ação é do dono da execução raiz' USING ERRCODE = 'restrict_violation';
+                        END IF;
+                        -- Solicitante: o objeto inteiro do payload, sem chave a mais. Dono: o dono da raiz, sem versão nem
+                        -- hash. Agente: a versão referenciada, com o hash da configuração gravado nela.
+                        IF NEW.id_versao_do_solicitante IS NULL THEN
+                            IF NEW.hash_da_versao_do_solicitante IS NOT NULL
+                               OR (NEW.payload::jsonb -> 'solicitante') IS DISTINCT FROM
+                                  jsonb_build_object('canal', NEW.canal_do_dono, 'tipo', 'dono', 'usuario', NEW.id_do_dono) THEN
+                                RAISE EXCEPTION 'o solicitante dono é o dono da raiz, sem versão nem hash'
+                                    USING ERRCODE = 'restrict_violation';
+                            END IF;
+                        ELSIF (NEW.payload::jsonb -> 'solicitante') IS DISTINCT FROM
+                              jsonb_build_object('hash', NEW.hash_da_versao_do_solicitante::text, 'tipo', 'agente',
+                                  'versao', NEW.id_versao_do_solicitante::text)
+                           OR NOT EXISTS (SELECT 1 FROM orquestracao.versoes_de_agente v
+                                          WHERE v.id = NEW.id_versao_do_solicitante
+                                            AND v.hash_da_configuracao = NEW.hash_da_versao_do_solicitante) THEN
+                            RAISE EXCEPTION 'o solicitante agente é a versão referenciada, com o hash da configuração dela'
+                                USING ERRCODE = 'restrict_violation';
                         END IF;
                         RETURN NEW;
                     END IF;

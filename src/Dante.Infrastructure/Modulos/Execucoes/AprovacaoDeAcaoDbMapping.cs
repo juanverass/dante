@@ -35,9 +35,13 @@ public sealed class AprovacaoDeAcaoDbMapping : EntidadeConfiguration<AprovacaoDe
                 $"payload::jsonb ->> 'formato' = '{PayloadDaAcao.Formato}' AND " +
                 "(payload::jsonb -> 'solicitante' ->> 'versao') IS NOT DISTINCT FROM id_versao_do_solicitante::text AND " +
                 "(payload::jsonb -> 'solicitante' ->> 'hash') IS NOT DISTINCT FROM hash_da_versao_do_solicitante::text AND " +
-                "(id_versao_do_solicitante IS NOT NULL OR (payload::jsonb -> 'solicitante' ->> 'tipo' = 'dono' AND " +
+                // Tipo explícito: dono (canal e usuário do dono, sem versão) ou agente (com versão). O objeto inteiro e o
+                // hash da versão referenciada são conferidos pelo trigger, que consulta versoes_de_agente. COALESCE:
+                // chave ausente (NULL) não passa pelo check.
+                "COALESCE(CASE WHEN id_versao_do_solicitante IS NULL THEN payload::jsonb -> 'solicitante' ->> 'tipo' = 'dono' AND " +
                 "payload::jsonb -> 'solicitante' ->> 'canal' = canal_do_dono AND " +
-                "payload::jsonb -> 'solicitante' ->> 'usuario' = id_do_dono::text))");
+                "payload::jsonb -> 'solicitante' ->> 'usuario' = id_do_dono::text " +
+                "ELSE payload::jsonb -> 'solicitante' ->> 'tipo' = 'agente' END, false)");
             t.HasCheckConstraint("ck_aprovacoes_de_acao_acao", $"(acao, risco) IN ({AcoesProtegidas()})");
             t.HasCheckConstraint("ck_aprovacoes_de_acao_escopo", $"escopo = {(int)EscopoDaAprovacao.UmaVez}");
             t.HasCheckConstraint("ck_aprovacoes_de_acao_estado",
