@@ -903,8 +903,9 @@ execução, e nenhum fluxo pede, decide ou executa uma ação protegida ainda.
     a transição para `EmExecucao` sob o `xmin` é o CAS;
   - desfecho `Executada`, `Falhou` ou `Incerto`, este terminal e sem repetição automática.
 - **Banco:** confere o hash pelo SHA-256 do payload e prende o payload às colunas. Também confere a ação e o risco do
-  catálogo, a etapa da própria execução e a versão do solicitante. O trigger `proteger_aprovacao_de_acao` cobre o dono
-  da raiz, as transições, o decisor, os prazos e a imutabilidade. Um índice único parcial recusa replay por pedido
+  catálogo e a etapa da própria execução. O trigger `proteger_aprovacao_de_acao` cobre o dono da raiz, o solicitante
+  (o dono da raiz, sem versão nem hash, ou a versão referenciada com o hash da configuração gravado nela, com tipo
+  explícito e sem chave a mais), as transições, o decisor, os prazos e a imutabilidade. Um índice único parcial recusa replay por pedido
   novo do mesmo payload vigente, executado ou incerto.
 - Migration `AprovacoesDeAcao`, não aplicada no banco canônico. Exige banco e `Orquestracao:Habilitada`, desligado no
   homelab.

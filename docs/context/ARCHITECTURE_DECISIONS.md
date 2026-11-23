@@ -3144,11 +3144,16 @@ Decisão:
     saber se teve efeito, com o estado observado). `Incerto` é terminal: nunca é repetida automaticamente.
 * **O banco confere de novo**:
   * `hash = encode(sha256(convert_to(payload, 'UTF8')), 'hex')`;
-  * o payload preso às colunas: ação, execução, etapa, alvo, escopo, formato e solicitante (dono ou versão e hash);
+  * o payload preso às colunas: ação, execução, etapa, alvo, escopo, formato e solicitante (dono ou versão e hash),
+    com tipo explícito: `dono` exige o canal e o usuário do dono, sem versão; `agente` exige a versão (chave ausente
+    não passa pelo check);
   * a ação e o risco entre os protegidos do catálogo;
   * a etapa é da própria execução (chave composta), e a versão do solicitante existe;
   * no trigger `proteger_aprovacao_de_acao`:
     * nasce pendente e do dono da execução raiz;
+    * o objeto `solicitante` do payload é exatamente o esperado, sem chave a mais: o dono da raiz (`canal`, `tipo =
+      dono`, `usuario`) sem versão nem hash, ou o agente (`hash`, `tipo = agente`, `versao`) cuja versão referenciada
+      tem em `versoes_de_agente.hash_da_configuracao` o mesmo hash (revisão do PR #324);
     * as transições da tabela do domínio, com todo UPDATE sendo uma transição;
     * o decisor é o dono;
     * aprovar e iniciar só antes do prazo, expirar só depois;
