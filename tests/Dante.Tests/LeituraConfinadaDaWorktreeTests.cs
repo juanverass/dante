@@ -134,8 +134,8 @@ public sealed class LeituraConfinadaDaWorktreeTests : IDisposable
     }
 
     // Revisão 4 do PR #326: a própria raiz da worktree é trocada por um diretório real (sem link nenhum), que passa a
-    // ocupar o caminho. etapa: "raiz" (imediatamente antes da abertura), "validada" (depois da abertura e da validação
-    // pelo nome, antes da conferência no handle: a antiga janela entre validar e abrir), "ancorada" (handle já conferido,
+    // ocupar o caminho. etapa: "raiz" (imediatamente antes da abertura), "validada" (depois da abertura, antes da
+    // conferência no handle: a antiga janela entre validar e abrir), "ancorada" (handle já conferido,
     // antes de ler), "gravar" (tudo lido, antes do primeiro blob) ou "mover" (commit criado, antes do update-ref).
     // substituto: "comum" (diretório com os mesmos nomes e conteúdo sentinela), "disfarcado" (o mesmo, com uma cópia do
     // .git da worktree, que aponta para o diretório Git dela) ou "outra" (outra worktree real do mesmo repositório, com
@@ -286,6 +286,139 @@ public sealed class LeituraConfinadaDaWorktreeTests : IDisposable
         Assert.Equal(w.ShaBase, RepositorioGitDeTeste.Git(w.Caminho, "rev-parse", "HEAD"));
     }
 
+    // Revisão 5 do PR #326: a observação do estado de um Incerto (DescreverEstadoAsync, a mesma que a recuperação depois
+    // de um reinício usa) também fica presa à worktree da execução. A raiz é trocada por um diretório real com estado Git
+    // próprio e distinguível. etapa: "raiz" (antes da abertura), "validada" (aberta, antes da identidade conferida no
+    // handle) ou "observar" (identidade conferida, antes das consultas). substituto: "comum", "disfarcado" (cópia do .git
+    // da worktree) ou "outra" (outra worktree real do mesmo repositório, com 2 commits além da base). O retorno nunca
+    // contém HEAD ou branch do substituto: sem identidade comprovada é ilegível; comprovada, é o estado da worktree da
+    // execução (1 commit além da base, 1 arquivo preparado), lido no diretório Git dela.
+    [Theory]
+    [InlineData("raiz", "comum", false)]
+    [InlineData("raiz", "outra", false)]
+    [InlineData("raiz", "disfarcado", true)]
+    [InlineData("validada", "outra", false)]
+    [InlineData("validada", "disfarcado", false)]
+    [InlineData("observar", "outra", true)]
+    [InlineData("observar", "disfarcado", true)]
+    public async Task ObservacaoComRaizTrocadaNaoIncorporaOEstadoDoSubstituto(string etapa, string substituto,
+        bool identidadeComprovada)
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var (repo, w, gerenciador) = await PrepararAsync();
+        var outra = await gerenciador.PlanejarAsync(repo, 8, "dev");
+        await gerenciador.CriarOuAdotarAsync(outra);
+        // Estados distinguíveis: a da execução com 1 commit além da base e 1 arquivo preparado; a outra com 2 commits.
+        File.WriteAllText(Path.Combine(w.Caminho, "codigo.txt"), "commitado\n");
+        Commitar(w.Caminho, "um");
+        File.WriteAllText(Path.Combine(w.Caminho, "preparado.txt"), "preparado\n");
+        RepositorioGitDeTeste.Git(w.Caminho, "add", "preparado.txt");
+        File.WriteAllText(Path.Combine(outra.Caminho, "codigo.txt"), "outra 1\n");
+        Commitar(outra.Caminho, "outra 1");
+        File.WriteAllText(Path.Combine(outra.Caminho, "codigo.txt"), "outra 2\n");
+        Commitar(outra.Caminho, "outra 2");
+        var headReal = RepositorioGitDeTeste.Git(repo.Caminho, "rev-parse", $"refs/heads/{w.Branch}");
+        var headDaOutra = RepositorioGitDeTeste.Git(repo.Caminho, "rev-parse", $"refs/heads/{outra.Branch}");
+        string lugarDoSubstituto;
+        if (substituto == "outra")
+            lugarDoSubstituto = outra.Caminho;
+        else
+        {
+            lugarDoSubstituto = Path.Combine(temp.Raiz, "substituto");
+            Directory.CreateDirectory(lugarDoSubstituto);
+            if (substituto == "disfarcado")
+                File.Copy(Path.Combine(w.Caminho, ".git"), Path.Combine(lugarDoSubstituto, ".git"));
+        }
+        var movida = Path.Combine(temp.Raiz, "worktree-movida");
+        var atacou = false;
+        var adversario = new GerenciadorDeWorktreesGit(new OpcoesDeWorktrees { Raiz = temp.RaizDasWorktrees },
+            new CatalogoFixo(repo))
+        {
+            IntervencaoNaLeitura = (momento, _) =>
+            {
+                if (atacou || momento != etapa) return;
+                atacou = true;
+                Directory.Move(w.Caminho, movida);
+                Directory.Move(lugarDoSubstituto, w.Caminho);
+            }
+        };
+
+        var estado = await adversario.DescreverEstadoAsync(w);
+
+        Assert.True(atacou, "a intervenção não aconteceu: o teste não provaria nada");
+        Assert.DoesNotContain(headDaOutra[..12], estado);
+        Assert.DoesNotContain(outra.Branch, estado);
+        Assert.DoesNotContain("2 commit(s)", estado);
+        if (identidadeComprovada)
+        {
+            Assert.Contains($"HEAD {headReal[..12]} na {w.Branch};", estado);
+            Assert.Contains($"1 commit(s) além da base {w.ShaBase[..12]}", estado);
+            Assert.Contains("1 arquivo(s) no index diferentes do HEAD", estado);
+            Assert.Equal(etapa == "observar", estado.Contains("já não aponta", StringComparison.Ordinal));
+        }
+        else
+        {
+            Assert.StartsWith("Estado da worktree ilegível: o diretório no caminho não foi comprovado", estado);
+            Assert.DoesNotContain("HEAD ", estado);
+        }
+        // Observar não mexe em nada: branches e index como estavam.
+        Assert.Equal(headReal, RepositorioGitDeTeste.Git(repo.Caminho, "rev-parse", $"refs/heads/{w.Branch}"));
+        Assert.Equal(headDaOutra, RepositorioGitDeTeste.Git(repo.Caminho, "rev-parse", $"refs/heads/{outra.Branch}"));
+    }
+
+    // Revisão 5 do PR #326, caminho em execução: o update-ref grava, a worktree é trocada por outra worktree real e o Git
+    // relata erro; a consulta seguinte da branch falha, então o desfecho é Incerto. O estado observado vem da âncora já
+    // aberta (DepoisDeMoverABranchAsync não reabre pelo nome): o HEAD e a branch da execução com o commit novo, nunca os da
+    // worktree que ocupou o caminho, e a troca é relatada.
+    [Fact]
+    public async Task IncertoDepoisDeTrocaRelataOEstadoDaWorktreeAncorada()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var (repo, w, gerenciador) = await PrepararAsync();
+        var outra = await gerenciador.PlanejarAsync(repo, 8, "dev");
+        await gerenciador.CriarOuAdotarAsync(outra);
+        File.WriteAllText(Path.Combine(outra.Caminho, "codigo.txt"), "outra 1\n");
+        Commitar(outra.Caminho, "outra 1");
+        File.WriteAllText(Path.Combine(outra.Caminho, "codigo.txt"), "outra 2\n");
+        Commitar(outra.Caminho, "outra 2");
+        var headDaOutra = RepositorioGitDeTeste.Git(repo.Caminho, "rev-parse", $"refs/heads/{outra.Branch}");
+        File.WriteAllText(Path.Combine(w.Caminho, "codigo.txt"), "alterado\n");
+        var aprovado = (await gerenciador.ResumirAlteracoesAsync(w, 0)).Hash;
+        var movida = Path.Combine(temp.Raiz, "worktree-movida");
+        var falhou = Path.Combine(temp.Raiz, "consulta-falhou");
+        var falso = Path.Combine(temp.Raiz, "git-falso-incerto");
+        File.WriteAllText(falso, "#!/bin/sh\n" +
+            $"if [ -e '{movida}' ] && [ ! -e '{falhou}' ]; then touch '{falhou}'; echo 'fatal: falha simulada' >&2; exit 128; fi\n" +
+            $"for a in \"$@\"; do if [ \"$a\" = \"update-ref\" ]; then git \"$@\" && " +
+            $"mv '{w.Caminho}' '{movida}' && mv '{outra.Caminho}' '{w.Caminho}'; exit 1; fi; done\nexec git \"$@\"\n",
+            new System.Text.UTF8Encoding(false));
+        File.SetUnixFileMode(falso, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var comTroca = new GerenciadorDeWorktreesGit(new OpcoesDeWorktrees { Raiz = temp.RaizDasWorktrees },
+            new CatalogoFixo(repo), executavel: falso);
+
+        var incerto = Assert.IsType<DesfechoDoCommitDto.Incerto>(
+            await comTroca.CommitarAsync(w, new(w.ShaBase, aprovado, Autor, "m")));
+
+        Assert.True(File.Exists(falhou), "a troca e a falha não aconteceram: o teste não provaria nada");
+        var novo = RepositorioGitDeTeste.Git(repo.Caminho, "rev-parse", $"refs/heads/{w.Branch}");
+        Assert.NotEqual(w.ShaBase, novo);
+        Assert.Contains($"HEAD {novo[..12]} na {w.Branch};", incerto.EstadoObservado);
+        Assert.Contains($"1 commit(s) além da base {w.ShaBase[..12]}", incerto.EstadoObservado);
+        // O index da worktree da execução ainda é o da base (read-tree só roda num Commitado): 1 arquivo difere do HEAD.
+        Assert.Contains("1 arquivo(s) no index diferentes do HEAD", incerto.EstadoObservado);
+        Assert.Contains("já não aponta para o diretório observado", incerto.EstadoObservado);
+        Assert.DoesNotContain(headDaOutra[..12], incerto.EstadoObservado);
+        Assert.DoesNotContain(outra.Branch, incerto.EstadoObservado);
+        Assert.Equal(headDaOutra, RepositorioGitDeTeste.Git(repo.Caminho, "rev-parse", $"refs/heads/{outra.Branch}"));
+
+        // Recuperação depois de um reinício: a reserva aponta para o caminho, agora ocupado pela outra worktree. Sem a
+        // identidade da worktree da execução, a observação é ilegível e não consulta o substituto.
+        var recuperado = await gerenciador.DescreverEstadoAsync(w);
+        Assert.StartsWith("Estado da worktree ilegível: o diretório no caminho não foi comprovado", recuperado);
+        Assert.DoesNotContain(headDaOutra[..12], recuperado);
+        Assert.DoesNotContain(outra.Branch, recuperado);
+    }
+
     // ---- apoio ----
 
     private async Task<(RepositorioCadastrado Repo, WorktreePlanejada Worktree, GerenciadorDeWorktreesGit Gerenciador)>
@@ -297,6 +430,12 @@ public sealed class LeituraConfinadaDaWorktreeTests : IDisposable
         var w = await gerenciador.PlanejarAsync(repo, 7, "dev");
         await gerenciador.CriarOuAdotarAsync(w);
         return (repo, w, gerenciador);
+    }
+
+    private static void Commitar(string worktree, string mensagem)
+    {
+        RepositorioGitDeTeste.Git(worktree, "add", "--all");
+        RepositorioGitDeTeste.Git(worktree, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", mensagem);
     }
 
     private static bool ObjetoExiste(RepositorioCadastrado repo, string oid) =>

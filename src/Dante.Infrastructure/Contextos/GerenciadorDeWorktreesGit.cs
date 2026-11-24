@@ -19,7 +19,8 @@ namespace Dante.Infrastructure.Contextos;
 // branch. Nenhum processo Git da entrega lê arquivo da worktree (SemLeituraDaWorktree), então nenhum filtro de conteúdo
 // roda, qualquer que seja a configuração. Variáveis GIT_* herdadas não alcançam nenhum processo (não redirecionam
 // diretório, index nem configuração). A entrega fica presa ao diretório validado (AncorarAsync): a raiz é aberta antes da
-// validação, e todo processo Git dela roda no handle, com GIT_DIR fixo, nunca pelo nome da worktree.
+// validação, e todo processo Git dela roda no handle, com GIT_DIR fixo, nunca pelo nome da worktree. A observação do
+// estado de um Incerto (DescreverEstadoAsync) usa a mesma identidade: sem ela, nada é consultado.
 public sealed partial class GerenciadorDeWorktreesGit(
     OpcoesDeWorktrees opcoes,
     ICatalogoDeRepositorios catalogo,
@@ -221,14 +222,38 @@ public sealed partial class GerenciadorDeWorktreesGit(
         public void Dispose() => Leitura.Dispose();
     }
 
-    // Abre primeiro, valida depois, sobre o mesmo diretório: não há janela entre validar e abrir. A raiz é aberta como
-    // handle; ValidarAsync (pelo nome) dá a recusa explicativa; em seguida a identidade é conferida no próprio handle. O
-    // Git iniciado nele precisa ver exatamente o caminho da worktree como raiz (um diretório movido aparece com outro
-    // nome), e o diretório Git que ele descobre precisa ser o da worktree registrada para este caminho (gitdir de volta
-    // para <caminho>/.git, dentro de <diretório comum>/worktrees), do repositório cadastrado e na branch da execução. Por
-    // fim, o nome ainda aponta para o handle (inode e dispositivo). Um diretório posto no lugar antes da abertura é
-    // validado como a worktree que é (sem esse diretório Git, recusa); posto depois, não é o handle e recusa.
+    // A worktree da entrega: aberta com a identidade conferida no handle (AbrirComIdentidadeAsync), na branch da execução
+    // e com o nome ainda apontando para o handle (inode e dispositivo). Um diretório posto no lugar antes da abertura é
+    // validado como a worktree que é (sem o diretório Git dela, recusa); posto depois, não é o handle e recusa.
     private async Task<Ancora> AncorarAsync(WorktreePlanejada worktree, CancellationToken cancellationToken)
+    {
+        var ancora = await AbrirComIdentidadeAsync(worktree, explicarPeloNome: true, cancellationToken);
+        try
+        {
+            var branch = await ConsultarNaEntregaAsync(ancora, cancellationToken, "symbolic-ref", "--quiet", "HEAD");
+            if (branch != $"refs/heads/{worktree.Branch}")
+                throw new WorktreeInvalidaException("A worktree não está na branch da execução.");
+            ancora.Leitura.ConferirNoLugar();
+            IntervencaoNaLeitura?.Invoke("ancorada", "");
+            return ancora;
+        }
+        catch
+        {
+            ancora.Dispose();
+            throw;
+        }
+    }
+
+    // Abre primeiro e confere depois, sobre o mesmo diretório: não há janela entre conferir e abrir. A raiz é aberta como
+    // handle, e a identidade vem só de consultas no próprio handle (revisão 5 do PR #326: nenhuma consulta pelo nome entra
+    // nela). O Git iniciado no handle precisa ver exatamente o caminho da worktree como raiz (um diretório movido aparece
+    // com outro nome), e o diretório Git que ele descobre precisa ser o da worktree registrada para este caminho (gitdir
+    // de volta para <caminho>/.git, dentro de <diretório comum>/worktrees) e do repositório cadastrado. A branch fica com
+    // quem chama: a entrega a exige, a observação a relata. Só se a abertura falhar, e só com explicarPeloNome,
+    // ValidarAsync roda pelo nome para dar o motivo da recusa; ela sempre termina em exceção e nunca é evidência de
+    // identidade.
+    private async Task<Ancora> AbrirComIdentidadeAsync(WorktreePlanejada worktree, bool explicarPeloNome,
+        CancellationToken cancellationToken)
     {
         ConferirForma(worktree);
         IntervencaoNaLeitura?.Invoke("raiz", "");
@@ -239,15 +264,17 @@ public sealed partial class GerenciadorDeWorktreesGit(
         }
         catch (WorktreeInvalidaException)
         {
-            await ValidarAsync(worktree, cancellationToken); // o motivo, quando o nome o explica
+            if (explicarPeloNome) await ValidarAsync(worktree, cancellationToken); // só o motivo da recusa
             throw;
         }
         try
         {
-            await ValidarAsync(worktree, cancellationToken);
+            ConferirForaDosCheckouts(worktree.Caminho);
             IntervencaoNaLeitura?.Invoke("validada", "");
             var cwd = leitura.CaminhoAncorado;
             var topo = await ConsultarNaEntregaAsync(cwd, null, cancellationToken, "rev-parse", "--show-toplevel");
+            if (topo is null)
+                throw new WorktreeInvalidaException("O diretório não é a raiz de uma worktree Git; nada foi feito.");
             if (topo != worktree.Caminho)
                 throw new WorktreeInvalidaException("O diretório aberto não é mais a worktree da execução (foi trocado ou " +
                     "movido); nada foi feito.");
@@ -265,13 +292,7 @@ public sealed partial class GerenciadorDeWorktreesGit(
                 LerGitDirRegistrado(gitDirCanonico) != Path.Combine(worktree.Caminho, ".git"))
                 throw new WorktreeInvalidaException("O diretório aberto não é a worktree registrada do repositório " +
                     "cadastrado; nada foi feito.");
-            var ancora = new Ancora(leitura, gitDirCanonico);
-            var branch = await ConsultarNaEntregaAsync(ancora, cancellationToken, "symbolic-ref", "--quiet", "HEAD");
-            if (branch != $"refs/heads/{worktree.Branch}")
-                throw new WorktreeInvalidaException("A worktree não está na branch da execução.");
-            leitura.ConferirNoLugar();
-            IntervencaoNaLeitura?.Invoke("ancorada", "");
-            return ancora;
+            return new Ancora(leitura, gitDirCanonico);
         }
         catch
         {
@@ -448,33 +469,70 @@ public sealed partial class GerenciadorDeWorktreesGit(
             return new DesfechoDoCommitDto.SemEfeito(falha + "; a branch já tinha andado (outra entrega), e esta não gravou " +
                 "nada.");
         return new DesfechoDoCommitDto.Incerto((falha ?? "O commit foi gravado, mas não confere com o esperado") +
-            "; o resultado não é conhecido e nada será repetido.", await DescreverEstadoAsync(worktree, CancellationToken.None));
+            "; o resultado não é conhecido e nada será repetido.",
+            await DescreverAncoradoAsync(ancora, worktree, CancellationToken.None));
     }
 
+    // Recuperação de um Incerto (revisão 5 do PR #326): a observação usa a mesma identidade da entrega. A raiz é aberta e
+    // conferida no handle (AbrirComIdentidadeAsync), e todas as consultas rodam nele com GIT_DIR fixo. Sem identidade
+    // comprovada, o estado é dito ilegível e nada é consultado no diretório que ocupa o caminho: o ledger nunca recebe
+    // HEAD, branch ou index de outro repositório.
     public async Task<string> DescreverEstadoAsync(WorktreePlanejada worktree, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(worktree);
+        Ancora ancora;
         try
         {
             ConferirForma(worktree);
-            if (!Directory.Exists(worktree.Caminho)) return "A worktree não existe mais.";
-            var head = await HeadAsync(worktree.Caminho, cancellationToken);
-            var adiante = await ConsultarAsync(worktree.Caminho, cancellationToken, "rev-list", "--count",
+            if (!Directory.Exists(worktree.Caminho) && !File.Exists(worktree.Caminho) && !EhLink(worktree.Caminho))
+                return "A worktree não existe mais.";
+            ancora = await AbrirComIdentidadeAsync(worktree, explicarPeloNome: false, cancellationToken);
+        }
+        catch (Exception exception) when (exception is WorktreeInvalidaException or IOException or InvalidOperationException
+                                              or UnauthorizedAccessException or OperationCanceledException)
+        {
+            var motivo = exception is WorktreeInvalidaException
+                ? exception.Message.Replace("; nada foi feito.", "", StringComparison.Ordinal).TrimEnd('.')
+                : Curto(exception);
+            return $"Estado da worktree ilegível: o diretório no caminho não foi comprovado como a worktree da execução " +
+                $"({motivo}); nada foi consultado nele.";
+        }
+        using (ancora)
+            return await DescreverAncoradoAsync(ancora, worktree, cancellationToken);
+    }
+
+    // HEAD, branch, commits além da base e o index contra o HEAD, lidos no diretório Git conferido da âncora (nunca pelo
+    // nome da worktree). Só o index contra o HEAD (objetos): ler os arquivos da worktree acionaria um filtro de conteúdo.
+    // Se o nome já não aponta para o diretório aberto, isso também é dito; o estado relatado continua o da worktree da
+    // execução.
+    private async Task<string> DescreverAncoradoAsync(Ancora ancora, WorktreePlanejada worktree,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            IntervencaoNaLeitura?.Invoke("observar", "");
+            var head = await HeadAsync(ancora, cancellationToken);
+            var adiante = await ConsultarNaEntregaAsync(ancora, cancellationToken, "rev-list", "--count",
                 $"{worktree.ShaBase}..HEAD");
-            var branch = await ConsultarAsync(worktree.Caminho, cancellationToken, "symbolic-ref", "--quiet", "HEAD");
-            // Só o index contra o HEAD (objetos): ler os arquivos da worktree acionaria um filtro de conteúdo.
+            var branch = await ConsultarNaEntregaAsync(ancora, cancellationToken, "symbolic-ref", "--quiet", "HEAD");
             int? preparados = null;
             if (head is not null)
             {
-                var index = await GitDaEntregaAsync(worktree.Caminho, null, null, cancellationToken, "diff-index", "--cached",
+                var index = await GitDaEntregaAsync(ancora, null, null, cancellationToken, "diff-index", "--cached",
                     "--name-only", "-z", "HEAD");
                 if (index.Codigo == 0) preparados = index.Saida.Split('\0', StringSplitOptions.RemoveEmptyEntries).Length;
             }
+            var noLugar = true;
+            try { ancora.Leitura.ConferirNoLugar(); }
+            catch (WorktreeInvalidaException) { noLugar = false; }
+            var nomeDaBranch = branch?.Replace("refs/heads/", "", StringComparison.Ordinal);
             return $"HEAD {(head is null ? "ilegível" : head[..12])} na " +
-                $"{(branch is null ? "branch ilegível" : branch.Replace("refs/heads/", "", StringComparison.Ordinal))}; " +
-                $"{adiante ?? "?"} commit(s) além da base {worktree.ShaBase[..12]}; " +
+                (nomeDaBranch is null ? "branch ilegível"
+                    : nomeDaBranch == worktree.Branch ? nomeDaBranch : $"{nomeDaBranch} (não é a branch da execução)") +
+                $"; {adiante ?? "?"} commit(s) além da base {worktree.ShaBase[..12]}; " +
                 (preparados is null ? "index ilegível" : $"{preparados} arquivo(s) no index diferentes do HEAD") +
-                " (os arquivos da worktree não são lidos).";
+                " (os arquivos da worktree não são lidos)" +
+                (noLugar ? "." : "; o caminho da worktree já não aponta para o diretório observado (trocado ou movido).");
         }
         catch (Exception exception) when (exception is WorktreeInvalidaException or IOException or InvalidOperationException
                                               or UnauthorizedAccessException or OperationCanceledException)
@@ -637,12 +695,6 @@ public sealed partial class GerenciadorDeWorktreesGit(
     {
         var head = await ConsultarNaEntregaAsync(ancora, cancellationToken, "rev-parse", "--verify", "--quiet",
             "HEAD^{commit}");
-        return head is not null && Sha1().IsMatch(head) ? head : null;
-    }
-
-    private async Task<string?> HeadAsync(string cwd, CancellationToken cancellationToken)
-    {
-        var head = await ConsultarAsync(cwd, cancellationToken, "rev-parse", "--verify", "--quiet", "HEAD^{commit}");
         return head is not null && Sha1().IsMatch(head) ? head : null;
     }
 

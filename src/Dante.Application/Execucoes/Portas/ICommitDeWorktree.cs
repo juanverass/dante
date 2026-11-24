@@ -21,6 +21,8 @@ public interface ICommitDeWorktree
         CancellationToken cancellationToken = default);
 
     // Estado real, para relatar um Incerto: HEAD, branch, commits além da base e o index contra o HEAD (sem ler os
-    // arquivos da worktree). Nunca lança; o que não for legível é dito.
+    // arquivos da worktree), consultados no diretório Git da worktree com a identidade conferida pelo handle, como na
+    // entrega. Sem identidade comprovada, diz que o estado é ilegível e nada consulta no diretório que ocupa o caminho.
+    // Nunca lança; o que não for legível é dito.
     Task<string> DescreverEstadoAsync(WorktreePlanejada worktree, CancellationToken cancellationToken = default);
 }
