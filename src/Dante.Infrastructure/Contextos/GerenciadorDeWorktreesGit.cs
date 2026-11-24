@@ -18,7 +18,8 @@ namespace Dante.Infrastructure.Contextos;
 // valor antigo; read-tree do index da worktree só depois do commit), sem push, reset, checkout, merge nem criação de
 // branch. Nenhum processo Git da entrega lê arquivo da worktree (SemLeituraDaWorktree), então nenhum filtro de conteúdo
 // roda, qualquer que seja a configuração. Variáveis GIT_* herdadas não alcançam nenhum processo (não redirecionam
-// diretório, index nem configuração).
+// diretório, index nem configuração). A entrega fica presa ao diretório validado (AncorarAsync): a raiz é aberta antes da
+// validação, e todo processo Git dela roda no handle, com GIT_DIR fixo, nunca pelo nome da worktree.
 public sealed partial class GerenciadorDeWorktreesGit(
     OpcoesDeWorktrees opcoes,
     ICatalogoDeRepositorios catalogo,
@@ -199,19 +200,104 @@ public sealed partial class GerenciadorDeWorktreesGit(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(worktree);
-        var head = await HeadDaEntregaAsync(worktree, cancellationToken);
+        using var ancora = await AncorarAsync(worktree, cancellationToken);
+        var head = await HeadDaEntregaAsync(ancora, cancellationToken);
         // Contra a base da worktree, como a revisão do roteiro (ResumirAlteracoesAsync): é o hash aprovado no gate.
-        var retrato = await RetratarAsync(worktree, worktree.ShaBase, cancellationToken) ??
+        var retrato = await RetratarAsync(ancora, worktree.ShaBase, cancellationToken) ??
             throw new WorktreeInvalidaException("Não foi possível ler o conteúdo da worktree.");
+        ancora.Leitura.ConferirNoLugar();
         return new ArtefatoDaWorktreeDto(head, retrato.Hash, retrato.Vazio);
     }
 
-    // Worktree validada, sem filtro de conteúdo configurado, e o HEAD dela.
-    private async Task<string> HeadDaEntregaAsync(WorktreePlanejada worktree, CancellationToken cancellationToken)
+    // ---- a worktree da entrega presa ao diretório validado (revisão 4 do PR #326) ----
+
+    // A raiz aberta (handle) e o diretório Git dela. Todo processo Git da entrega roda com o diretório de trabalho no
+    // handle (CaminhoAncorado) e GIT_DIR fixo no diretório Git conferido: nenhum resolve o nome da worktree de novo nem
+    // redescobre o repositório pelo .git dela, então trocar o diretório que ocupa o caminho não muda o repositório em que
+    // a entrega lê e grava.
+    private sealed record Ancora(LeituraConfinadaDaWorktree Leitura, string GitDir) : IDisposable
     {
-        await ValidarAsync(worktree, cancellationToken);
-        await ConferirSemFiltrosDeConteudoAsync(worktree, cancellationToken);
-        return await HeadAsync(worktree.Caminho, cancellationToken) ??
+        public string Cwd => Leitura.CaminhoAncorado;
+        public void Dispose() => Leitura.Dispose();
+    }
+
+    // Abre primeiro, valida depois, sobre o mesmo diretório: não há janela entre validar e abrir. A raiz é aberta como
+    // handle; ValidarAsync (pelo nome) dá a recusa explicativa; em seguida a identidade é conferida no próprio handle. O
+    // Git iniciado nele precisa ver exatamente o caminho da worktree como raiz (um diretório movido aparece com outro
+    // nome), e o diretório Git que ele descobre precisa ser o da worktree registrada para este caminho (gitdir de volta
+    // para <caminho>/.git, dentro de <diretório comum>/worktrees), do repositório cadastrado e na branch da execução. Por
+    // fim, o nome ainda aponta para o handle (inode e dispositivo). Um diretório posto no lugar antes da abertura é
+    // validado como a worktree que é (sem esse diretório Git, recusa); posto depois, não é o handle e recusa.
+    private async Task<Ancora> AncorarAsync(WorktreePlanejada worktree, CancellationToken cancellationToken)
+    {
+        ConferirForma(worktree);
+        IntervencaoNaLeitura?.Invoke("raiz", "");
+        LeituraConfinadaDaWorktree leitura;
+        try
+        {
+            leitura = LeituraConfinadaDaWorktree.Abrir(worktree.Caminho, IntervencaoNaLeitura);
+        }
+        catch (WorktreeInvalidaException)
+        {
+            await ValidarAsync(worktree, cancellationToken); // o motivo, quando o nome o explica
+            throw;
+        }
+        try
+        {
+            await ValidarAsync(worktree, cancellationToken);
+            IntervencaoNaLeitura?.Invoke("validada", "");
+            var cwd = leitura.CaminhoAncorado;
+            var topo = await ConsultarNaEntregaAsync(cwd, null, cancellationToken, "rev-parse", "--show-toplevel");
+            if (topo != worktree.Caminho)
+                throw new WorktreeInvalidaException("O diretório aberto não é mais a worktree da execução (foi trocado ou " +
+                    "movido); nada foi feito.");
+            var gitDir = await ConsultarNaEntregaAsync(cwd, null, cancellationToken, "rev-parse", "--absolute-git-dir");
+            var comum = await ConsultarNaEntregaAsync(cwd, null, cancellationToken, "rev-parse", "--path-format=absolute",
+                "--git-common-dir");
+            var comumDoRepositorio = await ConsultarAsync(worktree.CaminhoDoRepositorio, cancellationToken, "rev-parse",
+                "--path-format=absolute", "--git-common-dir");
+            if (gitDir is null || comum is null || comumDoRepositorio is null)
+                throw new WorktreeInvalidaException("O diretório aberto não é uma worktree Git; nada foi feito.");
+            var comumCanonico = Canonico(comumDoRepositorio, "diretório Git comum");
+            var gitDirCanonico = Canonico(gitDir, "diretório Git da worktree");
+            if (Canonico(comum, "diretório Git comum") != comumCanonico ||
+                Path.GetDirectoryName(gitDirCanonico) != Path.Combine(comumCanonico, "worktrees") ||
+                LerGitDirRegistrado(gitDirCanonico) != Path.Combine(worktree.Caminho, ".git"))
+                throw new WorktreeInvalidaException("O diretório aberto não é a worktree registrada do repositório " +
+                    "cadastrado; nada foi feito.");
+            var ancora = new Ancora(leitura, gitDirCanonico);
+            var branch = await ConsultarNaEntregaAsync(ancora, cancellationToken, "symbolic-ref", "--quiet", "HEAD");
+            if (branch != $"refs/heads/{worktree.Branch}")
+                throw new WorktreeInvalidaException("A worktree não está na branch da execução.");
+            leitura.ConferirNoLugar();
+            IntervencaoNaLeitura?.Invoke("ancorada", "");
+            return ancora;
+        }
+        catch
+        {
+            leitura.Dispose();
+            throw;
+        }
+    }
+
+    // O caminho que o repositório registrou para esta worktree (<diretório Git>/gitdir); nulo se ilegível.
+    private static string? LerGitDirRegistrado(string gitDir)
+    {
+        try
+        {
+            return File.ReadAllText(Path.Combine(gitDir, "gitdir")).TrimEnd('\n', '\r');
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    // Sem filtro de conteúdo configurado, e o HEAD da worktree ancorada.
+    private async Task<string> HeadDaEntregaAsync(Ancora ancora, CancellationToken cancellationToken)
+    {
+        await ConferirSemFiltrosDeConteudoAsync(ancora, cancellationToken);
+        return await HeadAsync(ancora, cancellationToken) ??
             throw new WorktreeInvalidaException("Não foi possível ler o HEAD da worktree.");
     }
 
@@ -220,9 +306,9 @@ public sealed partial class GerenciadorDeWorktreesGit(
     // entrega nunca faz essa conversão (RetratarAsync), então nenhum filtro roda, mesmo que a configuração mude no meio da
     // operação. Esta consulta só antecipa a recusa com o motivo certo: num repositório com filtro, o hash aprovado no gate
     // foi lido com o filtro aplicado e não coincidiria com os bytes. Só os nomes das chaves aparecem, nunca os comandos.
-    private async Task ConferirSemFiltrosDeConteudoAsync(WorktreePlanejada worktree, CancellationToken cancellationToken)
+    private async Task ConferirSemFiltrosDeConteudoAsync(Ancora ancora, CancellationToken cancellationToken)
     {
-        var filtros = await GitDaEntregaAsync(worktree.Caminho, null, null, cancellationToken, "config", "--null",
+        var filtros = await GitDaEntregaAsync(ancora, null, null, cancellationToken, "config", "--null",
             "--get-regexp", ExpressaoDosFiltros);
         // 1: nenhuma chave; 0: há filtros; qualquer outro código: configuração ilegível (fail-closed).
         if (filtros.Codigo == 1) return;
@@ -244,15 +330,33 @@ public sealed partial class GerenciadorDeWorktreesGit(
         if (!Sha1().IsMatch(commit.Base) || !Sha256().IsMatch(commit.HashDoArtefato) || string.IsNullOrWhiteSpace(commit.Mensagem))
             return new DesfechoDoCommitDto.SemEfeito("Pedido de commit fora da forma; nada foi feito.");
 
-        // 1. Sem efeito visível: worktree válida e na base aprovada; a árvore montada dos bytes atuais (index privado) e o
-        // hash conferido a partir dela. A árvore é um objeto imutável e é exatamente a que o commit-tree recebe: o que foi
-        // conferido é o que vai ao commit, e o index da worktree não é tocado até a branch andar.
+        // 1. Sem efeito visível: worktree aberta e validada pelo handle (AncorarAsync) e na base aprovada; a árvore montada
+        // dos bytes atuais (index privado) e o hash conferido a partir dela. A árvore é um objeto imutável e é exatamente a
+        // que o commit-tree recebe: o que foi conferido é o que vai ao commit, e o index da worktree não é tocado até a
+        // branch andar. A âncora vale até o fim: todo processo Git daqui em diante roda no diretório Git dela.
+        Ancora ancora;
+        try
+        {
+            ancora = await AncorarAsync(worktree, cancellationToken);
+        }
+        catch (Exception exception) when (exception is WorktreeInvalidaException or IOException or UnauthorizedAccessException
+                                              or OperationCanceledException)
+        {
+            return new DesfechoDoCommitDto.SemEfeito($"A worktree não pôde ser conferida ({Curto(exception)}); nada foi feito.");
+        }
+        using (ancora)
+            return await CommitarAncoradoAsync(ancora, worktree, commit, cancellationToken);
+    }
+
+    private async Task<DesfechoDoCommitDto> CommitarAncoradoAsync(Ancora ancora, WorktreePlanejada worktree,
+        CommitDoArtefatoDto commit, CancellationToken cancellationToken)
+    {
         Retrato? retrato;
         try
         {
-            if (await HeadDaEntregaAsync(worktree, cancellationToken) != commit.Base)
+            if (await HeadDaEntregaAsync(ancora, cancellationToken) != commit.Base)
                 return new DesfechoDoCommitDto.SemEfeito("A branch da worktree não está mais na base aprovada; nada foi feito.");
-            retrato = await RetratarAsync(worktree, commit.Base, cancellationToken);
+            retrato = await RetratarAsync(ancora, commit.Base, cancellationToken);
         }
         catch (Exception exception) when (exception is WorktreeInvalidaException or IOException or UnauthorizedAccessException
                                               or OperationCanceledException)
@@ -269,7 +373,7 @@ public sealed partial class GerenciadorDeWorktreesGit(
         string novo;
         try
         {
-            var objeto = await GitDaEntregaAsync(worktree.Caminho, Ambiente(commit.Autor), null, cancellationToken,
+            var objeto = await GitDaEntregaAsync(ancora, Ambiente(commit.Autor), null, cancellationToken,
                 "commit-tree", "--no-gpg-sign", "-p", commit.Base, "-m", commit.Mensagem, retrato.Arvore);
             if (objeto.Codigo != 0 || !Sha1().IsMatch(objeto.Saida))
                 return SemCommit("O Git recusou criar o commit" + Detalhe(objeto.Erro));
@@ -281,20 +385,30 @@ public sealed partial class GerenciadorDeWorktreesGit(
         }
 
         // 3. O único efeito: a branch da worktree passa da base para o commit novo, por compare-and-swap do Git
-        // (update-ref com o valor antigo). Se a branch já não estiver na base (outra entrega), nada muda. Depois de
+        // (update-ref com o valor antigo). Se a branch já não estiver na base (outra entrega), nada muda. Imediatamente
+        // antes, o nome da worktree ainda precisa apontar para o diretório lido: trocado, nada é movido. Depois de
         // pedido, só o HEAD diz o que aconteceu.
+        try
+        {
+            IntervencaoNaLeitura?.Invoke("mover", "");
+            ancora.Leitura.ConferirNoLugar();
+        }
+        catch (WorktreeInvalidaException exception)
+        {
+            return SemCommit(exception.Message.Replace("; nada foi feito.", "", StringComparison.Ordinal));
+        }
         (int Codigo, string Saida, string Erro) movida;
         try
         {
-            movida = await GitDaEntregaAsync(worktree.Caminho, null, null, cancellationToken, "update-ref", "-m",
+            movida = await GitDaEntregaAsync(ancora, null, null, cancellationToken, "update-ref", "-m",
                 MensagemDoReflog, $"refs/heads/{worktree.Branch}", novo, commit.Base);
         }
         catch (Exception exception) when (exception is WorktreeInvalidaException or IOException or OperationCanceledException)
         {
-            return await DepoisDeMoverABranchAsync(worktree, commit.Base, novo, retrato.Arvore,
+            return await DepoisDeMoverABranchAsync(ancora, worktree, commit.Base, novo, retrato.Arvore,
                 "A gravação do commit foi interrompida");
         }
-        return await DepoisDeMoverABranchAsync(worktree, commit.Base, novo, retrato.Arvore,
+        return await DepoisDeMoverABranchAsync(ancora, worktree, commit.Base, novo, retrato.Arvore,
             movida.Codigo == 0 ? null : "O Git recusou mover a branch" + Detalhe(movida.Erro));
     }
 
@@ -305,25 +419,25 @@ public sealed partial class GerenciadorDeWorktreesGit(
     // (mesmo que o Git tenha relatado erro depois de gravar), e o index da worktree passa a ser a árvore gravada. Ainda na
     // base: nada foi gravado. Em outro commit: outra entrega moveu a branch e esta não fez nada. Qualquer outra coisa, ou
     // leitura impossível: Incerto, com o estado observado.
-    private async Task<DesfechoDoCommitDto> DepoisDeMoverABranchAsync(WorktreePlanejada worktree, string baseDoCommit,
-        string novo, string arvore, string? falha)
+    private async Task<DesfechoDoCommitDto> DepoisDeMoverABranchAsync(Ancora ancora, WorktreePlanejada worktree,
+        string baseDoCommit, string novo, string arvore, string? falha)
     {
-        var referencia = await TentarAsync(() => ConsultarAsync(worktree.Caminho, CancellationToken.None, "rev-parse",
+        var referencia = await TentarAsync(() => ConsultarNaEntregaAsync(ancora, CancellationToken.None, "rev-parse",
             "--verify", "--quiet", $"refs/heads/{worktree.Branch}^{{commit}}"));
         if (referencia == novo)
         {
-            var head = await TentarAsync(() => HeadAsync(worktree.Caminho, CancellationToken.None));
-            var pai = await TentarAsync(() => ConsultarAsync(worktree.Caminho, CancellationToken.None, "rev-parse", "--verify",
+            var head = await TentarAsync(() => HeadAsync(ancora, CancellationToken.None));
+            var pai = await TentarAsync(() => ConsultarNaEntregaAsync(ancora, CancellationToken.None, "rev-parse", "--verify",
                 "--quiet", "HEAD^1"));
-            var arvoreGravada = await TentarAsync(() => ConsultarAsync(worktree.Caminho, CancellationToken.None, "rev-parse",
+            var arvoreGravada = await TentarAsync(() => ConsultarNaEntregaAsync(ancora, CancellationToken.None, "rev-parse",
                 "--verify", "--quiet", "HEAD^{tree}"));
-            var branch = await TentarAsync(() => ConsultarAsync(worktree.Caminho, CancellationToken.None, "symbolic-ref",
+            var branch = await TentarAsync(() => ConsultarNaEntregaAsync(ancora, CancellationToken.None, "symbolic-ref",
                 "--quiet", "HEAD"));
             if (head == novo && pai == baseDoCommit && arvoreGravada == arvore && branch == $"refs/heads/{worktree.Branch}")
             {
                 // O index da worktree acompanha o commit (read-tree sem -u: só o index, nenhum arquivo é lido nem escrito).
                 // Se falhar, o commit continua feito; a worktree só aparece com alterações preparadas e não é removida.
-                await TentarAsync(async () => (await GitDaEntregaAsync(worktree.Caminho, null, null, CancellationToken.None,
+                await TentarAsync(async () => (await GitDaEntregaAsync(ancora, null, null, CancellationToken.None,
                     "read-tree", arvore)).Codigo == 0 ? "" : null);
                 return new DesfechoDoCommitDto.Commitado(novo);
             }
@@ -387,23 +501,23 @@ public sealed partial class GerenciadorDeWorktreesGit(
     // executável, link) e os não rastreados não ignorados. Submódulo fica como na base. O index e os arquivos da worktree
     // não mudam; ficam só blobs (de bytes da própria worktree) e uma árvore soltos no banco de objetos. Nulo se algo não
     // puder ser lido ou montado; WorktreeInvalidaException se a leitura for recusada (antes de qualquer blob gravado).
-    private async Task<Retrato?> RetratarAsync(WorktreePlanejada worktree, string baseDoCommit,
-        CancellationToken cancellationToken)
+    private async Task<Retrato?> RetratarAsync(Ancora ancora, string baseDoCommit, CancellationToken cancellationToken)
     {
         var privado = Directory.CreateTempSubdirectory("dante-entrega-");
         try
         {
             var indice = new Dictionary<string, string> { ["GIT_INDEX_FILE"] = Path.Combine(privado.FullName, "index") };
-            if ((await GitDaEntregaAsync(worktree.Caminho, indice, null, cancellationToken, "read-tree", baseDoCommit))
+            if ((await GitDaEntregaAsync(ancora, indice, null, cancellationToken, "read-tree", baseDoCommit))
                 .Codigo != 0)
                 return null;
-            var rastreados = await GitDaEntregaAsync(worktree.Caminho, null, null, cancellationToken, "ls-tree", "-r", "-z",
+            var rastreados = await GitDaEntregaAsync(ancora, null, null, cancellationToken, "ls-tree", "-r", "-z",
                 "--full-tree", baseDoCommit);
-            // Só nomes: os diretórios e as regras de ignore, contra o index privado (a base).
-            var novos = await GitDaEntregaAsync(worktree.Caminho, indice, null, cancellationToken, "ls-files", "--others",
+            // Só nomes: os diretórios e as regras de ignore, contra o index privado (a base). Um nome que não existe no
+            // diretório aberto é recusado na leitura; um que falte muda o hash.
+            var novos = await GitDaEntregaAsync(ancora, indice, null, cancellationToken, "ls-files", "--others",
                 "--exclude-standard", "-z");
             if (rastreados.Codigo != 0 || novos.Codigo != 0) return null;
-            using var leitura = LeituraConfinadaDaWorktree.Abrir(worktree.Caminho, IntervencaoNaLeitura);
+            var leitura = ancora.Leitura;
             // Primeira fase: tudo lido e validado, nada gravado. Remoções vão direto; o resto espera a segunda fase.
             var entradas = new StringBuilder();
             var aGravar = new List<(string Modo, byte[] Bytes, string Caminho)>();
@@ -430,22 +544,25 @@ public sealed partial class GerenciadorDeWorktreesGit(
                 if (caminho.EndsWith('/') || leitura.Ler(caminho) is not { } atual) return null;
                 aGravar.Add((atual.Modo, atual.Bytes, caminho));
             }
-            // Segunda fase: só bytes lidos dentro da worktree chegam ao banco de objetos.
+            // Segunda fase: só bytes lidos dentro da worktree chegam ao banco de objetos, e só se o nome da worktree ainda
+            // aponta para o diretório lido (uma troca depois da abertura recusa antes do primeiro blob).
+            IntervencaoNaLeitura?.Invoke("gravar", "");
+            leitura.ConferirNoLugar();
             foreach (var (modo, bytes, caminho) in aGravar)
             {
-                if (await GravarBlobAsync(worktree.Caminho, bytes, cancellationToken) is not { } blob) return null;
+                if (await GravarBlobAsync(ancora, bytes, cancellationToken) is not { } blob) return null;
                 entradas.Append($"{modo} {blob}\t{caminho}\0");
             }
-            if (entradas.Length > 0 && (await GitDaEntregaAsync(worktree.Caminho, indice,
+            if (entradas.Length > 0 && (await GitDaEntregaAsync(ancora, indice,
                     Encoding.UTF8.GetBytes(entradas.ToString()), cancellationToken, "update-index", "-z", "--index-info"))
                 .Codigo != 0)
                 return null;
-            var escrita = await GitDaEntregaAsync(worktree.Caminho, indice, null, cancellationToken, "write-tree");
+            var escrita = await GitDaEntregaAsync(ancora, indice, null, cancellationToken, "write-tree");
             if (escrita.Codigo != 0 || !Sha1().IsMatch(escrita.Saida)) return null;
-            var daBase = await GitDaEntregaAsync(worktree.Caminho, null, null, cancellationToken, "rev-parse", "--verify",
+            var daBase = await GitDaEntregaAsync(ancora, null, null, cancellationToken, "rev-parse", "--verify",
                 "--quiet", $"{baseDoCommit}^{{tree}}");
             if (daBase.Codigo != 0) return null;
-            return await HashDaArvoreAsync(worktree, baseDoCommit, escrita.Saida, cancellationToken) is { } hash
+            return await HashDaArvoreAsync(ancora, baseDoCommit, escrita.Saida, cancellationToken) is { } hash
                 ? new Retrato(escrita.Saida, hash, escrita.Saida == daBase.Saida) : null;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -471,9 +588,9 @@ public sealed partial class GerenciadorDeWorktreesGit(
 
     // Os bytes lidos pelo D.A.N.T.E. entram no banco de objetos pela entrada padrão, sem filtro. O id devolvido precisa ser
     // o dos próprios bytes.
-    private async Task<string?> GravarBlobAsync(string cwd, byte[] bytes, CancellationToken cancellationToken)
+    private async Task<string?> GravarBlobAsync(Ancora ancora, byte[] bytes, CancellationToken cancellationToken)
     {
-        var gravado = await GitDaEntregaAsync(cwd, null, bytes, cancellationToken, "hash-object", "-w", "--no-filters",
+        var gravado = await GitDaEntregaAsync(ancora, null, bytes, cancellationToken, "hash-object", "-w", "--no-filters",
             "--stdin");
         return gravado.Codigo == 0 && gravado.Saida == OidDoBlob(bytes) ? gravado.Saida : null;
     }
@@ -481,13 +598,13 @@ public sealed partial class GerenciadorDeWorktreesGit(
     // Hash canônico a partir da árvore que o commit vai gravar, na mesma forma de ResumirAlteracoesAsync: o diff
     // rastreado da árvore contra a base, sem os arquivos novos, e cada arquivo novo pelo conteúdo do blob. Só objetos
     // (nenhum filtro roda). Nulo quando algo não pode ser lido ou não confere (um submódulo novo, por exemplo).
-    private async Task<string?> HashDaArvoreAsync(WorktreePlanejada worktree, string baseDoCommit, string arvore,
+    private async Task<string?> HashDaArvoreAsync(Ancora ancora, string baseDoCommit, string arvore,
         CancellationToken cancellationToken)
     {
-        var diff = await GitDaEntregaAsync(worktree.Caminho, null, null, cancellationToken, "diff", "--no-ext-diff",
+        var diff = await GitDaEntregaAsync(ancora, null, null, cancellationToken, "diff", "--no-ext-diff",
             "--no-textconv", "--no-color", "--binary", "--no-renames", "--diff-filter=a", baseDoCommit, arvore);
         if (diff.Codigo != 0) return null;
-        var bruto = await GitDaEntregaAsync(worktree.Caminho, null, null, cancellationToken, "diff", "--raw", "-z",
+        var bruto = await GitDaEntregaAsync(ancora, null, null, cancellationToken, "diff", "--raw", "-z",
             "--no-abbrev", "--no-renames", "--diff-filter=A", baseDoCommit, arvore);
         if (bruto.Codigo != 0) return null;
         var partes = bruto.Saida.Split('\0', StringSplitOptions.RemoveEmptyEntries);
@@ -508,12 +625,19 @@ public sealed partial class GerenciadorDeWorktreesGit(
             var link = modo == "120000";
             using var bytes = new MemoryStream();
             using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
-            if (!await LerBlobAsync(worktree.Caminho, blob, link ? null : hash, link ? bytes : null, cancellationToken))
+            if (!await LerBlobAsync(ancora, blob, link ? null : hash, link ? bytes : null, cancellationToken))
                 return null;
             conteudos.Add((caminho, link ? "link:" + Encoding.UTF8.GetString(bytes.ToArray())
                 : Convert.ToHexStringLower(hash.GetHashAndReset())));
         }
         return HashCanonico(diff.Saida, conteudos);
+    }
+
+    private async Task<string?> HeadAsync(Ancora ancora, CancellationToken cancellationToken)
+    {
+        var head = await ConsultarNaEntregaAsync(ancora, cancellationToken, "rev-parse", "--verify", "--quiet",
+            "HEAD^{commit}");
+        return head is not null && Sha1().IsMatch(head) ? head : null;
     }
 
     private async Task<string?> HeadAsync(string cwd, CancellationToken cancellationToken)
@@ -706,6 +830,26 @@ public sealed partial class GerenciadorDeWorktreesGit(
         return GitAsync(cwd, DaEntrega(ambiente), entrada, cancellationToken, argumentos);
     }
 
+    // Na worktree ancorada: diretório de trabalho no handle e GIT_DIR fixo no diretório Git conferido.
+    private Task<(int Codigo, string Saida, string Erro)> GitDaEntregaAsync(Ancora ancora,
+        IReadOnlyDictionary<string, string>? ambiente, byte[]? entrada, CancellationToken cancellationToken,
+        params string[] argumentos) =>
+        GitDaEntregaAsync(ancora.Cwd, ComGitDir(ancora, ambiente), entrada, cancellationToken, argumentos);
+
+    private static Dictionary<string, string> ComGitDir(Ancora ancora, IReadOnlyDictionary<string, string>? ambiente) =>
+        new(ambiente ?? new Dictionary<string, string>()) { ["GIT_DIR"] = ancora.GitDir };
+
+    private async Task<string?> ConsultarNaEntregaAsync(string cwd, IReadOnlyDictionary<string, string>? ambiente,
+        CancellationToken cancellationToken, params string[] argumentos)
+    {
+        var resultado = await GitDaEntregaAsync(cwd, ambiente, null, cancellationToken, argumentos);
+        return resultado.Codigo == 0 ? resultado.Saida : null;
+    }
+
+    private Task<string?> ConsultarNaEntregaAsync(Ancora ancora, CancellationToken cancellationToken,
+        params string[] argumentos) =>
+        ConsultarNaEntregaAsync(ancora.Cwd, ComGitDir(ancora, null), cancellationToken, argumentos);
+
     private static Dictionary<string, string> DaEntrega(IReadOnlyDictionary<string, string>? ambiente) =>
         new(ambiente ?? new Dictionary<string, string>()) { ["GIT_NO_LAZY_FETCH"] = "1" };
 
@@ -744,7 +888,7 @@ public sealed partial class GerenciadorDeWorktreesGit(
     }
 
     // cat-file blob em bytes (o conteúdo pode ser binário): para o hash, ou para os bytes de um link. Falso se o Git falhar.
-    private async Task<bool> LerBlobAsync(string cwd, string blob, System.Security.Cryptography.IncrementalHash? hash,
+    private async Task<bool> LerBlobAsync(Ancora ancora, string blob, System.Security.Cryptography.IncrementalHash? hash,
         Stream? bytes, CancellationToken cancellationToken)
     {
         using var prazo = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -754,7 +898,7 @@ public sealed partial class GerenciadorDeWorktreesGit(
         {
             if (!SemLeituraDaWorktree(["cat-file", "blob", blob]))
                 throw new InvalidOperationException("Comando Git fora do conjunto da entrega.");
-            processo = Iniciar(cwd, DaEntrega(null), ["cat-file", "blob", blob], false);
+            processo = Iniciar(ancora.Cwd, DaEntrega(ComGitDir(ancora, null)), ["cat-file", "blob", blob], false);
             var erro = processo.StandardError.ReadToEndAsync(prazo.Token);
             var buffer = new byte[81920];
             int lidos;

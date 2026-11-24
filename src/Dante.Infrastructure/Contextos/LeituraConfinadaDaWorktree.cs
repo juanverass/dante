@@ -28,16 +28,23 @@ internal sealed class LeituraConfinadaDaWorktree : IDisposable
     private const long Openat2 = 437; // mesmo número em x86_64 e arm64 (tabela genérica)
 
     private readonly int raiz;
+    private readonly string caminho;
+    private readonly (ulong Inode, ulong Dispositivo) identidade;
     // Ponto de intervenção dos testes: (etapa, caminho relativo), chamado antes de cada abertura ("abrir" e "ler").
     private readonly Action<string, string>? intervencao;
 
-    private LeituraConfinadaDaWorktree(int raiz, Action<string, string>? intervencao)
+    private LeituraConfinadaDaWorktree(int raiz, string caminho, (ulong, ulong) identidade,
+        Action<string, string>? intervencao)
     {
         this.raiz = raiz;
+        this.caminho = caminho;
+        this.identidade = identidade;
         this.intervencao = intervencao;
     }
 
-    // A raiz é o caminho canônico já validado (ValidarAsync); aberta sem link em nenhum componente, ela é exatamente ele.
+    // Revisão 4 do PR #326: a raiz é aberta antes de qualquer validação, sem link em nenhum componente, e daí em diante é
+    // o handle que identifica a worktree, não o nome. A validação roda sobre o handle (CaminhoAncorado), e
+    // ConferirNoLugar recusa se o nome deixou de apontar para este mesmo diretório.
     public static LeituraConfinadaDaWorktree Abrir(string caminhoCanonico, Action<string, string>? intervencao = null)
     {
         if (!OperatingSystem.IsLinux() || RuntimeInformation.ProcessArchitecture is not (Architecture.X64 or Architecture.Arm64))
@@ -45,7 +52,34 @@ internal sealed class LeituraConfinadaDaWorktree : IDisposable
                 "x86_64 ou arm64.");
         var fd = AbrirSemLinks(AtFdCwd, caminhoCanonico, OPath | ODirectory | OCloExec, 0x02 | 0x04);
         if (fd < 0) throw new WorktreeInvalidaException("Não foi possível abrir a raiz da worktree sem seguir links.");
-        return new LeituraConfinadaDaWorktree(fd, intervencao);
+        try
+        {
+            var (modo, _, inode, dispositivo) = Estado(fd, ".");
+            if ((modo & Tipo) != Diretorio) throw new WorktreeInvalidaException("A raiz da worktree não é um diretório.");
+            return new LeituraConfinadaDaWorktree(fd, caminhoCanonico, (inode, dispositivo), intervencao);
+        }
+        catch
+        {
+            Fechar(fd);
+            throw;
+        }
+    }
+
+    // O diretório aberto, como diretório de trabalho de um processo: o kernel resolve este caminho pelo descritor (o
+    // link mágico de /proc), nunca pelo nome da worktree. Um processo iniciado aqui está no diretório aberto mesmo que o
+    // nome tenha sido trocado depois.
+    public string CaminhoAncorado => $"/proc/{Environment.ProcessId}/fd/{raiz}";
+
+    // O nome da worktree ainda aponta para o diretório aberto (mesmo inode e dispositivo, sem seguir link no fim). Se outro
+    // diretório ocupou o lugar, ou a worktree foi movida, recusa: nada que dependa do nome é feito depois de uma troca.
+    public void ConferirNoLugar()
+    {
+        var estado = new byte[256];
+        if (statx(AtFdCwd, caminho, AtSymlinkNoFollow, StatxBasico, estado) != 0 ||
+            (BinaryPrimitives.ReadUInt16LittleEndian(estado.AsSpan(28)) & Tipo) != Diretorio ||
+            (BinaryPrimitives.ReadUInt64LittleEndian(estado.AsSpan(32)), Dispositivo(estado)) != identidade)
+            throw new WorktreeInvalidaException("O diretório da worktree foi trocado ou movido durante a entrega; nada foi " +
+                "feito.");
     }
 
     // Um caminho relativo como o add o gravaria. Link: modo 120000 e o destino (bytes crus). Arquivo comum: 100755 se
@@ -121,10 +155,12 @@ internal sealed class LeituraConfinadaDaWorktree : IDisposable
         if (statx(fd, "", AtEmptyPath | AtSymlinkNoFollow, StatxBasico, estado) != 0) throw Recusa(relativo);
         return (BinaryPrimitives.ReadUInt16LittleEndian(estado.AsSpan(28)),
             BinaryPrimitives.ReadUInt32LittleEndian(estado.AsSpan(16)),
-            BinaryPrimitives.ReadUInt64LittleEndian(estado.AsSpan(32)),
-            ((ulong)BinaryPrimitives.ReadUInt32LittleEndian(estado.AsSpan(136)) << 32) |
-            BinaryPrimitives.ReadUInt32LittleEndian(estado.AsSpan(140)));
+            BinaryPrimitives.ReadUInt64LittleEndian(estado.AsSpan(32)), Dispositivo(estado));
     }
+
+    private static ulong Dispositivo(byte[] estado) =>
+        ((ulong)BinaryPrimitives.ReadUInt32LittleEndian(estado.AsSpan(136)) << 32) |
+        BinaryPrimitives.ReadUInt32LittleEndian(estado.AsSpan(140));
 
     private static WorktreeInvalidaException Recusa(string relativo) =>
         new($"{relativo} mudou durante a leitura ou não pode ser lido dentro da worktree; nada foi lido.");
