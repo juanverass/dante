@@ -906,6 +906,9 @@ As três entregas do gateway (etapa 9 da Epic #296):
   - a leitura dos bytes é confinada pelo kernel à worktree (`openat2` a partir de um handle da raiz, sem link em
     nenhum componente e com o mesmo inode na leitura). Um arquivo ou diretório trocado por link, ou um hard link, é
     recusado. Todos os caminhos são lidos e validados antes de o primeiro blob ser gravado;
+  - a raiz é aberta antes da validação, e a validação roda sobre o handle. Todo processo Git da entrega, inclusive
+    os que gravam, roda no handle com `GIT_DIR` fixo no diretório Git da worktree registrada. Uma worktree trocada
+    por outro diretório no mesmo caminho é recusada antes do primeiro blob e antes do `update-ref`;
   - a configuração com filtros é recusada no começo, com o motivo;
   - o hash é conferido a partir da árvore montada, que é exatamente o que o commit recebe;
   - `commit-tree` cria o commit com o autor configurado;

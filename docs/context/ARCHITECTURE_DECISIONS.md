@@ -3286,6 +3286,30 @@ Decisão:
   só então os bytes vão ao `hash-object`. Uma recusa no meio não deixa blob nenhum, nem de bytes da própria worktree.
 
   Exige Linux 5.6+ (`openat2`), x86_64 ou arm64. Em outro sistema, a entrega é recusada.
+* **A raiz lida é a worktree validada, do começo ao fim da entrega** (revisão 4 do PR #326). O confinamento acima
+  vale dentro do handle da raiz. Se a raiz fosse aberta pelo caminho depois da validação, um processo com escrita no
+  diretório pai poderia renomear a worktree e pôr outro diretório comum (sem link) no mesmo caminho. O kernel então
+  confinaria a leitura ao diretório substituto, e os processos Git, que recebiam o caminho como diretório de trabalho,
+  operariam sobre outro repositório. Agora:
+  - **abre primeiro, valida depois, sobre o mesmo diretório.** A raiz é aberta como handle antes de qualquer
+    validação. A validação pelo nome (`ValidarAsync`) só dá a recusa explicativa. A identidade é conferida no próprio
+    handle: o Git iniciado nele (diretório de trabalho `/proc/<pid>/fd/<raiz>`, que o kernel resolve pelo descritor,
+    nunca pelo nome) precisa ver exatamente o caminho da worktree como raiz. Um diretório movido aparece com outro nome;
+  - o diretório Git que ele descobre precisa ser o da worktree registrada para este caminho: dentro de
+    `<diretório comum>/worktrees`, com `gitdir` apontando de volta para `<caminho>/.git`, no diretório comum do
+    repositório cadastrado e na branch da execução;
+  - **todo processo Git da entrega**, inclusive os que gravam (`hash-object`, `commit-tree`, `update-ref`,
+    `read-tree`) e as consultas depois do commit, roda com o diretório de trabalho no handle e `GIT_DIR` fixo nesse
+    diretório Git. Nenhum resolve o nome da worktree nem redescobre o repositório pelo `.git` dela. Trocar o diretório
+    no caminho não muda o repositório em que a entrega lê e grava;
+  - o nome ainda precisa apontar para o handle (mesmo inode e dispositivo, sem seguir link) depois da validação, antes
+    do primeiro blob e imediatamente antes do `update-ref`. Uma troca detectada recusa sem efeito: antes dos blobs não
+    fica objeto nenhum, e a branch nunca se move.
+
+  Limite: um diretório posto no caminho **antes** da abertura é validado como a worktree que é. Sem o diretório Git
+  da worktree registrada (um diretório comum, ou outra worktree do repositório), a entrega é recusada. Com uma cópia
+  do `.git` da worktree, ele é indistinguível dela, como qualquer conteúdo escrito nela. Mesmo assim, só entra no
+  commit se o hash for o aprovado.
 
   Todo comando da entrega passa por `SemLeituraDaWorktree`, um conjunto sem `add`, sem `status` e sem `diff` contra a
   worktree, e roda com `GIT_NO_LAZY_FETCH=1`, para que nenhum clone parcial busque objetos pelo transporte do remoto.

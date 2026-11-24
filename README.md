@@ -832,7 +832,8 @@ na base. Só então faz um único commit, com o autor configurado. Repositórios
 (como o Git LFS) não são entregues, porque esses filtros executam comandos externos. Na entrega, o Git nunca lê os
 arquivos da worktree, então nenhum filtro roda, nem um configurado no meio da operação. A leitura dos arquivos fica
 confinada à worktree: um arquivo ou diretório trocado por link, ou um hard link, faz a entrega ser recusada, sem nada
-gravado. A entrega exige Linux (5.6+, x86_64 ou arm64). Ele nunca faz push, PR nem merge e nunca toca o
+gravado. O mesmo vale para a própria worktree trocada por outro diretório no mesmo caminho: a entrega fica presa ao
+diretório validado e recusa a troca antes de gravar. A entrega exige Linux (5.6+, x86_64 ou arm64). Ele nunca faz push, PR nem merge e nunca toca o
 checkout principal. Se algo mudou, nada é gravado. Se a entrega for interrompida no meio, ela não é repetida: o
 estado real da branch (HEAD e commits além da base) é informado.
 
