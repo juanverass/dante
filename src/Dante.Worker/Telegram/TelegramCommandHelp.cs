@@ -132,6 +132,16 @@ internal static class TelegramCommandHelp
             "conteúdo exato; qualquer mudança invalida a aprovação. Pedido vencido expira sem executar. Exige o ledger de " +
             "execuções habilitado no Worker."),
 
+        new("/ci", "ACOMPANHAMENTO", "Veja como está o CI de um PR, no commit atual dele.",
+            "/ci 12\n/ci @exemplo 12",
+            "/ci [@alias] <número do PR>. Também em linguagem natural: como está o CI do PR 12 do @exemplo?. Sem alias, usa o repositório da sessão ativa e, sem ela, o repositório ativo " +
+            "(/use). Lê o PR agora e mostra só as execuções do commit atual dele: as de commits anteriores não contam. " +
+            "Mostra cada workflow (passou, falhou, em andamento, na fila, aguardando runner, cancelado), o que falhou ou " +
+            "falta, e os links do PR e das execuções. Sem permissão ou provedor fora do ar aparecem como tal, nunca como " +
+            "falha. Não avalia se o PR pode ser mesclado (proteção da branch, checks obrigatórios e revisões), não " +
+            "reexecuta nada e não acompanha sozinho: consulte de novo quando quiser. Exige uma conexão de CI no host que " +
+            "libere o repositório; repositórios vinculados não herdam a do principal."),
+
         new("/repos", "REPOSITÓRIOS", "Liste os repositórios cadastrados.", "/repos"),
         new("/repo", "REPOSITÓRIOS", "Cadastre, consulte, vincule ou remova repositórios e configurações persistentes de ambiente.",
             "/repo add @exemplo /caminho/do/repositorio\n/repo show @exemplo\n/repo remove @exemplo\n" +

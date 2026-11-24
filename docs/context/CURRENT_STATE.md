@@ -51,6 +51,8 @@ próprias Issues e PRs do GitHub. Para o estado vivo do backlog, consulte o GitH
   `unlink`/`remove` listam sessões e jobs que ainda acessam o vinculado e como encerrá-los;
 - `/repo env set|bind|list|remove` com segredos por referência ao host;
 - `/status` com contexto de cada job e `/cancel <jobId>`, ambos só com os jobs do próprio usuário (#305);
+- `/ci [@alias] <PR>` e a pergunta natural "como está o CI do PR 12 do @alias?" (#238, AD-77): estado do CI do commit
+  atual do PR, por workflow, com links do PR e das execuções, sob demanda; exige conexão de CI no host para o alias;
 - configurações do assistente em `~/.dante/settings.json` (agente padrão, Claude quando
   não configurado; repositório ativo, modo padrão, modelos e esforço por usuário);
 - `/agent` e `/agent set claude|codex` para consultar e alterar o agente padrão; com sessão ativa, `/agent` e
@@ -1054,7 +1056,7 @@ continuam puros. DI do DbContext exige autorização, sem fallback administrativ
 quando AddApplication é omitido. Testes de composição resolvem a lista integral
 com adapters e um CRUD com fakes sem Infrastructure (AD-54).
 
-## Integração de CI (#236, #237, AD-76)
+## Integração de CI (#236, #237, #238, AD-76, AD-77)
 
 Feature `IntegracaoDeCi` na Application, sem Domain nem persistência: porta `IProvedorDeCi` somente leitura, identidade
 imutável (alias cadastrado, conexão por referência `secret://host/NOME`, nome e ID do repositório, workflow, execução,
@@ -1065,7 +1067,15 @@ O provedor registrado é o GitHub Actions (`ProvedorDeCiGitHubActions`, #237), s
 SHA com tentativa e jobs da tentativa, uma tentativa específica e o final sanitizado do log de um job. Só consulta
 conexão configurada no host (`IntegracaoDeCi__Conexoes__<id>`) para aliases liberados nela e cadastrados com o mesmo
 `dono/repo`; sem isso responde `NaoConfigurada`/`NaoAutorizada` sem rede. Hosted e self-hosted saem pela mesma forma
-neutra. Ainda não há quem chame a porta: correlação, comando e interface são a #238. Guia: [ci](../development/ci.md).
+neutra.
+
+O andamento do CI de um PR (#238, AD-77) é quem chama a porta, sob demanda e sem polling: `/ci [@alias] <número>` ou a
+pergunta natural "como está o CI do PR 12 do @alias?" (gramática fechada no `TelegramCi`, antes do Brain e da sessão).
+O repositório é o alias explícito, o da sessão ativa ou o ativo; a identidade de CI é o `dono/repo` do cadastro com a
+única conexão que libera o alias (vinculado não herda a do principal). O PR é lido na hora (`ObterPullRequestAsync`,
+só GET, sem cache) para obter o head SHA atual, e só execuções desse SHA contam: commit novo não herda sucesso. A
+resposta traz links do PR e das execuções, o que falhou e o que falta; sem permissão e indisponível nunca viram falha,
+e sucesso não é apresentado como liberação para merge. Guia: [ci](../development/ci.md).
 
 ## Planilhas genéricas (#224)
 

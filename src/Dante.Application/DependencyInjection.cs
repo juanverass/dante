@@ -19,6 +19,7 @@ public static class DependencyInjection
         ServicosDoBrain.Registrar(services);
         ServicosDeExecucoes.Registrar(services);
         ServicosDeAgentes.Registrar(services);
+        ServicosDeIntegracaoDeCi.Registrar(services);
         return services;
     }
 

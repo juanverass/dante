@@ -7,6 +7,11 @@ namespace Dante.Application.IntegracaoDeCi;
 // FalhaNaConsultaDeCiException.
 public interface IProvedorDeCi
 {
+    // O PR agora, para saber o head SHA atual (#238). Só o PR do próprio repositório consultado: resposta de outro
+    // repositório de destino, outro número ou SHA abreviado falha como Inconsistente. Nunca vem de cache.
+    Task<PullRequestDeCiDto> ObterPullRequestAsync(RepositorioDeCi repositorio, int numero,
+        CancellationToken cancellationToken = default);
+
     // Execuções do repositório para o SHA consultado, com seus jobs, paginadas até o limite da política. Pode devolver
     // tentativas anteriores e execuções de outros SHAs: separar o que vale é da ConsolidacaoDoCheckDeCi.
     Task<ResultadoDaConsultaDeCi> ConsultarAsync(ConsultaDeCi consulta, CancellationToken cancellationToken = default);

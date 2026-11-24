@@ -60,7 +60,7 @@ public sealed class IntegracaoDeCiContratosTests
     public void PortaESomenteLeituraESemEfeitoColateral()
     {
         var metodos = typeof(IProvedorDeCi).GetMethods().Select(m => m.Name).Order().ToArray();
-        Assert.Equal(["ConsultarAsync", "ObterExecucaoAsync", "ObterLogDoJobAsync"], metodos);
+        Assert.Equal(["ConsultarAsync", "ObterExecucaoAsync", "ObterLogDoJobAsync", "ObterPullRequestAsync"], metodos);
         Assert.All(typeof(IProvedorDeCi).GetMethods(), m =>
         {
             Assert.Equal(typeof(CancellationToken), m.GetParameters()[^1].ParameterType);
@@ -79,7 +79,8 @@ public sealed class IntegracaoDeCiContratosTests
                  {
                      () => porta.ConsultarAsync(Consulta),
                      () => porta.ObterExecucaoAsync(execucao),
-                     () => porta.ObterLogDoJobAsync(new IdentidadeDoJobDeCi(execucao, 100), 1024)
+                     () => porta.ObterLogDoJobAsync(new IdentidadeDoJobDeCi(execucao, 100), 1024),
+                     () => porta.ObterPullRequestAsync(Consultado, 7)
                  })
             Assert.Equal(MotivoDaFalhaNaConsultaDeCi.NaoConfigurada,
                 (await Assert.ThrowsAsync<FalhaNaConsultaDeCiException>(chamada)).Motivo);
