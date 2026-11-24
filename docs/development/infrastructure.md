@@ -17,7 +17,7 @@ núcleo; Domain/Application não dependem de EF Core/Npgsql. Worker/WebApi usam
 | pastas de features | adapters de busca, fontes, auditoria, qualidade e métricas |
 | `Contextos/`, `Agentes/`, `Uso/` | adapters locais do legado |
 | `Google/`, `Planilhas/` | Google Sheets e XLSX no Drive (OAuth, credencial, seleção por MIME, edição OOXML), cadastro/auditoria ([planilhas](planilhas.md)) |
-| `IntegracaoDeCi/` | adapters da porta de CI; hoje só o fail-closed sem provedor ([ci](ci.md)) |
+| `IntegracaoDeCi/` | adapter GitHub Actions da porta de CI, somente leitura, e conexões autorizadas do host ([ci](ci.md)) |
 
 Não existe projeto Migrator separado. Startup normal não aplica migrations.
 `DependencyInjection.AddInfrastructure` é a única entrada pública da composição;
