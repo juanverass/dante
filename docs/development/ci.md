@@ -182,7 +182,7 @@ de redirect, e não aparece em mensagem de falha.
 | --- | --- |
 | `ConsultarAsync` | `actions/runs?head_sha=` (paginado); para cada execução, `runs/{id}/attempts/{tentativa}/jobs` (paginado); sem execução, `actions/workflows?per_page=1` para distinguir repositório sem workflow |
 | `ObterExecucaoAsync` | `runs/{id}/attempts/{tentativa}` e os jobs da tentativa |
-| `ObterLogDoJobAsync` | `actions/jobs/{id}`; se terminou, `actions/jobs/{id}/logs` e o redirect assinado, seguido **sem credencial** |
+| `ObterLogDoJobAsync` | `actions/jobs/{id}`; se terminou, `actions/jobs/{id}/logs` e o redirect assinado, seguido **sem credencial** e só para domínio de log do GitHub |
 
 Conferências sobre a resposta; o que não confere é recusado inteiro como `Inconsistente`, nunca filtrado:
 
@@ -237,10 +237,15 @@ vem da execução. Job ainda não terminado responde `AindaEmAndamento`, sem bai
 
 ### Logs
 
-* só o final é baixado, numa janela de 4× o limite pedido; o começo descartado marca o trecho como truncado e a
-  primeira linha, partida no meio, não aparece (`Sanitizar(..., inicioCortado: true)`);
+* só o final é baixado, numa janela de 4× o limite pedido; o começo descartado marca o trecho como truncado e o
+  primeiro segmento, partido no meio, nunca aparece, mesmo quando é o único (`Sanitizar(..., inicioCortado: true)`);
 * log acima de 64 MiB não é lido: `Indisponivel`;
-* o redirect só é seguido para `https`, sem `Authorization`; outro destino responde `Indisponivel`;
+* o redirect só é seguido, sem `Authorization`, para os domínios que a documentação do GitHub Actions lista para
+  download de logs e operação essencial: subdomínios de `actions.githubusercontent.com` (inclusive
+  `results-receiver.actions.githubusercontent.com`) e de `blob.core.windows.net`. Exige `https` na porta 443, sem
+  userinfo e sem IP literal; outro destino (host externo, loopback, rede interna, sufixo falso) responde `Indisponivel`
+  sem receber requisição. Se o GitHub mudar esses domínios, a lista em `ProvedorDeCiGitHubActions` precisa acompanhar;
+  até lá, o log fica `Indisponivel`, nunca o job;
 * o texto passa pela `SanitizacaoDeTextoDeCi` (sequências de terminal, invisíveis, linhas com credencial aparente) e,
   para um agente, só pelo envelope de dado não confiável.
 

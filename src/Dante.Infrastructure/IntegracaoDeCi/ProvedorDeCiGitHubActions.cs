@@ -222,13 +222,13 @@ internal sealed class ProvedorDeCiGitHubActions(ConexoesDeCiAutorizadas conexoes
     }
 
     // Lê só o final do log: a janela é quatro vezes o limite do trecho, como o corte prévio da sanitização. Redirect
-    // (3xx com Location https) é devolvido para ser seguido sem credencial; demais códigos voltam como estão.
+    // para um destino de log permitido é devolvido para ser seguido sem credencial; demais códigos voltam como estão.
     private static async Task<(HttpStatusCode? Codigo, Uri? Destino, (string Texto, bool InicioCortado)? Log)> LerLogOuRedirectAsync(
         HttpResponseMessage resposta, int janela, CancellationToken cancellationToken, bool seguirRedirect = true)
     {
         var codigo = (int)resposta.StatusCode;
         if (codigo is >= 300 and < 400)
-            return seguirRedirect && resposta.Headers.Location is { IsAbsoluteUri: true } destino && destino.Scheme == Uri.UriSchemeHttps
+            return seguirRedirect && resposta.Headers.Location is { } destino && DestinoDeLogPermitido(destino)
                 ? (resposta.StatusCode, destino, null)
                 : (HttpStatusCode.BadGateway, null, null);
         if (resposta.StatusCode != HttpStatusCode.OK) return (resposta.StatusCode, null, null);
@@ -254,6 +254,20 @@ internal sealed class ProvedorDeCiGitHubActions(ConexoesDeCiAutorizadas conexoes
         if (bytes.Length > janela) bytes = bytes[^janela..];
         return (HttpStatusCode.OK, null, (Encoding.UTF8.GetString(bytes), total > bytes.Length));
     }
+
+    // Destinos do redirect de log (revisão do PR #328, contra SSRF): o Location vem de uma resposta externa, então só é
+    // seguido para os domínios que a documentação do GitHub Actions lista para download de logs e para operação
+    // essencial ("Accessible domains by function": results-receiver.actions.githubusercontent.com,
+    // *.actions.githubusercontent.com e *.blob.core.windows.net). Só https na porta 443, sem userinfo, sem IP literal
+    // e só subdomínio de verdade (evilactions.githubusercontent.com ou blob.core.windows.net.evil.com não passam).
+    internal static readonly IReadOnlyList<string> SufixosDeDestinoDeLog = [".actions.githubusercontent.com", ".blob.core.windows.net"];
+
+    internal static bool DestinoDeLogPermitido(Uri destino) =>
+        destino is { IsAbsoluteUri: true, HostNameType: UriHostNameType.Dns, Port: 443 }
+        && destino.Scheme == Uri.UriSchemeHttps
+        && string.IsNullOrEmpty(destino.UserInfo)
+        && SufixosDeDestinoDeLog.Any(sufixo =>
+            destino.IdnHost.EndsWith(sufixo, StringComparison.OrdinalIgnoreCase) && destino.IdnHost.Length > sufixo.Length);
 
     // Falha transitória esgotada ou limite de taxa durante a leitura do log não esconde nada: o log fica Indisponivel
     // (codigo nulo) e o estado do job continua sendo o que a consulta da execução observou. Inconsistência continua

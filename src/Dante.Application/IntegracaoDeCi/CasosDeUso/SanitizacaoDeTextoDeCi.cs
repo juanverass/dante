@@ -35,7 +35,9 @@ public static class SanitizacaoDeTextoDeCi
 
         var redigidas = 0;
         var linhas = texto.Split('\n');
-        if (truncado && linhas.Length > 1) linhas = linhas[1..];
+        // Com o começo cortado, o primeiro segmento é um pedaço de linha mesmo quando é o único: sempre descartado
+        // (revisão do PR #328).
+        if (truncado) linhas = linhas[1..];
         for (var i = 0; i < linhas.Length; i++)
         {
             if (!ProtecaoDeSegredos.ContemSegredo(linhas[i])) continue;

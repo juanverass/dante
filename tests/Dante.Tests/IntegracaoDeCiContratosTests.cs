@@ -461,6 +461,20 @@ public sealed class IntegracaoDeCiContratosTests
         Assert.DoesNotContain("ghp_", trecho.Texto);
     }
 
+    // Revisão do PR #328: com o começo cortado por quem leu, o único segmento também é pedaço de linha e não aparece.
+    [Theory]
+    [InlineData("meio de uma linha sem quebra")]
+    [InlineData("meio de uma linha\nlinha inteira")]
+    public void SanitizacaoComInicioCortadoNuncaMostraOPrimeiroSegmento(string bruto)
+    {
+        var trecho = SanitizacaoDeTextoDeCi.Sanitizar(bruto, 1024, inicioCortado: true);
+        Assert.True(trecho.Truncado);
+        Assert.DoesNotContain("meio de uma linha", trecho.Texto);
+        Assert.Equal(bruto.Contains('\n') ? "linha inteira" : "", trecho.Texto);
+        // Sem o corte declarado, o mesmo texto curto sai inteiro.
+        Assert.Equal((bruto, false), (SanitizacaoDeTextoDeCi.Sanitizar(bruto, 1024).Texto, SanitizacaoDeTextoDeCi.Sanitizar(bruto, 1024).Truncado));
+    }
+
     [Fact]
     public void SanitizacaoMantemOFinalEmLinhasInteirasDentroDoLimite()
     {

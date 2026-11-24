@@ -520,6 +520,63 @@ public sealed class ProvedorDeCiGitHubActionsTests : IDisposable
         Assert.Equal([SanitizacaoDeTextoDeCi.LinhaRedigida, "fim", ""], trecho.Texto.Split('\n'));
     }
 
+    // Revisão do PR #328: log de uma linha só, maior que a janela baixada e sem quebra. O pedaço partido não aparece.
+    [Fact]
+    public async Task LogDeUmaLinhaSoMaiorQueAJanelaNaoMostraOPedacoPartido()
+    {
+        JobDoLog("completed", "failure");
+        github.Em($"{Api}/jobs/500/logs", Status(HttpStatusCode.OK, new string('a', 10_000) + "FIM_DA_LINHA_PARTIDA"));
+
+        var log = await Provedor().ObterLogDoJobAsync(JobAlvo(), 1024);
+
+        Assert.Equal(DisponibilidadeDoLogDeCi.Disponivel, log.Disponibilidade);
+        Assert.True(log.Trecho!.Truncado);
+        Assert.Equal("", log.Trecho.Texto);
+    }
+
+    // Revisão do PR #328 (SSRF): o Location vem de resposta externa; só os domínios de log documentados pelo GitHub
+    // Actions são seguidos, e destino recusado não recebe nenhuma requisição.
+    [Theory]
+    [InlineData("https://results-receiver.actions.githubusercontent.com/logs/500?sig=abc")]
+    [InlineData("https://pipelines.actions.githubusercontent.com/log/500?sig=abc")]
+    [InlineData("https://productionresultssa0.blob.core.windows.net/actions-results/500.txt?sig=abc")]
+    [InlineData("https://PRODUCTIONRESULTSSA0.BLOB.CORE.WINDOWS.NET/actions-results/500.txt?sig=abc")]
+    public async Task RedirectDeLogParaDominioOficialESeguido(string destino)
+    {
+        JobDoLog("completed", "failure");
+        github.Em($"{Api}/jobs/500/logs", Redirect(destino));
+        github.Em(new Uri(destino).AbsoluteUri, Status(HttpStatusCode.OK, "log ok\n"));
+
+        var log = await Provedor().ObterLogDoJobAsync(JobAlvo(), 1024);
+
+        Assert.Equal(DisponibilidadeDoLogDeCi.Disponivel, log.Disponibilidade);
+        Assert.Null(Assert.Single(github.Requisicoes, r => r.Url == new Uri(destino).AbsoluteUri).Autorizacao);
+    }
+
+    [Theory]
+    [InlineData("https://evil.example.com/log")]                                            // host externo arbitrário
+    [InlineData("https://127.0.0.1/log")]                                                   // loopback
+    [InlineData("https://localhost/log")]
+    [InlineData("https://[::1]/log")]
+    [InlineData("https://10.0.0.5/log")]                                                    // rede interna
+    [InlineData("https://169.254.169.254/latest/meta-data")]                                // metadados de nuvem
+    [InlineData("https://usuario:senha@results-receiver.actions.githubusercontent.com/log")]  // userinfo
+    [InlineData("https://results-receiver.actions.githubusercontent.com:8443/log")]          // porta inesperada
+    [InlineData("https://evilactions.githubusercontent.com/log")]                           // sufixo sem ponto
+    [InlineData("https://actions.githubusercontent.com.evil.com/log")]                      // domínio oficial como prefixo
+    [InlineData("https://blob.core.windows.net/log")]                                       // o próprio sufixo, sem conta
+    [InlineData("https://api.github.com/repos/dono/app/actions/jobs/500/logs")]             // a API, de novo
+    public async Task RedirectDeLogParaDestinoForaDaAllowlistNaoRecebeRequisicao(string destino)
+    {
+        JobDoLog("completed", "failure");
+        github.Em($"{Api}/jobs/500/logs", Redirect(destino));
+
+        var log = await Provedor().ObterLogDoJobAsync(JobAlvo(), 1024);
+
+        Assert.Equal((DisponibilidadeDoLogDeCi.Indisponivel, null), (log.Disponibilidade, log.Trecho));
+        Assert.Equal([$"{Api}/jobs/500", $"{Api}/jobs/500/logs"], github.Requisicoes.Select(r => r.Url));
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.NotFound, DisponibilidadeDoLogDeCi.NaoEncontrado)]
     [InlineData(HttpStatusCode.Gone, DisponibilidadeDoLogDeCi.Expirado)]

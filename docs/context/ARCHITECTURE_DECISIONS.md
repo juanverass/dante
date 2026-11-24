@@ -3724,11 +3724,13 @@ Provedor GitHub Actions (#237):
   `completed` sem conclusão, falha como `Inconsistente`.
 * **Política aplicada no transporte**: repete só timeout, rede, 5xx e limite de taxa, com backoff e jitter. Separa o 403
   de limite de taxa (cota zerada ou `Retry-After`) do 403 de permissão. Espera acima do máximo vira `LimiteDeTaxa` com
-  `RepetirApos`. Não segue redirect automaticamente; o redirect assinado do log é seguido só para `https` e sem a
-  credencial. Cache de tentativa final sem expiração e de não final por 20 s, com a identidade inteira como chave.
+  `RepetirApos`. Não segue redirect automaticamente. O redirect assinado do log é seguido sem a credencial e só
+  para a allowlist dos domínios de log documentados pelo GitHub Actions: subdomínios de `actions.githubusercontent.com`
+  e de `blob.core.windows.net`, em https na porta 443, sem userinfo nem IP literal. Isso fecha o SSRF por `Location`
+  arbitrário (revisão do PR #328). Cache de tentativa final sem expiração e de não final por 20 s, com a identidade inteira como chave.
 * **Log pelo final**: só uma janela de 4× o limite é mantida durante o download. `Sanitizar` ganhou `inicioCortado`, o
   menor ajuste no contrato, para que o trecho saia truncado e sem a linha partida quando o começo foi descartado pelo
-  adapter. Log inacessível é disponibilidade, nunca exceção nem mudança do estado do job.
+  adapter. O primeiro segmento é descartado mesmo quando é o único (revisão do PR #328). Log inacessível é disponibilidade, nunca exceção nem mudança do estado do job.
 
 Alternativas descartadas na #237: token único do host para todos os repositórios (contraria a credencial por conexão);
 autorizar só pelo alias, sem conferir o `dono/repo` do cadastro (um alias liberado poderia consultar outro repositório
