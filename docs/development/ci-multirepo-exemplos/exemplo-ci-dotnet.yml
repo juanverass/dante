@@ -1,0 +1,69 @@
+# EXEMPLO DE DOCUMENTAÇÃO (Issue #241). Não executa daqui: só workflows em .github/workflows/ rodam.
+# Ainda não validado com actionlint nem executado no GitHub: a validação é passo do piloto (#235), antes de qualquer uso.
+# Chamador para um repositório .NET: no PR, build e testes rápidos (sem os marcados como lentos); na main, no
+# schedule e sob demanda, a suíte completa com PostgreSQL. Um único check obrigatório, "CI · resultado".
+# Os filtros e a variável de conexão são do repositório (a confirmar em cada um).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  dotnet:
+    name: .NET
+    uses: ./.github/workflows/ci-reutilizavel-dotnet.yml
+    with:
+      runner: '["self-hosted","Linux","X64","docker"]'
+      solucao: Exemplo.sln
+      # PR: suíte rápida. Marcos (main, schedule, dispatch): tudo, inclusive o que exige banco.
+      filtro: ${{ github.event_name == 'pull_request' && 'Category!=Lento&Category!=Postgres' || 'Category!=Postgres' }}
+      postgres: ${{ github.event_name != 'pull_request' }}
+      postgres-variavel: EXEMPLO_TEST_CONNECTION
+      filtro-postgres: Category=Postgres
+
+  migrations:
+    name: Migrations em dia
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore Exemplo.sln
+      # Ferramenta local do job, sem instalação global no runner persistente.
+      - run: dotnet tool install dotnet-ef --tool-path "$RUNNER_TEMP/ferramentas"
+      - run: >
+          "$RUNNER_TEMP/ferramentas/dotnet-ef" migrations has-pending-model-changes
+          --project Infraestrutura --startup-project WebApi
+
+  resultado:
+    name: CI · resultado
+    if: always()
+    needs: [dotnet, migrations]
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+    steps:
+      - env:
+          DOTNET: ${{ needs.dotnet.result }}
+          MIGRATIONS: ${{ needs.migrations.result }}
+        run: |
+          falhou=0
+          for par in "dotnet:$DOTNET" "migrations:$MIGRATIONS"; do
+            if [ "${par#*:}" != success ]; then echo "::error::${par%%:*} terminou como '${par#*:}'"; falhou=1; fi
+          done
+          exit $falhou

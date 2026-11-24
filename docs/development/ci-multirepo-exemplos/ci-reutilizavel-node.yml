@@ -1,0 +1,62 @@
+# EXEMPLO DE DOCUMENTAÇÃO (Issue #241). Não executa daqui: só workflows em .github/workflows/ rodam.
+# Ainda não validado com actionlint nem executado no GitHub: a validação é passo do piloto (#235), antes de qualquer uso.
+# Para usar, copie para .github/workflows/ do repositório piloto, com autorização para aquele repositório,
+# e valide como descrito em docs/development/ci-multirepo.md.
+#
+# Workflow reutilizável Node/React: instala a versão do projeto (.nvmrc), npm ci com cache e roda, em ordem, os
+# scripts do package.json pedidos por quem chama.
+name: Reutilizável · Node
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Rótulos do runner em JSON, por exemplo '["self-hosted","Linux","X64"]'.
+        type: string
+        required: true
+      node-version-file:
+        type: string
+        default: .nvmrc
+      scripts:
+        description: Scripts do package.json, um por linha, executados em ordem com npm run.
+        type: string
+        required: true
+      timeout-minutos:
+        type: number
+        default: 20
+
+permissions:
+  contents: read
+
+jobs:
+  verificacao:
+    name: Verificação Node
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: ${{ inputs.timeout-minutos }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Scripts do projeto
+        env:
+          SCRIPTS: ${{ inputs.scripts }}
+        run: |
+          while IFS= read -r script; do
+            script="$(echo "$script" | xargs)"
+            [ -z "$script" ] && continue
+            if [[ ! "$script" =~ ^[A-Za-z0-9:_.-]+$ ]]; then
+              echo "::error::nome de script inválido: $script"
+              exit 1
+            fi
+            echo "::group::npm run $script"
+            npm run "$script"
+            echo "::endgroup::"
+          done <<< "$SCRIPTS"
