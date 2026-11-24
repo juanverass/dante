@@ -29,7 +29,7 @@ namespace Dante.Tests;
 // e o revisor falso registra o veredito pelo canal real da sessão (pipe e token), como o processo MCP faria. O fim é o
 // gate humano pelo /execucao. Nenhuma CLI real roda e nenhum agente faz commit.
 [Collection("FilaDuravel")]
-public sealed class RoteiroPelaFilaEndToEndTests
+public sealed partial class RoteiroPelaFilaEndToEndTests
 {
     private const string CriarDev = "/agente criar codex-dev driver=codex model=fake-mini modo=auto maximo=auto escrita=sim " +
         "capacidades=implementar repos=@first\nImplemente com testes.";
@@ -369,7 +369,9 @@ public sealed class RoteiroPelaFilaEndToEndTests
 
         // executorSeparado: quem recebe o pedido e quem executa são processos diferentes (o executor não tem o
         // objetivo original em memória, como depois de um reinício).
-        public static Task<Ambiente> CriarAsync(Banco banco, bool executorSeparado = false)
+        // entrega: a identidade Git da entrega do artefato (#311, PR 3); o padrão é um autor válido de teste.
+        public static Task<Ambiente> CriarAsync(Banco banco, bool executorSeparado = false, OpcoesDaEntrega? entrega = null,
+            Action<IServiceCollection>? configurar = null)
         {
             var ambiente = new Ambiente { executorSeparado = executorSeparado };
             ambiente.Registro = new RepositoryRegistry(Path.Combine(ambiente.raiz, "config", "repositories.json"));
@@ -380,6 +382,8 @@ public sealed class RoteiroPelaFilaEndToEndTests
                 services.Replace(ServiceDescriptor.Singleton<IAgentModelCatalog>(ambiente.Catalogo));
                 services.Replace(ServiceDescriptor.Singleton<Dante.Application.Contextos.ICatalogoDeRepositorios>(ambiente.Registro));
                 services.AddSingleton(ambiente.OpcoesDeWorktrees);
+                services.AddSingleton(entrega ?? new OpcoesDaEntrega(AutorDeTeste));
+                configurar?.Invoke(services);
             });
             ambiente.Espelho = new EspelhoDoLedger(ambiente.Escopos, NullLogger<EspelhoDoLedger>.Instance);
             ambiente.Jobs = new JobRegistry(ambiente.Espelho);
@@ -404,7 +408,8 @@ public sealed class RoteiroPelaFilaEndToEndTests
                 NullLogger<TelegramPollingService>.Instance, Registro, new GeneralWorkspace(Path.Combine(raiz, "general")),
                 new AssistantSettingsStore(Path.Combine(raiz, "settings.json")), Sessoes, delivery, Catalogo,
                 agentes: new TelegramAgentes(Escopos), execucoes: new TelegramExecucoes(Escopos, NullLogger<TelegramExecucoes>.Instance),
-                grupos: new TelegramGrupos(Escopos), filaDeRoteiros: executorDoTelegram);
+                grupos: new TelegramGrupos(Escopos), filaDeRoteiros: executorDoTelegram,
+                acoes: new TelegramAprovacoesDeAcao(Escopos, Api, NullLogger<TelegramAprovacoesDeAcao>.Instance));
             await servico.StartAsync(CancellationToken.None);
             processador = new ProcessadorDaFila(Escopos, IdentidadeDoProcessador.DoProcessoAtual(), Rapidas, Sinal, [executorDaFila],
                 new MetricasDaFila(), NullLogger<ProcessadorDaFila>.Instance, worktrees: OpcoesDeWorktrees);

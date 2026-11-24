@@ -277,8 +277,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   do `dante_coordenacao`); delegação rastreada (#309, AD-70) integrada em três PRs (domínio e persistência;
   Application, fila e executor; ferramentas MCP no `dante_coordenacao`); coordenação por papel (#310, AD-75) integrada
   em três PRs (#321, #322, #323); gateway de aprovações vinculadas a hash (#311, AD-72) em andamento: domínio e
-  persistência no PR 1 (#324, integrado), gateway na Application e adaptador do Telegram no PR 2 (em revisão), e
-  entrega do artefato do roteiro por commit local no PR 3.
+  persistência no PR 1 (#324, integrado), gateway na Application e adaptador do Telegram no PR 2 (#325, integrado), e
+  entrega do artefato do roteiro por commit local no PR 3 (em revisão).
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -884,11 +884,52 @@ Limitações:
 - A síntese é validação estrutural: não avalia o mérito, não resolve divergência e não prova consenso.
 - A consolidação no Telegram corta resultados e textos longos para caber numa mensagem; o ledger guarda tudo.
 
-## Aprovação de ação protegida (#311, AD-72 — domínio, persistência, gateway e decisão)
+## Aprovação de ação protegida (#311, AD-72 — domínio, persistência, gateway, decisão e entrega)
 
-Duas das três entregas do gateway (etapa 9 da Epic #296): domínio e persistência (PR 1, #324) e o gateway na
-Application com o adaptador de decisão do Telegram (PR 2). Nenhum fluxo pede uma ação protegida ainda: o primeiro
-consumidor (a entrega do artefato do roteiro) vem no PR 3, e nenhum executor de ação protegida está registrado.
+As três entregas do gateway (etapa 9 da Epic #296):
+- PR 1 (#324): domínio e persistência;
+- PR 2 (#325): o gateway na Application com o adaptador de decisão do Telegram;
+- PR 3: o primeiro consumidor, a entrega do artefato aprovado do roteiro por commit local.
+
+- **Entrega do artefato do roteiro** (`/execucao entregar E… [mensagem]`, `IEntregaDoArtefatoAppService`): depois do
+  gate do roteiro aprovado, o dono pede a entrega, que vira um pedido no gateway. Ela só existe com a worktree deste
+  host na base e com o conteúdo igual ao aprovado no gate.
+
+  O payload leva o hash do gate, o HEAD como base, a branch, a mensagem e o autor configurado. A aprovação é a do
+  `/acoes`, e o adaptador executa logo depois de aprovar. O gateway remonta o payload com o conteúdo, o HEAD e o autor
+  de agora: qualquer diferença cancela.
+
+  O commit é feito pelo Git fechado do `GerenciadorDeWorktreesGit`:
+  - nenhum processo Git da entrega lê arquivo da worktree. O D.A.N.T.E. lê os bytes, grava os blobs pela entrada
+    padrão sem filtro e monta a árvore num index privado. Assim, filtros de conteúdo (comandos externos como o do
+    Git LFS) nunca rodam, mesmo que a configuração mude durante a operação;
+  - a leitura dos bytes é confinada pelo kernel à worktree (`openat2` a partir de um handle da raiz, sem link em
+    nenhum componente e com o mesmo inode na leitura). Um arquivo ou diretório trocado por link, ou um hard link, é
+    recusado. Todos os caminhos são lidos e validados antes de o primeiro blob ser gravado;
+  - a raiz é aberta antes da validação, e a validação roda sobre o handle. Todo processo Git da entrega, inclusive
+    os que gravam, roda no handle com `GIT_DIR` fixo no diretório Git da worktree registrada. Uma worktree trocada
+    por outro diretório no mesmo caminho é recusada antes do primeiro blob e antes do `update-ref`;
+  - o estado observado de um `Incerto` (no momento ou na recuperação depois de um reinício) usa a mesma identidade
+    conferida no handle; sem ela, é dito ilegível, sem consultar o diretório que ocupa o caminho;
+  - a configuração com filtros é recusada no começo, com o motivo;
+  - o hash é conferido a partir da árvore montada, que é exatamente o que o commit recebe;
+  - `commit-tree` cria o commit com o autor configurado;
+  - a branch da worktree passa da base para o commit por `update-ref` com o valor antigo (compare-and-swap).
+
+  Resultado: exatamente um commit, sem push, sem hooks e sem tocar o checkout principal. O SHA fica no resultado da
+  aprovação no ledger e a worktree e a branch são preservadas.
+
+  Desfechos:
+  - falha antes de mover a branch é `Falhou`, sem tocar no index nem na branch; um pedido novo pode ser feito;
+  - depois do commit conferido, o index da worktree passa a ser a árvore gravada;
+  - depois, só o estado real da branch decide entre `Executada` e `Incerto`;
+  - num `Incerto`, inclusive por reinício no meio, o estado observado (HEAD, commits além da base, index contra o
+    HEAD, sem ler os arquivos) vai ao ledger e ao aviso, e nada é repetido.
+
+  Uma entrega por execução, com a execução travada do exame dos pedidos à gravação: pedidos simultâneos criam um
+  só. A executada é informada; a incerta ou em execução recusa um pedido novo.
+- **Identidade Git** (`Orquestracao:Entrega:AutorNome` e `AutorEmail`): explícita e obrigatória, nunca herdada do Git
+  do host. Sem ela, ou inválida, a entrega é recusada com o motivo e nada é pedido; o resto do Worker não muda.
 
 - **Gateway das ferramentas de sessão** (`GatewayDeFerramentas`, Application): toda chamada do `dante_coordenacao`
   passa por ele, na ordem identidade (sessão e perfil do canal exclusivo, nunca do agente), catálogo fechado,
@@ -934,9 +975,25 @@ consumidor (a entrega do artefato do roteiro) vem no PR 3, e nenhum executor de 
   homelab: sem a chave, `/acoes` responde que não está habilitado e a manutenção não roda.
 
 Limitações:
-- O estado real observado numa execução `Incerto` por reinício depende do consumidor (PR 3); aqui, o motivo diz que o
-  efeito não é conhecido.
-- A política `ConformeModo` continua sem uso; nenhuma ação é pedida por agente nesta entrega.
+- A política `ConformeModo` continua sem uso; nenhuma ação é pedida por agente.
+- Push, PR e merge pelo D.A.N.T.E. continuam fora (Issue própria, com credencial por repositório). Brain e planilhas
+  ainda não passam pelo gateway.
+- Repositórios com filtros de conteúdo configurados (`clean`/`smudge`/`process`, como o do Git LFS) não são
+  entregues: a entrega é recusada com o motivo. O filtro nunca roda na entrega, nem se for configurado durante
+  ela, porque nenhum processo Git da entrega lê arquivo da worktree. Conversões sem processo (fim de linha,
+  `ident`) também não são aplicadas: se o gate viu os arquivos convertidos, o hash difere e a entrega fica sem
+  efeito, com o motivo.
+- A entrega exige Linux 5.6+ (`openat2`), x86_64 ou arm64; em outro sistema, é recusada com o motivo.
+- Fora da entrega, leituras do Git contra a worktree ainda rodam filtros configurados. São elas:
+  - a leitura do diff para o revisor e para a decisão do gate (#308, `ResumirAlteracoesAsync`);
+  - o `status` da limpeza de worktrees (AD-71, `RemoverSePossivelAsync`).
+
+  A mesma leitura da #308 também calcula o hash dos arquivos novos abrindo-os pelo nome, sem o confinamento da
+  entrega. Ela não grava blob, e o hash dela só serve para comparar com o da entrega.
+
+  Isso está registrado para uma Issue própria.
+- Um roteiro tem uma worktree principal. A entrega cobre só ela, como o gate, porque roteiros não têm repositórios
+  vinculados.
 
 ## Worktrees por execução de escrita (#307, AD-71)
 

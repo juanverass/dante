@@ -3068,6 +3068,19 @@ Complemento (#308, AD-69): uma reserva pode ficar `AguardandoDecisao` enquanto u
 ativa para os índices únicos e fora da limpeza, mas fora da capacidade; volta a `Pronta` só por `ReadquirirAsync`, sob
 a mesma trava e os mesmos limites.
 
+Complemento (#311, AD-72): o conjunto fechado ganhou a única escrita Git do D.A.N.T.E., o commit local do artefato
+aprovado de um roteiro. Ele usa:
+- `hash-object -w --no-filters --stdin` para os bytes lidos pelo D.A.N.T.E., confinado pelo kernel à worktree
+  (`openat2` a partir de um handle da raiz, sem links; ver AD-72);
+- `read-tree`, `update-index -z --index-info` e `write-tree` num index privado;
+- `commit-tree` e `update-ref` da branch da execução com o valor antigo;
+- `read-tree <árvore>` do index da worktree, só depois do commit.
+
+Só leem: `ls-tree`, `ls-files --others`, `cat-file blob`, `diff` entre duas árvores, `diff-index --cached` e
+`config --get-regexp` dos filtros de conteúdo. Nenhum desses comandos lê arquivo da worktree (`SemLeituraDaWorktree`).
+Tudo isso só depois da aprovação do gateway, só na worktree e sem push. Nenhuma variável `GIT_*` herdada chega aos
+processos Git.
+
 Consequências:
 
 * a `/tarefa` escreve de verdade, mas só com Codex, só em worktrees e só deixando alterações não commitadas; commit,
@@ -3098,15 +3111,16 @@ Testes: `GerenciadorDeWorktreesGitTests`, `EscritaEmWorktreeTests`, `ReservasDeW
 
 ## AD-72 — Aprovação de ação protegida vinculada ao hash do payload, com catálogo fechado e execução única (#311)
 
-Status: vigente no domínio e na persistência (PR 1 da #311) e no gateway na Application, com as ferramentas do
-`dante_coordenacao` pelo catálogo e o adaptador de decisão do Telegram (PR 2); etapa 9 do roadmap da Epic #296. A
-entrega do artefato do roteiro (primeiro consumidor), no PR 3. Proposta da AD-72 em
+Status: vigente no domínio e na persistência (PR 1 da #311), no gateway na Application, com as ferramentas do
+`dante_coordenacao` pelo catálogo e o adaptador de decisão do Telegram (PR 2), e na entrega do artefato do roteiro,
+primeiro consumidor (PR 3); etapa 9 do roadmap da Epic #296. Proposta da AD-72 em
 [ADRS_PROPOSTAS](../architecture/multi-agent-platform/ADRS_PROPOSTAS.md), refinada e aprovada na própria #311 (entidade
 própria, primeiro consumidor por commit local, identidade Git explícita, dois passos humanos). Complementa a AD-22 (as
 approvals da CLI continuam separadas) e a AD-69/AD-75 (o gate de etapa continua não sendo aprovação de ação). Depende do
 mesmo banco e da mesma chave `Orquestracao:Habilitada`; migration `AprovacoesDeAcao`, não aplicada no banco canônico.
 O PR 1 não expõe nada em tempo de execução; o PR 2 põe as ferramentas atuais no gateway, sem mudar comportamento, e
-expõe `/acoes` com a chave ligada, sem nenhuma ação protegida pedida ainda.
+expõe `/acoes` com a chave ligada, sem nenhuma ação protegida pedida ainda; o PR 3 expõe a entrega
+(`/execucao entregar`), atrás da mesma chave e da identidade Git configurada, sem migration nova.
 
 Contexto: até a #310, nenhum fluxo de orquestração tinha ação protegida. O gate de etapa (`PedidoDeAprovacao`) decide um
 artefato e, por decisão travada, não autoriza commit, push nem outra ação. A entrega do artefato aprovado de um roteiro
@@ -3201,16 +3215,184 @@ Decisão:
   hash curto, prazo e botões. O botão (`ac:<id>:<hash curto>:a|r`) leva só o pedido e o hash exibido. Sem teclado,
   `/acoes aprovar|recusar <id>`. Nenhuma regra de autorização no adaptador.
 
-Fora desta decisão: os comandos Git da entrega e o estado real observado num `Incerto` (PR 3), push/PR (Issue própria), Brain e planilhas atrás do gateway (Issue própria, depois da
-ativação operacional) e a auditoria das approvals nativas da CLI.
+* **Entrega do artefato aprovado do roteiro** (PR 3), primeiro consumidor, em dois passos humanos separados:
+  1. o gate do roteiro aprova o artefato (AD-69), e só ele;
+  2. `/execucao entregar E… [mensagem]` (`IEntregaDoArtefatoAppService`) pede a ação, e a pessoa aprova o hash dela
+     em `/acoes`.
+
+  O pedido:
+  * só o dono pede, e só para um roteiro `Concluida` com o pedido do gate `Aprovado`;
+  * a worktree principal precisa ser deste host, estar liberada ou preservada (nunca removida), com o HEAD na base, e
+    ter o conteúdo atual igual ao hash aprovado no gate;
+  * mensagem com aparência de credencial é recusada;
+  * o payload leva `artefato` (o hash do gate), `base` (o HEAD atual da worktree), `branch`, `mensagem` (padrão:
+    "Artefato aprovado do roteiro E…"), `autor_nome` e `autor_email`, com alvo `@alias`, a etapa do gate e as
+    capacidades `git.add` e `git.commit`;
+  * uma entrega por execução no caso de uso, com a execução travada (`FOR UPDATE`, na transação do ledger) da leitura
+    dos pedidos existentes até a gravação do novo, então pedidos simultâneos nunca criam dois (revisão do PR #326):
+    * a executada é informada;
+    * a incerta, a em execução e o pedido em aberto com outra mensagem são recusados;
+    * a pendente é devolvida;
+    * a aprovada e ainda não executada é executada fora da transação. É o caminho depois de um reinício entre a
+      aprovação e a execução.
+
+    O gateway continua aceitando payloads diferentes para a mesma execução: a semântica da PR 2 não muda.
+
+  A identidade Git é explícita e obrigatória (`Orquestracao:Entrega:AutorNome` e `AutorEmail`), nunca herdada do Git
+  do host, do repositório ou do agente. Ausente ou inválida, a entrega é recusada com o motivo, sem pedido; o resto
+  do Worker sobe normalmente.
+
+  Depois da aprovação (o adaptador chama a execução logo após aprovar, e a Application decide se há o que executar),
+  o gateway remonta o payload com os fatos de agora: o hash do conteúdo atual, o HEAD atual, o autor configurado, a
+  reserva e o gate. Qualquer diferença cancela sem executar.
+* **Nenhum filtro de conteúdo roda na entrega** (revisão 2 do PR #326). Filtros (`filter.<driver>.clean`, `smudge`
+  ou `process`, inclusive o do Git LFS) são comandos externos. O Git os executa só quando converte um arquivo da
+  worktree em objeto (`add`, `diff` e `status` contra a worktree, `hash-object` de um caminho) ou um objeto em
+  arquivo (`checkout`).
+
+  Uma consulta prévia da configuração seguida desses comandos teria uma janela TOCTOU. Cada processo relê a
+  configuração, e um filtro configurado entre a consulta e o comando rodaria. Repetir a consulta só estreita a
+  janela.
+
+  Por isso a garantia não depende da configuração: **nenhum processo Git da entrega lê arquivo da worktree**.
+  - O D.A.N.T.E. lê os bytes, **confinado pelo kernel à worktree** (abaixo).
+  - O Git recebe os bytes pela entrada padrão (`hash-object -w --no-filters --stdin`).
+  - A árvore é montada num index privado (`GIT_INDEX_FILE` num diretório temporário), a partir da base: `read-tree`,
+    `update-index -z --index-info` e `write-tree`.
+  - Todo o resto opera sobre refs e objetos.
+
+  O alcance é o do `add --all`:
+  - os rastreados da base: removidos, alterados, modo executável e links;
+  - os não rastreados e não ignorados (`ls-files --others`, que lê só nomes de diretório e regras de ignore).
+
+  Submódulos ficam como na base. O index e os arquivos da worktree não mudam até o commit.
+* **A leitura dos bytes nunca sai da worktree** (`LeituraConfinadaDaWorktree`, revisão 3 do PR #326). Verificar um
+  caminho (`LinkTarget`) e depois abri-lo pelo nome deixa uma janela TOCTOU. Um diretório ou o próprio arquivo
+  trocado por um link entre as duas operações faria o D.A.N.T.E. ler, e gravar como blob solto, bytes de fora da
+  worktree. A leitura agora não tem verificação separada da abertura:
+  - a raiz é aberta uma vez como handle (`O_PATH`), sem link em nenhum componente;
+  - cada caminho é resolvido pelo kernel a partir desse handle, numa só operação: `openat2` com `RESOLVE_BENEATH`,
+    `RESOLVE_NO_SYMLINKS`, `RESOLVE_NO_MAGICLINKS` e `RESOLVE_NO_XDEV`. Assim, nunca acima da raiz, nenhum link em
+    nenhum componente e nenhum outro sistema de arquivos no caminho;
+  - o tipo, o modo e o destino de um link são lidos pelo handle aberto (`statx` e `readlinkat` com caminho vazio),
+    nunca pelo nome de novo. Um link da worktree é gravado como link (o destino) e nunca é seguido;
+  - o conteúdo de um arquivo comum vem de uma segunda abertura, com as mesmas restrições. Ela precisa ser o mesmo
+    inode e dispositivo, ainda arquivo comum e com **um único link físico**, porque um hard link poderia apontar para
+    um arquivo de fora;
+  - um link num componente intermediário, já presente na abertura, é tratado como caminho ausente, como o Git faz.
+    Uma troca entre a classificação e a leitura recusa a entrega com o motivo.
+
+  **Nenhum blob é gravado antes de a leitura estar validada.** Todos os caminhos são lidos e conferidos primeiro, e
+  só então os bytes vão ao `hash-object`. Uma recusa no meio não deixa blob nenhum, nem de bytes da própria worktree.
+
+  Exige Linux 5.6+ (`openat2`), x86_64 ou arm64. Em outro sistema, a entrega é recusada.
+* **A raiz lida é a worktree validada, do começo ao fim da entrega** (revisão 4 do PR #326). O confinamento acima
+  vale dentro do handle da raiz. Se a raiz fosse aberta pelo caminho depois da validação, um processo com escrita no
+  diretório pai poderia renomear a worktree e pôr outro diretório comum (sem link) no mesmo caminho. O kernel então
+  confinaria a leitura ao diretório substituto, e os processos Git, que recebiam o caminho como diretório de trabalho,
+  operariam sobre outro repositório. Agora:
+  - **abre primeiro, valida depois, sobre o mesmo diretório.** A raiz é aberta como handle antes de qualquer
+    validação. A identidade vem só de consultas no próprio handle (revisão 5 do PR #326): a validação pelo nome
+    (`ValidarAsync`) não roda mais depois da abertura; roda só quando a abertura falha, para dar o motivo da recusa, e
+    sempre termina em recusa. A identidade é conferida no próprio handle: o Git iniciado nele (diretório de trabalho `/proc/<pid>/fd/<raiz>`, que o kernel resolve pelo descritor,
+    nunca pelo nome) precisa ver exatamente o caminho da worktree como raiz. Um diretório movido aparece com outro nome;
+  - o diretório Git que ele descobre precisa ser o da worktree registrada para este caminho: dentro de
+    `<diretório comum>/worktrees`, com `gitdir` apontando de volta para `<caminho>/.git`, no diretório comum do
+    repositório cadastrado e na branch da execução;
+  - **todo processo Git da entrega**, inclusive os que gravam (`hash-object`, `commit-tree`, `update-ref`,
+    `read-tree`) e as consultas depois do commit, roda com o diretório de trabalho no handle e `GIT_DIR` fixo nesse
+    diretório Git. Nenhum resolve o nome da worktree nem redescobre o repositório pelo `.git` dela. Trocar o diretório
+    no caminho não muda o repositório em que a entrega lê e grava;
+  - o nome ainda precisa apontar para o handle (mesmo inode e dispositivo, sem seguir link) depois da validação, antes
+    do primeiro blob e imediatamente antes do `update-ref`. Uma troca detectada recusa sem efeito: antes dos blobs não
+    fica objeto nenhum, e a branch nunca se move.
+
+  Limite: um diretório posto no caminho **antes** da abertura é validado como a worktree que é. Sem o diretório Git
+  da worktree registrada (um diretório comum, ou outra worktree do repositório), a entrega é recusada. Com uma cópia
+  do `.git` da worktree, ele é indistinguível dela, como qualquer conteúdo escrito nela. Mesmo assim, só entra no
+  commit se o hash for o aprovado.
+
+  Todo comando da entrega passa por `SemLeituraDaWorktree`, um conjunto sem `add`, sem `status` e sem `diff` contra a
+  worktree, e roda com `GIT_NO_LAZY_FETCH=1`, para que nenhum clone parcial busque objetos pelo transporte do remoto.
+
+  **Configuração que continua ativa** nos processos da entrega: a do sistema, a global, a do repositório e a da
+  worktree, como em qualquer Git. Por cima delas, `-c` força `core.fsmonitor=false`, `core.hooksPath=/dev/null`,
+  `gc.auto=0` e `maintenance.auto=false`.
+
+  Nenhuma chave dessa configuração faz os comandos do conjunto executarem processo:
+  - `diff` entre árvores roda com `--no-ext-diff` e `--no-textconv`;
+  - `commit-tree` roda com `--no-gpg-sign`;
+  - hooks estão desligados;
+  - nada converte arquivo.
+
+  A configuração não é restringida porque não precisa ser. O Git não tem como ignorar a do repositório, e o desenho
+  não depende dela.
+
+  A consulta `config --get-regexp` dos filtros continua no começo do pedido, da remontagem e do commit. Ela é só uma
+  recusa explicativa: num repositório com filtro, o hash aprovado no gate foi lido com o filtro aplicado e não
+  coincidiria com os bytes. Conversões sem processo (`eol`, `ident`, `working-tree-encoding`) também não são
+  aplicadas: os bytes vão como estão, e se o gate os viu convertidos o hash difere e a entrega fica sem efeito, com o
+  motivo.
+* **Commit pelo Git fechado** (`ICommitDeWorktree`, implementado pelo `GerenciadorDeWorktreesGit`):
+  1. reconfere a worktree: validação da AD-71, a recusa explicativa de filtros e HEAD = base;
+  2. monta a árvore dos bytes atuais, como acima, e recalcula o hash canônico **a partir dessa árvore**, que é um
+     objeto imutável e exatamente o que o commit recebe. A árvore precisa ter o hash aprovado e não ser vazia.
+     Uma alteração dos arquivos ou do index privado antes do `write-tree` muda a árvore e é recusada. Uma alteração
+     depois não entra no commit (revisão do PR #326). O diff rastreado vem de `diff --diff-filter=a <base> <árvore>`
+     e cada arquivo novo vem pelo conteúdo do blob (`cat-file blob`). Só objetos. A função de hash é a mesma da
+     revisão, e o mesmo retrato dá o hash do pedido e da remontagem (`LerArtefatoAsync`);
+  3. `commit-tree --no-gpg-sign -p <base> -m <mensagem> <árvore>`, com o autor e o committer configurados por
+     `GIT_AUTHOR_*`/`GIT_COMMITTER_*`. Isso só cria o objeto;
+  4. o único efeito: `update-ref -m <reflog> refs/heads/<branch da execução> <novo> <base>`. É um compare-and-swap
+     do Git: a branch só sai da base uma vez, então duas aprovações executadas ao mesmo tempo nunca geram dois
+     commits. A outra vê o HEAD já movido (payload alterado) ou perde o CAS e fica sem efeito;
+  5. a branch é conferida de novo: commit novo, filho da base, com a árvore conferida e a worktree nele. Só então o
+     index da worktree passa a ser a árvore gravada (`read-tree <árvore>`, sem `-u`: nenhum arquivo é lido nem
+     escrito). Se isso falhar, o commit continua feito, e a worktree só aparece com alterações preparadas.
+
+  O conjunto fechado aceita só essas formas: `update-ref` só numa branch `dante/<handle>/e<n>` e com o valor antigo;
+  nunca push, reset, checkout, merge, criação ou remoção de branch. Hooks, gc e maintenance automáticos ficam
+  desligados, e nenhuma variável `GIT_*` herdada chega a qualquer processo Git. O checkout principal nunca é tocado.
+
+  Desfechos:
+  * **antes do `update-ref`**, divergência ou falha é `Falhou`. Nada foi tocado: a árvore é montada num index
+    privado, e o index da worktree e a branch ficam como estavam;
+  * **depois do `update-ref`**, só o estado real decide. Se a branch está no commit conferido, `Executada` (com o SHA
+    no resultado), mesmo que o Git tenha relatado erro. Se continua na base, `Falhou`. Qualquer outra coisa é
+    `Incerto`.
+* **Estado real num `Incerto`** (`IObservadorDeAcaoProtegida`; para a entrega, `ObservadorDaEntregaDoArtefato`): a
+  recuperação depois do reinício e a falha inesperada no meio consultam o observador da ação antes de gravar o
+  `Incerto`. Ele informa HEAD e branch, commits além da base e arquivos do index diferentes do HEAD
+  (`diff-index --cached`); os arquivos da worktree não são lidos. O estado vai redigido ao
+  ledger e ao aviso.
+  A observação usa a mesma identidade da entrega (revisão 5 do PR #326): a raiz é aberta como handle, a identidade é
+  conferida nele (raiz, diretório Git registrado para o caminho, diretório comum do repositório cadastrado), e todas
+  as consultas rodam no handle com `GIT_DIR` fixo. A branch é relatada, e uma branch diferente da execução é dita.
+  Sem identidade comprovada (outro diretório ou outra worktree no caminho, worktree movida), o estado é dito ilegível
+  e nada é consultado no diretório que ocupa o caminho: o ledger nunca recebe HEAD, branch ou index de outro
+  repositório. No caminho ainda em execução, o `Incerto` do commit é descrito pela âncora já aberta, sem reabrir pelo
+  nome; se o nome já não aponta para ela, isso também é dito. Nada é repetido nem desfeito, e um pedido novo de entrega da execução é recusado com esse estado.
+
+Fora desta decisão: push/PR (Issue própria), Brain e planilhas atrás do gateway (Issue própria, depois da ativação
+operacional) e a auditoria das approvals nativas da CLI.
 
 Código: `Dante.Domain/Execucoes/{AprovacaoDeAcao, CatalogoDeAcoes, PayloadDaAcao}.cs`,
 `Dante.Application/Execucoes/Portas/IAprovacaoDeAcaoRepository.cs`, `Dante.Infrastructure/Modulos/Execucoes/AprovacaoDeAcao*`,
 migration `AprovacoesDeAcao`; PR 2: `Dante.Application/Execucoes/{GatewayDeFerramentas, AprovacoesDeAcaoAppService}.cs`,
 `Dante.Worker/Coordenacao/FerramentasDeCoordenacao.cs`, `Dante.Worker/Telegram/{TelegramAprovacoesDeAcao,
-TelegramAcaoCallback}.cs`, `Dante.Worker/Execucoes/ManutencaoDasAprovacoesDeAcao.cs`.
+TelegramAcaoCallback}.cs`, `Dante.Worker/Execucoes/ManutencaoDasAprovacoesDeAcao.cs`; PR 3:
+`Dante.Application/Execucoes/{EntregaDoArtefatoAppService, IEntregaDoArtefatoAppService,
+ObservadorDaEntregaDoArtefato}.cs`, `Dante.Application/Execucoes/Portas/ICommitDeWorktree.cs`,
+`Dante.Application/Execucoes/Contratos/EntregaDoArtefatoDtos.cs`, `Dante.Infrastructure/Contextos/{GerenciadorDeWorktreesGit,
+LeituraConfinadaDaWorktree}.cs`,
+`Dante.Worker/Telegram/TelegramExecucoes.cs` (`/execucao entregar`), `Dante.Worker/WorkerComposition.cs`
+(`Orquestracao:Entrega`).
 Testes: `AprovacaoDeAcaoDominioTests`, `AprovacoesDeAcaoPostgreSqlTests`, `GatewayDeFerramentasTests`,
-`GatewayDeAprovacoesPostgreSqlTests`.
+`GatewayDeAprovacoesPostgreSqlTests`; PR 3: `CommitDeWorktreeGitTests` (Git real; o TOCTOU dos filtros em
+`FiltroConfiguradoDepoisDaConferenciaNuncaRoda` e `EntregaNaoAbreComandoGitQueLeiaAWorktree`),
+`LeituraConfinadaDaWorktreeTests` (troca por link para um sentinela externo antes da abertura e entre a classificação
+e a leitura, hard link e link legítimo) e
+`RoteiroPelaFilaEndToEndTests.Entrega` (PostgreSQL, Git real e Telegram falso).
 
 ## AD-74 — Acompanhamento e cancelamento de execuções na Application, neutros de interface (#305)
 

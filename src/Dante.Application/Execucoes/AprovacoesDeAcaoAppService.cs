@@ -18,7 +18,8 @@ public sealed class AprovacoesDeAcaoAppService(
     IVersaoDoAgenteRepository versoes,
     IAgenteRepository agentes,
     IUnitOfWorkDaOrquestracao unidade,
-    TimeProvider? relogio = null) : IAprovacoesDeAcaoAppService
+    TimeProvider? relogio = null,
+    IEnumerable<IObservadorDeAcaoProtegida>? observadores = null) : IAprovacoesDeAcaoAppService
 {
     public const int LimiteDaManutencao = 100;
     public const int MaximoDoValorExibido = 300;
@@ -30,6 +31,8 @@ public sealed class AprovacoesDeAcaoAppService(
         "Não foi possível remontar o payload atual para conferir o hash; nada foi executado.";
 
     private readonly TimeProvider relogio = relogio ?? TimeProvider.System;
+    // Quem conhece o efeito de cada ação descreve o estado real de um Incerto (#311, PR 3); sem observador, nenhum.
+    private readonly IReadOnlyList<IObservadorDeAcaoProtegida> observadores = observadores?.ToArray() ?? [];
 
     public async Task<PedidoDeAcaoDto> SolicitarAsync(SolicitacaoDeAcaoDto solicitacao,
         CancellationToken cancellationToken = default)
@@ -211,16 +214,16 @@ public sealed class AprovacoesDeAcaoAppService(
             return new ExecucaoDeAcaoDto(semExecutar, await DtoAsync(aprovacao, cancellationToken));
 
         // Iniciada e gravada: daqui em diante, interrupção sem desfecho é Incerta (aqui ou na recuperação).
-        DesfechoDaAcaoProtegida desfecho;
+        DesfechoDaAcaoProtegida? desfecho;
         try
         {
-            desfecho = await execucao.Executar(aprovacao, cancellationToken) ??
-                new DesfechoDaAcaoProtegida.Incerta(MotivoDaFalhaInesperada, null);
+            desfecho = await execucao.Executar(aprovacao, cancellationToken);
         }
         catch (Exception)
         {
-            desfecho = new DesfechoDaAcaoProtegida.Incerta(MotivoDaFalhaInesperada, null);
+            desfecho = null;
         }
+        desfecho ??= new DesfechoDaAcaoProtegida.Incerta(MotivoDaFalhaInesperada, await ObservarAsync(aprovacao));
         var fim = relogio.GetUtcNow();
         var resultado = desfecho switch
         {
@@ -258,7 +261,7 @@ public sealed class AprovacoesDeAcaoAppService(
         var incertas = new List<AprovacaoDeAcaoDto>();
         foreach (var aprovacao in await aprovacoes.ListarEmExecucaoAsync(LimiteDaManutencao, cancellationToken))
         {
-            aprovacao.MarcarIncerta(MotivoDoReinicio, null, relogio.GetUtcNow());
+            aprovacao.MarcarIncerta(MotivoDoReinicio, await ObservarAsync(aprovacao), relogio.GetUtcNow());
             if (!await GravouAsync(cancellationToken)) break;
             incertas.Add(await DtoAsync(aprovacao, cancellationToken));
         }
@@ -266,6 +269,21 @@ public sealed class AprovacoesDeAcaoAppService(
     }
 
     // ---- apoio ----
+
+    // Estado real observado de uma execução que ficou Incerta, redigido; nulo sem observador ou se a leitura falhar.
+    private async Task<string?> ObservarAsync(AprovacaoDeAcao aprovacao)
+    {
+        var definicao = CatalogoDeAcoes.Obter(aprovacao.Acao);
+        if (observadores.FirstOrDefault(o => ReferenceEquals(o.Acao, definicao)) is not { } observador) return null;
+        try
+        {
+            return ProtecaoDeSegredos.Redigir(await observador.ObservarAsync(aprovacao, CancellationToken.None));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
 
     private static string Motivo(string? motivo, string padrao) =>
         string.IsNullOrWhiteSpace(motivo) ? padrao : ProtecaoDeSegredos.Redigir(motivo)!;

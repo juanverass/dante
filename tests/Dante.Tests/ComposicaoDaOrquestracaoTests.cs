@@ -79,6 +79,34 @@ public sealed class ComposicaoDaOrquestracaoTests
         // O banco fictício não existe: resolver e compor não abre conexão nem aplica migration.
         Assert.Same(espelho, Campo(provider.GetRequiredService<JobRegistry>(), "ledger"));
         Assert.Same(espelho, Campo(provider.GetRequiredService<SessionRegistry>(), "ledger"));
+        // Entrega do artefato (#311, PR 3): o caso de uso e o gateway com o observador resolvem sem conectar; sem a
+        // identidade configurada, a entrega fica bloqueada (sem autor), e o Worker sobe mesmo assim.
+        using var escopo = provider.CreateScope();
+        Assert.IsType<Dante.Application.Execucoes.EntregaDoArtefatoAppService>(
+            escopo.ServiceProvider.GetRequiredService<Dante.Application.Execucoes.IEntregaDoArtefatoAppService>());
+        Assert.IsType<Dante.Application.Execucoes.ObservadorDaEntregaDoArtefato>(Assert.Single(
+            escopo.ServiceProvider.GetServices<Dante.Application.Execucoes.IObservadorDeAcaoProtegida>()));
+        Assert.NotNull(escopo.ServiceProvider.GetRequiredService<Dante.Application.Execucoes.IAprovacoesDeAcaoAppService>());
+        Assert.Same(provider.GetRequiredService<Dante.Application.Execucoes.IGerenciadorDeWorktrees>(),
+            provider.GetRequiredService<Dante.Application.Execucoes.ICommitDeWorktree>());
+        Assert.Null(provider.GetRequiredService<Dante.Application.Execucoes.OpcoesDaEntrega>().Autor);
+    }
+
+    // Orquestracao:Entrega (#311, PR 3): a identidade vem só da configuração; inválida bloqueia só a entrega, com o motivo.
+    [Theory]
+    [InlineData("Dante Bot", "dante@example.com", true, null)]
+    [InlineData(null, null, false, null)]
+    [InlineData("Dante Bot", "sem-arroba", false, "e-mail do autor inválido")]
+    public void IdentidadeDaEntregaVemDaConfiguracao(string? nome, string? email, bool configurada, string? problema)
+    {
+        var configuracao = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Orquestracao:Entrega:AutorNome"] = nome,
+            ["Orquestracao:Entrega:AutorEmail"] = email
+        }).Build();
+        var opcoes = WorkerComposition.OpcoesDaEntrega(configuracao);
+        Assert.Equal((configurada, problema), (opcoes.Autor is not null, opcoes.ProblemaDaConfiguracao));
+        if (configurada) Assert.Equal(new Dante.Application.Execucoes.AutorDoCommit(nome!, email!), opcoes.Autor);
     }
 
     [Fact]
