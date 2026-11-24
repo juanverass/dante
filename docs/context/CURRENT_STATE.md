@@ -900,9 +900,11 @@ As três entregas do gateway (etapa 9 da Epic #296):
   de agora: qualquer diferença cancela.
 
   O commit é feito pelo Git fechado do `GerenciadorDeWorktreesGit`:
-  - recusa filtros de conteúdo configurados (comandos externos como o do Git LFS), antes de ler qualquer conteúdo;
-  - reconfere o hash na worktree, faz `add --all`, grava a árvore e confere o mesmo hash a partir dela, que é
-    exatamente o que o commit recebe;
+  - nenhum processo Git da entrega lê arquivo da worktree. O D.A.N.T.E. lê os bytes, grava os blobs pela entrada
+    padrão sem filtro e monta a árvore num index privado. Assim, filtros de conteúdo (comandos externos como o do
+    Git LFS) nunca rodam, mesmo que a configuração mude durante a operação;
+  - a configuração com filtros é recusada no começo, com o motivo;
+  - o hash é conferido a partir da árvore montada, que é exatamente o que o commit recebe;
   - `commit-tree` cria o commit com o autor configurado;
   - a branch da worktree passa da base para o commit por `update-ref` com o valor antigo (compare-and-swap).
 
@@ -910,10 +912,11 @@ As três entregas do gateway (etapa 9 da Epic #296):
   aprovação no ledger e a worktree e a branch são preservadas.
 
   Desfechos:
-  - falha antes de mover a branch restaura o index e é `Falhou`; um pedido novo pode ser feito;
+  - falha antes de mover a branch é `Falhou`, sem tocar no index nem na branch; um pedido novo pode ser feito;
+  - depois do commit conferido, o index da worktree passa a ser a árvore gravada;
   - depois, só o estado real da branch decide entre `Executada` e `Incerto`;
-  - num `Incerto`, inclusive por reinício no meio, o estado observado (HEAD, commits além da base, index) vai ao
-    ledger e ao aviso, e nada é repetido.
+  - num `Incerto`, inclusive por reinício no meio, o estado observado (HEAD, commits além da base, index contra o
+    HEAD, sem ler os arquivos) vai ao ledger e ao aviso, e nada é repetido.
 
   Uma entrega por execução, com a execução travada do exame dos pedidos à gravação: pedidos simultâneos criam um
   só. A executada é informada; a incerta ou em execução recusa um pedido novo.
@@ -968,11 +971,15 @@ Limitações:
 - Push, PR e merge pelo D.A.N.T.E. continuam fora (Issue própria, com credencial por repositório). Brain e planilhas
   ainda não passam pelo gateway.
 - Repositórios com filtros de conteúdo configurados (`clean`/`smudge`/`process`, como o do Git LFS) não são
-  entregues: a recusa vem antes de qualquer leitura, e o filtro nunca roda. Conversões sem processo (fim de linha,
-  `ident`) fazem a árvore diferir dos arquivos, e a entrega fica sem efeito, com o motivo.
-- A leitura do diff para o revisor e para a decisão do gate (#308, `ResumirAlteracoesAsync`) ainda não recusa
-  filtros de conteúdo: num repositório com filtro configurado, eles rodam nessa leitura. Isso está registrado para
-  uma Issue própria.
+  entregues: a entrega é recusada com o motivo. O filtro nunca roda na entrega, nem se for configurado durante
+  ela, porque nenhum processo Git da entrega lê arquivo da worktree. Conversões sem processo (fim de linha,
+  `ident`) também não são aplicadas: se o gate viu os arquivos convertidos, o hash difere e a entrega fica sem
+  efeito, com o motivo.
+- Fora da entrega, leituras do Git contra a worktree ainda rodam filtros configurados. São elas:
+  - a leitura do diff para o revisor e para a decisão do gate (#308, `ResumirAlteracoesAsync`);
+  - o `status` da limpeza de worktrees (AD-71, `RemoverSePossivelAsync`).
+
+  Isso está registrado para uma Issue própria.
 - Um roteiro tem uma worktree principal. A entrega cobre só ela, como o gate, porque roteiros não têm repositórios
   vinculados.
 

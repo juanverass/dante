@@ -3068,11 +3068,17 @@ Complemento (#308, AD-69): uma reserva pode ficar `AguardandoDecisao` enquanto u
 ativa para os índices únicos e fora da limpeza, mas fora da capacidade; volta a `Pronta` só por `ReadquirirAsync`, sob
 a mesma trava e os mesmos limites.
 
-Complemento (#311, AD-72): o conjunto fechado ganhou a única escrita Git do D.A.N.T.E. O commit local do artefato
-aprovado de um roteiro usa `add --all`, `write-tree`, `commit-tree` e `update-ref` da branch da execução com o valor
-antigo; `read-tree <base>` desfaz o index antes do commit. Só leem: `cat-file blob`, `diff` entre a base e a árvore e
-`config --get-regexp` dos filtros de conteúdo, que a entrega recusa. Tudo isso só
-depois da aprovação do gateway, só na worktree e sem push. Nenhuma variável `GIT_*` herdada chega aos processos Git.
+Complemento (#311, AD-72): o conjunto fechado ganhou a única escrita Git do D.A.N.T.E., o commit local do artefato
+aprovado de um roteiro. Ele usa:
+- `hash-object -w --no-filters --stdin` para os bytes lidos pelo D.A.N.T.E.;
+- `read-tree`, `update-index -z --index-info` e `write-tree` num index privado;
+- `commit-tree` e `update-ref` da branch da execução com o valor antigo;
+- `read-tree <árvore>` do index da worktree, só depois do commit.
+
+Só leem: `ls-tree`, `ls-files --others`, `cat-file blob`, `diff` entre duas árvores, `diff-index --cached` e
+`config --get-regexp` dos filtros de conteúdo. Nenhum desses comandos lê arquivo da worktree (`SemLeituraDaWorktree`).
+Tudo isso só depois da aprovação do gateway, só na worktree e sem push. Nenhuma variável `GIT_*` herdada chega aos
+processos Git.
 
 Consequências:
 
@@ -3238,40 +3244,80 @@ Decisão:
   Depois da aprovação (o adaptador chama a execução logo após aprovar, e a Application decide se há o que executar),
   o gateway remonta o payload com os fatos de agora: o hash do conteúdo atual, o HEAD atual, o autor configurado, a
   reserva e o gate. Qualquer diferença cancela sem executar.
+* **Nenhum filtro de conteúdo roda na entrega** (revisão 2 do PR #326). Filtros (`filter.<driver>.clean`, `smudge`
+  ou `process`, inclusive o do Git LFS) são comandos externos. O Git os executa só quando converte um arquivo da
+  worktree em objeto (`add`, `diff` e `status` contra a worktree, `hash-object` de um caminho) ou um objeto em
+  arquivo (`checkout`).
+
+  Uma consulta prévia da configuração seguida desses comandos teria uma janela TOCTOU. Cada processo relê a
+  configuração, e um filtro configurado entre a consulta e o comando rodaria. Repetir a consulta só estreita a
+  janela.
+
+  Por isso a garantia não depende da configuração: **nenhum processo Git da entrega lê arquivo da worktree**.
+  - O D.A.N.T.E. lê os bytes. Um link no meio do caminho não é seguido, como no Git.
+  - O Git recebe os bytes pela entrada padrão (`hash-object -w --no-filters --stdin`).
+  - A árvore é montada num index privado (`GIT_INDEX_FILE` num diretório temporário), a partir da base: `read-tree`,
+    `update-index -z --index-info` e `write-tree`.
+  - Todo o resto opera sobre refs e objetos.
+
+  O alcance é o do `add --all`:
+  - os rastreados da base: removidos, alterados, modo executável e links;
+  - os não rastreados e não ignorados (`ls-files --others`, que lê só nomes de diretório e regras de ignore).
+
+  Submódulos ficam como na base. O index e os arquivos da worktree não mudam até o commit.
+
+  Todo comando da entrega passa por `SemLeituraDaWorktree`, um conjunto sem `add`, sem `status` e sem `diff` contra a
+  worktree, e roda com `GIT_NO_LAZY_FETCH=1`, para que nenhum clone parcial busque objetos pelo transporte do remoto.
+
+  **Configuração que continua ativa** nos processos da entrega: a do sistema, a global, a do repositório e a da
+  worktree, como em qualquer Git. Por cima delas, `-c` força `core.fsmonitor=false`, `core.hooksPath=/dev/null`,
+  `gc.auto=0` e `maintenance.auto=false`.
+
+  Nenhuma chave dessa configuração faz os comandos do conjunto executarem processo:
+  - `diff` entre árvores roda com `--no-ext-diff` e `--no-textconv`;
+  - `commit-tree` roda com `--no-gpg-sign`;
+  - hooks estão desligados;
+  - nada converte arquivo.
+
+  A configuração não é restringida porque não precisa ser. O Git não tem como ignorar a do repositório, e o desenho
+  não depende dela.
+
+  A consulta `config --get-regexp` dos filtros continua no começo do pedido, da remontagem e do commit. Ela é só uma
+  recusa explicativa: num repositório com filtro, o hash aprovado no gate foi lido com o filtro aplicado e não
+  coincidiria com os bytes. Conversões sem processo (`eol`, `ident`, `working-tree-encoding`) também não são
+  aplicadas: os bytes vão como estão, e se o gate os viu convertidos o hash difere e a entrega fica sem efeito, com o
+  motivo.
 * **Commit pelo Git fechado** (`ICommitDeWorktree`, implementado pelo `GerenciadorDeWorktreesGit`):
-  1. reconfere a worktree (validação da AD-71, HEAD = base, hash = o aprovado, alterações não vazias);
-  2. **recusa filtros de conteúdo** (`filter.<driver>.clean`, `smudge` ou `process`, inclusive o do Git LFS) em
-     qualquer escopo de configuração, antes de qualquer comando que leia o conteúdo. Esses filtros são comandos
-     externos que `diff`, `status` e `add` executariam. A conferência fica no `LerHeadAsync`, por onde passam o
-     pedido, a remontagem e o commit, e a observação do estado não roda `status` com filtro configurado (revisão do
-     PR #326). Atributos que não chamam processo (`eol`, `ident`, `working-tree-encoding`) mudam os bytes preparados
-     e caem na conferência do hash;
-  3. `add --all`. Um `add` que falha não altera o index, porque o Git grava o index de forma atômica;
-  4. `write-tree` e recálculo do mesmo hash canônico **a partir da árvore escrita**, um objeto imutável e exatamente o
-     que o commit recebe. Assim, uma alteração do index entre o `add` e o `write-tree` não passa (revisão do PR #326).
-     O diff rastreado vem de `diff --diff-filter=a <base> <árvore>`; cada arquivo novo vem pelo conteúdo do blob
-     (`cat-file blob`), e o conjunto precisa ser exatamente o dos não rastreados. Só objetos: nenhum filtro roda. A
-     função de hash é a mesma da revisão;
-  5. `commit-tree --no-gpg-sign -p <base> -m <mensagem> <árvore>`, com o autor e o committer configurados por
+  1. reconfere a worktree: validação da AD-71, a recusa explicativa de filtros e HEAD = base;
+  2. monta a árvore dos bytes atuais, como acima, e recalcula o hash canônico **a partir dessa árvore**, que é um
+     objeto imutável e exatamente o que o commit recebe. A árvore precisa ter o hash aprovado e não ser vazia.
+     Uma alteração dos arquivos ou do index privado antes do `write-tree` muda a árvore e é recusada. Uma alteração
+     depois não entra no commit (revisão do PR #326). O diff rastreado vem de `diff --diff-filter=a <base> <árvore>`
+     e cada arquivo novo vem pelo conteúdo do blob (`cat-file blob`). Só objetos. A função de hash é a mesma da
+     revisão, e o mesmo retrato dá o hash do pedido e da remontagem (`LerArtefatoAsync`);
+  3. `commit-tree --no-gpg-sign -p <base> -m <mensagem> <árvore>`, com o autor e o committer configurados por
      `GIT_AUTHOR_*`/`GIT_COMMITTER_*`. Isso só cria o objeto;
-  6. o único efeito: `update-ref -m <reflog> refs/heads/<branch da execução> <novo> <base>`. É um compare-and-swap
+  4. o único efeito: `update-ref -m <reflog> refs/heads/<branch da execução> <novo> <base>`. É um compare-and-swap
      do Git: a branch só sai da base uma vez, então duas aprovações executadas ao mesmo tempo nunca geram dois
      commits. A outra vê o HEAD já movido (payload alterado) ou perde o CAS e fica sem efeito;
-  7. a branch é conferida de novo: commit novo, filho da base, com a árvore conferida e a worktree nele.
+  5. a branch é conferida de novo: commit novo, filho da base, com a árvore conferida e a worktree nele. Só então o
+     index da worktree passa a ser a árvore gravada (`read-tree <árvore>`, sem `-u`: nenhum arquivo é lido nem
+     escrito). Se isso falhar, o commit continua feito, e a worktree só aparece com alterações preparadas.
 
   O conjunto fechado aceita só essas formas: `update-ref` só numa branch `dante/<handle>/e<n>` e com o valor antigo;
   nunca push, reset, checkout, merge, criação ou remoção de branch. Hooks, gc e maintenance automáticos ficam
   desligados, e nenhuma variável `GIT_*` herdada chega a qualquer processo Git. O checkout principal nunca é tocado.
 
   Desfechos:
-  * **antes do `update-ref`**, divergência ou falha restaura o index na base (`read-tree <base>`, sem tocar arquivos)
-    e é `Falhou`. Se a branch já tinha andado por outra entrega, o index não é tocado e também é `Falhou`;
+  * **antes do `update-ref`**, divergência ou falha é `Falhou`. Nada foi tocado: a árvore é montada num index
+    privado, e o index da worktree e a branch ficam como estavam;
   * **depois do `update-ref`**, só o estado real decide. Se a branch está no commit conferido, `Executada` (com o SHA
     no resultado), mesmo que o Git tenha relatado erro. Se continua na base, `Falhou`. Qualquer outra coisa é
     `Incerto`.
 * **Estado real num `Incerto`** (`IObservadorDeAcaoProtegida`; para a entrega, `ObservadorDaEntregaDoArtefato`): a
   recuperação depois do reinício e a falha inesperada no meio consultam o observador da ação antes de gravar o
-  `Incerto`. Ele informa HEAD e branch, commits além da base e arquivos no index e fora dele. O estado vai redigido ao
+  `Incerto`. Ele informa HEAD e branch, commits além da base e arquivos do index diferentes do HEAD
+  (`diff-index --cached`); os arquivos da worktree não são lidos. O estado vai redigido ao
   ledger e ao aviso. Nada é repetido nem desfeito, e um pedido novo de entrega da execução é recusado com esse estado.
 
 Fora desta decisão: push/PR (Issue própria), Brain e planilhas atrás do gateway (Issue própria, depois da ativação
@@ -3288,7 +3334,8 @@ ObservadorDaEntregaDoArtefato}.cs`, `Dante.Application/Execucoes/Portas/ICommitD
 `Dante.Worker/Telegram/TelegramExecucoes.cs` (`/execucao entregar`), `Dante.Worker/WorkerComposition.cs`
 (`Orquestracao:Entrega`).
 Testes: `AprovacaoDeAcaoDominioTests`, `AprovacoesDeAcaoPostgreSqlTests`, `GatewayDeFerramentasTests`,
-`GatewayDeAprovacoesPostgreSqlTests`; PR 3: `CommitDeWorktreeGitTests` (Git real) e
+`GatewayDeAprovacoesPostgreSqlTests`; PR 3: `CommitDeWorktreeGitTests` (Git real; o TOCTOU dos filtros em
+`FiltroConfiguradoDepoisDaConferenciaNuncaRoda` e `EntregaNaoAbreComandoGitQueLeiaAWorktree`) e
 `RoteiroPelaFilaEndToEndTests.Entrega` (PostgreSQL, Git real e Telegram falso).
 
 ## AD-74 — Acompanhamento e cancelamento de execuções na Application, neutros de interface (#305)
