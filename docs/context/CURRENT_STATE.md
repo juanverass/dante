@@ -280,8 +280,12 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   persistência no PR 1 (#324, integrado), gateway na Application e adaptador do Telegram no PR 2 (#325, integrado), e
   entrega do artefato do roteiro por commit local no PR 3 (em revisão).
 
-- **Epic #234 — Integração de CI**: contratos neutros da porta de CI (#236, AD-76) integrados; adapter GitHub Actions
-  somente leitura (#237) em revisão; correlação PR/commit e consulta pelo Telegram (#238) é o próximo.
+- **Epic #234 — Integração de CI**: trilha do produto com contratos neutros da porta de CI (#236, AD-76, PR #327) e
+  adapter GitHub Actions somente leitura (#237, PR #328) integrados em `main`, ambos concluídos; correlação PR/commit
+  e consulta pelo Telegram (#238) é a próxima etapa, liberada, e dela dependem o diagnóstico por agente (#239), a
+  correção supervisionada (#240) e, depois delas, a validação integrada (#242). Na trilha operacional, a padronização
+  de CI entre repositórios e stacks (#241) está liberada em paralelo, e o runner Linux isolado com o piloto no
+  `fitnessapp_frontend` (#235) segue aguardando preparação manual do host.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
