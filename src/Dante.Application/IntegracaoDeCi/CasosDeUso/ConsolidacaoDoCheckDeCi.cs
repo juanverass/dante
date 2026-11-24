@@ -5,7 +5,8 @@ namespace Dante.Application.IntegracaoDeCi;
 //    é recusada como Inconsistente, nunca filtrada em silêncio;
 // 2. execução de outro SHA é descartada: um run antigo nunca é diagnosticado como sendo do head atual;
 // 3. de cada execução vale só a maior tentativa; de cada workflow e gatilho, só a execução mais recente;
-// 4. o estado agregado segue a precedência documentada, e sucesso exige resultado completo.
+// 4. o estado agregado segue a precedência documentada; sucesso exige resultado completo e todas as execuções
+//    relevantes explicitamente em Sucesso.
 public static class ConsolidacaoDoCheckDeCi
 {
     public static CheckAgregadoDeCiDto Consolidar(ConsultaDeCi consulta, ResultadoDaConsultaDeCi resultado)
@@ -74,7 +75,10 @@ public static class ConsolidacaoDoCheckDeCi
         if (relevantes.Contains(EstadoDaExecucao.Falha)) return EstadoDoCheckDeCi.Falha;
         if (relevantes.Contains(EstadoDaExecucao.Expirada)) return EstadoDoCheckDeCi.Expirado;
         if (relevantes.Contains(EstadoDaExecucao.Cancelada)) return EstadoDoCheckDeCi.Cancelado;
-        return resultado.Completo ? EstadoDoCheckDeCi.Sucesso : EstadoDoCheckDeCi.Indisponivel;
+        // Sucesso só por afirmação explícita de todas as relevantes, nunca por exclusão das outras finais.
+        return resultado.Completo && relevantes.All(e => e == EstadoDaExecucao.Sucesso)
+            ? EstadoDoCheckDeCi.Sucesso
+            : EstadoDoCheckDeCi.Indisponivel;
     }
 
     private static void ExigirMesmoRepositorio(ConsultaDeCi consulta, IReadOnlyList<ExecucaoDeCiDto> execucoes)

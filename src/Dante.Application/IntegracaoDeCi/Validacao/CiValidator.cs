@@ -38,6 +38,12 @@ internal static class CiValidator
             : throw new ArgumentException("Credencial de CI deve ser uma referência secret://host/NOME, nunca o valor.",
                 nameof(referencia));
 
+    // Enum vindo de fora (adapter, desserialização, cast) só vale se for um valor declarado: um valor desconhecido nunca
+    // é aproximado para outro estado (revisão do PR #327).
+    internal static T ExigirDefinido<T>(T valor, string parametro) where T : struct, Enum =>
+        Enum.IsDefined(valor) ? valor
+            : throw new ArgumentOutOfRangeException(parametro, valor, $"Valor desconhecido de {typeof(T).Name}.");
+
     internal static long ExigirPositivo(long valor, string parametro) =>
         valor > 0 ? valor : throw new ArgumentOutOfRangeException(parametro, "Identificador do provedor deve ser positivo.");
 

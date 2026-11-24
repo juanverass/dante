@@ -3690,7 +3690,11 @@ Decisão:
   execução mais recente de cada workflow e gatilho; precedência fixa; sucesso exige resultado completo; falha da
   consulta vira `SemPermissao` ou `Indisponivel`, nunca falha do CI.
 * **Transições monotônicas** (`TransicoesDaExecucaoDeCi`): só avançam, saltos valem, regressão observada é ignorada,
-  final é imutável na tentativa.
+  final é imutável na tentativa. Finais e ordem são declarados estado a estado, nunca pela ordem numérica do enum
+  (revisão do PR #327).
+* **Estado desconhecido nunca vira resultado**: execução, job e etapa recusam valor de enum não declarado também em
+  `with`; a matriz recusa o valor; o check só é `Sucesso` com todas as execuções relevantes explicitamente em
+  `Sucesso`. Status do provedor sem mapeamento conhecido falha a consulta como `Inconsistente` (check `Indisponivel`).
 * **Falha só com evidência** (`MatrizDeFalhasDeCi`): cada categoria exige um tipo de evidência; limite de minutos ou
   cobrança exige mensagem explícita do provedor; sem evidência, `Indeterminada`. Log inacessível é disponibilidade do
   log, nunca estado do job.

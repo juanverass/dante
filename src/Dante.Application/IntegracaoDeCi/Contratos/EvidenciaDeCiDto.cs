@@ -9,7 +9,7 @@ public sealed record EvidenciaDeCiDto
     public EvidenciaDeCiDto(TipoDeEvidenciaDeCi tipo, string descricao, Uri? urlOficial = null, long? idDoJob = null,
         int? numeroDaEtapa = null)
     {
-        Tipo = tipo;
+        Tipo = CiValidator.ExigirDefinido(tipo, nameof(tipo));
         Descricao = CiValidator.ExigirTextoSeguro(descricao, TamanhoMaximoDaDescricao, nameof(descricao));
         UrlOficial = urlOficial is null ? null : CiValidator.ExigirUrlOficial(urlOficial, nameof(urlOficial));
         IdDoJob = idDoJob is { } id ? CiValidator.ExigirPositivo(id, nameof(idDoJob)) : null;

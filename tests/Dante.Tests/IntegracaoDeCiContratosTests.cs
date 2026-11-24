@@ -153,8 +153,110 @@ public sealed class IntegracaoDeCiContratosTests
     }
 
     [Fact]
-    public void TodoEstadoEstaNaMatriz() => Assert.All(Enum.GetValues<EstadoDaExecucao>(), estado =>
-        Assert.Equal(estado >= EstadoDaExecucao.Sucesso, TransicoesDaExecucaoDeCi.Final(estado)));
+    public void TodoEstadoEstaNaMatrizComFinaisExplicitos()
+    {
+        EstadoDaExecucao[] finais = [EstadoDaExecucao.Sucesso, EstadoDaExecucao.Falha, EstadoDaExecucao.Cancelada,
+            EstadoDaExecucao.Expirada, EstadoDaExecucao.Ignorada];
+        Assert.All(Enum.GetValues<EstadoDaExecucao>(), estado =>
+            Assert.Equal(finais.Contains(estado), TransicoesDaExecucaoDeCi.Final(estado)));
+    }
+
+    // ---- estado desconhecido (bloqueador da revisão do PR #327) ----
+
+    private const EstadoDaExecucao Desconhecido = (EstadoDaExecucao)999;
+
+    [Fact]
+    public void EstadoDesconhecidoNaoEFinalNemAvanca()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => TransicoesDaExecucaoDeCi.Final(Desconhecido));
+        Assert.Throws<ArgumentOutOfRangeException>(() => TransicoesDaExecucaoDeCi.Final((EstadoDaExecucao)(-1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => TransicoesDaExecucaoDeCi.Permitida(EstadoDaExecucao.EmAndamento, Desconhecido));
+        Assert.Throws<ArgumentOutOfRangeException>(() => TransicoesDaExecucaoDeCi.Permitida(Desconhecido, EstadoDaExecucao.Sucesso));
+        Assert.Throws<ArgumentOutOfRangeException>(() => TransicoesDaExecucaoDeCi.Avancar(EstadoDaExecucao.EmAndamento, Desconhecido));
+    }
+
+    [Theory]
+    [InlineData(999)]
+    [InlineData(-1)]
+    [InlineData(8)]   // logo depois do último declarado: a ordem numérica não decide nada
+    public void ExecucaoComEstadoDesconhecidoERecusadaNaFronteira(int valor)
+    {
+        var estado = (EstadoDaExecucao)valor;
+        Assert.Throws<ArgumentOutOfRangeException>(() => Execucao(10, Head, EstadoDaExecucao.Sucesso) with { Estado = estado });
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ExecucaoDeCiDto
+        {
+            Identidade = new IdentidadeDaExecucaoDeCi(Confirmado, 1, 10, 1, Head),
+            NomeDoWorkflow = "wf",
+            Gatilho = "pr",
+            Estado = estado,
+            UrlOficial = new Uri("https://ci.exemplo/runs/10"),
+            CriadaEm = Agora,
+            AtualizadaEm = Agora
+        });
+    }
+
+    [Theory]
+    [InlineData(999)]
+    [InlineData(-1)]
+    public void JobComEstadoDesconhecidoERecusadoNaFronteira(int valor)
+    {
+        var job = Execucao(10, Head, EstadoDaExecucao.Sucesso).Jobs[0];
+        Assert.Throws<ArgumentOutOfRangeException>(() => job with { Estado = (EstadoDaExecucao)valor });
+        Assert.Throws<ArgumentOutOfRangeException>(() => new JobDeCiDto
+        {
+            IdDoJob = 100, Nome = "testes", Estado = (EstadoDaExecucao)valor, UrlOficial = new Uri("https://ci.exemplo/jobs/100")
+        });
+    }
+
+    [Theory]
+    [InlineData(999)]
+    [InlineData(-1)]
+    public void EtapaComEstadoDesconhecidoERecusadaNaFronteira(int valor)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new EtapaDeJobDeCiDto(3, "dotnet test", (EstadoDaExecucao)valor));
+        var etapa = new EtapaDeJobDeCiDto(3, "dotnet test", EstadoDaExecucao.Sucesso);
+        Assert.Throws<ArgumentOutOfRangeException>(() => etapa with { Estado = (EstadoDaExecucao)valor });
+    }
+
+    // Nenhuma combinação de estado desconhecido em execução, job ou etapa chega a um check Sucesso: ou a fronteira
+    // recusa, ou o check não é Sucesso.
+    [Theory]
+    [InlineData("execucao")]
+    [InlineData("job")]
+    [InlineData("etapa")]
+    public void EstadoDesconhecidoNuncaResultaEmCheckSucesso(string onde)
+    {
+        CheckAgregadoDeCiDto? check = null;
+        var recusado = Record.Exception(() =>
+        {
+            var execucao = Execucao(10, Head, EstadoDaExecucao.Sucesso);
+            var job = execucao.Jobs[0];
+            execucao = onde switch
+            {
+                "execucao" => execucao with { Estado = Desconhecido },
+                "job" => execucao with { Jobs = [job with { Estado = Desconhecido }] },
+                _ => execucao with { Jobs = [job with { Etapas = [new EtapaDeJobDeCiDto(1, "build", Desconhecido)] }] }
+            };
+            check = Consolidar(execucao);
+        });
+        Assert.IsType<ArgumentOutOfRangeException>(recusado);
+        Assert.NotEqual(EstadoDoCheckDeCi.Sucesso, check?.Estado);
+    }
+
+    [Fact]
+    public void EvidenciaELogComEnumDesconhecidoSaoRecusados()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new EvidenciaDeCiDto((TipoDeEvidenciaDeCi)999, "x"));
+        var job = new IdentidadeDoJobDeCi(Execucao(10, Head, EstadoDaExecucao.Falha).Identidade, 100);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LogDeJobDeCiDto(job, (DisponibilidadeDoLogDeCi)999));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            MatrizDeFalhasDeCi.Classificar((CategoriaDaFalhaDeCi)999, Execucao(10, Head, EstadoDaExecucao.Falha), []));
+    }
+
+    [Fact]
+    public void MotivoDesconhecidoDeFalhaNaConsultaViraIndisponivelNuncaSucesso() =>
+        Assert.Equal(EstadoDoCheckDeCi.Indisponivel, ConsolidacaoDoCheckDeCi.Indisponivel(Consulta,
+            new FalhaNaConsultaDeCiException((MotivoDaFalhaNaConsultaDeCi)999, "x"), Agora).Estado);
 
     // ---- check agregado ----
 

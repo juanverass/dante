@@ -55,7 +55,22 @@ NaFila ──→ AguardandoRunner ──→ EmAndamento ──→ Sucesso | Falh
 
 * só avançam; o polling amostra, então saltos para frente valem;
 * observação que regride (cache, réplica atrasada) é ignorada: `Avancar(atual, observado)` mantém o atual;
-* final é imutável dentro da tentativa; job já iniciado não vira `Ignorada`.
+* final é imutável dentro da tentativa; job já iniciado não vira `Ignorada`;
+* finais e ordem são definidos **estado a estado**, nunca pela ordem numérica do enum.
+
+### Estado desconhecido
+
+Um valor que não é estado declarado (`(EstadoDaExecucao)999`, um enum futuro, um cast) nunca vira resultado:
+
+1. **fronteira**: `ExecucaoDeCiDto`, `JobDeCiDto` e `EtapaDeJobDeCiDto` recusam o valor no construtor/inicializador e
+   em `with` (`ArgumentOutOfRangeException`); o mesmo vale para tipo de evidência, disponibilidade de log e categoria
+   de falha;
+2. **matriz**: `TransicoesDaExecucaoDeCi` recusa o valor em `Final`, `Permitida` e `Avancar`;
+3. **check**: `Sucesso` só quando todas as execuções relevantes estão explicitamente em `Sucesso`; motivo de falha
+   da consulta desconhecido vira `Indisponivel`.
+
+O adapter (#237) mapeia cada status/conclusão do provedor para um estado declarado; status que ele não conhece não é
+aproximado: a consulta falha como `Inconsistente` e o check fica `Indisponivel`.
 
 ### Check agregado
 
@@ -64,7 +79,7 @@ NaFila ──→ AguardandoRunner ──→ EmAndamento ──→ Sucesso | Falh
 | nenhuma execução do SHA e nenhum workflow no repositório | `SemWorkflowConfigurado` |
 | nenhuma execução relevante do SHA (workflow existe, não disparou, ou tudo `Ignorada`) | `SemExecucao` |
 | alguma execução não final | `EmAndamento` > `AguardandoRunner` > `NaFila` |
-| todas finais | `Falha` > `Expirado` > `Cancelado` > `Sucesso` |
+| todas finais | `Falha` > `Expirado` > `Cancelado` > `Sucesso` (só com todas explicitamente em `Sucesso`) |
 | resultado incompleto (paginação no limite) sem falha observada | `Indisponivel` — nunca `Sucesso` |
 | consulta falhou: sem credencial, 401, 403, 404 | `SemPermissao` |
 | consulta falhou: limite de taxa, indisponível, inconsistente | `Indisponivel` |

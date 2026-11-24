@@ -7,6 +7,7 @@ public sealed record LogDeJobDeCiDto
     public LogDeJobDeCiDto(IdentidadeDoJobDeCi job, DisponibilidadeDoLogDeCi disponibilidade, TrechoDeLogDeCi? trecho = null)
     {
         Job = job ?? throw new ArgumentNullException(nameof(job));
+        CiValidator.ExigirDefinido(disponibilidade, nameof(disponibilidade));
         if ((disponibilidade == DisponibilidadeDoLogDeCi.Disponivel) != (trecho is not null))
             throw new ArgumentException("Trecho existe só quando o log está disponível.", nameof(trecho));
         Disponibilidade = disponibilidade;
