@@ -5,6 +5,9 @@ Guia da integração de CI do D.A.N.T.E. (Epic #234; contratos na #236, provedor
 sem o D.A.N.T.E., online ou não: aqui só existe o que é preciso para **observá-lo**. Correlação e consulta pelo
 Telegram são a #238; diagnóstico, a #239; correção supervisionada, a #240.
 
+Padrão de CI dos repositórios observados (inventário, runners em conta pessoal, workflows reutilizáveis, políticas e
+rollout): [ci-multirepo](ci-multirepo.md) (#241).
+
 ## Onde vive
 
 | Camada | O quê |

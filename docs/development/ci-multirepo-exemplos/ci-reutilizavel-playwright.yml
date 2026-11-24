@@ -1,0 +1,89 @@
+# EXEMPLO DE DOCUMENTAÇÃO (Issue #241). Não executa daqui: só workflows em .github/workflows/ rodam.
+# Ainda não validado com actionlint nem executado no GitHub: a validação é passo do piloto (#235), antes de qualquer uso.
+# Para usar, copie para .github/workflows/ do repositório piloto, com autorização para aquele repositório,
+# e valide como descrito em docs/development/ci-multirepo.md.
+#
+# Workflow reutilizável Playwright: roda uma suíte dentro da imagem oficial (browsers e fontes já instalados, sem
+# cache de browsers), com o Node do projeto e relatórios publicados.
+name: Reutilizável · Playwright
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Rótulos do runner em JSON; o runner precisa de Linux com Docker.
+        type: string
+        required: true
+      imagem:
+        description: Imagem oficial do Playwright na mesma versão do @playwright/test do projeto.
+        type: string
+        required: true
+      node-version-file:
+        description: Versão de Node do projeto; a imagem traz outra (ver fitnessapp_frontend#44).
+        type: string
+        default: .nvmrc
+      script:
+        description: Script do package.json que roda a suíte, por exemplo test:e2e:telas.
+        type: string
+        required: true
+      nome-do-relatorio:
+        type: string
+        required: true
+      relatorios:
+        description: Caminhos publicados como artefato, um por linha.
+        type: string
+        default: |
+          playwright-report/
+          test-results/
+      retencao-dias:
+        type: number
+        default: 14
+      timeout-minutos:
+        type: number
+        default: 60
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Playwright
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: ${{ inputs.timeout-minutos }}
+    container:
+      image: ${{ inputs.imagem }}
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # A confirmar em fitnessapp_frontend#44: Node do projeto dentro do container, sem trocar os browsers da imagem.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Suíte
+        env:
+          SCRIPT: ${{ inputs.script }}
+        run: |
+          [[ "$SCRIPT" =~ ^[A-Za-z0-9:_.-]+$ ]] || { echo "::error::nome de script inválido"; exit 1; }
+          npm run "$SCRIPT"
+
+      - name: Publicar relatórios
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.nome-do-relatorio }}-${{ github.run_attempt }}
+          path: ${{ inputs.relatorios }}
+          retention-days: ${{ inputs.retencao-dias }}
+          if-no-files-found: ignore
+
+      # O container roda como root: sem isto, arquivos criados no workspace ficam com dono root e o próximo checkout
+      # do runner persistente falha ao limpar. A confirmar no piloto (#235); runner efêmero dispensa o passo.
+      - name: Devolver o workspace ao usuário do runner
+        if: always()
+        run: chown -R "$(stat -c '%u:%g' "$GITHUB_WORKSPACE/..")" "$GITHUB_WORKSPACE"

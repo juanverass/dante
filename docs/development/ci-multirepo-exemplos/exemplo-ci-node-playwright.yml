@@ -1,0 +1,136 @@
+# EXEMPLO DE DOCUMENTAÇÃO (Issue #241). Não executa daqui: só workflows em .github/workflows/ rodam.
+# Ainda não validado com actionlint nem executado no GitHub: a validação é passo do piloto (#235), antes de qualquer uso.
+# Chamador para um repositório Node/React com Playwright, no formato do fitnessapp_frontend: verificação e E2E de
+# telas sempre; suíte pesada (Design System) só quando a mudança a afeta, todo dia e sob demanda. Um único check
+# obrigatório, "CI · resultado", que nunca fica pendente por job pulado.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: rapida roda só o que o PR rodaria; completa força as suítes condicionais.
+        type: choice
+        options: [rapida, completa]
+        default: completa
+
+permissions:
+  contents: read
+
+concurrency:
+  # PR: um push novo cancela o anterior. main, schedule e dispatch: cada SHA mantém o próprio resultado.
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plano:
+    name: Plano da execução
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+    outputs:
+      pesada: ${{ steps.decidir.outputs.pesada }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: decidir
+        env:
+          EVENTO: ${{ github.event_name }}
+          SUITE: ${{ inputs.suite }}
+          BASE_DO_PR: ${{ github.event.pull_request.base.sha }}
+          ANTES_DO_PUSH: ${{ github.event.before }}
+          # Caminhos que afetam a suíte pesada (específico do repositório).
+          PADRAO: '^(src/design-system/|paridade/|playwright\.config\.ts$|package-lock\.json$)'
+        run: |
+          base=""
+          case "$EVENTO" in
+            pull_request) base="$BASE_DO_PR" ;;
+            push) base="$ANTES_DO_PUSH" ;;
+          esac
+          # Sem base conhecida (schedule, dispatch completo, branch nova) a suíte pesada roda.
+          if [ "$EVENTO" = workflow_dispatch ] && [ "$SUITE" = rapida ]; then
+            pesada=false
+          elif [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ] \
+             || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            pesada=true
+          elif git diff --name-only "$base" HEAD | grep -Eq "$PADRAO"; then
+            pesada=true
+          else
+            pesada=false
+          fi
+          echo "pesada=$pesada" >> "$GITHUB_OUTPUT"
+          echo "Suíte pesada: $pesada"
+
+  verificacao:
+    name: Verificação
+    uses: ./.github/workflows/ci-reutilizavel-node.yml
+    with:
+      runner: '["self-hosted","Linux","X64"]'
+      scripts: |
+        check:handoff
+        typecheck
+        lint
+        format:check
+        test
+        build
+        check:bundle
+
+  e2e-telas:
+    name: Playwright · telas
+    uses: ./.github/workflows/ci-reutilizavel-playwright.yml
+    with:
+      runner: '["self-hosted","Linux","X64","docker"]'
+      imagem: mcr.microsoft.com/playwright:v1.64.1-noble
+      script: test:e2e:telas
+      nome-do-relatorio: relatorios-playwright-telas
+
+  e2e-pesada:
+    name: Playwright · Design System
+    needs: plano
+    if: needs.plano.outputs.pesada == 'true'
+    uses: ./.github/workflows/ci-reutilizavel-playwright.yml
+    with:
+      runner: '["self-hosted","Linux","X64","docker"]'
+      imagem: mcr.microsoft.com/playwright:v1.64.1-noble
+      script: test:e2e:ds
+      nome-do-relatorio: relatorios-playwright-ds
+      relatorios: |
+        playwright-report/
+        test-results/
+        reports/
+      timeout-minutos: 120
+
+  resultado:
+    # Único check obrigatório do repositório. Roda sempre e só passa quando cada job exigido passou e o pulo do
+    # condicional foi decidido pelo plano, nunca por falha a montante.
+    name: CI · resultado
+    if: always()
+    needs: [plano, verificacao, e2e-telas, e2e-pesada]
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+    steps:
+      - env:
+          PLANO: ${{ needs.plano.result }}
+          VERIFICACAO: ${{ needs.verificacao.result }}
+          E2E_TELAS: ${{ needs.e2e-telas.result }}
+          E2E_PESADA: ${{ needs.e2e-pesada.result }}
+          PESADA_PLANEJADA: ${{ needs.plano.outputs.pesada }}
+        run: |
+          falhou=0
+          exigir() { if [ "$2" != success ]; then echo "::error::$1 terminou como '$2'"; falhou=1; fi; }
+          exigir plano "$PLANO"
+          exigir verificacao "$VERIFICACAO"
+          exigir e2e-telas "$E2E_TELAS"
+          if [ "$PESADA_PLANEJADA" = true ]; then
+            exigir e2e-pesada "$E2E_PESADA"
+          elif [ "$E2E_PESADA" != skipped ]; then
+            echo "::error::e2e-pesada não estava planejada e terminou como '$E2E_PESADA'"
+            falhou=1
+          fi
+          exit $falhou

@@ -1,0 +1,193 @@
+# EXEMPLO DE DOCUMENTAÇÃO (Issue #241). Não executa daqui: só workflows em .github/workflows/ rodam.
+# Ainda não validado com actionlint nem executado no GitHub: a validação é passo do piloto (#235), antes de qualquer uso.
+# Para usar, copie para .github/workflows/ do repositório piloto, com autorização para aquele repositório,
+# e valide como descrito em docs/development/ci-multirepo.md.
+#
+# Workflow reutilizável .NET: build, testes sem banco e, opcionalmente, testes com PostgreSQL por service container
+# ou por docker compose. Quem chama escolhe o runner (rótulos em JSON) e os filtros de cada suíte.
+name: Reutilizável · .NET
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Rótulos do runner em JSON, por exemplo '["self-hosted","Linux","X64"]'.
+        type: string
+        required: true
+      solucao:
+        description: Caminho da solução ou do projeto (.sln/.slnx/.csproj).
+        type: string
+        required: true
+      global-json-file:
+        type: string
+        default: global.json
+      filtro:
+        description: Filtro do dotnet test no job sem banco (vazio = todos os testes).
+        type: string
+        default: ''
+      postgres:
+        description: Roda o job de testes com PostgreSQL em service container.
+        type: boolean
+        default: false
+      postgres-imagem:
+        type: string
+        default: postgres:17
+      postgres-variavel:
+        description: Nome da variável de ambiente que os testes leem para a connection string.
+        type: string
+        default: CONNECTIONSTRINGS__TESTES
+      filtro-postgres:
+        type: string
+        default: ''
+      compose-arquivo:
+        description: Arquivo docker compose para dependências de integração (vazio = não usa compose).
+        type: string
+        default: ''
+      filtro-compose:
+        type: string
+        default: ''
+      timeout-minutos:
+        type: number
+        default: 30
+      retencao-dias:
+        description: Retenção dos resultados publicados quando há falha.
+        type: number
+        default: 7
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  testes:
+    name: Build e testes
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: ${{ inputs.timeout-minutos }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: ${{ inputs.global-json-file }}
+
+      - name: Cache de pacotes NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj', '**/packages.lock.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restaurar
+        env:
+          SOLUCAO: ${{ inputs.solucao }}
+        run: dotnet restore "$SOLUCAO"
+
+      - name: Compilar
+        env:
+          SOLUCAO: ${{ inputs.solucao }}
+        run: dotnet build "$SOLUCAO" --configuration Release --no-restore
+
+      - name: Testar
+        env:
+          SOLUCAO: ${{ inputs.solucao }}
+          FILTRO: ${{ inputs.filtro }}
+        run: |
+          argumentos=(test "$SOLUCAO" --configuration Release --no-build
+            --logger "trx;LogFileName=resultados.trx" --results-directory "$RUNNER_TEMP/resultados")
+          if [ -n "$FILTRO" ]; then argumentos+=(--filter "$FILTRO"); fi
+          dotnet "${argumentos[@]}"
+
+      - name: Publicar resultados (só na falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-dotnet-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/resultados
+          retention-days: ${{ inputs.retencao-dias }}
+          if-no-files-found: ignore
+
+  testes-postgres:
+    name: Testes com PostgreSQL (service container)
+    if: inputs.postgres
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: ${{ inputs.timeout-minutos }}
+    services:
+      postgres:
+        image: ${{ inputs.postgres-imagem }}
+        env:
+          POSTGRES_DB: testes
+          POSTGRES_USER: testes
+          # Senha descartável, só do container efêmero do job: não é segredo e não vale fora dele.
+          POSTGRES_PASSWORD: somente-ci
+        # Porta do host escolhida pelo Docker: dois jobs no mesmo host nunca disputam a 5432.
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U testes -d testes"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: ${{ inputs.global-json-file }}
+
+      - name: Connection string dos testes
+        env:
+          NOME: ${{ inputs.postgres-variavel }}
+          PORTA: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          [[ "$NOME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "::error::nome de variável inválido"; exit 1; }
+          echo "$NOME=Host=localhost;Port=$PORTA;Database=testes;Username=testes;Password=somente-ci" >> "$GITHUB_ENV"
+
+      - name: Testar
+        env:
+          SOLUCAO: ${{ inputs.solucao }}
+          FILTRO: ${{ inputs.filtro-postgres }}
+        run: |
+          argumentos=(test "$SOLUCAO" --configuration Release)
+          if [ -n "$FILTRO" ]; then argumentos+=(--filter "$FILTRO"); fi
+          dotnet "${argumentos[@]}"
+
+  testes-compose:
+    name: Testes com docker compose
+    if: inputs.compose-arquivo != ''
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: ${{ inputs.timeout-minutos }}
+    env:
+      # Nome único por execução e tentativa: execuções paralelas no mesmo host não compartilham containers,
+      # redes nem volumes.
+      COMPOSE_PROJECT_NAME: ci-${{ github.run_id }}-${{ github.run_attempt }}-dotnet
+      COMPOSE_ARQUIVO: ${{ inputs.compose-arquivo }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: ${{ inputs.global-json-file }}
+
+      - name: Subir dependências
+        run: docker compose -f "$COMPOSE_ARQUIVO" up -d --wait
+
+      - name: Testar
+        env:
+          SOLUCAO: ${{ inputs.solucao }}
+          FILTRO: ${{ inputs.filtro-compose }}
+        run: |
+          argumentos=(test "$SOLUCAO" --configuration Release)
+          if [ -n "$FILTRO" ]; then argumentos+=(--filter "$FILTRO"); fi
+          dotnet "${argumentos[@]}"
+
+      - name: Derrubar dependências e volumes
+        if: always()
+        run: docker compose -f "$COMPOSE_ARQUIVO" down --volumes --remove-orphans
