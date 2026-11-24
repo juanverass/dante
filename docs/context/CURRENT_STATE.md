@@ -280,6 +280,10 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   persistência no PR 1 (#324, integrado), gateway na Application e adaptador do Telegram no PR 2 (#325, integrado), e
   entrega do artefato do roteiro por commit local no PR 3 (em revisão).
 
+- **Epic #234 — Integração de CI**: contratos neutros da porta de CI, matriz de estados e falhas, isolamento por
+  repositório/conexão/SHA, segurança dos logs e permissões mínimas (#236, AD-76) em revisão; o adapter GitHub Actions
+  somente leitura (#237) é o próximo.
+
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
 
@@ -1050,6 +1054,15 @@ Infrastructure registra apenas adapters técnicos. Validators/policies estático
 continuam puros. DI do DbContext exige autorização, sem fallback administrativo
 quando AddApplication é omitido. Testes de composição resolvem a lista integral
 com adapters e um CRUD com fakes sem Infrastructure (AD-54).
+
+## Contratos da integração de CI (#236, AD-76)
+
+Feature `IntegracaoDeCi` na Application, sem Domain nem persistência: porta `IProvedorDeCi` somente leitura, identidade
+imutável (alias cadastrado, conexão por referência `secret://host/NOME`, nome e ID do repositório, workflow, execução,
+tentativa, job e SHA completo), check agregado por head SHA separado de job e tentativa, transições monotônicas, falha
+classificada só com evidência e sanitização de texto do CI como dado não confiável. Sem provedor, a porta responde
+"não configurada" (`ProvedorDeCiNaoConfigurado`); nenhuma consulta real, comando ou interface existe ainda. Guia:
+[ci](../development/ci.md).
 
 ## Planilhas genéricas (#224)
 

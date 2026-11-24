@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddContextos();
         services.AddAgentes();
         services.AddPlanilhas(configuration);
+        services.AddIntegracaoDeCi();
         return services;
     }
 }

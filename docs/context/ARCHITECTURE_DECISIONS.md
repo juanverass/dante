@@ -3660,3 +3660,62 @@ materialização e despacho) e `CoordenacaoPostgreSqlTests` (proveniência, trig
 replanejamento, revisões e materializações simultâneas, migration sobre dados anteriores); PR 3:
 `SinteseDaCoordenacaoDominioTests`, `CoordenadorPeloMcpTests`, `CoordenacaoPeloTelegramEndToEndTests` e os de
 síntese em `CoordenacaoPelaFilaEndToEndTests` (inclusive o trigger por fora do domínio).
+
+## AD-76 — Integração de CI por porta neutra somente leitura, com check agregado por head SHA (#236)
+
+Status: vigente nos contratos (#236, Epic #234). O primeiro provedor (GitHub Actions) é a #237; nada é consultado em
+tempo de execução até lá. Segue o precedente da AD-55 (capacidade genérica na Application, provedor substituível na
+Infrastructure) e reaproveita AD-07 (cadastro de repositórios), AD-10 (segredo por binding do host) e AD-72 (efeito
+colateral só como ação protegida). Guia: [ci](../development/ci.md).
+
+Contexto: o CI dos repositórios do usuário continua no provedor (Epic #234: GitHub Actions é a fonte de verdade; o
+runner é só infraestrutura). O D.A.N.T.E. precisa observar execuções por repositório, PR e SHA sem misturar commits,
+tentativas, repositórios ou credenciais, sem tratar texto de log como instrução e sem afirmar causa de falha que não
+tem evidência. A auditoria da #236 confirmou que não existe credencial de GitHub no D.A.N.T.E. (só nas CLIs dos
+agentes) e que o cadastro já guarda `@alias` e `dono/repo` conferido contra o `origin`.
+
+Decisão:
+
+* **Feature `IntegracaoDeCi` só na Application**, sem entidade de Domain, tabela ou migration: os fatos são do
+  provedor e nada é persistido nesta fase. Identidade em records validados no construtor; leituras em `*Dto`.
+* **Porta `IProvedorDeCi` somente leitura**: `ConsultarAsync` (execuções e jobs de um SHA), `ObterExecucaoAsync` (uma
+  tentativa) e `ObterLogDoJobAsync` (trecho sanitizado ou a disponibilidade). Nenhum método dispara, reexecuta, cancela
+  ou comenta; isso será ação protegida do catálogo (AD-72). Sem provedor, a Infrastructure registra
+  `ProvedorDeCiNaoConfigurado`, que responde `NaoConfigurada` sem rede (toda porta tem adapter registrado).
+* **Identidade imutável**: alias cadastrado + conexão (id e referência `secret://host/NOME`, nunca o valor) + nome
+  completo + ID numérico do repositório no provedor; workflow, execução, tentativa, job e SHA completo. PR é contexto;
+  a chave é o SHA. Reexecução é tentativa nova.
+* **Check agregado separado de job e tentativa** (`ConsolidacaoDoCheckDeCi`): resposta com outro repositório,
+  conexão ou ID é recusada inteira; execução de outro SHA é descartada; vale a última tentativa de cada execução e a
+  execução mais recente de cada workflow e gatilho; precedência fixa; sucesso exige resultado completo; falha da
+  consulta vira `SemPermissao` ou `Indisponivel`, nunca falha do CI.
+* **Transições monotônicas** (`TransicoesDaExecucaoDeCi`): só avançam, saltos valem, regressão observada é ignorada,
+  final é imutável na tentativa. Finais e ordem são declarados estado a estado, nunca pela ordem numérica do enum
+  (revisão do PR #327).
+* **Estado desconhecido nunca vira resultado**: execução, job e etapa recusam valor de enum não declarado também em
+  `with`; a matriz recusa o valor; o check só é `Sucesso` com todas as execuções relevantes explicitamente em
+  `Sucesso`. Status do provedor sem mapeamento conhecido falha a consulta como `Inconsistente` (check `Indisponivel`).
+* **Falha só com evidência** (`MatrizDeFalhasDeCi`): cada categoria exige um tipo de evidência; limite de minutos ou
+  cobrança exige mensagem explícita do provedor; sem evidência, `Indeterminada`. Log inacessível é disponibilidade do
+  log, nunca estado do job.
+* **Texto do CI é dado não confiável** (`SanitizacaoDeTextoDeCi`): sem sequências de terminal, controles, largura zero
+  e direção bidirecional; linha com credencial aparente redigida (`ProtecaoDeSegredos`); só o final até o limite; ao
+  agente, apenas dentro de um envelope que o texto não consegue fechar.
+* **Política de API comum** (`PoliticaDeConsultaDeCi`): timeout, repetição só de GET idempotente com backoff,
+  espera máxima de limite de taxa, paginação limitada com `Completo`, cache de finais por tentativa, polling com
+  backoff, limite de log e espera sem runner. Valores e faixas no guia.
+* **Permissões mínimas** do primeiro provedor: Metadata, Actions, Checks e Pull requests em leitura (Commit statuses
+  opcional), por repositório selecionado e por conexão. Sem escrita e sem token pessoal global.
+
+Alternativas descartadas: modelar o CI no Domain com estados persistidos (não há o que persistir antes da correlação
+da #238, e o provedor é a fonte de verdade); usar tipos do provedor nos contratos (acopla a Application ao GitHub);
+métodos de reexecução na porta (contornariam a aprovação da AD-72); inferir cota esgotada de workflow vermelho
+(afirmação sem evidência); abstração de tenancy/SaaS (prematura: a conexão por id já separa credenciais).
+
+Por quê: um contrato neutro e somente leitura deixa o D.A.N.T.E. observar qualquer CI sem depender do runner pessoal,
+com isolamento verificável por repositório, conexão e SHA, e com as regras de segurança dos logs no núcleo, antes de o
+primeiro adapter existir.
+
+Código: `Dante.Application/IntegracaoDeCi/{Contratos, Portas, CasosDeUso, Validacao}`,
+`Dante.Infrastructure/IntegracaoDeCi/ProvedorDeCiNaoConfigurado.cs`,
+`Dante.Infrastructure/Composicao/IntegracaoDeCiServiceCollectionExtensions.cs`. Testes: `IntegracaoDeCiContratosTests`.
