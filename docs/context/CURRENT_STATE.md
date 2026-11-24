@@ -909,6 +909,8 @@ As três entregas do gateway (etapa 9 da Epic #296):
   - a raiz é aberta antes da validação, e a validação roda sobre o handle. Todo processo Git da entrega, inclusive
     os que gravam, roda no handle com `GIT_DIR` fixo no diretório Git da worktree registrada. Uma worktree trocada
     por outro diretório no mesmo caminho é recusada antes do primeiro blob e antes do `update-ref`;
+  - o estado observado de um `Incerto` (no momento ou na recuperação depois de um reinício) usa a mesma identidade
+    conferida no handle; sem ela, é dito ilegível, sem consultar o diretório que ocupa o caminho;
   - a configuração com filtros é recusada no começo, com o motivo;
   - o hash é conferido a partir da árvore montada, que é exatamente o que o commit recebe;
   - `commit-tree` cria o commit com o autor configurado;

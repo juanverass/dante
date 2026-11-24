@@ -835,7 +835,8 @@ confinada à worktree: um arquivo ou diretório trocado por link, ou um hard lin
 gravado. O mesmo vale para a própria worktree trocada por outro diretório no mesmo caminho: a entrega fica presa ao
 diretório validado e recusa a troca antes de gravar. A entrega exige Linux (5.6+, x86_64 ou arm64). Ele nunca faz push, PR nem merge e nunca toca o
 checkout principal. Se algo mudou, nada é gravado. Se a entrega for interrompida no meio, ela não é repetida: o
-estado real da branch (HEAD e commits além da base) é informado.
+estado real da branch (HEAD e commits além da base) é informado, lido da própria worktree da execução; se outro
+diretório ocupou o caminho dela, o estado é dado como ilegível em vez de descrever o diretório errado.
 
 A identidade do autor é obrigatória e nunca vem do Git da máquina:
 

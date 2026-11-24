@@ -3292,8 +3292,9 @@ Decisão:
   confinaria a leitura ao diretório substituto, e os processos Git, que recebiam o caminho como diretório de trabalho,
   operariam sobre outro repositório. Agora:
   - **abre primeiro, valida depois, sobre o mesmo diretório.** A raiz é aberta como handle antes de qualquer
-    validação. A validação pelo nome (`ValidarAsync`) só dá a recusa explicativa. A identidade é conferida no próprio
-    handle: o Git iniciado nele (diretório de trabalho `/proc/<pid>/fd/<raiz>`, que o kernel resolve pelo descritor,
+    validação. A identidade vem só de consultas no próprio handle (revisão 5 do PR #326): a validação pelo nome
+    (`ValidarAsync`) não roda mais depois da abertura; roda só quando a abertura falha, para dar o motivo da recusa, e
+    sempre termina em recusa. A identidade é conferida no próprio handle: o Git iniciado nele (diretório de trabalho `/proc/<pid>/fd/<raiz>`, que o kernel resolve pelo descritor,
     nunca pelo nome) precisa ver exatamente o caminho da worktree como raiz. Um diretório movido aparece com outro nome;
   - o diretório Git que ele descobre precisa ser o da worktree registrada para este caminho: dentro de
     `<diretório comum>/worktrees`, com `gitdir` apontando de volta para `<caminho>/.git`, no diretório comum do
@@ -3363,7 +3364,14 @@ Decisão:
   recuperação depois do reinício e a falha inesperada no meio consultam o observador da ação antes de gravar o
   `Incerto`. Ele informa HEAD e branch, commits além da base e arquivos do index diferentes do HEAD
   (`diff-index --cached`); os arquivos da worktree não são lidos. O estado vai redigido ao
-  ledger e ao aviso. Nada é repetido nem desfeito, e um pedido novo de entrega da execução é recusado com esse estado.
+  ledger e ao aviso.
+  A observação usa a mesma identidade da entrega (revisão 5 do PR #326): a raiz é aberta como handle, a identidade é
+  conferida nele (raiz, diretório Git registrado para o caminho, diretório comum do repositório cadastrado), e todas
+  as consultas rodam no handle com `GIT_DIR` fixo. A branch é relatada, e uma branch diferente da execução é dita.
+  Sem identidade comprovada (outro diretório ou outra worktree no caminho, worktree movida), o estado é dito ilegível
+  e nada é consultado no diretório que ocupa o caminho: o ledger nunca recebe HEAD, branch ou index de outro
+  repositório. No caminho ainda em execução, o `Incerto` do commit é descrito pela âncora já aberta, sem reabrir pelo
+  nome; se o nome já não aponta para ela, isso também é dito. Nada é repetido nem desfeito, e um pedido novo de entrega da execução é recusado com esse estado.
 
 Fora desta decisão: push/PR (Issue própria), Brain e planilhas atrás do gateway (Issue própria, depois da ativação
 operacional) e a auditoria das approvals nativas da CLI.
