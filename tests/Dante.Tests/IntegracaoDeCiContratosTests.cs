@@ -354,6 +354,37 @@ public sealed class IntegracaoDeCiContratosTests
     }
 
     [Fact]
+    public void TentativaNovaSemAssociacaoNaoReaproveitaATentativaAntigaAssociada()
+    {
+        // A associação vale na tentativa vigente: a 1 (associada) foi substituída pela 2 (sem associação).
+        var check = Consolidar(Execucao(10, Head, EstadoDaExecucao.Sucesso, tentativa: 1, prs: [7]),
+            Execucao(10, Head, EstadoDaExecucao.Falha, tentativa: 2, prs: []));
+        Assert.Equal(EstadoDoCheckDeCi.Indisponivel, check.Estado);
+        Assert.Empty(check.Execucoes);
+        Assert.Equal((1, 1), (check.Descartadas, check.SemAssociacaoAoPr));
+    }
+
+    [Fact]
+    public void TentativaAntigaSemAssociacaoSubstituidaPelaNovaAssociadaNaoGeraAviso()
+    {
+        var check = Consolidar(Execucao(10, Head, EstadoDaExecucao.Falha, tentativa: 1, prs: []),
+            Execucao(10, Head, EstadoDaExecucao.Sucesso, tentativa: 2, prs: [7]));
+        Assert.Equal(EstadoDoCheckDeCi.Sucesso, check.Estado);
+        Assert.Equal(2, Assert.Single(check.Execucoes).Identidade.Tentativa);
+        Assert.Equal((1, 0), (check.Descartadas, check.SemAssociacaoAoPr));
+    }
+
+    [Fact]
+    public void ExecucaoMaisRecenteDeOutroPrNoMesmoWorkflowNaoSubstituiADoPrConsultado()
+    {
+        // Mesmo SHA, mesmo workflow e gatilho em dois PRs: a do PR 8 é mais nova, mas não é do PR 7.
+        var check = Consolidar(Execucao(10, Head, EstadoDaExecucao.Falha, criadaEm: Agora.AddMinutes(-5), prs: [7]),
+            Execucao(11, Head, EstadoDaExecucao.Sucesso, criadaEm: Agora, prs: [8]));
+        Assert.Equal(EstadoDoCheckDeCi.Falha, check.Estado);
+        Assert.Equal(10, Assert.Single(check.Execucoes).Identidade.IdDaExecucao);
+    }
+
+    [Fact]
     public void ConsultaSemNumeroDePrCorrelacionaSoPeloSha()
     {
         var semPr = new ConsultaDeCi(Consultado, Head);

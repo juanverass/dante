@@ -4,11 +4,14 @@ namespace Dante.Application.IntegracaoDeCi;
 // 1. toda execução tem de ser do repositório consultado (alias, conexão, nome e um único ID): senão a resposta inteira
 //    é recusada como Inconsistente, nunca filtrada em silêncio;
 // 2. execução de outro SHA é descartada: um run antigo nunca é diagnosticado como sendo do head atual;
-// 3. com número de PR na consulta (#238), só conta a execução que o provedor associa a esse PR: associada só a outro
-//    PR é descartada; sem associação nenhuma não conta e fica em SemAssociacaoAoPr. O mesmo SHA pode estar em dois PRs
-//    ou ter execuções de outros gatilhos, e o SHA sozinho não diz que a execução é do PR consultado;
-// 4. de cada execução vale só a maior tentativa; de cada workflow e gatilho, só a execução mais recente;
-// 5. o estado agregado segue a precedência documentada; sucesso exige resultado completo e todas as execuções
+// 3. de cada execução vale só a maior tentativa;
+// 4. com número de PR na consulta (#238), só conta a tentativa vigente que o provedor associa a esse PR: associada só a
+//    outro PR é descartada; sem associação nenhuma não conta e fica em SemAssociacaoAoPr. A associação é lida na
+//    tentativa vigente, nunca numa substituída: o provedor não garante que ela seja a mesma entre tentativas. O mesmo SHA
+//    pode estar em dois PRs ou ter execuções de outros gatilhos, e o SHA sozinho não diz que a execução é do PR;
+// 5. de cada workflow e gatilho, só a execução mais recente entre as que contam: a escolha vem depois da associação,
+//    porque dois PRs com o mesmo SHA têm execuções próprias do mesmo workflow e uma não substitui a do outro;
+// 6. o estado agregado segue a precedência documentada; sucesso exige resultado completo e todas as execuções
 //    relevantes explicitamente em Sucesso. Sem nenhuma execução associada ao PR, mas com execuções do SHA sem
 //    associação, o check é Indisponivel: não se sabe se são do PR, então não é sucesso, falha nem "sem execução".
 public static class ConsolidacaoDoCheckDeCi
@@ -19,17 +22,20 @@ public static class ConsolidacaoDoCheckDeCi
         ArgumentNullException.ThrowIfNull(resultado);
         ExigirMesmoRepositorio(consulta, resultado.Execucoes);
 
-        var doHead = resultado.Execucoes.Where(e => e.Identidade.Sha == consulta.ShaDoHead).ToArray();
+        // Primeiro a tentativa vigente de cada execução; só ela é classificada pela associação ao PR.
+        var tentativasVigentes = resultado.Execucoes
+            .Where(e => e.Identidade.Sha == consulta.ShaDoHead)
+            .GroupBy(e => e.Identidade.IdDaExecucao)
+            .Select(g => g.MaxBy(e => e.Identidade.Tentativa)!)
+            .ToArray();
         var semAssociacao = 0;
         if (consulta.NumeroDoPr is { } numeroDoPr)
         {
-            semAssociacao = doHead.Count(e => e.NumerosDePr.Count == 0);
-            doHead = doHead.Where(e => e.NumerosDePr.Contains(numeroDoPr)).ToArray();
+            semAssociacao = tentativasVigentes.Count(e => e.NumerosDePr.Count == 0);
+            tentativasVigentes = tentativasVigentes.Where(e => e.NumerosDePr.Contains(numeroDoPr)).ToArray();
         }
 
-        var vigentes = doHead
-            .GroupBy(e => e.Identidade.IdDaExecucao)
-            .Select(g => g.MaxBy(e => e.Identidade.Tentativa)!)
+        var vigentes = tentativasVigentes
             .GroupBy(e => (e.Identidade.IdDoWorkflow, e.Gatilho))
             .Select(g => g.OrderByDescending(e => e.CriadaEm).ThenByDescending(e => e.Identidade.IdDaExecucao).First())
             .OrderBy(e => e.NomeDoWorkflow, StringComparer.Ordinal).ThenBy(e => e.Identidade.IdDaExecucao)

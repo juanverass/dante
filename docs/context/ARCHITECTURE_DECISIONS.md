@@ -3772,7 +3772,9 @@ Decisão:
 * **Execução conta para o PR só se o provedor a associa ao PR**: com número de PR na `ConsultaDeCi`, a consolidação
   exige que a execução do SHA traga esse número entre os PRs associados (`NumerosDePr`). Associada só a outro PR é
   descartada; sem associação nenhuma não conta e é informada (`SemAssociacaoAoPr`); se só restam execuções sem
-  associação, o check é `Indisponivel`. Consulta sem número de PR continua correlacionando só pelo SHA.
+  associação, o check é `Indisponivel`. A associação é a da tentativa vigente de cada execução, escolhida antes; a
+  execução mais recente por workflow e gatilho é escolhida depois, entre as que contam. Consulta sem número de PR
+  continua correlacionando só pelo SHA.
 * **Identidade de CI por porta própria** (`IRepositoriosDeCi`, Infrastructure `RepositoriosDeCiConfigurados`): o
   `dono/repo` do cadastro e a **única** conexão que libera o alias, sem rede e sem ler credencial. Sem nome, sem
   conexão ou com mais de uma, `NaoConfigurada`; nunca se escolhe uma conexão nem se herda a do principal num vinculado.

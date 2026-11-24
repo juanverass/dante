@@ -340,7 +340,11 @@ conexão do principal: só é consultado se uma conexão o liberar pelo próprio
 
 O mesmo SHA pode ser o head de dois PRs, e o commit pode ter execuções de outros gatilhos: o SHA sozinho não prova que
 uma execução é do PR consultado. Por isso a consulta leva o número do PR, e cada execução do SHA é classificada pela
-lista de PRs que o provedor associa a ela (`NumerosDePr`, do campo `pull_requests` da execução no GitHub):
+lista de PRs que o provedor associa a ela (`NumerosDePr`, do campo `pull_requests` da execução no GitHub). A ordem é
+fixa: primeiro a tentativa vigente de cada execução (a maior), depois a associação **dessa** tentativa, e só então a
+execução mais recente de cada workflow e gatilho. Uma tentativa substituída nunca empresta a associação nem o estado à
+vigente (o provedor não garante que a associação seja a mesma entre tentativas), e a execução de outro PR no mesmo
+workflow não substitui a do PR consultado:
 
 | Associação da execução | Efeito |
 | --- | --- |
