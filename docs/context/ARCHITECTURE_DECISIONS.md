@@ -3663,8 +3663,8 @@ síntese em `CoordenacaoPelaFilaEndToEndTests` (inclusive o trigger por fora do 
 
 ## AD-76 — Integração de CI por porta neutra somente leitura, com check agregado por head SHA (#236)
 
-Status: vigente nos contratos (#236, Epic #234). O primeiro provedor (GitHub Actions) é a #237; nada é consultado em
-tempo de execução até lá. Segue o precedente da AD-55 (capacidade genérica na Application, provedor substituível na
+Status: vigente (contratos na #236; primeiro provedor, GitHub Actions, na #237; Epic #234). A porta ainda não tem quem a
+chame: correlação e consulta pelo Telegram são a #238. Segue o precedente da AD-55 (capacidade genérica na Application, provedor substituível na
 Infrastructure) e reaproveita AD-07 (cadastro de repositórios), AD-10 (segredo por binding do host) e AD-72 (efeito
 colateral só como ação protegida). Guia: [ci](../development/ci.md).
 
@@ -3680,8 +3680,8 @@ Decisão:
   provedor e nada é persistido nesta fase. Identidade em records validados no construtor; leituras em `*Dto`.
 * **Porta `IProvedorDeCi` somente leitura**: `ConsultarAsync` (execuções e jobs de um SHA), `ObterExecucaoAsync` (uma
   tentativa) e `ObterLogDoJobAsync` (trecho sanitizado ou a disponibilidade). Nenhum método dispara, reexecuta, cancela
-  ou comenta; isso será ação protegida do catálogo (AD-72). Sem provedor, a Infrastructure registra
-  `ProvedorDeCiNaoConfigurado`, que responde `NaoConfigurada` sem rede (toda porta tem adapter registrado).
+  ou comenta; isso será ação protegida do catálogo (AD-72). A #236 registrava um adapter fail-closed sem provedor; a
+  #237 o substituiu pelo provedor GitHub Actions, que mantém o fail-closed por chamada (abaixo).
 * **Identidade imutável**: alias cadastrado + conexão (id e referência `secret://host/NOME`, nunca o valor) + nome
   completo + ID numérico do repositório no provedor; workflow, execução, tentativa, job e SHA completo. PR é contexto;
   a chave é o SHA. Reexecução é tentativa nova.
@@ -3707,6 +3707,34 @@ Decisão:
 * **Permissões mínimas** do primeiro provedor: Metadata, Actions, Checks e Pull requests em leitura (Commit statuses
   opcional), por repositório selecionado e por conexão. Sem escrita e sem token pessoal global.
 
+Provedor GitHub Actions (#237):
+
+* **Adapter só na Infrastructure** (`ProvedorDeCiGitHubActions`), API REST por HTTP sem SDK, como o Google Sheets
+  (AD-55). O transporte (`ClienteDaApiDoGitHub`) só monta GET. Nenhum tipo ou vocabulário do GitHub atravessa a porta.
+* **Conexão autorizada pelo dono do host**, em configuração (`IntegracaoDeCi:Conexoes:<id>` com `Credencial`
+  `secret://host/NOME` e a lista fechada de `Repositorios`). Antes de qualquer rede a chamada confere quatro coisas: a
+  conexão é a configurada, com a mesma referência; o alias está liberado nela; o alias está no cadastro com o mesmo
+  `dono/repo`; o binding existe. Só depois a credencial é lida, e vai só no cabeçalho da API. Assim uma referência
+  forjada não faz o adapter ler outra variável do host, e um alias liberado não aponta para outro repositório.
+* **A resposta é conferida contra a identidade pedida** (repositório por nome e ID, execução, tentativa, workflow, SHA;
+  job por execução, tentativa e SHA; URL oficial só em `github.com/<dono>/<repo>`). O que não confere é `Inconsistente`
+  inteiro. Jobs são lidos pela tentativa (`attempts/{n}/jobs`), nunca pela execução genérica.
+* **Mapeamento fechado de status**: `queued` de job é `AguardandoRunner`; `neutral` é `Ignorada` (não afirma sucesso);
+  `action_required` é `NaFila` (ainda não rodou); `stale` é `Expirada`. Status ou conclusão fora da tabela, ou
+  `completed` sem conclusão, falha como `Inconsistente`.
+* **Política aplicada no transporte**: repete só timeout, rede, 5xx e limite de taxa, com backoff e jitter. Separa o 403
+  de limite de taxa (cota zerada ou `Retry-After`) do 403 de permissão. Espera acima do máximo vira `LimiteDeTaxa` com
+  `RepetirApos`. Não segue redirect automaticamente; o redirect assinado do log é seguido só para `https` e sem a
+  credencial. Cache de tentativa final sem expiração e de não final por 20 s, com a identidade inteira como chave.
+* **Log pelo final**: só uma janela de 4× o limite é mantida durante o download. `Sanitizar` ganhou `inicioCortado`, o
+  menor ajuste no contrato, para que o trecho saia truncado e sem a linha partida quando o começo foi descartado pelo
+  adapter. Log inacessível é disponibilidade, nunca exceção nem mudança do estado do job.
+
+Alternativas descartadas na #237: token único do host para todos os repositórios (contraria a credencial por conexão);
+autorizar só pelo alias, sem conferir o `dono/repo` do cadastro (um alias liberado poderia consultar outro repositório
+com a mesma credencial); seguir redirects com o `HttpClient` (o destino do log receberia a credencial); `neutral` como
+`Sucesso` (sucesso só por afirmação explícita); baixar o log inteiro em memória antes de cortar.
+
 Alternativas descartadas: modelar o CI no Domain com estados persistidos (não há o que persistir antes da correlação
 da #238, e o provedor é a fonte de verdade); usar tipos do provedor nos contratos (acopla a Application ao GitHub);
 métodos de reexecução na porta (contornariam a aprovação da AD-72); inferir cota esgotada de workflow vermelho
@@ -3717,5 +3745,6 @@ com isolamento verificável por repositório, conexão e SHA, e com as regras de
 primeiro adapter existir.
 
 Código: `Dante.Application/IntegracaoDeCi/{Contratos, Portas, CasosDeUso, Validacao}`,
-`Dante.Infrastructure/IntegracaoDeCi/ProvedorDeCiNaoConfigurado.cs`,
-`Dante.Infrastructure/Composicao/IntegracaoDeCiServiceCollectionExtensions.cs`. Testes: `IntegracaoDeCiContratosTests`.
+`Dante.Infrastructure/IntegracaoDeCi/{ProvedorDeCiGitHubActions, ClienteDaApiDoGitHub, MapeamentoDoGitHubActions,
+ConexoesDeCiAutorizadas}.cs`, `Dante.Infrastructure/Composicao/IntegracaoDeCiServiceCollectionExtensions.cs`. Testes:
+`IntegracaoDeCiContratosTests`, `ProvedorDeCiGitHubActionsTests`.

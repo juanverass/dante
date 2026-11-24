@@ -15,13 +15,15 @@ public static class SanitizacaoDeTextoDeCi
     public const string FechamentoDoEnvelope = "<<<FIM_DADO_NAO_CONFIAVEL>>>";
     public const string LinhaRedigida = "[linha omitida: possível credencial]";
 
-    public static TrechoDeLogDeCi Sanitizar(string? bruto, int limiteEmBytes)
+    // inicioCortado: quem leu o texto já descartou o começo (o adapter baixa só o final do log, #237). O trecho sai
+    // marcado como truncado e a primeira linha, possivelmente partida no meio, é descartada.
+    public static TrechoDeLogDeCi Sanitizar(string? bruto, int limiteEmBytes, bool inicioCortado = false)
     {
         if (limiteEmBytes is < 1024 or > 1024 * 1024)
             throw new ArgumentOutOfRangeException(nameof(limiteEmBytes), "Limite do trecho entre 1 KiB e 1 MiB.");
         var texto = bruto ?? string.Empty;
         // Corte prévio barato: a regex de credencial nunca percorre mais que quatro vezes o limite.
-        var truncado = false;
+        var truncado = inicioCortado;
         if (texto.Length > limiteEmBytes * 4)
         {
             texto = texto[^(limiteEmBytes * 4)..];

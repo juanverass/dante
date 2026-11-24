@@ -280,9 +280,8 @@ health/503, 404/405, sanitização e ambientes. [Operação HTTP](../maintainer/
   persistência no PR 1 (#324, integrado), gateway na Application e adaptador do Telegram no PR 2 (#325, integrado), e
   entrega do artefato do roteiro por commit local no PR 3 (em revisão).
 
-- **Epic #234 — Integração de CI**: contratos neutros da porta de CI, matriz de estados e falhas, isolamento por
-  repositório/conexão/SHA, segurança dos logs e permissões mínimas (#236, AD-76) em revisão; o adapter GitHub Actions
-  somente leitura (#237) é o próximo.
+- **Epic #234 — Integração de CI**: contratos neutros da porta de CI (#236, AD-76) integrados; adapter GitHub Actions
+  somente leitura (#237) em revisão; correlação PR/commit e consulta pelo Telegram (#238) é o próximo.
 
 Para saber quem está trabalhando em qual Issue, consulte os comentários de turno na
 própria Issue.
@@ -1055,14 +1054,18 @@ continuam puros. DI do DbContext exige autorização, sem fallback administrativ
 quando AddApplication é omitido. Testes de composição resolvem a lista integral
 com adapters e um CRUD com fakes sem Infrastructure (AD-54).
 
-## Contratos da integração de CI (#236, AD-76)
+## Integração de CI (#236, #237, AD-76)
 
 Feature `IntegracaoDeCi` na Application, sem Domain nem persistência: porta `IProvedorDeCi` somente leitura, identidade
 imutável (alias cadastrado, conexão por referência `secret://host/NOME`, nome e ID do repositório, workflow, execução,
 tentativa, job e SHA completo), check agregado por head SHA separado de job e tentativa, transições monotônicas, falha
-classificada só com evidência e sanitização de texto do CI como dado não confiável. Sem provedor, a porta responde
-"não configurada" (`ProvedorDeCiNaoConfigurado`); nenhuma consulta real, comando ou interface existe ainda. Guia:
-[ci](../development/ci.md).
+classificada só com evidência e sanitização de texto do CI como dado não confiável.
+
+O provedor registrado é o GitHub Actions (`ProvedorDeCiGitHubActions`, #237), só com GET na API REST: execuções do
+SHA com tentativa e jobs da tentativa, uma tentativa específica e o final sanitizado do log de um job. Só consulta
+conexão configurada no host (`IntegracaoDeCi__Conexoes__<id>`) para aliases liberados nela e cadastrados com o mesmo
+`dono/repo`; sem isso responde `NaoConfigurada`/`NaoAutorizada` sem rede. Hosted e self-hosted saem pela mesma forma
+neutra. Ainda não há quem chame a porta: correlação, comando e interface são a #238. Guia: [ci](../development/ci.md).
 
 ## Planilhas genéricas (#224)
 

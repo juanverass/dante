@@ -1,9 +1,9 @@
-# Integração de CI — contratos
+# Integração de CI — contratos e provedor GitHub Actions
 
-Guia dos contratos da integração de CI do D.A.N.T.E. (Epic #234, Issue #236, AD-76 em [ARCHITECTURE_DECISIONS](../context/ARCHITECTURE_DECISIONS.md)).
-O CI externo continua sendo a fonte de verdade e roda sem o D.A.N.T.E.: aqui só existem os contratos para
-**observá-lo**. O primeiro provedor (GitHub Actions) é a #237; correlação e consulta pelo Telegram, a #238; diagnóstico,
-a #239; correção supervisionada, a #240.
+Guia da integração de CI do D.A.N.T.E. (Epic #234; contratos na #236, provedor GitHub Actions na #237; AD-76 em
+[ARCHITECTURE_DECISIONS](../context/ARCHITECTURE_DECISIONS.md)). O CI externo continua sendo a fonte de verdade e roda
+sem o D.A.N.T.E., online ou não: aqui só existe o que é preciso para **observá-lo**. Correlação e consulta pelo
+Telegram são a #238; diagnóstico, a #239; correção supervisionada, a #240.
 
 ## Onde vive
 
@@ -12,7 +12,7 @@ a #239; correção supervisionada, a #240.
 | `Dante.Application/IntegracaoDeCi/Contratos` | identidade (`ConexaoDeCi`, `RepositorioDeCi`, `ConsultaDeCi`, `IdentidadeDaExecucaoDeCi`, `IdentidadeDoJobDeCi`), estados, DTOs (`ExecucaoDeCiDto`, `JobDeCiDto`, `EtapaDeJobDeCiDto`, `CheckAgregadoDeCiDto`, `EvidenciaDeCiDto`, `FalhaDeCiDto`, `LogDeJobDeCiDto`), `TrechoDeLogDeCi`, `PoliticaDeConsultaDeCi`, `FalhaNaConsultaDeCiException` |
 | `Dante.Application/IntegracaoDeCi/Portas` | `IProvedorDeCi` (somente leitura) |
 | `Dante.Application/IntegracaoDeCi/CasosDeUso` | regras puras: `TransicoesDaExecucaoDeCi`, `ConsolidacaoDoCheckDeCi`, `MatrizDeFalhasDeCi`, `SanitizacaoDeTextoDeCi` |
-| `Dante.Infrastructure/IntegracaoDeCi` | `ProvedorDeCiNaoConfigurado` (fail-closed) até a #237 |
+| `Dante.Infrastructure/IntegracaoDeCi` | `ProvedorDeCiGitHubActions` (porta), `ConexoesDeCiAutorizadas` (conexões do host), `ClienteDaApiDoGitHub` (só GET, política de repetição), `MapeamentoDoGitHubActions` (status → estados neutros) |
 
 Nada é persistido nesta fase: não há entidade de Domain, tabela nem migration. Nenhum tipo da feature menciona
 provedor, interface ou caminho do host (`IntegracaoDeCiContratosTests` recusa esse vocabulário).
@@ -138,6 +138,129 @@ consolidação é determinística para a mesma resposta.
   instrução; o texto não consegue fechar o envelope (`<<<`/`>>>` são neutralizados) nem injetar atributos pela origem.
 * **Mensagens de falha** da consulta não trazem credencial, cabeçalho, URL de API nem corpo de resposta.
 
+## Provedor GitHub Actions (#237)
+
+`ProvedorDeCiGitHubActions` é o adapter registrado da porta. Ele consulta a API REST (`api.github.com`, versão
+`2022-11-28`) só com GET e devolve só tipos neutros. A execução no GitHub-hosted ou no self-hosted produz a mesma
+resposta: runner, rótulos e máquina não fazem parte do contrato.
+
+### Configuração
+
+Uma conexão por credencial, no ambiente do Worker (ou em `appsettings`), nunca pelo Telegram:
+
+```bash
+IntegracaoDeCi__Conexoes__pessoal__Credencial=secret://host/DANTE_CI_GITHUB_TOKEN
+IntegracaoDeCi__Conexoes__pessoal__Repositorios=@dante,@fitnessapp
+DANTE_CI_GITHUB_TOKEN=<fine-grained token só com os repositórios e permissões abaixo>
+```
+
+| Item | Regra |
+| --- | --- |
+| id da conexão | o mesmo de `ConexaoDeCi.Id` (`^[a-z][a-z0-9_-]{0,39}$`) |
+| `Credencial` | referência `secret://host/NOME` (AD-10); o valor fica só na variável `NOME` do host |
+| `Repositorios` | aliases do cadastro que a conexão pode consultar, separados por vírgula; ao menos um |
+
+Credencial com o valor em vez da referência, conexão sem repositório, alias fora do formato do cadastro ou id
+repetido são recusados ao compor o provedor. Sem a seção, o provedor existe e toda chamada responde `NaoConfigurada`.
+
+### Antes de qualquer requisição
+
+Toda chamada confere, nesta ordem e sem rede:
+
+1. a conexão pedida está configurada (`NaoConfigurada`) e é exatamente a configurada, com a mesma referência
+   (`NaoAutorizada`): uma referência trocada nunca faz o adapter ler outra variável do host;
+2. o alias está liberado nessa conexão (`NaoAutorizada`);
+3. o alias está no cadastro (AD-07) com o mesmo `dono/repo` consultado (`NaoAutorizada`);
+4. a variável do host existe e não está vazia (`NaoConfigurada`).
+
+Só então a credencial é lida e enviada no cabeçalho `Authorization` da API. Ela nunca vai para a URL nem para o destino
+de redirect, e não aparece em mensagem de falha.
+
+### Consultas
+
+| Porta | Chamadas |
+| --- | --- |
+| `ConsultarAsync` | `actions/runs?head_sha=` (paginado); para cada execução, `runs/{id}/attempts/{tentativa}/jobs` (paginado); sem execução, `actions/workflows?per_page=1` para distinguir repositório sem workflow |
+| `ObterExecucaoAsync` | `runs/{id}/attempts/{tentativa}` e os jobs da tentativa |
+| `ObterLogDoJobAsync` | `actions/jobs/{id}`; se terminou, `actions/jobs/{id}/logs` e o redirect assinado, seguido **sem credencial** |
+
+Conferências sobre a resposta; o que não confere é recusado inteiro como `Inconsistente`, nunca filtrado:
+
+* execução de outro repositório (nome ou ID diferente do consultado);
+* em `ObterExecucaoAsync`, outra execução, tentativa, workflow ou SHA que a identidade pedida;
+* job de outra execução, tentativa ou SHA que a tentativa em que ele aparece (vale também para o log);
+* URL oficial que não seja `https://github.com/<dono>/<repo>/...` (URL da API, de outro repositório, http ou com
+  credencial);
+* campo obrigatório ausente, tipo errado, JSON inválido ou resposta acima de 8 MiB;
+* 3xx em consulta JSON (repositório renomeado ou transferido: o cadastro precisa ser atualizado).
+
+Execução de outro SHA que a API devolva fica no resultado e é descartada pela `ConsolidacaoDoCheckDeCi`. A listagem só
+traz a última tentativa de cada execução; tentativas anteriores são lidas por `ObterExecucaoAsync`, cada uma com
+identidade e jobs próprios. Nomes de workflow, job, etapa e evento passam pela `SanitizacaoDeTextoDeCi`, ficam numa
+linha só e com até 200 caracteres.
+
+### Mapeamento de estados
+
+| `status` | `conclusion` | Execução e etapa | Job |
+| --- | --- | --- | --- |
+| `queued` | — | `NaFila` | `AguardandoRunner` (o job espera um runner) |
+| `requested`, `pending`, `waiting` | — | `NaFila` | `NaFila` |
+| `in_progress` | — | `EmAndamento` | `EmAndamento` |
+| `completed` | `success` | `Sucesso` | `Sucesso` |
+| `completed` | `failure`, `startup_failure` | `Falha` | `Falha` |
+| `completed` | `cancelled` | `Cancelada` | `Cancelada` |
+| `completed` | `timed_out`, `stale` | `Expirada` | `Expirada` |
+| `completed` | `skipped`, `neutral` | `Ignorada` | `Ignorada` |
+| `completed` | `action_required` | `NaFila` (aguarda aprovação para rodar, ex.: PR de fork) | `NaFila` |
+| outro, ou `completed` sem conclusão | | consulta falha como `Inconsistente` | |
+
+`neutral` não afirma sucesso nem falha: não conta para o check. Nenhuma conclusão vira limite de minutos ou cobrança;
+essa categoria só nasce de anotação explícita do provedor (#239).
+
+### Falhas e repetição
+
+| Resposta | Consulta (`ConsultarAsync`, `ObterExecucaoAsync`) | Log (`ObterLogDoJobAsync`) | Repete? |
+| --- | --- | --- | --- |
+| 401 | `NaoAutorizada` | `SemPermissao` | não |
+| 403 sem sinal de limite de taxa | `SemPermissao` | `SemPermissao` | não |
+| 404 | `NaoEncontrada` | `NaoEncontrado` | não |
+| 410 | `Indisponivel` | `Expirado` | não |
+| 429, ou 403 com `x-ratelimit-remaining: 0` ou `Retry-After` | `LimiteDeTaxa` com `RepetirApos` | `Indisponivel` | sim, se a espera couber em `EsperaMaximaPorLimiteDeTaxa` |
+| 5xx, timeout da requisição, falha de rede | `Indisponivel` | `Indisponivel` | sim, backoff 1 s, 2 s... com jitter |
+| outro 4xx | `Indisponivel` | `Indisponivel` | não |
+| cancelamento de quem chamou | `OperationCanceledException`, nunca falha do CI | idem | não |
+
+A espera do limite de taxa vem de `Retry-After`, de `x-ratelimit-reset` ou, sem cabeçalho, de um minuto. Se passar do
+máximo da política, a chamada falha na hora com `RepetirApos`, sem ficar presa. A repetição é da mesma requisição GET:
+a resposta que vale é a última, sem somar resultados. Log inacessível nunca vira exceção nem muda o estado do job, que
+vem da execução. Job ainda não terminado responde `AindaEmAndamento`, sem baixar nada.
+
+### Logs
+
+* só o final é baixado, numa janela de 4× o limite pedido; o começo descartado marca o trecho como truncado e a
+  primeira linha, partida no meio, não aparece (`Sanitizar(..., inicioCortado: true)`);
+* log acima de 64 MiB não é lido: `Indisponivel`;
+* o redirect só é seguido para `https`, sem `Authorization`; outro destino responde `Indisponivel`;
+* o texto passa pela `SanitizacaoDeTextoDeCi` (sequências de terminal, invisíveis, linhas com credencial aparente) e,
+  para um agente, só pelo envelope de dado não confiável.
+
+### Cache
+
+Mesma regra da política: a tentativa final (com a lista de jobs completa) não muda e não expira; a não final vale por
+`ValidadeDoCacheNaoFinal` (20 s) em `ObterExecucaoAsync`. Na listagem só se reaproveita a tentativa final. A chave é a
+identidade inteira, com alias e conexão: uma conexão nunca lê o que outra trouxe, e a autorização é refeita a cada
+chamada mesmo com o cache cheio. O cache fica em memória, tem até 1024 entradas e é esvaziado quando enche.
+
+### Limites conhecidos
+
+* só `api.github.com`; GitHub Enterprise Server fica para quando houver um cliente com ele;
+* check runs e status legados de outros sistemas (apps de terceiros) não entram: o resultado é o dos workflows do
+  Actions;
+* paginação no limite da política (100 × 5) deixa o resultado `Completo = false`, e o check nunca vira `Sucesso`;
+  em `ObterExecucaoAsync`, jobs além do limite fazem a consulta falhar como `Indisponivel` em vez de devolver parte;
+* a conexão não é persistida nem gerida pelo Telegram: é configuração do host;
+* não há polling, comando nem interface: quem chama a porta é a #238.
+
 ## Permissões mínimas no GitHub (#237)
 
 Para o adapter somente leitura, por repositório selecionado (fine-grained token restrito aos repositórios cadastrados
@@ -152,5 +275,6 @@ ou, quando houver comercialização, instalação de GitHub App por conta):
 | Commit statuses | read | opcional: só para repositórios que publicam status legados |
 
 Nada de escrita, nem `Contents`, `Workflows` ou `Administration`. Token clássico com escopo `repo` não é aceito como
-caminho padrão. Escrita (`Actions: write` para reexecutar, `Pull requests: write` para comentar) só existirá com a
+caminho padrão. O adapter da #237 usa hoje Metadata e Actions; Checks e Pull requests ficam previstas para a correlação
+da #238. Escrita (`Actions: write` para reexecutar, `Pull requests: write` para comentar) só existirá com a
 ação protegida correspondente.
