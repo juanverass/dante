@@ -903,6 +903,24 @@ o estado continua consultável por `/execucao`. Erros e pedidos aparecem redigid
 comandos respondem que não estão habilitados; `/status` e `/cancel J…` continuam funcionando em memória, só com os
 jobs do próprio usuário.
 
+## Andamento do CI de um PR
+
+Com uma conexão de CI configurada no host para o repositório (guia em [ci](docs/development/ci.md)), pergunte como está
+o CI de um PR pelo comando ou em linguagem natural:
+
+```text
+/ci 12                                   repositório da sessão ativa ou, sem ela, o repositório ativo
+/ci @dante 12                            repositório explícito
+como está o CI do PR 12 do @dante?       a mesma consulta
+```
+
+O D.A.N.T.E. lê o PR na hora e mostra só as execuções do **commit atual** dele: as de commits anteriores não contam.
+A resposta traz cada workflow (passou, falhou, em andamento, na fila, aguardando runner, cancelado), os jobs que
+falharam com a etapa, o que falta, e os links do PR e das execuções. Sem permissão ou provedor fora do ar aparecem como
+tal, nunca como falha. Workflow verde não quer dizer que o PR pode ser mesclado: proteção da branch, checks
+obrigatórios e revisões não são avaliados. A consulta é sob demanda, somente leitura e não reexecuta nada; repositórios
+vinculados não herdam a conexão de CI do principal.
+
 ## Repositório ativo
 
 Cada usuário autorizado pode manter um repositório ativo para as próximas mensagens, sem
@@ -1348,6 +1366,7 @@ O cancelamento é propagado ao processo e o D.A.N.T.E. encerra a árvore de proc
 | `/execucoes [todas]` | Lista suas execuções no ledger: ativas e últimas encerradas |
 | `/execucao <J…\|E…>` | Detalhe de uma execução sua: etapas, estado, sessão `S…` da tarefa, motivo e erro redigido |
 | `/aguardando` | Suas execuções que esperam, e por quê |
+| `/ci [@alias] <PR>` | Andamento do CI do commit atual de um PR, com links; também por "como está o CI do PR 12 do @alias?" |
 | `/acoes` | Pedidos de ação protegida aguardando você (resumo redigido, hash curto, prazo); aprovar exige o hash exibido e autoriza uma execução. `/acoes aprovar\|recusar <id> …` sem botões |
 | `/execucao entregar <E…> [mensagem]` | Pede a entrega do resultado aprovado de um roteiro: um commit local na branch da worktree, sem push, depois de aprovado em `/acoes` (exige `Orquestracao:Entrega:AutorNome`/`AutorEmail`) |
 | `/session start [claude\|codex] [@alias] [manual\|auto\|plan] [model=<modelo>] [effort=<nível>]` | Inicia e seleciona uma sessão interativa; usa agente, contexto e modo selecionados se omitidos |

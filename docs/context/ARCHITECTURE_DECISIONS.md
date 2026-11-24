@@ -3663,8 +3663,8 @@ síntese em `CoordenacaoPelaFilaEndToEndTests` (inclusive o trigger por fora do 
 
 ## AD-76 — Integração de CI por porta neutra somente leitura, com check agregado por head SHA (#236)
 
-Status: vigente (contratos na #236; primeiro provedor, GitHub Actions, na #237; Epic #234). A porta ainda não tem quem a
-chame: correlação e consulta pelo Telegram são a #238. Segue o precedente da AD-55 (capacidade genérica na Application, provedor substituível na
+Status: vigente (contratos na #236; primeiro provedor, GitHub Actions, na #237; Epic #234). Quem chama a porta é o
+andamento do CI de um PR (#238, AD-77). Segue o precedente da AD-55 (capacidade genérica na Application, provedor substituível na
 Infrastructure) e reaproveita AD-07 (cadastro de repositórios), AD-10 (segredo por binding do host) e AD-72 (efeito
 colateral só como ação protegida). Guia: [ci](../development/ci.md).
 
@@ -3750,3 +3750,64 @@ Código: `Dante.Application/IntegracaoDeCi/{Contratos, Portas, CasosDeUso, Valid
 `Dante.Infrastructure/IntegracaoDeCi/{ProvedorDeCiGitHubActions, ClienteDaApiDoGitHub, MapeamentoDoGitHubActions,
 ConexoesDeCiAutorizadas}.cs`, `Dante.Infrastructure/Composicao/IntegracaoDeCiServiceCollectionExtensions.cs`. Testes:
 `IntegracaoDeCiContratosTests`, `ProvedorDeCiGitHubActionsTests`.
+
+## AD-77 — Andamento do CI de um PR sob demanda, pelo head SHA lido na hora e com gramática fechada (#238)
+
+Status: vigente (#238, Epic #234). Usa a porta e o provedor da AD-76; reaproveita AD-07 (cadastro), AD-14 (repositório
+ativo), AD-58 (vinculados) e o modelo de intenção natural determinística do Brain (#157). Guia:
+[ci](../development/ci.md#andamento-do-ci-de-um-pr-238).
+
+Contexto: o usuário quer perguntar "como está o CI do PR 12 do @dante?" e receber o estado real do commit atual do PR,
+sem confundir commits, repositórios ou credenciais e sem que um workflow verde vire "pode mesclar". A porta da AD-76 só
+consultava por SHA; ninguém lia o PR, e a Application não sabia qual conexão serve a um alias nem o `dono/repo` dele
+(isso vive no cadastro e na configuração do host).
+
+Decisão:
+
+* **Head SHA lido na hora, nunca guardado**: `IProvedorDeCi` ganha `ObterPullRequestAsync` (só GET `pulls/{numero}`,
+  mesma autorização, credencial, transporte e política; sem cache). O adapter confere número, repositório de destino
+  (nome e ID), SHA completo, estado e URL oficial; o caso de uso confere de novo número, alias e conexão. A consulta das
+  execuções usa esse SHA e o ID confirmado, e a `ConsolidacaoDoCheckDeCi` descarta outros SHAs: um commit novo não herda
+  o sucesso do anterior. PR de fork é aceito e informado; PR de outro repositório é `Inconsistente`.
+* **Execução conta para o PR só se o provedor a associa ao PR**: com número de PR na `ConsultaDeCi`, a consolidação
+  exige que a execução do SHA traga esse número entre os PRs associados (`NumerosDePr`). Associada só a outro PR é
+  descartada; sem associação nenhuma não conta e é informada (`SemAssociacaoAoPr`); se só restam execuções sem
+  associação, o check é `Indisponivel`. A associação é a da tentativa vigente de cada execução, escolhida antes; a
+  execução mais recente por workflow e gatilho é escolhida depois, entre as que contam. Consulta sem número de PR
+  continua correlacionando só pelo SHA.
+* **Identidade de CI por porta própria** (`IRepositoriosDeCi`, Infrastructure `RepositoriosDeCiConfigurados`): o
+  `dono/repo` do cadastro e a **única** conexão que libera o alias, sem rede e sem ler credencial. Sem nome, sem
+  conexão ou com mais de uma, `NaoConfigurada`; nunca se escolhe uma conexão nem se herda a do principal num vinculado.
+  A autorização completa continua sendo refeita pelo provedor a cada chamada.
+* **Resolução do repositório**: alias explícito > repositório principal da sessão ativa (para onde vão as mensagens
+  comuns) > repositório ativo (`/use`) > pedir o alias. Repositório ativo fora do cadastro pede nova seleção.
+* **Caso de uso neutro na Application** (`AcompanhamentoDeCiAppService`, sempre composto, sem banco): devolve
+  `SituacaoDoCiDoPullRequestDto` com exatamente um caminho (problema do repositório, falha ao ler o PR, ou PR + check).
+  Falha da consulta de execuções vira `SemPermissao`/`Indisponivel`, nunca falha do CI.
+* **Interface: `/ci` e uma gramática natural fechada** no adapter `TelegramCi`, reconhecida antes do Brain e da
+  sessão. Exige CI/checks/pipeline e o número do PR; o alias só vale se dito. O que não casa segue para a conversa,
+  como antes. Texto curto em PT-BR com links oficiais do PR e das execuções; sucesso sempre acompanhado de "proteção
+  da branch, checks obrigatórios e revisões não foram avaliados".
+* **Sob demanda, sem polling**: cada pergunta é uma consulta, limitada a 45 s no adapter; acompanhamento periódico
+  exige política explícita, que não existe.
+
+Alternativas descartadas: deixar o agente da conversa responder (não tem acesso à porta nem às credenciais, e a
+resposta deixaria de ser determinística); NLU por modelo para reconhecer a pergunta (inferência não auditável decidindo
+consulta a um sistema externo; o projeto já usa gramática fechada para intenções); só o comando `/ci` (a Issue pede
+pergunta natural, e a gramática do Brain mostra que dá para fazê-la com segurança); guardar o head SHA ou o PR em
+cache (um push novo herdaria o resultado anterior); resolver a conexão pelo primeiro item da configuração quando duas
+liberam o alias (escolha silenciosa de credencial); deixar o repositório vinculado usar a conexão do principal
+(contraria a AD-58 e a credencial por conexão); afirmar "pronto para merge" com o workflow verde (branch protections,
+checks obrigatórios e revisões não são lidos); correlacionar o PR só pelo SHA (o mesmo SHA pode estar em dois PRs, e
+a execução do vizinho entraria no resumo); contar a execução sem associação como do PR (a API não documenta quando a
+associação vem vazia, então isso seria presumir).
+
+Por quê: o PR é o ponto de entrada e o filtro; a verdade continua sendo o SHA, lido na hora, com o mesmo isolamento
+por repositório e conexão da AD-76, e só conta o que o provedor liga àquele PR. A gramática fechada dá a pergunta natural sem abrir uma via de inferência, e a
+consulta sob demanda não cria carga nem estado novo.
+
+Código: `Dante.Application/IntegracaoDeCi/{AcompanhamentoDeCiAppService, IAcompanhamentoDeCiAppService}.cs`,
+`Contratos/{PullRequestDeCiDto, SituacaoDoCiDoPullRequestDto, ...}.cs`, `Portas/IRepositoriosDeCi.cs`,
+`Dante.Infrastructure/IntegracaoDeCi/{ProvedorDeCiGitHubActions, MapeamentoDoGitHubActions, RepositoriosDeCiConfigurados}.cs`,
+`Dante.Worker/Telegram/TelegramCi.cs`. Testes: `AcompanhamentoDeCiTests`, `TelegramCiTests`,
+`ProvedorDeCiGitHubActionsTests` (seções do PR, da identidade e ponta a ponta).

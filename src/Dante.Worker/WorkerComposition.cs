@@ -34,6 +34,9 @@ internal static class WorkerComposition
             services.AddSingleton<TelegramAprovacoesDeAcao>();
             services.AddHostedService<ManutencaoDasAprovacoesDeAcao>();
         }
+        // Andamento do CI de um PR (#238, AD-77): sem banco; sem conexão de CI no host, a resposta diz que não está
+        // configurado.
+        services.AddSingleton<TelegramCi>();
         services.AddSingleton<JobRegistry>();
         services.AddSingleton<RegistroDeOperacoesBrain>();
         services.AddSingleton(provider => new TelegramBrain(provider.GetRequiredService<IServiceScopeFactory>(), configuration, provider.GetRequiredService<RegistroDeOperacoesBrain>()));

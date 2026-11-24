@@ -59,6 +59,14 @@ internal sealed class ConexoesDeCiAutorizadas
         return configurada.Definicao.ReferenciaDaCredencial[PrefixoDaReferencia.Length..];
     }
 
+    // Conexões que liberam o alias (#238), para montar a identidade de CI sem escolher entre duas. Não lê credencial.
+    internal IReadOnlyList<ConexaoDeCi> QueLiberam(string alias)
+    {
+        var normalizado = RepositoryRegistry.NormalizeAlias(alias);
+        return conexoes.Values.Where(c => c.Aliases.Contains(normalizado)).Select(c => c.Definicao)
+            .OrderBy(c => c.Id, StringComparer.Ordinal).ToArray();
+    }
+
     internal string LerCredencial(string variavelDoHost) =>
         lerVariavelDoHost(variavelDoHost) is { Length: > 0 } valor
             ? valor

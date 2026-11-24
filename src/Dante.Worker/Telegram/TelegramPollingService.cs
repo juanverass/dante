@@ -44,7 +44,8 @@ public sealed partial class TelegramPollingService(
     ExecutorDeJobsDaFila? filaDeJobs = null, TelegramAgentes? agentes = null,
     ExecutorDeTarefasDaFila? filaDeTarefas = null, TelegramExecucoes? execucoes = null,
     TelegramGrupos? grupos = null, ExecutorDeRoteirosDaFila? filaDeRoteiros = null,
-    ExecutorDeCoordenacoesDaFila? filaDeCoordenacoes = null, TelegramAprovacoesDeAcao? acoes = null) : BackgroundService
+    ExecutorDeCoordenacoesDaFila? filaDeCoordenacoes = null, TelegramAprovacoesDeAcao? acoes = null,
+    TelegramCi? ci = null) : BackgroundService
 {
     private const int MaxMessageLength = 4000;
     private static readonly TimeSpan PollRetryDelay = TimeSpan.FromSeconds(3);
@@ -245,6 +246,20 @@ public sealed partial class TelegramPollingService(
 
     private async Task HandleTextAsync(TelegramMessage message, string text, CancellationToken cancellationToken)
     {
+        // CI of a PR (#238, AD-77): /ci and the closed natural question come before the Brain and the conversation, so a
+        // pending Brain capture never swallows them; anything else falls through unchanged.
+        if (ci is not null && TelegramCi.Interpretar(text) is { } pedidoDeCi)
+        {
+            await SendLongMessageAsync(message.Chat.Id, await ci.AtenderAsync(message.From!.Id,
+                RepositorioDaSessaoAtiva(message.From.Id), pedidoDeCi, cancellationToken), cancellationToken);
+            return;
+        }
+        if (ci is null && (text.Equals("/ci", StringComparison.OrdinalIgnoreCase) ||
+                           text.StartsWith("/ci ", StringComparison.OrdinalIgnoreCase)))
+        {
+            await SendReplyAsync(message.Chat.Id, TelegramCi.Indisponivel, cancellationToken);
+            return;
+        }
         var brainScope = continuidade?.EscopoSelecionado(message);
         if (brain is not null && await brain.AtenderAsync(message, text, sessions?.GetActive(message.From!.Id)?.Id,
                 cancellationToken) is { } respostaBrain)
@@ -1876,6 +1891,13 @@ public sealed partial class TelegramPollingService(
             logger.LogDebug("Falha ao indicar digitação ({ErrorType}).", exception.GetType().Name);
         }
     }
+
+    // The primary repository of the live active session, which is where ordinary messages go; linked ones never count.
+    private string? RepositorioDaSessaoAtiva(long userId) =>
+        sessions?.GetActive(userId) is { Context: { Mode: JobExecutionMode.Repository, RepositoryAlias: { } alias } } session &&
+        session.State is not (AgentSessionState.Failed or AgentSessionState.Closing or AgentSessionState.Closed)
+            ? alias
+            : null;
 
     private async Task SendLongMessageAsync(long chatId, string text, CancellationToken cancellationToken)
     {

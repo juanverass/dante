@@ -9,7 +9,8 @@ namespace Dante.Infrastructure.IntegracaoDeCi;
 
 // Primeiro provedor da porta de CI (#237, AD-76): GitHub Actions pela API REST, somente leitura. O D.A.N.T.E. observa
 // o CI que já roda no GitHub (hosted ou self-hosted: a API e a experiência são as mesmas) e nunca o dirige; não há
-// método que dispare, reexecute, cancele, comente ou escreva checks.
+// método que dispare, reexecute, cancele, comente ou escreva checks. Desde a #238 também lê o PR (head SHA atual), com
+// a mesma porta de entrada e o mesmo transporte.
 //
 // Toda chamada passa pela mesma porta de entrada, sem rede até o fim:
 // 1. a conexão está configurada no host, é exatamente a configurada e libera o alias (ConexoesDeCiAutorizadas);
@@ -30,6 +31,18 @@ internal sealed class ProvedorDeCiGitHubActions(ConexoesDeCiAutorizadas conexoes
     // Cache da política: tentativa final não muda e não expira; não final vale por ValidadeDoCacheNaoFinal. A chave é a
     // identidade inteira (alias, conexão, repositório, execução, tentativa, SHA): conexões nunca compartilham entrada.
     private readonly ConcurrentDictionary<IdentidadeDaExecucaoDeCi, (ExecucaoDeCiDto Execucao, DateTimeOffset? Expira)> cache = new();
+
+    // GET pulls/{numero} do repositório consultado (#238), com a mesma autorização, credencial e política das demais
+    // leituras. Nunca em cache: o head SHA de um PR muda a cada commit e só o atual é correlacionado.
+    public async Task<PullRequestDeCiDto> ObterPullRequestAsync(RepositorioDeCi repositorio, int numero,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repositorio);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(numero);
+        var (credencial, caminho) = Autorizar(repositorio);
+        var pr = await ObterJsonAsync($"{caminho}/pulls/{numero}", credencial, cancellationToken);
+        return MapeamentoDoGitHubActions.PullRequest(repositorio, numero, pr);
+    }
 
     public async Task<ResultadoDaConsultaDeCi> ConsultarAsync(ConsultaDeCi consulta, CancellationToken cancellationToken = default)
     {

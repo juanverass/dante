@@ -1,9 +1,9 @@
-# Integração de CI — contratos e provedor GitHub Actions
+# Integração de CI — contratos, provedor GitHub Actions e andamento do PR
 
-Guia da integração de CI do D.A.N.T.E. (Epic #234; contratos na #236, provedor GitHub Actions na #237; AD-76 em
-[ARCHITECTURE_DECISIONS](../context/ARCHITECTURE_DECISIONS.md)). O CI externo continua sendo a fonte de verdade e roda
-sem o D.A.N.T.E., online ou não: aqui só existe o que é preciso para **observá-lo**. Correlação e consulta pelo
-Telegram são a #238; diagnóstico, a #239; correção supervisionada, a #240.
+Guia da integração de CI do D.A.N.T.E. (Epic #234; contratos na #236, provedor GitHub Actions na #237, andamento do CI
+de um PR pelo Telegram na #238; AD-76 e AD-77 em [ARCHITECTURE_DECISIONS](../context/ARCHITECTURE_DECISIONS.md)). O CI
+externo continua sendo a fonte de verdade e roda sem o D.A.N.T.E., online ou não: aqui só existe o que é preciso para
+**observá-lo**. Diagnóstico é a #239; correção supervisionada, a #240.
 
 Padrão de CI dos repositórios observados (inventário, runners em conta pessoal, workflows reutilizáveis, políticas e
 rollout): [ci-multirepo](ci-multirepo.md) (#241).
@@ -13,9 +13,12 @@ rollout): [ci-multirepo](ci-multirepo.md) (#241).
 | Camada | O quê |
 | --- | --- |
 | `Dante.Application/IntegracaoDeCi/Contratos` | identidade (`ConexaoDeCi`, `RepositorioDeCi`, `ConsultaDeCi`, `IdentidadeDaExecucaoDeCi`, `IdentidadeDoJobDeCi`), estados, DTOs (`ExecucaoDeCiDto`, `JobDeCiDto`, `EtapaDeJobDeCiDto`, `CheckAgregadoDeCiDto`, `EvidenciaDeCiDto`, `FalhaDeCiDto`, `LogDeJobDeCiDto`), `TrechoDeLogDeCi`, `PoliticaDeConsultaDeCi`, `FalhaNaConsultaDeCiException` |
-| `Dante.Application/IntegracaoDeCi/Portas` | `IProvedorDeCi` (somente leitura) |
+| `Dante.Application/IntegracaoDeCi/Contratos` (#238) | `PullRequestDeCiDto`, `EstadoDoPullRequestDeCi`, `PedidoDeCiDoPullRequestDto`, `SituacaoDoCiDoPullRequestDto`, `OrigemDoRepositorioDeCi`, `ProblemaDoRepositorioDeCi` |
+| `Dante.Application/IntegracaoDeCi/Portas` | `IProvedorDeCi` (somente leitura), `IRepositoriosDeCi` (identidade de CI de um alias, #238) |
 | `Dante.Application/IntegracaoDeCi/CasosDeUso` | regras puras: `TransicoesDaExecucaoDeCi`, `ConsolidacaoDoCheckDeCi`, `MatrizDeFalhasDeCi`, `SanitizacaoDeTextoDeCi` |
-| `Dante.Infrastructure/IntegracaoDeCi` | `ProvedorDeCiGitHubActions` (porta), `ConexoesDeCiAutorizadas` (conexões do host), `ClienteDaApiDoGitHub` (só GET, política de repetição), `MapeamentoDoGitHubActions` (status → estados neutros) |
+| `Dante.Application/IntegracaoDeCi` (#238) | `AcompanhamentoDeCiAppService`: andamento do CI de um PR, sob demanda |
+| `Dante.Infrastructure/IntegracaoDeCi` | `ProvedorDeCiGitHubActions` (porta), `ConexoesDeCiAutorizadas` (conexões do host), `ClienteDaApiDoGitHub` (só GET, política de repetição), `MapeamentoDoGitHubActions` (status → estados neutros), `RepositoriosDeCiConfigurados` (cadastro + conexão de um alias, #238) |
+| `Dante.Worker/Telegram/TelegramCi` (#238) | `/ci` e a pergunta natural: gramática fechada, chamada do caso de uso e texto da resposta |
 
 Nada é persistido nesta fase: não há entidade de Domain, tabela nem migration. Nenhum tipo da feature menciona
 provedor, interface ou caminho do host (`IntegracaoDeCiContratosTests` recusa esse vocabulário).
@@ -33,7 +36,7 @@ Toda leitura nasce de um **alias cadastrado** (AD-07) e de uma **conexão** (`Co
 | ID no provedor | numérico e imutável; nulo só na consulta; obrigatório em toda execução devolvida |
 | conexão | a mesma da consulta; outra conexão é outro repositório |
 | head SHA | completo (40 ou 64 hex), normalizado em minúsculas; abreviado é recusado |
-| PR | contexto de exibição; a correlação é sempre pelo SHA |
+| PR | o provedor é consultado pelo SHA; com número de PR na consulta, a execução também tem de estar associada a esse PR pelo provedor (#238) |
 | workflow, execução, tentativa, job | IDs positivos; reexecução é **outra tentativa**, nunca continuação |
 | URLs | https absoluta, sem credencial; só a URL oficial da execução/job, nunca a da API |
 
@@ -42,7 +45,9 @@ Toda leitura nasce de um **alias cadastrado** (AD-07) e de uma **conexão** (`Co
 1. execução de outro repositório, conexão ou ID → a resposta inteira é recusada (`Inconsistente`), nunca filtrada em
    silêncio;
 2. execução de outro SHA é descartada: um run antigo nunca é diagnosticado como sendo do head atual;
-3. de cada execução vale a maior tentativa; de cada workflow e gatilho, a execução mais recente.
+3. com número de PR na consulta (#238), só conta a execução que o provedor associa a esse PR (ver
+   [associação ao PR](#associação-ao-pr)); sem número, vale só o SHA;
+4. de cada execução vale a maior tentativa; de cada workflow e gatilho, a execução mais recente.
 
 ## Estados
 
@@ -186,6 +191,7 @@ de redirect, e não aparece em mensagem de falha.
 | `ConsultarAsync` | `actions/runs?head_sha=` (paginado); para cada execução, `runs/{id}/attempts/{tentativa}/jobs` (paginado); sem execução, `actions/workflows?per_page=1` para distinguir repositório sem workflow |
 | `ObterExecucaoAsync` | `runs/{id}/attempts/{tentativa}` e os jobs da tentativa |
 | `ObterLogDoJobAsync` | `actions/jobs/{id}`; se terminou, `actions/jobs/{id}/logs` e o redirect assinado, seguido **sem credencial** e só para domínio de log do GitHub |
+| `ObterPullRequestAsync` (#238) | `pulls/{numero}`, sem cache: head SHA atual, estado, rascunho, fork, título e URL do PR |
 
 Conferências sobre a resposta; o que não confere é recusado inteiro como `Inconsistente`, nunca filtrado:
 
@@ -195,7 +201,9 @@ Conferências sobre a resposta; o que não confere é recusado inteiro como `Inc
 * URL oficial que não seja `https://github.com/<dono>/<repo>/...` (URL da API, de outro repositório, http ou com
   credencial);
 * campo obrigatório ausente, tipo errado, JSON inválido ou resposta acima de 8 MiB;
-* 3xx em consulta JSON (repositório renomeado ou transferido: o cadastro precisa ser atualizado).
+* 3xx em consulta JSON (repositório renomeado ou transferido: o cadastro precisa ser atualizado);
+* no PR (#238): outro número, repositório de destino (`base.repo`) com outro nome ou ID, head SHA abreviado, `state`
+  fora de `open`/`closed`, ou URL que não seja `https://github.com/<dono>/<repo>/pull/<numero>`.
 
 Execução de outro SHA que a API devolva fica no resultado e é descartada pela `ConsolidacaoDoCheckDeCi`. A listagem só
 traz a última tentativa de cada execução; tentativas anteriores são lidas por `ObterExecucaoAsync`, cada uma com
@@ -267,7 +275,7 @@ chamada mesmo com o cache cheio. O cache fica em memória, tem até 1024 entrada
 * paginação no limite da política (100 × 5) deixa o resultado `Completo = false`, e o check nunca vira `Sucesso`;
   em `ObterExecucaoAsync`, jobs além do limite fazem a consulta falhar como `Indisponivel` em vez de devolver parte;
 * a conexão não é persistida nem gerida pelo Telegram: é configuração do host;
-* não há polling, comando nem interface: quem chama a porta é a #238.
+* não há polling: a porta só é chamada sob demanda pelo andamento do CI de um PR (#238, abaixo).
 
 ## Permissões mínimas no GitHub (#237)
 
@@ -283,6 +291,101 @@ ou, quando houver comercialização, instalação de GitHub App por conta):
 | Commit statuses | read | opcional: só para repositórios que publicam status legados |
 
 Nada de escrita, nem `Contents`, `Workflows` ou `Administration`. Token clássico com escopo `repo` não é aceito como
-caminho padrão. O adapter da #237 usa hoje Metadata e Actions; Checks e Pull requests ficam previstas para a correlação
-da #238. Escrita (`Actions: write` para reexecutar, `Pull requests: write` para comentar) só existirá com a
-ação protegida correspondente.
+caminho padrão. O adapter usa hoje Metadata, Actions e, desde a #238, Pull requests (só `GET pulls/{numero}`); Checks
+continua prevista e sem uso. Escrita (`Actions: write` para reexecutar, `Pull requests: write` para comentar) só
+existirá com a ação protegida correspondente.
+
+## Andamento do CI de um PR (#238)
+
+O usuário pergunta pelo Telegram e recebe o estado do CI do **commit atual** do PR, sob demanda (AD-77):
+
+```text
+/ci 12                                   repositório da sessão ativa; sem ela, o repositório ativo (/use)
+/ci @dante 12                            repositório explícito
+como está o CI do PR 12 do @dante?       a mesma consulta, em linguagem natural
+```
+
+### Interface
+
+O D.A.N.T.E. não tem NLU geral: a conversa natural com intenção própria é a gramática fechada e determinística do Brain
+(`ResolvedorDeIntencaoDoBrain`). O andamento do CI segue o mesmo modelo, no adapter `TelegramCi`:
+
+* `/ci [@alias] <número>` (aceita `#12`); qualquer outro argumento responde o uso;
+* a pergunta natural precisa da palavra CI (ou checks/pipeline) e do número do PR: "como está/anda", "qual o status
+  do", "status do", "e o CI do PR 12?", "o CI do PR 12 já passou?", com `do|no|de|em @alias` opcional. Acentos,
+  maiúsculas e espaços extras não importam. Frase que não casa (sem número, com outro verbo, com dois aliases) segue
+  para a conversa com o agente, como antes;
+* o reconhecimento vem antes do Brain e da sessão: um pedido de CI nunca vira captura do Brain nem turno do agente.
+
+### Resolução do repositório
+
+1. alias explícito no pedido;
+2. o repositório principal da sessão ativa, quando ela trabalha num repositório (é para onde vão as mensagens comuns);
+3. o repositório ativo do usuário (`/use`);
+4. nenhum: a resposta pede o alias. Nunca há inferência pelo texto além do alias dito.
+
+O alias tem de estar no cadastro (AD-07); repositório ativo que saiu do cadastro pede nova seleção. A identidade de
+CI (`IRepositoriosDeCi`) é o `dono/repo` do cadastro e a **única** conexão que libera o alias: sem `dono/repo`, sem
+conexão ou com duas conexões, a resposta é "não configurado", sem rede. Repositório vinculado (AD-58) não herda a
+conexão do principal: só é consultado se uma conexão o liberar pelo próprio alias.
+
+### Correlação
+
+1. o PR é lido agora (`ObterPullRequestAsync`, nunca em cache) e conferido: mesmo número e mesmo repositório de
+   destino, por nome e ID; PR de outro repositório é `Inconsistente` e nada é exibido. PR de fork é aceito e
+   informado: o CI que vale é o do repositório consultado;
+2. a consulta das execuções usa o head SHA lido e o ID confirmado do repositório;
+3. a `ConsolidacaoDoCheckDeCi` descarta execuções de outro SHA, de outro PR, tentativas anteriores e execuções
+   substituídas. Um commit novo no PR **não herda** o sucesso do anterior: sem execução do commit novo, o estado é
+   "ainda não há execução de CI para este commit".
+
+#### Associação ao PR
+
+O mesmo SHA pode ser o head de dois PRs, e o commit pode ter execuções de outros gatilhos: o SHA sozinho não prova que
+uma execução é do PR consultado. Por isso a consulta leva o número do PR, e cada execução do SHA é classificada pela
+lista de PRs que o provedor associa a ela (`NumerosDePr`, do campo `pull_requests` da execução no GitHub). A ordem é
+fixa: primeiro a tentativa vigente de cada execução (a maior), depois a associação **dessa** tentativa, e só então a
+execução mais recente de cada workflow e gatilho. Uma tentativa substituída nunca empresta a associação nem o estado à
+vigente (o provedor não garante que a associação seja a mesma entre tentativas), e a execução de outro PR no mesmo
+workflow não substitui a do PR consultado:
+
+| Associação da execução | Efeito |
+| --- | --- |
+| contém o PR consultado (sozinho ou com outros) | conta para o check |
+| só outros PRs | descartada (`Descartadas`): a falha do PR vizinho não entra no PR consultado |
+| nenhuma (lista vazia) | não conta e é informada (`SemAssociacaoAoPr`): "N execuções deste commit não aparecem ligadas a este PR no provedor e não foram consideradas" |
+
+Se nenhuma execução associada resta e há execução do SHA sem associação, o check é `Indisponivel` ("não consigo
+afirmar o resultado... Isso não quer dizer que o CI falhou"), nunca `Sucesso`, `Falha` ou `SemExecucao`: o D.A.N.T.E.
+não sabe se elas são do PR. Se não resta nada associado e não há execução sem associação, vale a regra comum
+(`SemExecucao`/`SemWorkflowConfigurado`).
+
+A documentação da API REST não descreve quando `pull_requests` vem preenchido ou vazio; só o esquema da resposta é
+documentado. Por isso a regra não presume associação pelo SHA. Em quais cenários reais a lista vem vazia (por exemplo,
+PR de fork ou PR já fechado) fica para a validação com o CI real (#242); até lá, nesses casos a resposta é
+`Indisponivel` com a explicação acima, não um resultado inventado.
+
+### Resposta
+
+Curta, em PT-BR, com título do PR (sanitizado), estado (fechado, mesclado, rascunho, de fork), SHA curto do commit
+atual, o resumo do check e uma linha por workflow com o link oficial da execução, a tentativa quando é reexecução, os
+jobs que falharam com a etapa, e o que está pendente (em andamento, na fila, aguardando runner). No fim, o link do PR.
+Até 10 workflows e 5 jobs por lista; o restante é contado.
+
+* `SemPermissao`, `Indisponivel` (inclusive resultado incompleto e limite de taxa, com o prazo para tentar de novo) e
+  falhas ao ler o PR dizem que o D.A.N.T.E. não sabe o resultado: nunca "falhou";
+* sucesso vem com o aviso de que proteção da branch, checks obrigatórios e revisões **não** foram avaliados: o
+  D.A.N.T.E. não diz que o PR pode ser mesclado;
+* sem endpoint de API, nome de ferramenta interna, SHA completo, stack trace ou trecho de log; falha inesperada só
+  registra o tipo da exceção e responde "indisponível agora";
+* a consulta inteira tem até 45 s; passado isso, a resposta é "não consegui consultar a tempo".
+
+### Limites conhecidos (#238)
+
+* sem acompanhamento periódico nem aviso quando o CI termina: não há política para isso, e a consulta é sempre
+  pedida pelo usuário (o cache de tentativas finais da #237 evita releituras);
+* a consulta roda no fluxo das mensagens do Telegram: enquanto ela dura (até 45 s), as mensagens seguintes esperam;
+* não lê check runs de apps de terceiros, status legados, regras de proteção da branch, checks obrigatórios nem
+  revisões;
+* PR de fork que aguarda aprovação de um mantenedor aparece como "na fila" (`action_required`), com uma observação;
+* a gramática natural é fechada: perguntas fora dela vão para o agente da conversa, que não tem acesso à porta de CI.

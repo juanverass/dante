@@ -17,6 +17,8 @@ public sealed class ProvedorDeCiGitHubActionsTests : IDisposable
     private const string Head = "1111111111111111111111111111111111111111";
     private const string Antigo = "2222222222222222222222222222222222222222";
     private const string Api = "https://api.github.com/repos/dono/app/actions";
+    private const string Pulls = "https://api.github.com/repos/dono/app/pulls";
+    private const string Novo = "3333333333333333333333333333333333333333";
     private const string Segredo = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
     private static readonly DateTimeOffset Agora = new(2026, 11, 24, 12, 0, 0, TimeSpan.Zero);
     private static readonly ConexaoDeCi Conexao = new("pessoal", "secret://host/DANTE_CI_TOKEN");
@@ -172,7 +174,7 @@ public sealed class ProvedorDeCiGitHubActionsTests : IDisposable
     public async Task ExecucaoDeOutroShaVemNoResultadoMasNuncaEntraNoCheck()
     {
         github.Em($"{Api}/runs?head_sha={Head}&per_page=100&page=1", Ok(Pagina("workflow_runs",
-            Run(10, 1, Antigo, "completed", "failure"), Run(11, 1, Head, "completed", "success"))));
+            Run(10, 1, Antigo, "completed", "failure", prs: [7]), Run(11, 1, Head, "completed", "success", prs: [7]))));
         github.Em($"{Api}/runs/10/attempts/1/jobs?per_page=100&page=1", Ok(Pagina("jobs")));
         github.Em($"{Api}/runs/11/attempts/1/jobs?per_page=100&page=1", Ok(Pagina("jobs")));
 
@@ -634,6 +636,230 @@ public sealed class ProvedorDeCiGitHubActionsTests : IDisposable
         Assert.Equal(DisponibilidadeDoLogDeCi.Indisponivel, (await Provedor().ObterLogDoJobAsync(JobAlvo(), 1024)).Disponibilidade);
     }
 
+    // ---- PR e head SHA atual (#238) ----
+
+    [Fact]
+    public async Task PullRequestLeOHeadShaAtualDoRepositorioConsultadoSoComGet()
+    {
+        github.Em($"{Pulls}/12", Ok(Pr(12, Head.ToUpperInvariant())));
+
+        var pr = await Provedor().ObterPullRequestAsync(App, 12);
+
+        Assert.Equal((12, Head, EstadoDoPullRequestDeCi.Aberto, false, false), (pr.Numero, pr.ShaDoHead, pr.Estado, pr.Rascunho, pr.DeFork));
+        Assert.Equal(new RepositorioDeCi("@app", "dono/app", 42, Conexao), pr.Repositorio);
+        Assert.Equal("Corrige o polling", pr.Titulo);
+        Assert.Equal(new Uri("https://github.com/dono/app/pull/12"), pr.UrlOficial);
+        var requisicao = Assert.Single(github.Requisicoes);
+        Assert.Equal(($"{Pulls}/12", "Bearer tok-pessoal"), requisicao);
+    }
+
+    [Theory]
+    [InlineData("open", null, false, EstadoDoPullRequestDeCi.Aberto)]
+    [InlineData("open", null, true, EstadoDoPullRequestDeCi.Aberto)]
+    [InlineData("closed", null, false, EstadoDoPullRequestDeCi.Fechado)]
+    [InlineData("closed", "2026-11-24T10:00:00Z", false, EstadoDoPullRequestDeCi.Mesclado)]
+    public async Task EstadoERascunhoDoPrSaoMapeados(string state, string? mergedAt, bool draft, EstadoDoPullRequestDeCi esperado)
+    {
+        github.Em($"{Pulls}/12", Ok(Pr(12, Head, state, mergedAt, draft)));
+
+        var pr = await Provedor().ObterPullRequestAsync(App, 12);
+
+        Assert.Equal((esperado, draft), (pr.Estado, pr.Rascunho));
+    }
+
+    [Fact]
+    public async Task PrDeForkEInformadoECorrelacionaNoRepositorioConsultado()
+    {
+        github.Em($"{Pulls}/12", Ok(Pr(12, Head, repoDoHead: 99)));
+        var deFork = await Provedor().ObterPullRequestAsync(App, 12);
+        Assert.True(deFork.DeFork);
+        Assert.Equal(42, deFork.Repositorio.IdNoProvedor);
+
+        // Fork já apagado: o head fica sem repositório, e o PR continua sendo do consultado.
+        github.Em($"{Pulls}/12", Ok(Pr(12, Head, repoDoHead: null)));
+        Assert.True((await Provedor().ObterPullRequestAsync(App, 12)).DeFork);
+    }
+
+    public static TheoryData<string, Action<JsonObject>> PrsQueNaoConferem => new()
+    {
+        { "PR de outro repositório de destino", pr => pr["base"]!["repo"]!["full_name"] = "outro/app" },
+        { "mesmo nome, outro ID já confirmado", pr => pr["base"]!["repo"]!["id"] = 77 },
+        { "outro número", pr => pr["number"] = 13 },
+        { "SHA abreviado", pr => pr["head"]!["sha"] = "1111111" },
+        { "sem head", pr => pr.Remove("head") },
+        { "estado desconhecido", pr => pr["state"] = "locked" },
+        { "link de outro repositório", pr => pr["html_url"] = "https://github.com/outro/app/pull/12" },
+        { "link que não é do PR", pr => pr["html_url"] = "https://github.com/dono/app/issues/12" },
+        { "link da API", pr => pr["html_url"] = "https://api.github.com/repos/dono/app/pulls/12" },
+        { "rascunho em formato errado", pr => pr["draft"] = "sim" }
+    };
+
+    [Theory]
+    [MemberData(nameof(PrsQueNaoConferem))]
+    public async Task PrQueNaoConfereComOConsultadoERecusadoInteiro(string caso, Action<JsonObject> alterar)
+    {
+        var pr = Pr(12, Head);
+        alterar(pr);
+        github.Em($"{Pulls}/12", Ok(pr));
+        var confirmado = new RepositorioDeCi("@app", "dono/app", 42, Conexao);
+
+        var falha = await Falha(() => Provedor().ObterPullRequestAsync(confirmado, 12));
+
+        Assert.True(falha.Motivo == MotivoDaFalhaNaConsultaDeCi.Inconsistente, caso);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound, MotivoDaFalhaNaConsultaDeCi.NaoEncontrada)]
+    [InlineData(HttpStatusCode.Forbidden, MotivoDaFalhaNaConsultaDeCi.SemPermissao)]
+    [InlineData(HttpStatusCode.Unauthorized, MotivoDaFalhaNaConsultaDeCi.NaoAutorizada)]
+    [InlineData(HttpStatusCode.MovedPermanently, MotivoDaFalhaNaConsultaDeCi.Inconsistente)]
+    public async Task FalhaAoLerOPrViraMotivoDaConsultaSemRepetir(HttpStatusCode codigo, MotivoDaFalhaNaConsultaDeCi motivo)
+    {
+        github.Em($"{Pulls}/12", Status(codigo, "{}"));
+
+        Assert.Equal(motivo, (await Falha(() => Provedor().ObterPullRequestAsync(App, 12))).Motivo);
+        Assert.Single(github.Requisicoes);
+    }
+
+    [Fact]
+    public async Task PrSoELidoComAConexaoQueLiberaOAliasEDoCadastro()
+    {
+        // @outro existe no cadastro, mas é liberado só pela outra conexão: nada sai para a rede.
+        var outroPelaPessoal = new RepositorioDeCi("@outro", "dono/outro", null, Conexao);
+        Assert.Equal(MotivoDaFalhaNaConsultaDeCi.NaoAutorizada,
+            (await Falha(() => Provedor().ObterPullRequestAsync(outroPelaPessoal, 12))).Motivo);
+        // Alias liberado, mas apontando para outro dono/repo que o do cadastro.
+        Assert.Equal(MotivoDaFalhaNaConsultaDeCi.NaoAutorizada,
+            (await Falha(() => Provedor().ObterPullRequestAsync(new RepositorioDeCi("@app", "dono/outro", null, Conexao), 12))).Motivo);
+        Assert.Empty(github.Requisicoes);
+    }
+
+    [Fact]
+    public async Task PrNuncaVemDoCacheEOHeadNovoESempreOLido()
+    {
+        github.Em($"{Pulls}/12", Ok(Pr(12, Head)), Ok(Pr(12, Novo)));
+        var provedor = Provedor();
+
+        Assert.Equal(Head, (await provedor.ObterPullRequestAsync(App, 12)).ShaDoHead);
+        Assert.Equal(Novo, (await provedor.ObterPullRequestAsync(App, 12)).ShaDoHead);
+        Assert.Equal(2, github.Requisicoes.Count);
+    }
+
+    // ---- identidade de CI de um alias (#238) ----
+
+    [Fact]
+    public void IdentidadeDeCiVemDoCadastroEDaUnicaConexaoQueLiberaOAlias()
+    {
+        var repositorios = RepositoriosDeCi([(Conexao, ["@app"]), (OutraConexao, ["@outro"])]);
+
+        Assert.Equal(new RepositorioDeCi("@app", "dono/app", null, Conexao), repositorios.Resolver("@App"));
+        Assert.Equal(new RepositorioDeCi("@outro", "dono/outro", null, OutraConexao), repositorios.Resolver("@outro"));
+    }
+
+    [Fact]
+    public void RepositorioVinculadoSemConexaoPropriaNaoHerdaADoPrincipal()
+    {
+        // @lib é vinculado a @app (AD-58), mas nenhuma conexão o libera.
+        var repositorios = RepositoriosDeCi([(Conexao, ["@app"])]);
+
+        Assert.Equal(MotivoDaFalhaNaConsultaDeCi.NaoConfigurada,
+            Assert.Throws<FalhaNaConsultaDeCiException>(() => repositorios.Resolver("@lib")).Motivo);
+    }
+
+    [Fact]
+    public void SemNomeNoProvedorOuComDuasConexoesAIdentidadeNaoEEscolhida()
+    {
+        var repositorios = RepositoriosDeCi([(Conexao, ["@app", "@semgithub"]), (OutraConexao, ["@app"])]);
+
+        Assert.Equal(MotivoDaFalhaNaConsultaDeCi.NaoConfigurada,
+            Assert.Throws<FalhaNaConsultaDeCiException>(() => repositorios.Resolver("@semgithub")).Motivo);
+        Assert.Equal(MotivoDaFalhaNaConsultaDeCi.NaoConfigurada,
+            Assert.Throws<FalhaNaConsultaDeCiException>(() => repositorios.Resolver("@app")).Motivo);
+        Assert.Equal(MotivoDaFalhaNaConsultaDeCi.NaoAutorizada,
+            Assert.Throws<FalhaNaConsultaDeCiException>(() => repositorios.Resolver("@fantasma")).Motivo);
+    }
+
+    [Fact]
+    public void ComposicaoRegistraAIdentidadeDeCiSemConexao()
+    {
+        using var provider = new ServiceCollection().AddInfrastructure(new ConfigurationBuilder().Build()).BuildServiceProvider();
+
+        Assert.IsType<RepositoriosDeCiConfigurados>(provider.GetRequiredService<IRepositoriosDeCi>());
+    }
+
+    // ---- ponta a ponta: acompanhamento do CI de um PR sobre o adapter (#238) ----
+
+    [Fact]
+    public async Task AndamentoDoPrCorrelacionaSoOHeadAtualECommitNovoNaoHerdaSucesso()
+    {
+        github.Em($"{Pulls}/12", Ok(Pr(12, Head)), Ok(Pr(12, Novo)));
+        // A API devolve também uma execução de outro commit: ela nunca conta para o head.
+        github.Em($"{Api}/runs?head_sha={Head}&per_page=100&page=1", Ok(Pagina("workflow_runs",
+            Run(10, 1, Head, "completed", "success", prs: [12]), Run(9, 1, Antigo, "completed", "failure", prs: [12]))));
+        github.Em($"{Api}/runs/10/attempts/1/jobs?per_page=100&page=1", Ok(Pagina("jobs",
+            Job(500, 10, 1, Head, "completed", "success"))));
+        github.Em($"{Api}/runs/9/attempts/1/jobs?per_page=100&page=1", Ok(Pagina("jobs",
+            Job(400, 9, 1, Antigo, "completed", "failure"))));
+        // Depois do push: só a execução verde do commit anterior aparece.
+        github.Em($"{Api}/runs?head_sha={Novo}&per_page=100&page=1", Ok(Pagina("workflow_runs",
+            Run(10, 1, Head, "completed", "success", prs: [12]))));
+        var servico = Acompanhamento();
+
+        var antes = await servico.ConsultarPullRequestAsync(new PedidoDeCiDoPullRequestDto(1, 12, "@app"));
+        Assert.Equal((Head, EstadoDoCheckDeCi.Sucesso, 1), (antes.Check!.Consulta.ShaDoHead, antes.Check.Estado, antes.Check.Descartadas));
+        Assert.Equal([10L], antes.Check.Execucoes.Select(e => e.Identidade.IdDaExecucao));
+
+        var depois = await servico.ConsultarPullRequestAsync(new PedidoDeCiDoPullRequestDto(1, 12, "@app"));
+        Assert.Equal(Novo, depois.PullRequest!.ShaDoHead);
+        Assert.Equal(EstadoDoCheckDeCi.SemExecucao, depois.Check!.Estado);
+        Assert.Empty(depois.Check.Execucoes);
+    }
+
+    [Fact]
+    public async Task MesmoShaEmDoisPrsUsaAAssociacaoDoProvedorEExecucaoSemAssociacaoNaoConta()
+    {
+        // PRs 12 e 13 com o mesmo head: o vermelho do 13 não chega ao 12, e a execução sem pull_requests não conta.
+        github.Em($"{Pulls}/12", Ok(Pr(12, Head)));
+        github.Em($"{Pulls}/13", Ok(Pr(13, Head)));
+        github.Em($"{Api}/runs?head_sha={Head}&per_page=100&page=1", Ok(Pagina("workflow_runs",
+            Run(10, 1, Head, "completed", "success", workflow: 1, prs: [12]),
+            Run(11, 1, Head, "completed", "failure", workflow: 2, prs: [13]),
+            Run(12, 1, Head, "completed", "failure", workflow: 3, prs: []))));
+        foreach (var id in new[] { 10, 11, 12 })
+            github.Em($"{Api}/runs/{id}/attempts/1/jobs?per_page=100&page=1", Ok(Pagina("jobs")));
+        var servico = Acompanhamento();
+
+        var doPr12 = (await servico.ConsultarPullRequestAsync(new PedidoDeCiDoPullRequestDto(1, 12, "@app"))).Check!;
+        Assert.Equal(EstadoDoCheckDeCi.Sucesso, doPr12.Estado);
+        Assert.Equal([10L], doPr12.Execucoes.Select(e => e.Identidade.IdDaExecucao));
+        Assert.Equal((1, 1), (doPr12.Descartadas, doPr12.SemAssociacaoAoPr));
+
+        var doPr13 = (await servico.ConsultarPullRequestAsync(new PedidoDeCiDoPullRequestDto(1, 13, "@app"))).Check!;
+        Assert.Equal(EstadoDoCheckDeCi.Falha, doPr13.Estado);
+        Assert.Equal([11L], doPr13.Execucoes.Select(e => e.Identidade.IdDaExecucao));
+    }
+
+    [Fact]
+    public async Task AndamentoDoPrIsolaConexoesEVinculadosSemConexao()
+    {
+        const string Outro = "https://api.github.com/repos/dono/outro";
+        github.Em($"{Outro}/pulls/3", Ok(Pr(3, Head, repositorio: 50, nomeCompleto: "dono/outro", repoDoHead: 50)));
+        github.Em($"{Outro}/actions/runs?head_sha={Head}&per_page=100&page=1", Ok(Pagina("workflow_runs")));
+        github.Em($"{Outro}/actions/workflows?per_page=1", Ok(Pagina("workflows")));
+        var servico = Acompanhamento();
+
+        var outro = await servico.ConsultarPullRequestAsync(new PedidoDeCiDoPullRequestDto(1, 3, "@outro"));
+        Assert.Equal(EstadoDoCheckDeCi.SemWorkflowConfigurado, outro.Check!.Estado);
+        // Cada repositório com a credencial da própria conexão.
+        Assert.All(github.Requisicoes, r => Assert.Equal("Bearer tok-cliente", r.Autorizacao));
+
+        github.Requisicoes.Clear();
+        var vinculado = await servico.ConsultarPullRequestAsync(new PedidoDeCiDoPullRequestDto(1, 3, "@lib"));
+        Assert.Equal(MotivoDaFalhaNaConsultaDeCi.NaoConfigurada, vinculado.FalhaDoPullRequest);
+        Assert.Null(vinculado.Check);
+        Assert.Empty(github.Requisicoes);
+    }
+
     // ---- composição e somente leitura ----
 
     [Fact]
@@ -686,7 +912,7 @@ public sealed class ProvedorDeCiGitHubActionsTests : IDisposable
         var publicos = typeof(ProvedorDeCiGitHubActions)
             .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly)
             .Select(m => m.Name).Order().ToArray();
-        Assert.Equal(["ConsultarAsync", "ObterExecucaoAsync", "ObterLogDoJobAsync"], publicos);
+        Assert.Equal(["ConsultarAsync", "ObterExecucaoAsync", "ObterLogDoJobAsync", "ObterPullRequestAsync"], publicos);
         // O transporte só sabe fazer GET: o GitHub falso recusa qualquer outro método em todos os testes acima.
         Assert.DoesNotContain(typeof(ClienteDaApiDoGitHub).GetMethods(System.Reflection.BindingFlags.NonPublic
                 | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly),
@@ -716,6 +942,61 @@ public sealed class ProvedorDeCiGitHubActionsTests : IDisposable
             }, () => 0.5);
         return new ProvedorDeCiGitHubActions(conexoes, new RepositoryRegistry(catalogo), api, relogio);
     }
+
+    private const string Catalogo = """
+        [
+          {"Alias":"@app","Path":"/repos/app","GitHub":"dono/app","Links":["@lib"]},
+          {"Alias":"@outro","Path":"/repos/outro","GitHub":"dono/outro"},
+          {"Alias":"@lib","Path":"/repos/lib","GitHub":"dono/lib"},
+          {"Alias":"@semgithub","Path":"/repos/semgithub"}
+        ]
+        """;
+
+    private RepositoriosDeCiConfigurados RepositoriosDeCi(
+        IEnumerable<(ConexaoDeCi Conexao, IReadOnlyCollection<string> Aliases)> conexoes)
+    {
+        var catalogo = Path.Combine(diretorio, "repositories-ci.json");
+        File.WriteAllText(catalogo, Catalogo);
+        return new RepositoriosDeCiConfigurados(new ConexoesDeCiAutorizadas(conexoes), new RepositoryRegistry(catalogo));
+    }
+
+    private AcompanhamentoDeCiAppService Acompanhamento()
+    {
+        var catalogo = Path.Combine(diretorio, "repositories-ci.json");
+        File.WriteAllText(catalogo, Catalogo);
+        var cadastro = new RepositoryRegistry(catalogo);
+        var conexoes = new ConexoesDeCiAutorizadas([(Conexao, ["@app"]), (OutraConexao, ["@outro"])],
+            nome => nome switch { "DANTE_CI_TOKEN" => "tok-pessoal", "CLIENTE_CI_TOKEN" => "tok-cliente", _ => null });
+        var api = new ClienteDaApiDoGitHub(new HttpClient(github), PoliticaDeConsultaDeCi.Padrao, relogio,
+            (_, _) => Task.CompletedTask, () => 0.5);
+        return new AcompanhamentoDeCiAppService(new ProvedorDeCiGitHubActions(conexoes, cadastro, api, relogio),
+            new RepositoriosDeCiConfigurados(conexoes, cadastro), cadastro, relogio: relogio);
+    }
+
+    private static JsonObject Pr(int numero, string sha, string state = "open", string? mergedAt = null, bool draft = false,
+        long repositorio = 42, string nomeCompleto = "dono/app", long? repoDoHead = 42) => new()
+    {
+        ["number"] = numero,
+        ["title"] = "Corrige o polling",
+        ["state"] = state,
+        ["merged_at"] = mergedAt,
+        ["draft"] = draft,
+        ["html_url"] = $"https://github.com/{nomeCompleto}/pull/{numero}",
+        ["head"] = new JsonObject
+        {
+            ["sha"] = sha,
+            ["ref"] = "feat/polling",
+            ["repo"] = repoDoHead is { } id
+                ? new JsonObject { ["id"] = id, ["full_name"] = id == repositorio ? nomeCompleto : "fork/app" }
+                : null
+        },
+        ["base"] = new JsonObject
+        {
+            ["ref"] = "main",
+            ["sha"] = Antigo,
+            ["repo"] = new JsonObject { ["id"] = repositorio, ["full_name"] = nomeCompleto }
+        }
+    };
 
     private static IdentidadeDoJobDeCi JobAlvo() =>
         new(new IdentidadeDaExecucaoDeCi(new RepositorioDeCi("@app", "dono/app", 42, Conexao), 7, 10, 2, Head), 500);

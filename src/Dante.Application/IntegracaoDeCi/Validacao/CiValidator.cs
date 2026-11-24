@@ -44,6 +44,9 @@ internal static class CiValidator
         Enum.IsDefined(valor) ? valor
             : throw new ArgumentOutOfRangeException(parametro, valor, $"Valor desconhecido de {typeof(T).Name}.");
 
+    internal static int ExigirNumeroDoPr(int numero) =>
+        numero > 0 ? numero : throw new ArgumentOutOfRangeException(nameof(numero), "Número de PR deve ser positivo.");
+
     internal static long ExigirPositivo(long valor, string parametro) =>
         valor > 0 ? valor : throw new ArgumentOutOfRangeException(parametro, "Identificador do provedor deve ser positivo.");
 

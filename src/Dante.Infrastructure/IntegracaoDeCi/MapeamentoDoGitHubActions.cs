@@ -75,6 +75,43 @@ internal static class MapeamentoDoGitHubActions
         };
     });
 
+    // PR lido para obter o head SHA atual (#238). O repositório de destino (base) tem de ser exatamente o consultado,
+    // por nome e, quando já conhecido, por ID: PR de outro repositório nunca é correlacionado. O head pode vir de um fork
+    // (ou de um fork já apagado, com repo nulo); isso é informado, e o CI que vale continua sendo o do consultado.
+    //
+    //   state     merged_at        estado
+    //   open      —                Aberto
+    //   closed    nulo             Fechado
+    //   closed    preenchido       Mesclado
+    //   outro                      Inconsistente
+    internal static PullRequestDeCiDto PullRequest(RepositorioDeCi esperado, int numero, JsonElement pr) => Traduzir(() =>
+    {
+        if (Long(pr, "number") != numero)
+            throw Inconsistente("O provedor de CI devolveu outro PR; o resultado foi descartado.");
+        var destino = Objeto(Objeto(pr, "base"), "repo");
+        var idDoRepositorio = Long(destino, "id");
+        if (!string.Equals(Texto(destino, "full_name"), esperado.NomeCompleto, StringComparison.OrdinalIgnoreCase)
+            || esperado.IdNoProvedor is { } id && id != idDoRepositorio)
+            throw Inconsistente("O provedor de CI devolveu PR de outro repositório; o resultado foi descartado.");
+
+        var head = Objeto(pr, "head");
+        var origem = Campo(head, "repo");
+        var deFork = origem is not { ValueKind: JsonValueKind.Object } repoDoHead || Long(repoDoHead, "id") != idDoRepositorio;
+        var estado = TextoOpcional(pr, "state") switch
+        {
+            "open" => EstadoDoPullRequestDeCi.Aberto,
+            "closed" => TextoOpcional(pr, "merged_at") is null ? EstadoDoPullRequestDeCi.Fechado : EstadoDoPullRequestDeCi.Mesclado,
+            _ => throw Inconsistente("O provedor de CI devolveu um estado de PR desconhecido.")
+        };
+        var url = UrlOficial(pr, esperado.NomeCompleto);
+        if (!url.AbsolutePath.Equals($"/{esperado.NomeCompleto}/pull/{numero}", StringComparison.OrdinalIgnoreCase))
+            throw Inconsistente("O provedor de CI devolveu um link que não é a página oficial do PR.");
+
+        return new PullRequestDeCiDto(new RepositorioDeCi(esperado.Alias, esperado.NomeCompleto, idDoRepositorio, esperado.Conexao),
+            numero, Texto(head, "sha"), estado, BoolOpcional(pr, "draft"), deFork, Nome(TextoOpcional(pr, "title"), "sem título"),
+            url);
+    });
+
     // Job de uma tentativa: precisa ser da mesma execução, da mesma tentativa e do mesmo SHA. Job de outra tentativa
     // nunca entra numa execução (reexecução é outra identidade).
     internal static JobDeCiDto Job(IdentidadeDaExecucaoDeCi execucao, JsonElement job) => Traduzir(() =>
@@ -119,6 +156,13 @@ internal static class MapeamentoDoGitHubActions
                 _ => throw Inconsistente("Resposta do provedor de CI com campo de texto em formato inesperado.")
             }
             : null;
+
+    private static bool BoolOpcional(JsonElement elemento, string nome) => Campo(elemento, nome) switch
+    {
+        null or { ValueKind: JsonValueKind.Null } or { ValueKind: JsonValueKind.False } => false,
+        { ValueKind: JsonValueKind.True } => true,
+        _ => throw Inconsistente("Resposta do provedor de CI com campo lógico em formato inesperado.")
+    };
 
     internal static FalhaNaConsultaDeCiException Inconsistente(string mensagem) =>
         new(MotivoDaFalhaNaConsultaDeCi.Inconsistente, mensagem);

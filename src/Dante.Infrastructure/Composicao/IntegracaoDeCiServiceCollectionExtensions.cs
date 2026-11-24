@@ -27,5 +27,8 @@ internal static class IntegracaoDeCiServiceCollectionExtensions
                 }) { Timeout = Timeout.InfiniteTimeSpan },
                 PoliticaDeConsultaDeCi.Padrao, TimeProvider.System),
             TimeProvider.System));
+        // Identidade de CI de um alias (#238): cadastro + a única conexão que o libera, sem rede.
+        services.AddSingleton<IRepositoriosDeCi>(provider => new RepositoriosDeCiConfigurados(
+            provider.GetRequiredService<ConexoesDeCiAutorizadas>(), provider.GetRequiredService<RepositoryRegistry>()));
     }
 }
