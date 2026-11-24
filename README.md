@@ -830,7 +830,9 @@ Para entregar o resultado aprovado, faça um commit local na branch da worktree,
 O D.A.N.T.E. confere de novo, na hora, se a worktree ainda tem exatamente o conteúdo aprovado e se a branch continua
 na base. Só então faz um único commit, com o autor configurado. Repositórios com filtros de conteúdo configurados
 (como o Git LFS) não são entregues, porque esses filtros executam comandos externos. Na entrega, o Git nunca lê os
-arquivos da worktree, então nenhum filtro roda, nem um configurado no meio da operação. Ele nunca faz push, PR nem merge e nunca toca o
+arquivos da worktree, então nenhum filtro roda, nem um configurado no meio da operação. A leitura dos arquivos fica
+confinada à worktree: um arquivo ou diretório trocado por link, ou um hard link, faz a entrega ser recusada, sem nada
+gravado. A entrega exige Linux (5.6+, x86_64 ou arm64). Ele nunca faz push, PR nem merge e nunca toca o
 checkout principal. Se algo mudou, nada é gravado. Se a entrega for interrompida no meio, ela não é repetida: o
 estado real da branch (HEAD e commits além da base) é informado.
 

@@ -3070,7 +3070,8 @@ a mesma trava e os mesmos limites.
 
 Complemento (#311, AD-72): o conjunto fechado ganhou a única escrita Git do D.A.N.T.E., o commit local do artefato
 aprovado de um roteiro. Ele usa:
-- `hash-object -w --no-filters --stdin` para os bytes lidos pelo D.A.N.T.E.;
+- `hash-object -w --no-filters --stdin` para os bytes lidos pelo D.A.N.T.E., confinado pelo kernel à worktree
+  (`openat2` a partir de um handle da raiz, sem links; ver AD-72);
 - `read-tree`, `update-index -z --index-info` e `write-tree` num index privado;
 - `commit-tree` e `update-ref` da branch da execução com o valor antigo;
 - `read-tree <árvore>` do index da worktree, só depois do commit.
@@ -3254,7 +3255,7 @@ Decisão:
   janela.
 
   Por isso a garantia não depende da configuração: **nenhum processo Git da entrega lê arquivo da worktree**.
-  - O D.A.N.T.E. lê os bytes. Um link no meio do caminho não é seguido, como no Git.
+  - O D.A.N.T.E. lê os bytes, **confinado pelo kernel à worktree** (abaixo).
   - O Git recebe os bytes pela entrada padrão (`hash-object -w --no-filters --stdin`).
   - A árvore é montada num index privado (`GIT_INDEX_FILE` num diretório temporário), a partir da base: `read-tree`,
     `update-index -z --index-info` e `write-tree`.
@@ -3265,6 +3266,26 @@ Decisão:
   - os não rastreados e não ignorados (`ls-files --others`, que lê só nomes de diretório e regras de ignore).
 
   Submódulos ficam como na base. O index e os arquivos da worktree não mudam até o commit.
+* **A leitura dos bytes nunca sai da worktree** (`LeituraConfinadaDaWorktree`, revisão 3 do PR #326). Verificar um
+  caminho (`LinkTarget`) e depois abri-lo pelo nome deixa uma janela TOCTOU. Um diretório ou o próprio arquivo
+  trocado por um link entre as duas operações faria o D.A.N.T.E. ler, e gravar como blob solto, bytes de fora da
+  worktree. A leitura agora não tem verificação separada da abertura:
+  - a raiz é aberta uma vez como handle (`O_PATH`), sem link em nenhum componente;
+  - cada caminho é resolvido pelo kernel a partir desse handle, numa só operação: `openat2` com `RESOLVE_BENEATH`,
+    `RESOLVE_NO_SYMLINKS`, `RESOLVE_NO_MAGICLINKS` e `RESOLVE_NO_XDEV`. Assim, nunca acima da raiz, nenhum link em
+    nenhum componente e nenhum outro sistema de arquivos no caminho;
+  - o tipo, o modo e o destino de um link são lidos pelo handle aberto (`statx` e `readlinkat` com caminho vazio),
+    nunca pelo nome de novo. Um link da worktree é gravado como link (o destino) e nunca é seguido;
+  - o conteúdo de um arquivo comum vem de uma segunda abertura, com as mesmas restrições. Ela precisa ser o mesmo
+    inode e dispositivo, ainda arquivo comum e com **um único link físico**, porque um hard link poderia apontar para
+    um arquivo de fora;
+  - um link num componente intermediário, já presente na abertura, é tratado como caminho ausente, como o Git faz.
+    Uma troca entre a classificação e a leitura recusa a entrega com o motivo.
+
+  **Nenhum blob é gravado antes de a leitura estar validada.** Todos os caminhos são lidos e conferidos primeiro, e
+  só então os bytes vão ao `hash-object`. Uma recusa no meio não deixa blob nenhum, nem de bytes da própria worktree.
+
+  Exige Linux 5.6+ (`openat2`), x86_64 ou arm64. Em outro sistema, a entrega é recusada.
 
   Todo comando da entrega passa por `SemLeituraDaWorktree`, um conjunto sem `add`, sem `status` e sem `diff` contra a
   worktree, e roda com `GIT_NO_LAZY_FETCH=1`, para que nenhum clone parcial busque objetos pelo transporte do remoto.
@@ -3330,12 +3351,15 @@ migration `AprovacoesDeAcao`; PR 2: `Dante.Application/Execucoes/{GatewayDeFerra
 TelegramAcaoCallback}.cs`, `Dante.Worker/Execucoes/ManutencaoDasAprovacoesDeAcao.cs`; PR 3:
 `Dante.Application/Execucoes/{EntregaDoArtefatoAppService, IEntregaDoArtefatoAppService,
 ObservadorDaEntregaDoArtefato}.cs`, `Dante.Application/Execucoes/Portas/ICommitDeWorktree.cs`,
-`Dante.Application/Execucoes/Contratos/EntregaDoArtefatoDtos.cs`, `Dante.Infrastructure/Contextos/GerenciadorDeWorktreesGit.cs`,
+`Dante.Application/Execucoes/Contratos/EntregaDoArtefatoDtos.cs`, `Dante.Infrastructure/Contextos/{GerenciadorDeWorktreesGit,
+LeituraConfinadaDaWorktree}.cs`,
 `Dante.Worker/Telegram/TelegramExecucoes.cs` (`/execucao entregar`), `Dante.Worker/WorkerComposition.cs`
 (`Orquestracao:Entrega`).
 Testes: `AprovacaoDeAcaoDominioTests`, `AprovacoesDeAcaoPostgreSqlTests`, `GatewayDeFerramentasTests`,
 `GatewayDeAprovacoesPostgreSqlTests`; PR 3: `CommitDeWorktreeGitTests` (Git real; o TOCTOU dos filtros em
-`FiltroConfiguradoDepoisDaConferenciaNuncaRoda` e `EntregaNaoAbreComandoGitQueLeiaAWorktree`) e
+`FiltroConfiguradoDepoisDaConferenciaNuncaRoda` e `EntregaNaoAbreComandoGitQueLeiaAWorktree`),
+`LeituraConfinadaDaWorktreeTests` (troca por link para um sentinela externo antes da abertura e entre a classificação
+e a leitura, hard link e link legítimo) e
 `RoteiroPelaFilaEndToEndTests.Entrega` (PostgreSQL, Git real e Telegram falso).
 
 ## AD-74 — Acompanhamento e cancelamento de execuções na Application, neutros de interface (#305)

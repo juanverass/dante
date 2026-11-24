@@ -903,6 +903,9 @@ As três entregas do gateway (etapa 9 da Epic #296):
   - nenhum processo Git da entrega lê arquivo da worktree. O D.A.N.T.E. lê os bytes, grava os blobs pela entrada
     padrão sem filtro e monta a árvore num index privado. Assim, filtros de conteúdo (comandos externos como o do
     Git LFS) nunca rodam, mesmo que a configuração mude durante a operação;
+  - a leitura dos bytes é confinada pelo kernel à worktree (`openat2` a partir de um handle da raiz, sem link em
+    nenhum componente e com o mesmo inode na leitura). Um arquivo ou diretório trocado por link, ou um hard link, é
+    recusado. Todos os caminhos são lidos e validados antes de o primeiro blob ser gravado;
   - a configuração com filtros é recusada no começo, com o motivo;
   - o hash é conferido a partir da árvore montada, que é exatamente o que o commit recebe;
   - `commit-tree` cria o commit com o autor configurado;
@@ -975,9 +978,13 @@ Limitações:
   ela, porque nenhum processo Git da entrega lê arquivo da worktree. Conversões sem processo (fim de linha,
   `ident`) também não são aplicadas: se o gate viu os arquivos convertidos, o hash difere e a entrega fica sem
   efeito, com o motivo.
+- A entrega exige Linux 5.6+ (`openat2`), x86_64 ou arm64; em outro sistema, é recusada com o motivo.
 - Fora da entrega, leituras do Git contra a worktree ainda rodam filtros configurados. São elas:
   - a leitura do diff para o revisor e para a decisão do gate (#308, `ResumirAlteracoesAsync`);
   - o `status` da limpeza de worktrees (AD-71, `RemoverSePossivelAsync`).
+
+  A mesma leitura da #308 também calcula o hash dos arquivos novos abrindo-os pelo nome, sem o confinamento da
+  entrega. Ela não grava blob, e o hash dela só serve para comparar com o da entrega.
 
   Isso está registrado para uma Issue própria.
 - Um roteiro tem uma worktree principal. A entrega cobre só ela, como o gate, porque roteiros não têm repositórios
