@@ -59,6 +59,45 @@ public sealed class AcompanhamentoDeCiTests
     }
 
     [Fact]
+    public async Task MesmoShaEmDoisPrsAExecucaoDoPrVizinhoNaoAfetaOConsultado()
+    {
+        // PR 12 e PR 13 apontam para o mesmo head; a falha associada só ao 13 não entra no 12, e a execução sem associação
+        // é informada, não contada.
+        provedor.Execucoes =
+        [
+            Execucao("@app", 10, Head, EstadoDaExecucao.Falha, prs: [13], workflow: 1),
+            Execucao("@app", 11, Head, EstadoDaExecucao.Sucesso, prs: [12], workflow: 2),
+            Execucao("@app", 12, Head, EstadoDaExecucao.Falha, prs: [], workflow: 3)
+        ];
+        var servico = Servico();
+
+        provedor.PullRequest = Pr("@app", 12, Head);
+        var doPr12 = (await servico.ConsultarPullRequestAsync(new PedidoDeCiDoPullRequestDto(1, 12, "@app"))).Check!;
+        Assert.Equal(EstadoDoCheckDeCi.Sucesso, doPr12.Estado);
+        Assert.Equal([11L], doPr12.Execucoes.Select(e => e.Identidade.IdDaExecucao));
+        Assert.Equal((1, 1), (doPr12.Descartadas, doPr12.SemAssociacaoAoPr));
+
+        provedor.PullRequest = Pr("@app", 13, Head);
+        var doPr13 = (await servico.ConsultarPullRequestAsync(new PedidoDeCiDoPullRequestDto(1, 13, "@app"))).Check!;
+        Assert.Equal(EstadoDoCheckDeCi.Falha, doPr13.Estado);
+        Assert.Equal([10L], doPr13.Execucoes.Select(e => e.Identidade.IdDaExecucao));
+        Assert.Equal(13, doPr13.Consulta.NumeroDoPr);
+    }
+
+    [Fact]
+    public async Task ExecucaoDoShaSemAssociacaoAoPrNaoViraResultadoDoPr()
+    {
+        provedor.PullRequest = Pr("@app", 12, Head);
+        provedor.Execucoes = [Execucao("@app", 10, Head, EstadoDaExecucao.Sucesso, prs: [])];
+
+        var check = (await Servico().ConsultarPullRequestAsync(new PedidoDeCiDoPullRequestDto(1, 12, "@app"))).Check!;
+
+        Assert.Equal(EstadoDoCheckDeCi.Indisponivel, check.Estado);
+        Assert.Empty(check.Execucoes);
+        Assert.Equal(1, check.SemAssociacaoAoPr);
+    }
+
+    [Fact]
     public async Task RepositorioVemDoAliasExplicitoDaSessaoOuDoAtivoNessaOrdem()
     {
         preferencias.Ativo = "@api";
@@ -200,15 +239,17 @@ public sealed class AcompanhamentoDeCiTests
         new(Repositorio(alias, 42), numero, sha, EstadoDoPullRequestDeCi.Aberto, false, false, "Título",
             new Uri($"https://github.com/dono/{alias[1..]}/pull/{numero}"));
 
-    private static ExecucaoDeCiDto Execucao(string alias, long id, string sha, EstadoDaExecucao estado) => new()
+    private static ExecucaoDeCiDto Execucao(string alias, long id, string sha, EstadoDaExecucao estado, int[]? prs = null,
+        long workflow = 7) => new()
     {
-        Identidade = new IdentidadeDaExecucaoDeCi(Repositorio(alias, alias == "@app" ? 42 : 43), 7, id, 1, sha),
+        Identidade = new IdentidadeDaExecucaoDeCi(Repositorio(alias, alias == "@app" ? 42 : 43), workflow, id, 1, sha),
         NomeDoWorkflow = "CI",
         Gatilho = "pull_request",
         Estado = estado,
         UrlOficial = new Uri($"https://github.com/dono/{alias[1..]}/actions/runs/{id}"),
         CriadaEm = Agora.AddMinutes(-id),
-        AtualizadaEm = Agora
+        AtualizadaEm = Agora,
+        NumerosDePr = prs ?? [12]
     };
 
     private sealed class ProvedorFalso : IProvedorDeCi

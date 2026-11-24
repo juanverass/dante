@@ -292,6 +292,78 @@ public sealed class IntegracaoDeCiContratosTests
         Assert.Equal([12L, 13L], check.Execucoes.Select(e => e.Identidade.IdDaExecucao).Order());
     }
 
+    // ---- associação ao PR consultado (#238, AD-77) ----
+
+    [Fact]
+    public void MesmoShaEmDoisPrsCadaUmVeSoAsExecucoesAssociadasAEle()
+    {
+        // O PR vizinho (8) tem uma falha no mesmo SHA; ela não pode pintar o PR 7 de vermelho, e vice-versa.
+        ExecucaoDeCiDto[] execucoes =
+        [
+            Execucao(10, Head, EstadoDaExecucao.Falha, workflow: 1, prs: [8]),
+            Execucao(11, Head, EstadoDaExecucao.Sucesso, workflow: 2, prs: [7])
+        ];
+
+        var doPr7 = Consolidar(execucoes);
+        Assert.Equal(EstadoDoCheckDeCi.Sucesso, doPr7.Estado);
+        Assert.Equal(11, Assert.Single(doPr7.Execucoes).Identidade.IdDaExecucao);
+        Assert.Equal((1, 0), (doPr7.Descartadas, doPr7.SemAssociacaoAoPr));
+
+        var doPr8 = Consolidar(execucoes, consulta: new ConsultaDeCi(Consultado, Head, 8));
+        Assert.Equal(EstadoDoCheckDeCi.Falha, doPr8.Estado);
+        Assert.Equal(10, Assert.Single(doPr8.Execucoes).Identidade.IdDaExecucao);
+    }
+
+    [Fact]
+    public void ExecucaoAssociadaAosDoisPrsContaParaCadaUm()
+    {
+        ExecucaoDeCiDto[] execucoes = [Execucao(10, Head, EstadoDaExecucao.Falha, prs: [7, 8])];
+        Assert.Equal(EstadoDoCheckDeCi.Falha, Consolidar(execucoes).Estado);
+        Assert.Equal(EstadoDoCheckDeCi.Falha, Consolidar(execucoes, consulta: new ConsultaDeCi(Consultado, Head, 8)).Estado);
+    }
+
+    [Fact]
+    public void ExecucaoSemAssociacaoAPrNaoContaParaOPrEFicaInformada()
+    {
+        var check = Consolidar(Execucao(10, Head, EstadoDaExecucao.Falha, workflow: 1, prs: []),
+            Execucao(11, Head, EstadoDaExecucao.Sucesso, workflow: 2, prs: [7]));
+        Assert.Equal(EstadoDoCheckDeCi.Sucesso, check.Estado);
+        Assert.Equal(11, Assert.Single(check.Execucoes).Identidade.IdDaExecucao);
+        Assert.Equal((0, 1), (check.Descartadas, check.SemAssociacaoAoPr));
+    }
+
+    [Theory]
+    [InlineData(EstadoDaExecucao.Sucesso)]
+    [InlineData(EstadoDaExecucao.Falha)]
+    public void SoExecucoesSemAssociacaoDeixamOCheckDoPrIndisponivel(EstadoDaExecucao estado)
+    {
+        // Não se sabe se são do PR: nem sucesso, nem falha, nem "sem execução".
+        var check = Consolidar(Execucao(10, Head, estado, prs: []));
+        Assert.Equal(EstadoDoCheckDeCi.Indisponivel, check.Estado);
+        Assert.Equal(MotivoDaFalhaNaConsultaDeCi.Indisponivel, check.MotivoDaIndisponibilidade);
+        Assert.Empty(check.Execucoes);
+        Assert.Equal(1, check.SemAssociacaoAoPr);
+    }
+
+    [Fact]
+    public void SoExecucoesDeOutroPrDeixamOPrSemExecucao()
+    {
+        var check = Consolidar(Execucao(10, Head, EstadoDaExecucao.Sucesso, prs: [8]));
+        Assert.Equal(EstadoDoCheckDeCi.SemExecucao, check.Estado);
+        Assert.Equal((1, 0), (check.Descartadas, check.SemAssociacaoAoPr));
+    }
+
+    [Fact]
+    public void ConsultaSemNumeroDePrCorrelacionaSoPeloSha()
+    {
+        var semPr = new ConsultaDeCi(Consultado, Head);
+        var check = Consolidar([Execucao(10, Head, EstadoDaExecucao.Sucesso, prs: []),
+            Execucao(11, Head, EstadoDaExecucao.Sucesso, workflow: 2, prs: [8])], consulta: semPr);
+        Assert.Equal(EstadoDoCheckDeCi.Sucesso, check.Estado);
+        Assert.Equal(2, check.Execucoes.Count);
+        Assert.Equal(0, check.SemAssociacaoAoPr);
+    }
+
     [Theory]
     [InlineData(new[] { EstadoDaExecucao.Sucesso, EstadoDaExecucao.EmAndamento }, EstadoDoCheckDeCi.EmAndamento)]
     [InlineData(new[] { EstadoDaExecucao.Falha, EstadoDaExecucao.AguardandoRunner }, EstadoDoCheckDeCi.AguardandoRunner)]
@@ -525,8 +597,9 @@ public sealed class IntegracaoDeCiContratosTests
 
     private static CheckAgregadoDeCiDto Consolidar(params ExecucaoDeCiDto[] execucoes) => Consolidar(execucoes, workflows: true);
 
-    private static CheckAgregadoDeCiDto Consolidar(ExecucaoDeCiDto[]? execucoes = null, bool workflows = true, bool completo = true) =>
-        ConsolidacaoDoCheckDeCi.Consolidar(Consulta, new ResultadoDaConsultaDeCi
+    private static CheckAgregadoDeCiDto Consolidar(ExecucaoDeCiDto[]? execucoes = null, bool workflows = true, bool completo = true,
+        ConsultaDeCi? consulta = null) =>
+        ConsolidacaoDoCheckDeCi.Consolidar(consulta ?? Consulta, new ResultadoDaConsultaDeCi
         {
             PossuiWorkflowsConfigurados = workflows,
             Completo = completo,
@@ -535,7 +608,7 @@ public sealed class IntegracaoDeCiContratosTests
         });
 
     private static ExecucaoDeCiDto Execucao(long id, string sha, EstadoDaExecucao estado, int tentativa = 1, long workflow = 1,
-        string gatilho = "pr", DateTimeOffset? criadaEm = null, RepositorioDeCi? repositorio = null) => new()
+        string gatilho = "pr", DateTimeOffset? criadaEm = null, RepositorioDeCi? repositorio = null, int[]? prs = null) => new()
     {
         Identidade = new IdentidadeDaExecucaoDeCi(repositorio ?? Confirmado, workflow, id, tentativa, sha),
         NomeDoWorkflow = $"wf{workflow}",
@@ -544,7 +617,7 @@ public sealed class IntegracaoDeCiContratosTests
         UrlOficial = new Uri($"https://ci.exemplo/runs/{id}/attempts/{tentativa}"),
         CriadaEm = criadaEm ?? Agora,
         AtualizadaEm = Agora,
-        NumerosDePr = [7],
+        NumerosDePr = prs ?? [7],
         Jobs = [new JobDeCiDto { IdDoJob = 100, Nome = "testes", Estado = estado, UrlOficial = new Uri($"https://ci.exemplo/jobs/100") }]
     };
 

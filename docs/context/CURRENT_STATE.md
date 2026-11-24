@@ -1073,7 +1073,9 @@ O andamento do CI de um PR (#238, AD-77) é quem chama a porta, sob demanda e se
 pergunta natural "como está o CI do PR 12 do @alias?" (gramática fechada no `TelegramCi`, antes do Brain e da sessão).
 O repositório é o alias explícito, o da sessão ativa ou o ativo; a identidade de CI é o `dono/repo` do cadastro com a
 única conexão que libera o alias (vinculado não herda a do principal). O PR é lido na hora (`ObterPullRequestAsync`,
-só GET, sem cache) para obter o head SHA atual, e só execuções desse SHA contam: commit novo não herda sucesso. A
+só GET, sem cache) para obter o head SHA atual, e só execuções desse SHA que o provedor associa ao PR contam: commit
+novo não herda sucesso, execução do PR vizinho com o mesmo SHA não entra, e execução sem associação a PR não conta e é
+informada (sem nenhuma associada, o resultado é indisponível, nunca sucesso). A
 resposta traz links do PR e das execuções, o que falhou e o que falta; sem permissão e indisponível nunca viram falha,
 e sucesso não é apresentado como liberação para merge. Guia: [ci](../development/ci.md).
 

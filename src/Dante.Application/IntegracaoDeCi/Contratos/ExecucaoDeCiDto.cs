@@ -2,8 +2,8 @@ namespace Dante.Application.IntegracaoDeCi;
 
 // Uma tentativa de execução de um workflow, como o provedor a descreve. Gatilho é o evento neutro que a disparou
 // (push, PR, manual...), só para exibição; NumerosDePr são os PRs que o provedor associa à execução e podem vir vazios
-// (PR de fork, por exemplo): a correlação é sempre pelo SHA da identidade. Estado indefinido é recusado, também por
-// `with`: nunca chega à consolidação.
+// (o provedor não documenta quando): a correlação é pelo SHA da identidade e, na consulta de um PR, também por essa
+// associação (#238). Estado indefinido é recusado, também por `with`: nunca chega à consolidação.
 public sealed record ExecucaoDeCiDto
 {
     private readonly EstadoDaExecucao estado;

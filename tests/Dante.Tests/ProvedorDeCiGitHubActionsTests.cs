@@ -174,7 +174,7 @@ public sealed class ProvedorDeCiGitHubActionsTests : IDisposable
     public async Task ExecucaoDeOutroShaVemNoResultadoMasNuncaEntraNoCheck()
     {
         github.Em($"{Api}/runs?head_sha={Head}&per_page=100&page=1", Ok(Pagina("workflow_runs",
-            Run(10, 1, Antigo, "completed", "failure"), Run(11, 1, Head, "completed", "success"))));
+            Run(10, 1, Antigo, "completed", "failure", prs: [7]), Run(11, 1, Head, "completed", "success", prs: [7]))));
         github.Em($"{Api}/runs/10/attempts/1/jobs?per_page=100&page=1", Ok(Pagina("jobs")));
         github.Em($"{Api}/runs/11/attempts/1/jobs?per_page=100&page=1", Ok(Pagina("jobs")));
 
@@ -813,6 +813,30 @@ public sealed class ProvedorDeCiGitHubActionsTests : IDisposable
         Assert.Equal(Novo, depois.PullRequest!.ShaDoHead);
         Assert.Equal(EstadoDoCheckDeCi.SemExecucao, depois.Check!.Estado);
         Assert.Empty(depois.Check.Execucoes);
+    }
+
+    [Fact]
+    public async Task MesmoShaEmDoisPrsUsaAAssociacaoDoProvedorEExecucaoSemAssociacaoNaoConta()
+    {
+        // PRs 12 e 13 com o mesmo head: o vermelho do 13 não chega ao 12, e a execução sem pull_requests não conta.
+        github.Em($"{Pulls}/12", Ok(Pr(12, Head)));
+        github.Em($"{Pulls}/13", Ok(Pr(13, Head)));
+        github.Em($"{Api}/runs?head_sha={Head}&per_page=100&page=1", Ok(Pagina("workflow_runs",
+            Run(10, 1, Head, "completed", "success", workflow: 1, prs: [12]),
+            Run(11, 1, Head, "completed", "failure", workflow: 2, prs: [13]),
+            Run(12, 1, Head, "completed", "failure", workflow: 3, prs: []))));
+        foreach (var id in new[] { 10, 11, 12 })
+            github.Em($"{Api}/runs/{id}/attempts/1/jobs?per_page=100&page=1", Ok(Pagina("jobs")));
+        var servico = Acompanhamento();
+
+        var doPr12 = (await servico.ConsultarPullRequestAsync(new PedidoDeCiDoPullRequestDto(1, 12, "@app"))).Check!;
+        Assert.Equal(EstadoDoCheckDeCi.Sucesso, doPr12.Estado);
+        Assert.Equal([10L], doPr12.Execucoes.Select(e => e.Identidade.IdDaExecucao));
+        Assert.Equal((1, 1), (doPr12.Descartadas, doPr12.SemAssociacaoAoPr));
+
+        var doPr13 = (await servico.ConsultarPullRequestAsync(new PedidoDeCiDoPullRequestDto(1, 13, "@app"))).Check!;
+        Assert.Equal(EstadoDoCheckDeCi.Falha, doPr13.Estado);
+        Assert.Equal([11L], doPr13.Execucoes.Select(e => e.Identidade.IdDaExecucao));
     }
 
     [Fact]

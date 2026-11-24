@@ -33,7 +33,7 @@ Toda leitura nasce de um **alias cadastrado** (AD-07) e de uma **conexão** (`Co
 | ID no provedor | numérico e imutável; nulo só na consulta; obrigatório em toda execução devolvida |
 | conexão | a mesma da consulta; outra conexão é outro repositório |
 | head SHA | completo (40 ou 64 hex), normalizado em minúsculas; abreviado é recusado |
-| PR | contexto de exibição; a correlação é sempre pelo SHA |
+| PR | o provedor é consultado pelo SHA; com número de PR na consulta, a execução também tem de estar associada a esse PR pelo provedor (#238) |
 | workflow, execução, tentativa, job | IDs positivos; reexecução é **outra tentativa**, nunca continuação |
 | URLs | https absoluta, sem credencial; só a URL oficial da execução/job, nunca a da API |
 
@@ -42,7 +42,9 @@ Toda leitura nasce de um **alias cadastrado** (AD-07) e de uma **conexão** (`Co
 1. execução de outro repositório, conexão ou ID → a resposta inteira é recusada (`Inconsistente`), nunca filtrada em
    silêncio;
 2. execução de outro SHA é descartada: um run antigo nunca é diagnosticado como sendo do head atual;
-3. de cada execução vale a maior tentativa; de cada workflow e gatilho, a execução mais recente.
+3. com número de PR na consulta (#238), só conta a execução que o provedor associa a esse PR (ver
+   [associação ao PR](#associação-ao-pr)); sem número, vale só o SHA;
+4. de cada execução vale a maior tentativa; de cada workflow e gatilho, a execução mais recente.
 
 ## Estados
 
@@ -330,9 +332,31 @@ conexão do principal: só é consultado se uma conexão o liberar pelo próprio
    destino, por nome e ID; PR de outro repositório é `Inconsistente` e nada é exibido. PR de fork é aceito e
    informado: o CI que vale é o do repositório consultado;
 2. a consulta das execuções usa o head SHA lido e o ID confirmado do repositório;
-3. a `ConsolidacaoDoCheckDeCi` descarta execuções de outro SHA, tentativas anteriores e execuções substituídas. Um
-   commit novo no PR **não herda** o sucesso do anterior: sem execução do commit novo, o estado é "ainda não há
-   execução de CI para este commit".
+3. a `ConsolidacaoDoCheckDeCi` descarta execuções de outro SHA, de outro PR, tentativas anteriores e execuções
+   substituídas. Um commit novo no PR **não herda** o sucesso do anterior: sem execução do commit novo, o estado é
+   "ainda não há execução de CI para este commit".
+
+#### Associação ao PR
+
+O mesmo SHA pode ser o head de dois PRs, e o commit pode ter execuções de outros gatilhos: o SHA sozinho não prova que
+uma execução é do PR consultado. Por isso a consulta leva o número do PR, e cada execução do SHA é classificada pela
+lista de PRs que o provedor associa a ela (`NumerosDePr`, do campo `pull_requests` da execução no GitHub):
+
+| Associação da execução | Efeito |
+| --- | --- |
+| contém o PR consultado (sozinho ou com outros) | conta para o check |
+| só outros PRs | descartada (`Descartadas`): a falha do PR vizinho não entra no PR consultado |
+| nenhuma (lista vazia) | não conta e é informada (`SemAssociacaoAoPr`): "N execuções deste commit não aparecem ligadas a este PR no provedor e não foram consideradas" |
+
+Se nenhuma execução associada resta e há execução do SHA sem associação, o check é `Indisponivel` ("não consigo
+afirmar o resultado... Isso não quer dizer que o CI falhou"), nunca `Sucesso`, `Falha` ou `SemExecucao`: o D.A.N.T.E.
+não sabe se elas são do PR. Se não resta nada associado e não há execução sem associação, vale a regra comum
+(`SemExecucao`/`SemWorkflowConfigurado`).
+
+A documentação da API REST não descreve quando `pull_requests` vem preenchido ou vazio; só o esquema da resposta é
+documentado. Por isso a regra não presume associação pelo SHA. Em quais cenários reais a lista vem vazia (por exemplo,
+PR de fork ou PR já fechado) fica para a validação com o CI real (#242); até lá, nesses casos a resposta é
+`Indisponivel` com a explicação acima, não um resultado inventado.
 
 ### Resposta
 

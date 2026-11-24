@@ -141,7 +141,13 @@ public sealed class TelegramCi(IServiceScopeFactory escopos, ILogger<TelegramCi>
         if (check.Execucoes.Count > MaximoDeWorkflows)
             texto.Append($"\n… e mais {check.Execucoes.Count - MaximoDeWorkflows} workflow(s).");
         if (check.Descartadas > 0)
-            texto.Append("\nExecuções de commits anteriores e tentativas substituídas não contam para este resultado.");
+            texto.Append("\nExecuções de commits anteriores, de outros PRs e tentativas substituídas não contam para este " +
+                         "resultado.");
+        if (check.SemAssociacaoAoPr > 0 && check.Execucoes.Count > 0)
+            texto.Append(check.SemAssociacaoAoPr == 1
+                ? "\n1 execução deste commit não aparece ligada a este PR no provedor e não foi considerada."
+                : $"\n{check.SemAssociacaoAoPr} execuções deste commit não aparecem ligadas a este PR no provedor e não " +
+                  "foram consideradas.");
         if (pr.DeFork && check.Estado == EstadoDoCheckDeCi.NaFila)
             texto.Append("\nEm PR de fork, a execução pode estar esperando a aprovação de um mantenedor para rodar.");
         if (check.Estado == EstadoDoCheckDeCi.Sucesso)
@@ -172,6 +178,9 @@ public sealed class TelegramCi(IServiceScopeFactory escopos, ILogger<TelegramCi>
                                               "CI falhou.",
             _ => check.MotivoDaIndisponibilidade == MotivoDaFalhaNaConsultaDeCi.LimiteDeTaxa
                 ? $"o provedor limitou as consultas; tente de novo{Quando(repetirApos)}. Isso não quer dizer que o CI falhou."
+                : check.Execucoes.Count == 0 && check.SemAssociacaoAoPr > 0
+                    ? "não consigo afirmar o resultado: há execução de CI deste commit, mas o provedor não a liga a este " +
+                      "PR, então ela não foi considerada. Isso não quer dizer que o CI falhou."
                 : check.Execucoes.Count > 0 && !check.Completo
                     ? "o resultado veio incompleto (muitas execuções), então não afirmo sucesso. Isso não quer dizer " +
                       "que o CI falhou."

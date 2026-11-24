@@ -147,7 +147,28 @@ public sealed class TelegramCiTests
         var texto = TelegramCi.Formatar(Situacao(Check(EstadoDoCheckDeCi.SemExecucao) with { Descartadas = 2 }));
 
         Assert.Contains("CI: ainda não há execução de CI para este commit.", texto);
-        Assert.Contains("Execuções de commits anteriores e tentativas substituídas não contam", texto);
+        Assert.Contains("Execuções de commits anteriores, de outros PRs e tentativas substituídas não contam", texto);
+    }
+
+    [Fact]
+    public void ExecucaoSemAssociacaoAoPrNaoViraResultadoEEInformada()
+    {
+        var soSemAssociacao = TelegramCi.Formatar(Situacao(Check(EstadoDoCheckDeCi.Indisponivel) with
+        {
+            SemAssociacaoAoPr = 1,
+            MotivoDaIndisponibilidade = MotivoDaFalhaNaConsultaDeCi.Indisponivel
+        }));
+        Assert.Contains("CI: não consigo afirmar o resultado: há execução de CI deste commit, mas o provedor não a liga a " +
+                        "este PR", soSemAssociacao);
+        Assert.Contains("Isso não quer dizer que o CI falhou.", soSemAssociacao);
+        Assert.DoesNotContain("tudo passou", soSemAssociacao);
+        Assert.DoesNotContain("não aparece ligada", soSemAssociacao);
+
+        var comAssociadas = TelegramCi.Formatar(Situacao(Check(EstadoDoCheckDeCi.Sucesso,
+            Execucao(10, "CI", EstadoDaExecucao.Sucesso)) with { SemAssociacaoAoPr = 2 }));
+        Assert.Contains("CI: tudo passou (1 workflow(s)).", comAssociadas);
+        Assert.Contains("2 execuções deste commit não aparecem ligadas a este PR no provedor e não foram consideradas.",
+            comAssociadas);
     }
 
     [Fact]
@@ -326,6 +347,7 @@ public sealed class TelegramCiTests
         UrlOficial = new Uri($"https://github.com/dono/app/actions/runs/{id}"),
         CriadaEm = Agora,
         AtualizadaEm = Agora,
+        NumerosDePr = [12],
         Jobs = jobs
     };
 

@@ -3769,6 +3769,10 @@ Decisão:
   (nome e ID), SHA completo, estado e URL oficial; o caso de uso confere de novo número, alias e conexão. A consulta das
   execuções usa esse SHA e o ID confirmado, e a `ConsolidacaoDoCheckDeCi` descarta outros SHAs: um commit novo não herda
   o sucesso do anterior. PR de fork é aceito e informado; PR de outro repositório é `Inconsistente`.
+* **Execução conta para o PR só se o provedor a associa ao PR**: com número de PR na `ConsultaDeCi`, a consolidação
+  exige que a execução do SHA traga esse número entre os PRs associados (`NumerosDePr`). Associada só a outro PR é
+  descartada; sem associação nenhuma não conta e é informada (`SemAssociacaoAoPr`); se só restam execuções sem
+  associação, o check é `Indisponivel`. Consulta sem número de PR continua correlacionando só pelo SHA.
 * **Identidade de CI por porta própria** (`IRepositoriosDeCi`, Infrastructure `RepositoriosDeCiConfigurados`): o
   `dono/repo` do cadastro e a **única** conexão que libera o alias, sem rede e sem ler credencial. Sem nome, sem
   conexão ou com mais de uma, `NaoConfigurada`; nunca se escolhe uma conexão nem se herda a do principal num vinculado.
@@ -3792,10 +3796,12 @@ pergunta natural, e a gramática do Brain mostra que dá para fazê-la com segur
 cache (um push novo herdaria o resultado anterior); resolver a conexão pelo primeiro item da configuração quando duas
 liberam o alias (escolha silenciosa de credencial); deixar o repositório vinculado usar a conexão do principal
 (contraria a AD-58 e a credencial por conexão); afirmar "pronto para merge" com o workflow verde (branch protections,
-checks obrigatórios e revisões não são lidos).
+checks obrigatórios e revisões não são lidos); correlacionar o PR só pelo SHA (o mesmo SHA pode estar em dois PRs, e
+a execução do vizinho entraria no resumo); contar a execução sem associação como do PR (a API não documenta quando a
+associação vem vazia, então isso seria presumir).
 
-Por quê: o PR é só o ponto de entrada; a verdade continua sendo o SHA, lido na hora, com o mesmo isolamento por
-repositório e conexão da AD-76. A gramática fechada dá a pergunta natural sem abrir uma via de inferência, e a
+Por quê: o PR é o ponto de entrada e o filtro; a verdade continua sendo o SHA, lido na hora, com o mesmo isolamento
+por repositório e conexão da AD-76, e só conta o que o provedor liga àquele PR. A gramática fechada dá a pergunta natural sem abrir uma via de inferência, e a
 consulta sob demanda não cria carga nem estado novo.
 
 Código: `Dante.Application/IntegracaoDeCi/{AcompanhamentoDeCiAppService, IAcompanhamentoDeCiAppService}.cs`,
