@@ -373,16 +373,20 @@ public sealed partial class GerenciadorDeWorktreesGit(
 
     private sealed record Retrato(string Arvore, string Hash, bool Vazio);
 
-    private sealed record ArquivoDaWorktree(string Modo, byte[] Bytes);
+    // Ponto de intervenção dos testes na leitura confinada: (etapa "abrir" ou "ler", caminho relativo).
+    internal Action<string, string>? IntervencaoNaLeitura { get; init; }
 
     // A worktree como árvore Git, sem que nenhum processo Git leia os arquivos dela. O Git só roda um filtro de conteúdo
     // ao converter arquivo da worktree em objeto (add, diff e status contra a worktree, hash-object de um caminho) ou o
-    // inverso (checkout). Aqui o D.A.N.T.E. lê os bytes, sem seguir link no meio do caminho. O Git os recebe pela entrada
+    // inverso (checkout). Aqui o D.A.N.T.E. lê os bytes confinado pelo kernel à worktree (LeituraConfinadaDaWorktree:
+    // nenhum link em nenhum componente, nunca acima da raiz, sem janela entre verificar e abrir). Só depois de todos os
+    // caminhos lidos e validados o Git recebe os bytes pela entrada
     // padrão (hash-object --stdin --no-filters), e a árvore é montada num index privado a partir da base (read-tree,
     // update-index --index-info, write-tree). Nada é convertido, então nenhuma configuração, nem a mudada durante a
     // operação, tem filtro a rodar. Mesmo alcance do add --all: os rastreados da base (removidos, alterados, modo
     // executável, link) e os não rastreados não ignorados. Submódulo fica como na base. O index e os arquivos da worktree
-    // não mudam; ficam só blobs e uma árvore soltos no banco de objetos. Nulo se algo não puder ser lido ou montado.
+    // não mudam; ficam só blobs (de bytes da própria worktree) e uma árvore soltos no banco de objetos. Nulo se algo não
+    // puder ser lido ou montado; WorktreeInvalidaException se a leitura for recusada (antes de qualquer blob gravado).
     private async Task<Retrato?> RetratarAsync(WorktreePlanejada worktree, string baseDoCommit,
         CancellationToken cancellationToken)
     {
@@ -399,8 +403,10 @@ public sealed partial class GerenciadorDeWorktreesGit(
             var novos = await GitDaEntregaAsync(worktree.Caminho, indice, null, cancellationToken, "ls-files", "--others",
                 "--exclude-standard", "-z");
             if (rastreados.Codigo != 0 || novos.Codigo != 0) return null;
-            var raiz = Path.GetFullPath(worktree.Caminho);
+            using var leitura = LeituraConfinadaDaWorktree.Abrir(worktree.Caminho, IntervencaoNaLeitura);
+            // Primeira fase: tudo lido e validado, nada gravado. Remoções vão direto; o resto espera a segunda fase.
             var entradas = new StringBuilder();
+            var aGravar = new List<(string Modo, byte[] Bytes, string Caminho)>();
             foreach (var item in rastreados.Saida.Split('\0', StringSplitOptions.RemoveEmptyEntries))
             {
                 // "<modo> <tipo> <oid>\t<caminho>"
@@ -410,22 +416,25 @@ public sealed partial class GerenciadorDeWorktreesGit(
                 var caminho = item[(tab + 1)..];
                 if (campos[0] == "160000") continue;
                 if (campos[0] is not ("100644" or "100755" or "120000")) return null;
-                var atual = LerDaWorktree(raiz, caminho);
-                if (atual is null)
+                if (leitura.Ler(caminho) is not { } atual)
                 {
                     entradas.Append($"0 {new string('0', 40)}\t{caminho}\0");
                     continue;
                 }
                 if (atual.Modo == campos[0] && OidDoBlob(atual.Bytes) == campos[2]) continue;
-                if (await GravarBlobAsync(worktree.Caminho, atual.Bytes, cancellationToken) is not { } blob) return null;
-                entradas.Append($"{atual.Modo} {blob}\t{caminho}\0");
+                aGravar.Add((atual.Modo, atual.Bytes, caminho));
             }
             foreach (var caminho in novos.Saida.Split('\0', StringSplitOptions.RemoveEmptyEntries))
             {
                 // Um diretório listado (repositório aninhado) ou um arquivo que sumiu no meio: não há o que gravar como está.
-                if (caminho.EndsWith('/') || LerDaWorktree(raiz, caminho) is not { } atual) return null;
-                if (await GravarBlobAsync(worktree.Caminho, atual.Bytes, cancellationToken) is not { } blob) return null;
-                entradas.Append($"{atual.Modo} {blob}\t{caminho}\0");
+                if (caminho.EndsWith('/') || leitura.Ler(caminho) is not { } atual) return null;
+                aGravar.Add((atual.Modo, atual.Bytes, caminho));
+            }
+            // Segunda fase: só bytes lidos dentro da worktree chegam ao banco de objetos.
+            foreach (var (modo, bytes, caminho) in aGravar)
+            {
+                if (await GravarBlobAsync(worktree.Caminho, bytes, cancellationToken) is not { } blob) return null;
+                entradas.Append($"{modo} {blob}\t{caminho}\0");
             }
             if (entradas.Length > 0 && (await GitDaEntregaAsync(worktree.Caminho, indice,
                     Encoding.UTF8.GetBytes(entradas.ToString()), cancellationToken, "update-index", "-z", "--index-info"))
@@ -448,25 +457,6 @@ public sealed partial class GerenciadorDeWorktreesGit(
             try { privado.Delete(recursive: true); }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
         }
-    }
-
-    // Um caminho relativo da worktree como o add o gravaria. Um link vira modo 120000, com o destino como conteúdo. Um
-    // arquivo comum vira 100755 se for executável pelo dono, senão 100644. Nulo se o caminho estiver ausente, for um
-    // diretório ou ficar atrás de um link num componente intermediário (o Git também não segue esse link). Nunca sai da
-    // worktree.
-    private static ArquivoDaWorktree? LerDaWorktree(string raiz, string relativo)
-    {
-        var completo = Path.GetFullPath(Path.Combine(raiz, relativo));
-        if (!completo.StartsWith(raiz + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-            throw new WorktreeInvalidaException("Arquivo fora da worktree.");
-        for (var pai = Path.GetDirectoryName(completo); pai is not null && pai.Length > raiz.Length;
-             pai = Path.GetDirectoryName(pai))
-            if (!Directory.Exists(pai) || new DirectoryInfo(pai).LinkTarget is not null) return null;
-        var informacao = new FileInfo(completo);
-        if (informacao.LinkTarget is { } destino) return new("120000", Encoding.UTF8.GetBytes(destino));
-        if (!informacao.Exists) return null;
-        var executavel = !OperatingSystem.IsWindows() && (informacao.UnixFileMode & UnixFileMode.UserExecute) != 0;
-        return new(executavel ? "100755" : "100644", File.ReadAllBytes(completo));
     }
 
     // O id que o Git daria ao blob (SHA-1 de "blob <tamanho>\0" + bytes): só para não regravar o que não mudou.
