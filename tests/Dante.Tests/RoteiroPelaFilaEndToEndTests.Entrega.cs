@@ -110,13 +110,15 @@ public sealed partial class RoteiroPelaFilaEndToEndTests
         var (codigo, worktree) = await GateAprovadoAsync(a);
         var baseDoCommit = RepositorioGitDeTeste.Git(worktree, "rev-parse", "HEAD");
         var (id, hash) = Comando(await a.Send($"/execucao entregar {codigo}", 20));
-        // O index da worktree está travado (outro processo Git): o add falha e nada é gravado.
-        var trava = Path.Combine(RepositorioGitDeTeste.Git(worktree, "rev-parse", "--absolute-git-dir"), "index.lock");
+        // A ref da branch está travada (outro processo Git): o update-ref falha e nada é gravado. (A árvore é montada num
+        // index privado, então uma trava no index da worktree não impede a entrega.)
+        var comum = RepositorioGitDeTeste.Git(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir");
+        var trava = Path.Combine(comum, RepositorioGitDeTeste.Git(worktree, "symbolic-ref", "HEAD") + ".lock");
         File.WriteAllText(trava, "");
 
         var falha = await a.Send($"/acoes aprovar {id} {hash}", 21);
 
-        Assert.Contains("não teve efeito: O Git recusou preparar as alterações", falha);
+        Assert.Contains("não teve efeito: O Git recusou mover a branch", falha);
         Assert.Equal(baseDoCommit, RepositorioGitDeTeste.Git(worktree, "rev-parse", "HEAD"));
         Assert.Equal((int)EstadoDaAprovacaoDeAcao.Falhou,
             (await LinhaAsync(banco, "SELECT estado FROM orquestracao.aprovacoes_de_acao"))[0]);
@@ -352,8 +354,8 @@ public sealed partial class RoteiroPelaFilaEndToEndTests
 
         private sealed class Decorador(GerenciadorDeWorktreesGit real, CommitQueTrava trava) : ICommitDeWorktree
         {
-            public Task<string> LerHeadAsync(WorktreePlanejada worktree, CancellationToken cancellationToken = default) =>
-                real.LerHeadAsync(worktree, cancellationToken);
+            public Task<ArtefatoDaWorktreeDto> LerArtefatoAsync(WorktreePlanejada worktree,
+                CancellationToken cancellationToken = default) => real.LerArtefatoAsync(worktree, cancellationToken);
 
             public async Task<DesfechoDoCommitDto> CommitarAsync(WorktreePlanejada worktree, CommitDoArtefatoDto commit,
                 CancellationToken cancellationToken = default)

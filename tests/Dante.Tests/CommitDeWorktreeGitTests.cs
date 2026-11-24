@@ -7,8 +7,8 @@ namespace Dante.Tests;
 
 // #311, PR 3: o commit local do artefato aprovado, com Git e filesystem reais. Exatamente um commit, filho da base, com o
 // conteúdo aprovado, o autor configurado e a mensagem exata, na branch da worktree; o checkout principal fica byte a
-// byte igual e nada vai ao remoto. Recusas antes do commit não deixam rastro (o index volta à base); o que pode ter
-// mudado é Incerto, com o estado observado.
+// byte igual e nada vai ao remoto. Recusas antes do commit não deixam rastro (a árvore é montada num index privado, e
+// o index da worktree só muda depois do commit); o que pode ter mudado é Incerto, com o estado observado.
 public sealed class CommitDeWorktreeGitTests : IDisposable
 {
     private static readonly AutorDoCommit Autor = new("Dante Bot", "dante@example.com");
@@ -106,11 +106,12 @@ public sealed class CommitDeWorktreeGitTests : IDisposable
     }
 
     [Theory]
-    [InlineData("add")]
+    [InlineData("hash-object")]
+    [InlineData("update-index")]
     [InlineData("write-tree")]
     [InlineData("commit-tree")]
     [InlineData("update-ref")]
-    public async Task FalhaDoGitAntesDoCommitRestauraOIndexESemEfeito(string subcomando)
+    public async Task FalhaDoGitAntesDoCommitNaoTocaNadaESemEfeito(string subcomando)
     {
         if (OperatingSystem.IsWindows()) return;
         var (repo, w, _) = await PrepararAsync();
@@ -122,27 +123,47 @@ public sealed class CommitDeWorktreeGitTests : IDisposable
 
         var desfecho = await gerenciador.CommitarAsync(w, new(w.ShaBase, aprovado, Autor, "m"));
 
-        Assert.Contains("nenhum commit foi feito", Assert.IsType<DesfechoDoCommitDto.SemEfeito>(desfecho).Motivo);
+        Assert.Matches("nada foi feito|nenhum commit foi feito", Assert.IsType<DesfechoDoCommitDto.SemEfeito>(desfecho).Motivo);
         Assert.Equal(w.ShaBase, RepositorioGitDeTeste.Git(w.Caminho, "rev-parse", "HEAD"));
         Assert.Equal(estado, Estado(w));
     }
 
+    // Alguém escreve na worktree enquanto a árvore é montada, antes de os bytes serem lidos: o hash da árvore não é o
+    // aprovado, e nada é commitado.
     [Fact]
-    public async Task ConteudoAlteradoDuranteOAddERecusadoPeloHashDoIndex()
+    public async Task ConteudoAlteradoDuranteORetratoERecusadoPeloHashDaArvore()
     {
         if (OperatingSystem.IsWindows()) return;
         var (repo, w, _) = await PrepararAsync();
-        // Entre a conferência e o add, alguém escreve na worktree: o index não é mais o aprovado.
         var gerenciador = ComGitFalso(repo,
-            $"for a in \"$@\"; do if [ \"$a\" = \"add\" ]; then echo intruso >> '{w.Caminho}/novo.txt'; fi; done\n");
+            $"for a in \"$@\"; do if [ \"$a\" = \"ls-files\" ]; then echo intruso >> '{w.Caminho}/novo.txt'; fi; done\n");
         File.WriteAllText(Path.Combine(w.Caminho, "novo.txt"), "novo\n");
         var aprovado = (await gerenciador.ResumirAlteracoesAsync(w, 0)).Hash;
 
         var desfecho = await gerenciador.CommitarAsync(w, new(w.ShaBase, aprovado, Autor, "m"));
 
-        Assert.Contains("difere do aprovado", Assert.IsType<DesfechoDoCommitDto.SemEfeito>(desfecho).Motivo);
+        Assert.Contains("mudou depois da aprovação", Assert.IsType<DesfechoDoCommitDto.SemEfeito>(desfecho).Motivo);
         Assert.Equal(w.ShaBase, RepositorioGitDeTeste.Git(w.Caminho, "rev-parse", "HEAD"));
         Assert.Equal("?? novo.txt", Estado(w));
+    }
+
+    // Alguém escreve na worktree depois de a árvore ser conferida: o commit grava a árvore conferida (o conteúdo
+    // aprovado), nunca o que foi escrito depois, que fica como alteração da worktree.
+    [Fact]
+    public async Task ConteudoAlteradoDepoisDoRetratoNaoEntraNoCommit()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var (repo, w, _) = await PrepararAsync();
+        var gerenciador = ComGitFalso(repo,
+            $"for a in \"$@\"; do if [ \"$a\" = \"commit-tree\" ]; then echo intruso >> '{w.Caminho}/novo.txt'; fi; done\n");
+        File.WriteAllText(Path.Combine(w.Caminho, "novo.txt"), "novo\n");
+        var aprovado = (await gerenciador.ResumirAlteracoesAsync(w, 0)).Hash;
+
+        var desfecho = await gerenciador.CommitarAsync(w, new(w.ShaBase, aprovado, Autor, "m"));
+
+        Assert.IsType<DesfechoDoCommitDto.Commitado>(desfecho);
+        Assert.Equal("novo", RepositorioGitDeTeste.Git(w.Caminho, "show", "HEAD:novo.txt"));
+        Assert.Equal("M novo.txt", Estado(w));
     }
 
     [Fact]
@@ -237,8 +258,7 @@ public sealed class CommitDeWorktreeGitTests : IDisposable
         Assert.Equal("outra", RepositorioGitDeTeste.Git(w.Caminho, "log", "-1", "--format=%s"));
     }
 
-    // Outra entrega move a branch e, em seguida, o commit-tree desta falha: o index (já o da outra) não é restaurado
-    // para a base, e esta fica sem efeito.
+    // Outra entrega move a branch e, em seguida, o commit-tree desta falha: esta fica sem efeito e não mexe no index.
     [Fact]
     public async Task FalhaDepoisQueOutraEntregaMoveuABranchNaoMexeNoIndex()
     {
@@ -253,15 +273,15 @@ public sealed class CommitDeWorktreeGitTests : IDisposable
 
         var desfecho = await gerenciador.CommitarAsync(w, new(w.ShaBase, aprovado, Autor, "m"));
 
-        Assert.Contains("outra entrega", Assert.IsType<DesfechoDoCommitDto.SemEfeito>(desfecho).Motivo);
+        Assert.Contains("nenhum commit foi feito", Assert.IsType<DesfechoDoCommitDto.SemEfeito>(desfecho).Motivo);
         Assert.Equal("outra", RepositorioGitDeTeste.Git(w.Caminho, "log", "-1", "--format=%s"));
-        // O que o add preparou continua no index: nada foi desfeito sobre a branch de outra entrega.
-        Assert.Equal("M  codigo.txt", Estado(w));
+        // O index da worktree não foi tocado por esta entrega: a alteração continua só nos arquivos.
+        Assert.Equal("M codigo.txt", Estado(w));
     }
 
     // Revisão do PR #326, ponto 1: um filtro de conteúdo (clean/smudge/process, como o do Git LFS) é um comando externo
-    // que o Git roda ao ler ou preparar arquivos. A entrega o recusa antes de qualquer leitura de conteúdo: o comando
-    // nunca roda (a marca não é criada), nada é preparado nem commitado, e a observação do estado também não o aciona.
+    // que o Git roda ao converter arquivo em objeto. Já configurado, a entrega o recusa com o motivo: o comando nunca
+    // roda (a marca não é criada), nada é preparado nem commitado, e a observação do estado também não o aciona.
     [Theory]
     [InlineData("clean")]
     [InlineData("process")]
@@ -277,14 +297,14 @@ public sealed class CommitDeWorktreeGitTests : IDisposable
         File.WriteAllText(Path.Combine(repo.Caminho, ".git", "info", "attributes"), "* filter=perigoso\n");
 
         var desfecho = await gerenciador.CommitarAsync(w, new(w.ShaBase, aprovado, Autor, "m"));
-        var leitura = await Assert.ThrowsAsync<WorktreeInvalidaException>(() => gerenciador.LerHeadAsync(w));
+        var leitura = await Assert.ThrowsAsync<WorktreeInvalidaException>(() => gerenciador.LerArtefatoAsync(w));
         var estado = await gerenciador.DescreverEstadoAsync(w);
 
         Assert.False(File.Exists(marca), "o filtro rodou");
         Assert.Contains($"filtros de conteúdo configurados (filter.perigoso.{tipo})",
             Assert.IsType<DesfechoDoCommitDto.SemEfeito>(desfecho).Motivo);
         Assert.Contains("nada foi feito", leitura.Message);
-        Assert.Contains("alterações não lidas (filtros de conteúdo configurados)", estado);
+        Assert.Contains("0 arquivo(s) no index diferentes do HEAD (os arquivos da worktree não são lidos)", estado);
         Assert.Contains("0 commit(s) além da base", estado);
         // Sem o filtro, nada tinha sido preparado: o index continua o da base.
         File.Delete(Path.Combine(repo.Caminho, ".git", "info", "attributes"));
@@ -294,8 +314,9 @@ public sealed class CommitDeWorktreeGitTests : IDisposable
         Assert.False(File.Exists(marca));
     }
 
-    // Revisão do PR #326, ponto 3: outro processo altera o index entre o add e o write-tree. A conferência é da árvore
-    // já escrita (imutável, a mesma que o commit-tree recebe), então a alteração é recusada e nada é commitado.
+    // Revisão do PR #326, ponto 3: outro processo altera o index (aqui, o privado em que a árvore é montada) imediatamente
+    // antes do write-tree. A conferência é da árvore já escrita (imutável, a mesma que o commit-tree recebe), então a
+    // alteração é recusada e nada é commitado.
     [Fact]
     public async Task IndexAlteradoAntesDoWriteTreeERecusadoPelaArvoreConferida()
     {
@@ -303,37 +324,122 @@ public sealed class CommitDeWorktreeGitTests : IDisposable
         var (repo, w, _) = await PrepararAsync();
         var gerenciador = ComGitFalso(repo,
             "for a in \"$@\"; do if [ \"$a\" = \"write-tree\" ]; then " +
-            $"echo intruso >> '{w.Caminho}/novo.txt'; git -C '{w.Caminho}' add novo.txt; fi; done\n");
+            "git update-index --add --cacheinfo \"100644,$(echo intruso | git hash-object -w --stdin),intruso.txt\"; fi; done\n");
         File.WriteAllText(Path.Combine(w.Caminho, "novo.txt"), "novo\n");
         var aprovado = (await gerenciador.ResumirAlteracoesAsync(w, 0)).Hash;
 
         var desfecho = await gerenciador.CommitarAsync(w, new(w.ShaBase, aprovado, Autor, "m"));
 
-        Assert.Contains("difere do aprovado", Assert.IsType<DesfechoDoCommitDto.SemEfeito>(desfecho).Motivo);
+        Assert.Contains("mudou depois da aprovação", Assert.IsType<DesfechoDoCommitDto.SemEfeito>(desfecho).Motivo);
+        Assert.Equal("?? novo.txt", Estado(w));
         Assert.Equal(w.ShaBase, RepositorioGitDeTeste.Git(w.Caminho, "rev-parse", "HEAD"));
         Assert.Equal($"refs/heads/{w.Branch}", "refs/heads/" + RepositorioGitDeTeste.Git(w.Caminho, "branch", "--show-current"));
     }
 
+    // Revisão 2 do PR #326: a configuração de filtros muda entre a conferência e os comandos seguintes. O Git falso é o
+    // adversário: a conferência (config --get-regexp) sempre vê a configuração sem o filtro, e todo outro comando Git roda
+    // com o filtro configurado para todos os arquivos. Ler o artefato, commitar e observar o estado não rodam o filtro (a
+    // marca nunca é criada), e o commit grava exatamente o conteúdo aprovado. O controle no fim prova que o filtro estava
+    // armado: comandos que convertem arquivo em objeto o rodam.
+    [Theory]
+    [InlineData("clean")]
+    [InlineData("smudge")]
+    [InlineData("process")]
+    public async Task FiltroConfiguradoDepoisDaConferenciaNuncaRoda(string tipo)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var (repo, w, gerenciador) = await PrepararAsync();
+        File.WriteAllText(Path.Combine(w.Caminho, "codigo.txt"), "alterado\n");
+        File.WriteAllText(Path.Combine(w.Caminho, "novo.txt"), "novo\n");
+        File.Delete(Path.Combine(w.Caminho, "README.md"));
+        var aprovado = (await gerenciador.ResumirAlteracoesAsync(w, 0)).Hash;
+        var marca = Path.Combine(temp.Raiz, "filtro-rodou");
+        var configuracao = Path.Combine(repo.Caminho, ".git", "config");
+        var comando = tipo == "process" ? $"sh -c 'touch {marca}; exit 1'" : $"sh -c 'touch {marca}; cat'";
+        File.WriteAllText(Path.Combine(repo.Caminho, ".git", "info", "attributes"), "* filter=perigoso\n");
+        var adversario = ComGitFalso(repo,
+            $"case \"$*\" in *--get-regexp*) git config --file '{configuracao}' --unset-all filter.perigoso.{tipo} ;; " +
+            $"*) git config --file '{configuracao}' filter.perigoso.{tipo} \"{comando}\" ;; esac\n");
+
+        var artefato = await adversario.LerArtefatoAsync(w);
+        var desfecho = await adversario.CommitarAsync(w, new(w.ShaBase, aprovado, Autor, "m"));
+        var estado = await adversario.DescreverEstadoAsync(w);
+
+        Assert.False(File.Exists(marca), "o filtro rodou");
+        Assert.Equal((w.ShaBase, aprovado, false), (artefato.Head, artefato.Hash, artefato.Vazio));
+        var commitado = Assert.IsType<DesfechoDoCommitDto.Commitado>(desfecho);
+        Assert.Equal(w.ShaBase, RepositorioGitDeTeste.Git(w.Caminho, "rev-parse", $"{commitado.Sha}^1"));
+        Assert.Equal("alterado", RepositorioGitDeTeste.Git(w.Caminho, "cat-file", "blob", "HEAD:codigo.txt"));
+        Assert.Equal("novo", RepositorioGitDeTeste.Git(w.Caminho, "cat-file", "blob", "HEAD:novo.txt"));
+        Assert.Equal("D\tREADME.md\nM\tcodigo.txt\nA\tnovo.txt",
+            RepositorioGitDeTeste.Git(w.Caminho, "diff", "--name-status", "--no-renames", w.ShaBase, "HEAD"));
+        Assert.Contains("1 commit(s) além da base", estado);
+        Assert.Contains("0 arquivo(s) no index diferentes do HEAD", estado);
+        // Controle: o filtro continua configurado e roda em quem converte arquivo em objeto (hash-object de um caminho)
+        // ou objeto em arquivo (cat-file --filters).
+        Assert.Equal(comando, RepositorioGitDeTeste.Git(repo.Caminho, "config", "--get", $"filter.perigoso.{tipo}"));
+        GitSemConferir(w.Caminho, "hash-object", "codigo.txt");
+        GitSemConferir(w.Caminho, "cat-file", "--filters", "HEAD:codigo.txt");
+        Assert.True(File.Exists(marca), "o controle não acionou o filtro: o teste não provaria nada");
+    }
+
+    // Todo processo Git que a entrega abre (ler o artefato, commitar e observar o estado) está no conjunto que não lê
+    // arquivo da worktree; a validação da worktree só lista as worktrees do repositório.
     [Fact]
-    public async Task FalhaAoRestaurarOIndexEIncerta()
+    public async Task EntregaNaoAbreComandoGitQueLeiaAWorktree()
     {
         if (OperatingSystem.IsWindows()) return;
         var (repo, w, _) = await PrepararAsync();
-        var gerenciador = ComGitFalso(repo, Falhar("write-tree") + Falhar("read-tree"));
+        var registro = Path.Combine(temp.Raiz, "comandos-" + Guid.NewGuid().ToString("N")[..8]);
+        var gerenciador = ComGitFalso(repo, $"for a in \"$@\"; do printf '%s\\037' \"$a\" >> '{registro}'; done; " +
+            $"printf '\\n' >> '{registro}'\n");
+        File.WriteAllText(Path.Combine(w.Caminho, "codigo.txt"), "alterado\n");
         File.WriteAllText(Path.Combine(w.Caminho, "novo.txt"), "novo\n");
-        var aprovado = (await gerenciador.ResumirAlteracoesAsync(w, 0)).Hash;
+        var aprovado = (await new GerenciadorDeWorktreesGit(new OpcoesDeWorktrees { Raiz = temp.RaizDasWorktrees },
+            new CatalogoFixo(repo)).ResumirAlteracoesAsync(w, 0)).Hash;
 
-        var desfecho = await gerenciador.CommitarAsync(w, new(w.ShaBase, aprovado, Autor, "m"));
+        Assert.Equal(aprovado, (await gerenciador.LerArtefatoAsync(w)).Hash);
+        Assert.IsType<DesfechoDoCommitDto.Commitado>(await gerenciador.CommitarAsync(w, new(w.ShaBase, aprovado, Autor, "m")));
+        await gerenciador.DescreverEstadoAsync(w);
 
-        var incerto = Assert.IsType<DesfechoDoCommitDto.Incerto>(desfecho);
-        Assert.Contains("o index não pôde ser restaurado", incerto.Motivo);
-        Assert.Contains("0 commit(s) além da base", incerto.EstadoObservado);
-        Assert.Contains("1 arquivo(s) no index", incerto.EstadoObservado);
+        var comandos = File.ReadAllLines(registro)
+            .Select(linha => linha.Split('\u001f', StringSplitOptions.RemoveEmptyEntries).Skip(10).ToArray()).ToArray();
+        Assert.Contains(comandos, c => c is ["hash-object", ..]);
+        Assert.Contains(comandos, c => c is ["commit-tree", ..]);
+        Assert.All(comandos, c => Assert.True(GerenciadorDeWorktreesGit.SemLeituraDaWorktree(c) ||
+            c is ["worktree", "list", "--porcelain"], string.Join(' ', c)));
     }
 
     [Theory]
-    [InlineData(true, "add", "--all")]
+    [InlineData(true, "hash-object", "-w", "--no-filters", "--stdin")]
+    [InlineData(true, "update-index", "-z", "--index-info")]
+    [InlineData(true, "ls-files", "--others", "--exclude-standard", "-z")]
+    [InlineData(true, "ls-tree", "-r", "-z", "--full-tree", "0123456789abcdef0123456789abcdef01234567")]
+    [InlineData(true, "diff-index", "--cached", "--name-only", "-z", "HEAD")]
+    [InlineData(true, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--binary", "--no-renames", "--diff-filter=a",
+        "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef")]
+    [InlineData(true, "config", "--null", "--get-regexp", GerenciadorDeWorktreesGit.ExpressaoDosFiltros)]
+    [InlineData(false, "add", "--all")]
+    [InlineData(false, "status", "--porcelain", "--untracked-files=all")]
+    [InlineData(false, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--binary",
+        "0123456789abcdef0123456789abcdef01234567")]
+    [InlineData(false, "worktree", "list", "--porcelain")]
+    public void EntregaSoUsaComandosQueNaoLeemAWorktree(bool permitido, params string[] argumentos) =>
+        Assert.Equal(permitido, GerenciadorDeWorktreesGit.SemLeituraDaWorktree(argumentos));
+
+    [Theory]
+    [InlineData(false, "add", "--all")]
     [InlineData(true, "write-tree")]
+    [InlineData(true, "hash-object", "-w", "--no-filters", "--stdin")]
+    [InlineData(true, "update-index", "-z", "--index-info")]
+    [InlineData(true, "ls-tree", "-r", "-z", "--full-tree", "0123456789abcdef0123456789abcdef01234567")]
+    [InlineData(true, "diff-index", "--cached", "--name-only", "-z", "HEAD")]
+    [InlineData(false, "hash-object", "-w", "--stdin")]
+    [InlineData(false, "hash-object", "-w", "--no-filters", "codigo.txt")]
+    [InlineData(false, "hash-object", "-w", "--stdin-paths")]
+    [InlineData(false, "update-index", "--add", "codigo.txt")]
+    [InlineData(false, "cat-file", "--filters", "HEAD:codigo.txt")]
+    [InlineData(false, "ls-files", "-m")]
     [InlineData(true, "read-tree", "0123456789abcdef0123456789abcdef01234567")]
     [InlineData(true, "cat-file", "blob", "0123456789abcdef0123456789abcdef01234567")]
     [InlineData(true, "commit-tree", "--no-gpg-sign", "-p", "0123456789abcdef0123456789abcdef01234567", "-m", "qualquer",
@@ -395,6 +501,20 @@ public sealed class CommitDeWorktreeGitTests : IDisposable
 
     private static string Estado(WorktreePlanejada w) =>
         RepositorioGitDeTeste.Git(w.Caminho, "status", "--porcelain", "--untracked-files=all");
+
+    // Git real sem conferir o código de saída (o filtro "process" do controle termina com erro de propósito).
+    private static void GitSemConferir(string cwd, params string[] argumentos)
+    {
+        var inicio = new System.Diagnostics.ProcessStartInfo("git")
+        {
+            WorkingDirectory = cwd, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        foreach (var argumento in argumentos) inicio.ArgumentList.Add(argumento);
+        using var processo = System.Diagnostics.Process.Start(inicio)!;
+        processo.StandardOutput.ReadToEnd();
+        processo.StandardError.ReadToEnd();
+        processo.WaitForExit();
+    }
 
     private static string Falhar(string subcomando) =>
         $"for a in \"$@\"; do if [ \"$a\" = \"{subcomando}\" ]; then echo 'fatal: falha simulada' >&2; exit 128; fi; done\n";

@@ -16,7 +16,6 @@ public sealed class EntregaDoArtefatoAppService(
     IReservaDeWorktreeRepository reservas,
     IAprovacaoDeAcaoRepository aprovacoes,
     IAprovacoesDeAcaoAppService gateway,
-    IGerenciadorDeWorktrees gerenciador,
     ICommitDeWorktree commits,
     OpcoesDaEntrega? opcoes = null,
     IdentidadeDoProcessador? identidade = null) : IEntregaDoArtefatoAppService
@@ -84,10 +83,10 @@ public sealed class EntregaDoArtefatoAppService(
             if (fatos.Head != fatos.Reserva.ShaBase)
                 throw new InvalidOperationException($"A branch da worktree de {execucao.Codigo} já tem commits além da base; " +
                     "nada foi pedido.");
-            if (fatos.Alteracoes.Hash != fatos.Gate.HashDoArtefato)
+            if (fatos.Artefato.Hash != fatos.Gate.HashDoArtefato)
                 throw new InvalidOperationException($"O conteúdo da worktree de {execucao.Codigo} mudou depois da aprovação no " +
-                    $"gate (agora {fatos.Alteracoes.Hash[..12]}, aprovado {fatos.Gate.HashDoArtefato[..12]}); nada foi pedido.");
-            if (fatos.Alteracoes.Vazias)
+                    $"gate (agora {fatos.Artefato.Hash[..12]}, aprovado {fatos.Gate.HashDoArtefato[..12]}); nada foi pedido.");
+            if (fatos.Artefato.Vazio)
                 throw new InvalidOperationException($"A worktree de {execucao.Codigo} não tem alterações; nada a entregar.");
 
             var parametros = Parametros(fatos.Gate.HashDoArtefato, autor, fatos.Head, fatos.Reserva.Branch,
@@ -139,7 +138,7 @@ public sealed class EntregaDoArtefatoAppService(
             throw new InvalidOperationException("Pedido sem mensagem.");
         var payload = PayloadDaAcao.Montar(CatalogoDeAcoes.EntregarArtefatoDoRoteiro, execucao.Id, fatos.Gate.IdEtapa,
             fatos.Reserva.Alias, Capacidades, SolicitanteDaAcao.Dono(aprovacao.CanalDoDono, aprovacao.IdDoDono),
-            Parametros(fatos.Alteracoes.Hash, autor, fatos.Head, fatos.Reserva.Branch, mensagem));
+            Parametros(fatos.Artefato.Hash, autor, fatos.Head, fatos.Reserva.Branch, mensagem));
         return (payload, WorktreeDaExecucaoDto.De(fatos.Reserva).Planejada);
     }
 
@@ -164,8 +163,10 @@ public sealed class EntregaDoArtefatoAppService(
 
     // ---- apoio ----
 
-    private sealed record FatosDaEntrega(PedidoDeAprovacao Gate, ReservaDeWorktree Reserva, string Head,
-        AlteracoesDaWorktreeDto Alteracoes);
+    private sealed record FatosDaEntrega(PedidoDeAprovacao Gate, ReservaDeWorktree Reserva, ArtefatoDaWorktreeDto Artefato)
+    {
+        public string Head => Artefato.Head;
+    }
 
     // O roteiro concluído pelo gate aprovado, a worktree principal deste host (liberada ou preservada, nunca removida) e
     // o que ela contém agora. Recusas: InvalidOperationException com o motivo, nada é pedido nem executado.
@@ -186,9 +187,8 @@ public sealed class EntregaDoArtefatoAppService(
         var worktree = WorktreeDaExecucaoDto.De(reserva).Planejada;
         try
         {
-            var head = await commits.LerHeadAsync(worktree, cancellationToken);
-            var alteracoes = await gerenciador.ResumirAlteracoesAsync(worktree, 1, cancellationToken);
-            return new FatosDaEntrega(gate, reserva, head, alteracoes);
+            // Pelo Git fechado da entrega: nenhum processo Git lê os arquivos (nenhum filtro de conteúdo roda).
+            return new FatosDaEntrega(gate, reserva, await commits.LerArtefatoAsync(worktree, cancellationToken));
         }
         catch (WorktreeInvalidaException exception)
         {

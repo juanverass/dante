@@ -37,12 +37,16 @@ public sealed record OpcoesDaEntrega(AutorDoCommit? Autor = null, string? Proble
     }
 }
 
+// O artefato da worktree como a entrega o lê (#311, PR 3): o HEAD da branch da execução, o hash canônico do conteúdo e se
+// não há alteração. Lido sem que nenhum processo Git leia os arquivos da worktree (nenhum filtro de conteúdo roda).
+public sealed record ArtefatoDaWorktreeDto(string Head, string Hash, bool Vazio);
+
 // O que o commit grava, exatamente como aprovado: a base (HEAD esperado da worktree), o hash do artefato, o autor e a
 // mensagem.
 public sealed record CommitDoArtefatoDto(string Base, string HashDoArtefato, AutorDoCommit Autor, string Mensagem);
 
 // Desfecho do commit dito pelo Git fechado. Commitado: exatamente um commit novo sobre a base, com a árvore conferida.
-// SemEfeito: nenhum commit (o index, se tocado, foi restaurado). Incerto: pode haver commit ou estado parcial; o estado
+// SemEfeito: nenhum commit, e o index e a branch não foram tocados. Incerto: pode haver commit ou estado parcial; o estado
 // observado é relatado e nada é repetido.
 public abstract record DesfechoDoCommitDto
 {
